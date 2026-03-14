@@ -268,7 +268,7 @@ public final class D3D11Renderer: RenderBackend {
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
         rasterizerDescriptor.FillMode = D3D11_FILL_SOLID
         rasterizerDescriptor.CullMode = D3D11_CULL_NONE
-        rasterizerDescriptor.ScissorEnable = false
+        rasterizerDescriptor.ScissorEnable = true
         rasterizerDescriptor.DepthClipEnable = true
 
         let rasterizerStateHR = device.pointee.lpVtbl.pointee.CreateRasterizerState(device, &rasterizerDescriptor, &rasterizerState)
@@ -371,6 +371,24 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        if let clipRect = command.clipRect, clipRect.intersected(with: command.rect) == nil {
+            return
+        }
+
+        let effectiveClip = command.clipRect ?? Rect(
+            x: 0,
+            y: 0,
+            width: Double(surfaceSize.width),
+            height: Double(surfaceSize.height)
+        )
+
+        guard let scissorRect = makeScissorRect(from: effectiveClip, surfaceSize: surfaceSize) else {
+            return
+        }
+
+        var activeScissorRect = scissorRect
+        deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
+
         var uniforms = RectangleUniforms(
             surfaceWidth: Float(surfaceSize.width),
             surfaceHeight: Float(surfaceSize.height),
@@ -466,6 +484,25 @@ private struct RectangleUniforms {
     var green: Float
     var blue: Float
     var alpha: Float
+}
+
+private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_RECT? {
+    let surfaceRect = Rect(x: 0, y: 0, width: Double(surfaceSize.width), height: Double(surfaceSize.height))
+
+    guard let clippedRect = rect.intersected(with: surfaceRect) else {
+        return nil
+    }
+
+    let left = Int32(clippedRect.minX.rounded(.down))
+    let top = Int32(clippedRect.minY.rounded(.down))
+    let right = Int32(clippedRect.maxX.rounded(.up))
+    let bottom = Int32(clippedRect.maxY.rounded(.up))
+
+    guard right > left, bottom > top else {
+        return nil
+    }
+
+    return D3D11_RECT(left: left, top: top, right: right, bottom: bottom)
 }
 
 private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {

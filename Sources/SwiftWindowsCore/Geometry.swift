@@ -47,6 +47,37 @@ public struct Rect: Equatable, Sendable {
         self.init(origin: Point(x: x, y: y), size: Size(width: width, height: height))
     }
 
+    public var minX: Double { origin.x }
+    public var minY: Double { origin.y }
+    public var maxX: Double { origin.x + size.width }
+    public var maxY: Double { origin.y + size.height }
+    public var isEmpty: Bool { size.width <= 0 || size.height <= 0 }
+
+    public func intersected(with other: Rect) -> Rect? {
+        let left = max(minX, other.minX)
+        let top = max(minY, other.minY)
+        let right = min(maxX, other.maxX)
+        let bottom = min(maxY, other.maxY)
+
+        guard right > left, bottom > top else {
+            return nil
+        }
+
+        return Rect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+
+    public func contains(_ point: Point) -> Bool {
+        point.x >= minX && point.x < maxX && point.y >= minY && point.y < maxY
+    }
+
+    public func inset(by insets: EdgeInsets) -> Rect {
+        let x = origin.x + insets.leading
+        let y = origin.y + insets.top
+        let width = max(0, size.width - insets.leading - insets.trailing)
+        let height = max(0, size.height - insets.top - insets.bottom)
+        return Rect(x: x, y: y, width: width, height: height)
+    }
+
     public static let zero = Rect(origin: .zero, size: .zero)
 }
 

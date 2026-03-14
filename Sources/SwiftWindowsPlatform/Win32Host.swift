@@ -6,6 +6,10 @@ public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
     func window(_ window: Win32Window, didResizeTo size: IntSize)
     func windowNeedsDisplay(_ window: Win32Window)
+    func window(_ window: Win32Window, pointerMovedTo point: Point)
+    func windowPointerDidLeave(_ window: Win32Window)
+    func window(_ window: Win32Window, leftMouseDownAt point: Point)
+    func window(_ window: Win32Window, leftMouseUpAt point: Point)
     func windowWillClose(_ window: Win32Window)
 }
 
@@ -13,6 +17,10 @@ public extension WindowDelegate {
     func windowDidCreate(_ window: Win32Window) {}
     func window(_ window: Win32Window, didResizeTo size: IntSize) {}
     func windowNeedsDisplay(_ window: Win32Window) {}
+    func window(_ window: Win32Window, pointerMovedTo point: Point) {}
+    func windowPointerDidLeave(_ window: Win32Window) {}
+    func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
+    func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
     func windowWillClose(_ window: Win32Window) {}
 }
 
@@ -38,6 +46,7 @@ public final class Win32Window {
     public private(set) var clientSize: IntSize
 
     private var hwnd: HWND?
+    private var isTrackingMouseLeave = false
 
     public init(title: String, clientSize: IntSize) {
         self.title = title
@@ -169,6 +178,26 @@ public final class Win32Window {
             EndPaint(hwnd, &paint)
             return 0
 
+        case UINT(WM_MOUSEMOVE):
+            beginTrackingMouseLeaveIfNeeded()
+            delegate?.window(self, pointerMovedTo: Self.point(from: lParam))
+            return 0
+
+        case UINT(WM_MOUSELEAVE):
+            isTrackingMouseLeave = false
+            delegate?.windowPointerDidLeave(self)
+            return 0
+
+        case UINT(WM_LBUTTONDOWN):
+            SetCapture(hwnd)
+            delegate?.window(self, leftMouseDownAt: Self.point(from: lParam))
+            return 0
+
+        case UINT(WM_LBUTTONUP):
+            ReleaseCapture()
+            delegate?.window(self, leftMouseUpAt: Self.point(from: lParam))
+            return 0
+
         case UINT(WM_DESTROY):
             delegate?.windowWillClose(self)
             PostQuitMessage(0)
@@ -213,6 +242,29 @@ public final class Win32Window {
 
     private static func lastError(for operation: String) -> Win32PlatformError {
         Win32PlatformError(operation: operation, code: GetLastError())
+    }
+
+    private func beginTrackingMouseLeaveIfNeeded() {
+        guard !isTrackingMouseLeave, let hwnd else {
+            return
+        }
+
+        var tracking = TRACKMOUSEEVENT()
+        tracking.cbSize = DWORD(MemoryLayout<TRACKMOUSEEVENT>.size)
+        tracking.dwFlags = DWORD(TME_LEAVE)
+        tracking.hwndTrack = hwnd
+        tracking.dwHoverTime = 0
+
+        if TrackMouseEvent(&tracking) {
+            isTrackingMouseLeave = true
+        }
+    }
+
+    private static func point(from lParam: LPARAM) -> Point {
+        let packed = UInt32(truncatingIfNeeded: lParam)
+        let x = Int32(Int16(bitPattern: UInt16(packed & 0xFFFF)))
+        let y = Int32(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
+        return Point(x: Double(x), y: Double(y))
     }
 
     private static let className = "SwiftWindowsUI.MainWindow"

@@ -1,5 +1,11 @@
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import SwiftWindowsLayout
+
+public enum ViewLayoutMode: Sendable {
+    case absolute
+    case stack(StackLayout)
+}
 
 @MainActor
 public final class ViewNode {
@@ -15,27 +21,64 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var clipsToBounds: Bool {
+        didSet { invalidateRuntime() }
+    }
+
+    public var layoutMode: ViewLayoutMode {
+        didSet { invalidateRuntime() }
+    }
+
+    public var preferredSize: Size? {
+        didSet { invalidateRuntime() }
+    }
+
+    public var isHitTestVisible: Bool {
+        didSet { invalidateRuntime() }
+    }
+
     public var isHidden: Bool {
         didSet { invalidateRuntime() }
     }
+
+    public var onPointerEnter: (() -> Void)?
+    public var onPointerExit: (() -> Void)?
+    public var onPointerDown: (() -> Void)?
+    public var onPointerUpInside: (() -> Void)?
+    public var onPointerUpOutside: (() -> Void)?
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
 
     fileprivate weak var runtime: RetainedViewRuntime?
+    fileprivate var resolvedFrame: Rect
 
     public init(
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
         cornerRadius: Double = 0,
+        clipsToBounds: Bool = false,
+        layoutMode: ViewLayoutMode = .absolute,
+        preferredSize: Size? = nil,
+        isHitTestVisible: Bool = true,
         isHidden: Bool = false,
         children: [ViewNode] = []
     ) {
         self.frame = frame
         self.backgroundColor = backgroundColor
         self.cornerRadius = cornerRadius
+        self.clipsToBounds = clipsToBounds
+        self.layoutMode = layoutMode
+        self.preferredSize = preferredSize
+        self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
+        self.onPointerEnter = nil
+        self.onPointerExit = nil
+        self.onPointerDown = nil
+        self.onPointerUpInside = nil
+        self.onPointerUpOutside = nil
         self.children = []
+        self.resolvedFrame = frame
 
         for child in children {
             addChild(child)
@@ -82,31 +125,164 @@ public final class ViewNode {
         }
     }
 
-    fileprivate func appendCommands(into commands: inout [RenderCommand], parentOrigin: Point) {
+    fileprivate func layoutSubtree() {
+        switch layoutMode {
+        case .absolute:
+            for child in children {
+                child.resolvedFrame = child.frame
+                child.layoutSubtree()
+            }
+
+        case .stack(let stackLayout):
+            let contentRect = resolvedFrame.inset(by: stackLayout.padding)
+            var mainCursor = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
+
+            for child in children {
+                if child.isHidden {
+                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+                    continue
+                }
+
+                let desiredSize = child.preferredSize ?? child.frame.size
+                let childFrame: Rect
+
+                switch stackLayout.axis {
+                case .vertical:
+                    let width = stackLayout.alignment == .stretch ? contentRect.size.width : min(desiredSize.width, contentRect.size.width)
+                    let height = min(desiredSize.height, contentRect.size.height)
+
+                    let x: Double
+                    switch stackLayout.alignment {
+                    case .leading, .stretch:
+                        x = contentRect.origin.x
+                    case .center:
+                        x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
+                    case .trailing:
+                        x = contentRect.maxX - width
+                    }
+
+                    childFrame = Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height))
+                    mainCursor += height + stackLayout.spacing
+
+                case .horizontal:
+                    let width = min(desiredSize.width, contentRect.size.width)
+                    let height = stackLayout.alignment == .stretch ? contentRect.size.height : min(desiredSize.height, contentRect.size.height)
+
+                    let y: Double
+                    switch stackLayout.alignment {
+                    case .leading, .stretch:
+                        y = contentRect.origin.y
+                    case .center:
+                        y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
+                    case .trailing:
+                        y = contentRect.maxY - height
+                    }
+
+                    childFrame = Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height))
+                    mainCursor += width + stackLayout.spacing
+                }
+
+                child.resolvedFrame = childFrame
+                child.layoutSubtree()
+            }
+        }
+    }
+
+    fileprivate func appendCommands(into commands: inout [RenderCommand], parentOrigin: Point, inheritedClip: Rect?) {
         if isHidden {
             return
         }
 
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + frame.origin.x,
-            y: parentOrigin.y + frame.origin.y
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
         )
 
-        if let backgroundColor, backgroundColor.alpha > 0, frame.size.width > 0, frame.size.height > 0 {
-            commands.append(
-                .fillRect(
-                    FillRectCommand(
-                        rect: Rect(origin: absoluteOrigin, size: frame.size),
-                        color: backgroundColor,
-                        cornerRadius: cornerRadius
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    return
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        if let backgroundColor, backgroundColor.alpha > 0, resolvedFrame.size.width > 0, resolvedFrame.size.height > 0 {
+            if effectiveClip?.intersected(with: absoluteFrame) != nil || effectiveClip == nil {
+                commands.append(
+                    .fillRect(
+                        FillRectCommand(
+                            rect: Rect(origin: absoluteOrigin, size: resolvedFrame.size),
+                            color: backgroundColor,
+                            cornerRadius: cornerRadius,
+                            clipRect: effectiveClip
+                        )
                     )
                 )
-            )
+            }
         }
 
         for child in children {
-            child.appendCommands(into: &commands, parentOrigin: absoluteOrigin)
+            child.appendCommands(into: &commands, parentOrigin: absoluteOrigin, inheritedClip: effectiveClip)
         }
+    }
+
+    fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+        if isHidden {
+            return nil
+        }
+
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
+        )
+
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    return nil
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        if let effectiveClip, !effectiveClip.contains(point) {
+            return nil
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        for child in children.reversed() {
+            if let hitNode = child.hitTest(at: point, parentOrigin: absoluteOrigin, inheritedClip: effectiveClip) {
+                return hitNode
+            }
+        }
+
+        if isHitTestVisible, absoluteFrame.contains(point) {
+            return self
+        }
+
+        return nil
     }
 
     private func invalidateRuntime() {
@@ -124,6 +300,8 @@ public final class RetainedViewRuntime {
 
     public private(set) var isDirty = true
     private var cachedFrame: RenderFrame?
+    private weak var hoveredNode: ViewNode?
+    private weak var pressedNode: ViewNode?
 
     public init(clearColor: Color = .black, root: ViewNode = ViewNode()) {
         self.clearColor = clearColor
@@ -143,8 +321,10 @@ public final class RetainedViewRuntime {
             return cachedFrame
         }
 
+        updateResolvedLayout()
+
         var commands: [RenderCommand] = []
-        root.appendCommands(into: &commands, parentOrigin: .zero)
+        root.appendCommands(into: &commands, parentOrigin: .zero, inheritedClip: nil)
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         cachedFrame = frame
@@ -152,7 +332,57 @@ public final class RetainedViewRuntime {
         return frame
     }
 
+    public func pointerMoved(to point: Point) {
+        updateHoverTarget(to: hitTest(at: point))
+    }
+
+    public func pointerExitedWindow() {
+        updateHoverTarget(to: nil)
+    }
+
+    public func pointerDown(at point: Point) {
+        let hitNode = hitTest(at: point)
+        updateHoverTarget(to: hitNode)
+        pressedNode = hitNode
+        hitNode?.onPointerDown?()
+    }
+
+    public func pointerUp(at point: Point) {
+        let hitNode = hitTest(at: point)
+
+        if let pressedNode {
+            if pressedNode === hitNode {
+                pressedNode.onPointerUpInside?()
+            } else {
+                pressedNode.onPointerUpOutside?()
+            }
+        }
+
+        self.pressedNode = nil
+        updateHoverTarget(to: hitNode)
+    }
+
     fileprivate func invalidate() {
         isDirty = true
+    }
+
+    private func hitTest(at point: Point) -> ViewNode? {
+        updateResolvedLayout()
+        return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
+    }
+
+    private func updateResolvedLayout() {
+        root.resolvedFrame = root.frame
+        root.layoutSubtree()
+    }
+
+    private func updateHoverTarget(to nextHoveredNode: ViewNode?) {
+        guard hoveredNode !== nextHoveredNode else {
+            return
+        }
+
+        hoveredNode?.onPointerExit?()
+        hoveredNode = nextHoveredNode
+        hoveredNode?.onPointerEnter?()
     }
 }

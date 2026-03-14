@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-windowsui}",
+            "name": "Debug swift-windowsui",
+            "target": "swift-windowsui",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug swift-windowsui"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:swift-windowsui}",
+            "name": "Release swift-windowsui",
+            "target": "swift-windowsui",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release swift-windowsui"
+        }
+    ]
+}

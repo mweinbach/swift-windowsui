@@ -25,10 +25,12 @@ public struct FillRectCommand: Equatable, Sendable {
     public var rect: Rect
     public var color: Color
     public var cornerRadius: Double
+    public var clipRect: Rect?
 
-    public init(rect: Rect, color: Color, cornerRadius: Double = 0) {
+    public init(rect: Rect, color: Color, cornerRadius: Double = 0, clipRect: Rect? = nil) {
         self.rect = rect
         self.color = color
         self.cornerRadius = cornerRadius
+        self.clipRect = clipRect
     }
 }

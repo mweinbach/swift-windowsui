@@ -24,6 +24,40 @@ public struct LayoutMeasurement: Equatable, Sendable {
     }
 }
 
+public enum StackAxis: Equatable, Sendable {
+    case horizontal
+    case vertical
+}
+
+public enum StackCrossAlignment: Equatable, Sendable {
+    case leading
+    case center
+    case trailing
+    case stretch
+}
+
+public struct StackLayout: Equatable, Sendable {
+    public var axis: StackAxis
+    public var spacing: Double
+    public var padding: EdgeInsets
+    public var alignment: StackCrossAlignment
+
+    public init(axis: StackAxis, spacing: Double = 0, padding: EdgeInsets = .zero, alignment: StackCrossAlignment = .leading) {
+        self.axis = axis
+        self.spacing = spacing
+        self.padding = padding
+        self.alignment = alignment
+    }
+
+    public static func horizontal(spacing: Double = 0, padding: EdgeInsets = .zero, alignment: StackCrossAlignment = .center) -> StackLayout {
+        StackLayout(axis: .horizontal, spacing: spacing, padding: padding, alignment: alignment)
+    }
+
+    public static func vertical(spacing: Double = 0, padding: EdgeInsets = .zero, alignment: StackCrossAlignment = .leading) -> StackLayout {
+        StackLayout(axis: .vertical, spacing: spacing, padding: padding, alignment: alignment)
+    }
+}
+
 public protocol LayoutNode {
     func measure(in constraints: LayoutConstraints) -> LayoutMeasurement
 }

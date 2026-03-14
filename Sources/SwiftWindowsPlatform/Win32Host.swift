@@ -1,0 +1,272 @@
+import SwiftWindowsCore
+import WinSDK
+
+@MainActor
+public protocol WindowDelegate: AnyObject {
+    func windowDidCreate(_ window: Win32Window)
+    func window(_ window: Win32Window, didResizeTo size: IntSize)
+    func windowNeedsDisplay(_ window: Win32Window)
+    func windowWillClose(_ window: Win32Window)
+}
+
+public extension WindowDelegate {
+    func windowDidCreate(_ window: Win32Window) {}
+    func window(_ window: Win32Window, didResizeTo size: IntSize) {}
+    func windowNeedsDisplay(_ window: Win32Window) {}
+    func windowWillClose(_ window: Win32Window) {}
+}
+
+public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
+    public let operation: String
+    public let code: DWORD
+
+    public init(operation: String, code: DWORD) {
+        self.operation = operation
+        self.code = code
+    }
+
+    public var description: String {
+        "\(operation) failed with Win32 error code \(code)."
+    }
+}
+
+@MainActor
+public final class Win32Window {
+    public weak var delegate: WindowDelegate?
+
+    public let title: String
+    public private(set) var clientSize: IntSize
+
+    private var hwnd: HWND?
+
+    public init(title: String, clientSize: IntSize) {
+        self.title = title
+        self.clientSize = clientSize
+    }
+
+    public var nativeHandle: NativeWindowHandle? {
+        let rawHandle: UnsafeMutableRawPointer? = unsafeBitCast(hwnd, to: UnsafeMutableRawPointer?.self)
+        return NativeWindowHandle(rawPointer: rawHandle)
+    }
+
+    public var scaleFactor: Double {
+        guard let hwnd else {
+            return 1.0
+        }
+
+        let dpi = GetDpiForWindow(hwnd)
+        if dpi == 0 {
+            return 1.0
+        }
+
+        return Double(dpi) / 96.0
+    }
+
+    public func create() throws {
+        guard hwnd == nil else {
+            return
+        }
+
+        try Self.registerWindowClass()
+
+        guard let instance = GetModuleHandleW(nil) else {
+            throw Self.lastError(for: "GetModuleHandleW")
+        }
+
+        let rawSelf = Unmanaged.passUnretained(self).toOpaque()
+        let style = DWORD(UInt32(bitPattern: Int32(WS_OVERLAPPEDWINDOW)))
+
+        let createdWindow: HWND? = try Self.className.withWideChars { className in
+            try title.withWideChars { title in
+                let window = CreateWindowExW(
+                    0,
+                    className,
+                    title,
+                    style,
+                    CW_USEDEFAULT,
+                    CW_USEDEFAULT,
+                    Int32(clientSize.width),
+                    Int32(clientSize.height),
+                    nil,
+                    nil,
+                    instance,
+                    rawSelf
+                )
+
+                guard let window else {
+                    throw Self.lastError(for: "CreateWindowExW")
+                }
+
+                return window
+            }
+        }
+
+        hwnd = createdWindow
+        delegate?.windowDidCreate(self)
+    }
+
+    public func show() {
+        guard let hwnd else {
+            return
+        }
+
+        ShowWindow(hwnd, SW_SHOW)
+        UpdateWindow(hwnd)
+        invalidate()
+    }
+
+    public func invalidate() {
+        guard let hwnd else {
+            return
+        }
+
+        InvalidateRect(hwnd, nil, false)
+    }
+
+    public func currentClientSize() -> IntSize {
+        guard let hwnd else {
+            return clientSize
+        }
+
+        var rect = RECT()
+        GetClientRect(hwnd, &rect)
+        return IntSize(width: Int32(rect.right - rect.left), height: Int32(rect.bottom - rect.top))
+    }
+
+    private func handleMessage(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
+        switch message {
+        case UINT(WM_ERASEBKGND):
+            return 1
+
+        case UINT(WM_SIZE):
+            let updatedSize = currentClientSize()
+            clientSize = updatedSize
+            delegate?.window(self, didResizeTo: updatedSize)
+            return 0
+
+        case UINT(WM_DPICHANGED):
+            if let suggestedRect = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: RECT.self) {
+                SetWindowPos(
+                    hwnd,
+                    nil,
+                    suggestedRect.pointee.left,
+                    suggestedRect.pointee.top,
+                    suggestedRect.pointee.right - suggestedRect.pointee.left,
+                    suggestedRect.pointee.bottom - suggestedRect.pointee.top,
+                    UINT(SWP_NOACTIVATE | SWP_NOZORDER)
+                )
+            }
+
+            let updatedSize = currentClientSize()
+            clientSize = updatedSize
+            delegate?.window(self, didResizeTo: updatedSize)
+            return 0
+
+        case UINT(WM_PAINT):
+            var paint = PAINTSTRUCT()
+            BeginPaint(hwnd, &paint)
+            delegate?.windowNeedsDisplay(self)
+            EndPaint(hwnd, &paint)
+            return 0
+
+        case UINT(WM_DESTROY):
+            delegate?.windowWillClose(self)
+            PostQuitMessage(0)
+            return 0
+
+        default:
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+        }
+    }
+
+    private static func registerWindowClass() throws {
+        if didRegisterClass {
+            return
+        }
+
+        guard let instance = GetModuleHandleW(nil) else {
+            throw lastError(for: "GetModuleHandleW")
+        }
+
+        let cursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
+
+        try className.withWideChars { className in
+            var windowClass = WNDCLASSEXW()
+            windowClass.cbSize = UINT(MemoryLayout<WNDCLASSEXW>.size)
+            windowClass.style = UINT(CS_HREDRAW | CS_VREDRAW)
+            windowClass.lpfnWndProc = windowProc
+            windowClass.hInstance = instance
+            windowClass.hCursor = cursor
+            windowClass.lpszClassName = className
+
+            let atom = RegisterClassExW(&windowClass)
+            if atom == 0 {
+                let error = GetLastError()
+                if error != DWORD(ERROR_CLASS_ALREADY_EXISTS) {
+                    throw Win32PlatformError(operation: "RegisterClassExW", code: error)
+                }
+            }
+        }
+
+        didRegisterClass = true
+    }
+
+    private static func lastError(for operation: String) -> Win32PlatformError {
+        Win32PlatformError(operation: operation, code: GetLastError())
+    }
+
+    private static let className = "SwiftWindowsUI.MainWindow"
+    private static var didRegisterClass = false
+
+    private static let windowProc: WNDPROC = { (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
+        if message == UINT(WM_NCCREATE) {
+            let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: CREATESTRUCTW.self)
+            let rawSelf = createStructure?.pointee.lpCreateParams
+
+            if let rawSelf {
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, LONG_PTR(Int(bitPattern: rawSelf)))
+            }
+        }
+
+        let rawValue = GetWindowLongPtrW(hwnd, GWLP_USERDATA)
+        if let rawSelf = UnsafeMutableRawPointer(bitPattern: Int(rawValue)) {
+            let window = Unmanaged<Win32Window>.fromOpaque(rawSelf).takeUnretainedValue()
+            return window.handleMessage(hwnd: hwnd, message: message, wParam: wParam, lParam: lParam)
+        }
+
+        return DefWindowProcW(hwnd, message, wParam, lParam)
+    }
+}
+
+@MainActor
+public enum Win32Application {
+    @discardableResult
+    public static func run(window: Win32Window) throws -> Int32 {
+        try window.create()
+        window.show()
+        return try runMessageLoop()
+    }
+
+    @discardableResult
+    public static func runMessageLoop() throws -> Int32 {
+        var message = MSG()
+
+        while GetMessageW(&message, nil, 0, 0) {
+            TranslateMessage(&message)
+            DispatchMessageW(&message)
+        }
+
+        return Int32(truncatingIfNeeded: message.wParam)
+    }
+}
+
+private extension String {
+    func withWideChars<Result>(_ body: (UnsafePointer<WCHAR>) throws -> Result) rethrows -> Result {
+        var characters = Array(utf16)
+        characters.append(0)
+
+        return try characters.withUnsafeBufferPointer { buffer in
+            try body(UnsafePointer(buffer.baseAddress!))
+        }
+    }
+}

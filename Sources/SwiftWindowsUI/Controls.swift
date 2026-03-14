@@ -74,6 +74,20 @@ public enum SplitAxis: Sendable {
     case vertical
 }
 
+public enum SymbolIcon: String, Sendable {
+    case search = "\u{E721}"
+    case folder = "\u{E8B7}"
+    case settings = "\u{E713}"
+    case lightning = "\u{E945}"
+    case layout = "\u{ECA5}"
+    case keyboard = "\u{E765}"
+    case sparkle = "\u{EAAC}"
+    case info = "\u{E946}"
+    case activity = "\u{E7C3}"
+    case document = "\u{E8A5}"
+    case split = "\u{E7FD}"
+}
+
 @MainActor
 public enum Controls {
     public static func panel(
@@ -394,6 +408,7 @@ public enum Controls {
         title: String,
         detail: String,
         accentColor: Color,
+        symbol: SymbolIcon? = nil,
         preferredSize: Size = Size(width: 280, height: 68),
         palette: SurfacePalette = SurfacePalette(
             idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.98),
@@ -411,7 +426,7 @@ public enum Controls {
         )
 
         let labels = stackPanel(
-            preferredSize: Size(width: max(0, preferredSize.width - 42), height: 44),
+            preferredSize: Size(width: max(0, preferredSize.width - (symbol == nil ? 42 : 78)), height: 44),
             stackLayout: .vertical(spacing: 6, alignment: .leading, mainAlignment: .center),
             isHitTestVisible: false,
             children: [
@@ -419,6 +434,20 @@ public enum Controls {
                 label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading),
             ]
         )
+
+        var contentChildren: [ViewNode] = [leadingBar]
+        if let symbol {
+            contentChildren.append(
+                panel(
+                    preferredSize: Size(width: 28, height: 44),
+                    backgroundColor: nil,
+                    layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+                    isHitTestVisible: false,
+                    children: [Self.icon(symbol, preferredSize: Size(width: 24, height: 24), color: accentColor, scale: 1.5)]
+                )
+            )
+        }
+        contentChildren.append(labels)
 
         return button(
             runtime: runtime,
@@ -428,7 +457,7 @@ public enum Controls {
             chrome: chrome,
             layoutMode: .stack(.horizontal(spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center)),
             action: action,
-            children: [leadingBar, labels]
+            children: contentChildren
         )
     }
 
@@ -496,6 +525,7 @@ public enum Controls {
         color: Color = .white,
         scale: Double = 2,
         weight: TextWeight = .regular,
+        fontFamily: String = "Segoe UI",
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero
     ) -> ViewNode {
@@ -504,8 +534,29 @@ public enum Controls {
             preferredSize: preferredSize,
             backgroundColor: nil,
             text: text,
-            textStyle: PixelTextStyle(color: color, scale: scale, alignment: alignment, insets: insets, weight: weight),
+            textStyle: PixelTextStyle(color: color, scale: scale, alignment: alignment, insets: insets, fontFamily: fontFamily, weight: weight),
             isHitTestVisible: false
+        )
+    }
+
+    public static func icon(
+        _ symbol: SymbolIcon,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        color: Color = .white,
+        scale: Double = 1.9,
+        alignment: TextHorizontalAlignment = .center,
+        fontFamily: String = "Segoe Fluent Icons"
+    ) -> ViewNode {
+        label(
+            symbol.rawValue,
+            frame: frame,
+            preferredSize: preferredSize,
+            color: color,
+            scale: scale,
+            weight: .regular,
+            fontFamily: fontFamily,
+            alignment: alignment
         )
     }
 

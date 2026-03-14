@@ -293,6 +293,7 @@ public enum UI {
         color: Color = .white,
         scale: Double = 2,
         weight: TextWeight = .regular,
+        fontFamily: String = "Segoe UI",
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero
     ) -> Component {
@@ -304,8 +305,31 @@ public enum UI {
                 color: color,
                 scale: scale,
                 weight: weight,
+                fontFamily: fontFamily,
                 alignment: alignment,
                 insets: insets
+            )
+        }
+    }
+
+    public static func icon(
+        _ symbol: SymbolIcon,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        color: Color = .white,
+        scale: Double = 1.9,
+        alignment: TextHorizontalAlignment = .center,
+        fontFamily: String = "Segoe Fluent Icons"
+    ) -> Component {
+        Component { _ in
+            Controls.icon(
+                symbol,
+                frame: frame,
+                preferredSize: preferredSize,
+                color: color,
+                scale: scale,
+                alignment: alignment,
+                fontFamily: fontFamily
             )
         }
     }
@@ -377,6 +401,7 @@ public enum UI {
         title: String,
         detail: String,
         accentColor: Color,
+        symbol: SymbolIcon? = nil,
         preferredSize: Size = Size(width: 280, height: 68),
         palette: SurfacePalette = SurfacePalette(
             idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.98),
@@ -392,6 +417,7 @@ public enum UI {
                 title: title,
                 detail: detail,
                 accentColor: accentColor,
+                symbol: symbol,
                 preferredSize: preferredSize,
                 palette: palette,
                 chrome: chrome,

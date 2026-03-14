@@ -280,10 +280,11 @@ public final class FoundationApp: WindowDelegate {
                 borderColor: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.12),
                 borderWidth: 1,
                 cornerRadius: 19,
-                layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
+                layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 12), alignment: .center)),
                 isHitTestVisible: false
             ) {
-                UI.label("SEARCH COMMANDS", color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: 1.2, alignment: .leading, insets: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 8))
+                UI.icon(.search, preferredSize: Size(width: 18, height: 18), color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: 1.2)
+                UI.label("SEARCH COMMANDS", color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: 1.2, alignment: .leading)
             }
 
             UI.button(
@@ -355,6 +356,7 @@ public final class FoundationApp: WindowDelegate {
                 title: "STATE",
                 detail: lastAction,
                 accentColor: selectedModule.glowColor,
+                symbol: .info,
                 preferredSize: Size(width: 220, height: 72),
                 action: { [weak self] in self?.performAction("STATE PANEL OPENED") }
             )
@@ -363,6 +365,7 @@ public final class FoundationApp: WindowDelegate {
                 title: "SHORTCUTS",
                 detail: "TAB AND WHEEL ROUTING",
                 accentColor: selectedModule.stripeColor,
+                symbol: .keyboard,
                 preferredSize: Size(width: 220, height: 72),
                 action: { [weak self] in self?.performAction("SHORTCUTS OPENED") }
             )
@@ -525,6 +528,7 @@ public final class FoundationApp: WindowDelegate {
                         title: event,
                         detail: selectedModule.summary,
                         accentColor: selectedModule.glowColor,
+                        symbol: .activity,
                         preferredSize: Size(width: 560, height: 68),
                         action: { [weak self] in self?.performAction("OPENED EVENT \(event)") }
                     )
@@ -585,6 +589,7 @@ public final class FoundationApp: WindowDelegate {
                     title: "PROFILE LAYOUT",
                     detail: "MEASURE, PLACE, CACHE",
                     accentColor: selectedModule.glowColor,
+                    symbol: .layout,
                     preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("LAYOUT PROFILED") }
                 )
@@ -592,6 +597,7 @@ public final class FoundationApp: WindowDelegate {
                     title: "INSPECT INPUT",
                     detail: "ROUTE POINTER AND FOCUS",
                     accentColor: selectedModule.stripeColor,
+                    symbol: .keyboard,
                     preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("INPUT INSPECTED") }
                 )
@@ -599,6 +605,7 @@ public final class FoundationApp: WindowDelegate {
                     title: "QUEUE ANIMATION",
                     detail: "FRAME TIMER AND PALETTES",
                     accentColor: selectedModule.metricPalette.focused,
+                    symbol: .sparkle,
                     preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("ANIMATION QUEUED") }
                 )

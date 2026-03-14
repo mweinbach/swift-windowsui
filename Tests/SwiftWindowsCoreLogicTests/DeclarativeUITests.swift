@@ -75,6 +75,7 @@ final class DeclarativeUITests: XCTestCase {
                     title: "PIPELINE",
                     detail: "GPU READY",
                     accentColor: Color(red: 0.4, green: 0.7, blue: 0.9, alpha: 1),
+                    symbol: .sparkle,
                     preferredSize: Size(width: 184, height: 68)
                 )
             }
@@ -84,6 +85,18 @@ final class DeclarativeUITests: XCTestCase {
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].text, "DETAILS")
             XCTAssertTrue(node.children[1].isFocusable)
+        }
+    }
+
+    func testIconUsesModernIconFontFamily() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let component = UI.icon(.search, color: .white, scale: 1.4)
+
+            let node = component.makeNode(runtime: runtime)
+
+            XCTAssertEqual(node.text, SymbolIcon.search.rawValue)
+            XCTAssertEqual(node.textStyle.fontFamily, "Segoe Fluent Icons")
         }
     }
 

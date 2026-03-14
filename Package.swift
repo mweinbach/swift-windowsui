@@ -47,15 +47,27 @@ let package = Package(
             dependencies: [
                 "SwiftWindowsCore",
                 "SwiftWindowsGraphics",
-                "SwiftWindowsScene",
                 "SwiftWindowsLayout",
                 "SwiftWindowsPlatform",
-                "SwiftWindowsRendererD3D11",
             ]
         ),
         .executableTarget(
             name: "swift-windowsui",
-            dependencies: ["SwiftWindowsUI"]
+            dependencies: [
+                "SwiftWindowsUI",
+                "SwiftWindowsRendererD3D11",
+            ]
+        ),
+        .testTarget(
+            name: "SwiftWindowsCoreLogicTests",
+            dependencies: [
+                "SwiftWindowsCore",
+                "SwiftWindowsGraphics",
+                "SwiftWindowsLayout",
+                "SwiftWindowsPlatform",
+                "SwiftWindowsScene",
+                "SwiftWindowsUI",
+            ]
         ),
     ]
 )

@@ -6,6 +6,7 @@ public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
     func window(_ window: Win32Window, didResizeTo size: IntSize)
     func windowNeedsDisplay(_ window: Win32Window)
+    func window(_ window: Win32Window, animationFrameAt timestamp: Double)
     func window(_ window: Win32Window, pointerMovedTo point: Point)
     func windowPointerDidLeave(_ window: Win32Window)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
@@ -19,6 +20,7 @@ public extension WindowDelegate {
     func windowDidCreate(_ window: Win32Window) {}
     func window(_ window: Win32Window, didResizeTo size: IntSize) {}
     func windowNeedsDisplay(_ window: Win32Window) {}
+    func window(_ window: Win32Window, animationFrameAt timestamp: Double) {}
     func window(_ window: Win32Window, pointerMovedTo point: Point) {}
     func windowPointerDidLeave(_ window: Win32Window) {}
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
@@ -51,6 +53,7 @@ public final class Win32Window {
 
     private var hwnd: HWND?
     private var isTrackingMouseLeave = false
+    private var isAnimationTimerRunning = false
 
     public init(title: String, clientSize: IntSize) {
         self.title = title
@@ -136,6 +139,29 @@ public final class Win32Window {
         InvalidateRect(hwnd, nil, false)
     }
 
+    public func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UINT = 16) {
+        guard let hwnd else {
+            return
+        }
+
+        if enabled {
+            guard !isAnimationTimerRunning else {
+                return
+            }
+
+            SetTimer(hwnd, Self.animationTimerIdentifier, intervalMilliseconds, nil)
+            isAnimationTimerRunning = true
+            return
+        }
+
+        guard isAnimationTimerRunning else {
+            return
+        }
+
+        KillTimer(hwnd, Self.animationTimerIdentifier)
+        isAnimationTimerRunning = false
+    }
+
     public func currentClientSize() -> IntSize {
         guard let hwnd else {
             return clientSize
@@ -182,6 +208,14 @@ public final class Win32Window {
             EndPaint(hwnd, &paint)
             return 0
 
+        case UINT(WM_TIMER):
+            if UInt(truncatingIfNeeded: wParam) == Self.animationTimerIdentifier {
+                delegate?.window(self, animationFrameAt: Self.currentTimestampSeconds())
+                return 0
+            }
+
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
         case UINT(WM_MOUSEMOVE):
             beginTrackingMouseLeaveIfNeeded()
             delegate?.window(self, pointerMovedTo: Self.point(from: lParam))
@@ -212,6 +246,7 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_DESTROY):
+            setAnimationTimerEnabled(false)
             delegate?.windowWillClose(self)
             PostQuitMessage(0)
             return 0
@@ -280,6 +315,10 @@ public final class Win32Window {
         return Point(x: Double(x), y: Double(y))
     }
 
+    public static func currentTimestampSeconds() -> Double {
+        Double(GetTickCount64()) / 1000.0
+    }
+
     private static func keyboardEvent(from wParam: WPARAM, lParam: LPARAM) -> KeyboardEvent {
         KeyboardEvent(
             keyCode: UInt32(truncatingIfNeeded: wParam),
@@ -312,6 +351,7 @@ public final class Win32Window {
 
     private static let className = "SwiftWindowsUI.MainWindow"
     private static var didRegisterClass = false
+    private static let animationTimerIdentifier: UINT_PTR = 1
 
     private static let windowProc: WNDPROC = { (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
         if message == UINT(WM_NCCREATE) {

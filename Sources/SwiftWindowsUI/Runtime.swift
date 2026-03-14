@@ -17,6 +17,42 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var text: String? {
+        didSet { invalidateRuntime() }
+    }
+
+    public var textStyle: PixelTextStyle {
+        didSet { invalidateRuntime() }
+    }
+
+    public var borderColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var borderWidth: Double {
+        didSet { invalidateRuntime() }
+    }
+
+    public var outlineColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var outlineWidth: Double {
+        didSet { invalidateRuntime() }
+    }
+
+    public var shadowColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var shadowOffset: Point {
+        didSet { invalidateRuntime() }
+    }
+
+    public var shadowSpread: Double {
+        didSet { invalidateRuntime() }
+    }
+
     public var cornerRadius: Double {
         didSet { invalidateRuntime() }
     }
@@ -64,6 +100,15 @@ public final class ViewNode {
     public init(
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
+        text: String? = nil,
+        textStyle: PixelTextStyle = PixelTextStyle(color: .white),
+        borderColor: Color = .clear,
+        borderWidth: Double = 0,
+        outlineColor: Color = .clear,
+        outlineWidth: Double = 0,
+        shadowColor: Color = .clear,
+        shadowOffset: Point = .zero,
+        shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
@@ -75,6 +120,15 @@ public final class ViewNode {
     ) {
         self.frame = frame
         self.backgroundColor = backgroundColor
+        self.text = text
+        self.textStyle = textStyle
+        self.borderColor = borderColor
+        self.borderWidth = borderWidth
+        self.outlineColor = outlineColor
+        self.outlineWidth = outlineWidth
+        self.shadowColor = shadowColor
+        self.shadowOffset = shadowOffset
+        self.shadowSpread = shadowSpread
         self.cornerRadius = cornerRadius
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
@@ -143,13 +197,40 @@ public final class ViewNode {
         switch layoutMode {
         case .absolute:
             for child in children {
-                child.resolvedFrame = child.frame
+                let size = child.intrinsicContentSize()
+                let resolvedSize = Size(
+                    width: child.frame.size.width > 0 ? child.frame.size.width : size.width,
+                    height: child.frame.size.height > 0 ? child.frame.size.height : size.height
+                )
+                child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
                 child.layoutSubtree()
             }
 
         case .stack(let stackLayout):
             let contentRect = resolvedFrame.inset(by: stackLayout.padding)
-            var mainCursor = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
+            let visibleChildren = children.filter { !$0.isHidden }
+            let desiredSizes = visibleChildren.map { $0.intrinsicContentSize() }
+
+            let totalMainExtent = desiredSizes.enumerated().reduce(0.0) { partialResult, element in
+                let size = element.element
+                let mainSize = stackLayout.axis == .vertical ? size.height : size.width
+                let spacing = element.offset == 0 ? 0 : stackLayout.spacing
+                return partialResult + spacing + mainSize
+            }
+
+            let availableMainExtent = stackLayout.axis == .vertical ? contentRect.size.height : contentRect.size.width
+            let mainOrigin = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
+            let mainCursorStart: Double
+            switch stackLayout.mainAlignment {
+            case .start:
+                mainCursorStart = mainOrigin
+            case .center:
+                mainCursorStart = mainOrigin + max(0, (availableMainExtent - totalMainExtent) * 0.5)
+            case .end:
+                mainCursorStart = mainOrigin + max(0, availableMainExtent - totalMainExtent)
+            }
+
+            var mainCursor = mainCursorStart
 
             for child in children {
                 if child.isHidden {
@@ -157,7 +238,7 @@ public final class ViewNode {
                     continue
                 }
 
-                let desiredSize = child.preferredSize ?? child.frame.size
+                let desiredSize = child.intrinsicContentSize()
                 let childFrame: Rect
 
                 switch stackLayout.axis {
@@ -232,19 +313,80 @@ public final class ViewNode {
             y: parentOrigin.y + resolvedFrame.origin.y
         )
 
-        if let backgroundColor, backgroundColor.alpha > 0, resolvedFrame.size.width > 0, resolvedFrame.size.height > 0 {
-            if effectiveClip?.intersected(with: absoluteFrame) != nil || effectiveClip == nil {
+        if shadowColor.alpha > 0 {
+            let shadowRect = absoluteFrame
+                .outset(by: max(0, shadowSpread))
+                .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
+
+            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
-                            rect: Rect(origin: absoluteOrigin, size: resolvedFrame.size),
+                            rect: shadowRect,
+                            color: shadowColor,
+                            cornerRadius: cornerRadius + max(0, shadowSpread),
+                            clipRect: inheritedClip
+                        )
+                    )
+                )
+            }
+        }
+
+        if outlineColor.alpha > 0, outlineWidth > 0 {
+            let outlineRect = absoluteFrame.outset(by: outlineWidth)
+            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
+                commands.append(
+                    .fillRect(
+                        FillRectCommand(
+                            rect: outlineRect,
+                            color: outlineColor,
+                            cornerRadius: cornerRadius + outlineWidth,
+                            clipRect: inheritedClip
+                        )
+                    )
+                )
+            }
+        }
+
+        if borderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+            commands.append(
+                .fillRect(
+                    FillRectCommand(
+                        rect: absoluteFrame,
+                        color: borderColor,
+                        cornerRadius: cornerRadius,
+                        clipRect: effectiveClip
+                    )
+                )
+            )
+        }
+
+        let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame
+        let fillCornerRadius = max(0, cornerRadius - borderWidth)
+
+        if let backgroundColor, backgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
+            if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+                commands.append(
+                    .fillRect(
+                        FillRectCommand(
+                            rect: fillRect,
                             color: backgroundColor,
-                            cornerRadius: cornerRadius,
+                            cornerRadius: fillCornerRadius,
                             clipRect: effectiveClip
                         )
                     )
                 )
             }
+        }
+
+        if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+            PixelFont.appendCommands(
+                for: text,
+                in: fillRect,
+                style: textStyle,
+                clipRect: effectiveClip,
+                into: &commands
+            )
         }
 
         for child in children {
@@ -302,6 +444,44 @@ public final class ViewNode {
     private func invalidateRuntime() {
         runtime?.invalidate()
     }
+
+    fileprivate func intrinsicContentSize() -> Size {
+        if let preferredSize {
+            return preferredSize
+        }
+
+        if let text, !text.isEmpty {
+            return PixelFont.measure(text, style: textStyle)
+        }
+
+        return frame.size
+    }
+
+    fileprivate func color(for property: AnimatedColorProperty) -> Color {
+        switch property {
+        case .background:
+            return backgroundColor ?? .clear
+        case .border:
+            return borderColor
+        case .outline:
+            return outlineColor
+        case .shadow:
+            return shadowColor
+        }
+    }
+
+    fileprivate func setColor(_ color: Color, for property: AnimatedColorProperty) {
+        switch property {
+        case .background:
+            backgroundColor = color
+        case .border:
+            borderColor = color
+        case .outline:
+            outlineColor = color
+        case .shadow:
+            shadowColor = color
+        }
+    }
 }
 
 @MainActor
@@ -312,11 +492,16 @@ public final class RetainedViewRuntime {
         didSet { invalidate() }
     }
 
+    public var hasActiveAnimations: Bool {
+        !colorAnimations.isEmpty
+    }
+
     public private(set) var isDirty = true
     private var cachedFrame: RenderFrame?
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
     private weak var focusedNode: ViewNode?
+    private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
 
     public init(clearColor: Color = .black, root: ViewNode = ViewNode()) {
         self.clearColor = clearColor
@@ -401,6 +586,64 @@ public final class RetainedViewRuntime {
 
     public func keyboardFocusDidLeaveWindow() {
         updateFocusTarget(to: nil)
+    }
+
+    public func animateBackgroundColor(of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double) {
+        animateColor(.background, of: node, to: targetColor, duration: duration, at: timestamp)
+    }
+
+    public func animateColor(_ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double) {
+        let animationKey = ColorAnimationKey(node: node, property: property)
+        let startingColor = node.color(for: property)
+
+        guard duration > 0, startingColor != targetColor else {
+            colorAnimations.removeValue(forKey: animationKey)
+            node.setColor(targetColor, for: property)
+            return
+        }
+
+        colorAnimations[animationKey] = ViewColorAnimation(
+            node: node,
+            property: property,
+            startColor: startingColor,
+            endColor: targetColor,
+            startTime: timestamp,
+            duration: duration
+        )
+        invalidate()
+    }
+
+    @discardableResult
+    public func tickAnimations(at timestamp: Double) -> Bool {
+        guard !colorAnimations.isEmpty else {
+            return false
+        }
+
+        var didUpdateAnyAnimation = false
+
+        for animationKey in Array(colorAnimations.keys) {
+            guard let animation = colorAnimations[animationKey] else {
+                continue
+            }
+
+            guard let node = animation.node else {
+                colorAnimations.removeValue(forKey: animationKey)
+                continue
+            }
+
+            let progress = animation.progress(at: timestamp)
+            let nextColor = animation.startColor.interpolated(to: animation.endColor, progress: progress)
+            if node.color(for: animation.property) != nextColor {
+                node.setColor(nextColor, for: animation.property)
+                didUpdateAnyAnimation = true
+            }
+
+            if progress >= 1 {
+                colorAnimations.removeValue(forKey: animationKey)
+            }
+        }
+
+        return didUpdateAnyAnimation
     }
 
     fileprivate func invalidate() {
@@ -488,4 +731,52 @@ public final class RetainedViewRuntime {
         focusedNode?.onFocusEnter?()
         invalidate()
     }
+}
+
+public enum AnimatedColorProperty: Hashable, Sendable {
+    case background
+    case border
+    case outline
+    case shadow
+}
+
+private struct ColorAnimationKey: Hashable {
+    let nodeIdentifier: ObjectIdentifier
+    let property: AnimatedColorProperty
+
+    init(node: ViewNode, property: AnimatedColorProperty) {
+        self.nodeIdentifier = ObjectIdentifier(node)
+        self.property = property
+    }
+}
+
+private final class ViewColorAnimation {
+    weak var node: ViewNode?
+    let property: AnimatedColorProperty
+    let startColor: Color
+    let endColor: Color
+    let startTime: Double
+    let duration: Double
+
+    init(node: ViewNode, property: AnimatedColorProperty, startColor: Color, endColor: Color, startTime: Double, duration: Double) {
+        self.node = node
+        self.property = property
+        self.startColor = startColor
+        self.endColor = endColor
+        self.startTime = startTime
+        self.duration = duration
+    }
+
+    func progress(at timestamp: Double) -> Double {
+        let elapsed = timestamp - startTime
+        guard duration > 0 else {
+            return 1
+        }
+
+        return min(max(elapsed / duration, 0), 1)
+    }
+}
+
+private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
+    baseClip?.intersected(with: rect) != nil || baseClip == nil
 }

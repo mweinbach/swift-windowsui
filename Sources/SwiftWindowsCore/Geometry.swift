@@ -78,6 +78,23 @@ public struct Rect: Equatable, Sendable {
         return Rect(x: x, y: y, width: width, height: height)
     }
 
+    public func inset(by amount: Double) -> Rect {
+        inset(by: EdgeInsets(top: amount, leading: amount, bottom: amount, trailing: amount))
+    }
+
+    public func outset(by amount: Double) -> Rect {
+        Rect(
+            x: origin.x - amount,
+            y: origin.y - amount,
+            width: size.width + amount * 2,
+            height: size.height + amount * 2
+        )
+    }
+
+    public func offsetBy(dx: Double, dy: Double) -> Rect {
+        Rect(x: origin.x + dx, y: origin.y + dy, width: size.width, height: size.height)
+    }
+
     public static let zero = Rect(origin: .zero, size: .zero)
 }
 
@@ -116,6 +133,16 @@ public struct Color: Equatable, Sendable {
 
     public var rgba: (Float, Float, Float, Float) {
         (red, green, blue, alpha)
+    }
+
+    public func interpolated(to other: Color, progress: Double) -> Color {
+        let clampedProgress = Float(min(max(progress, 0), 1))
+        return Color(
+            red: red + (other.red - red) * clampedProgress,
+            green: green + (other.green - green) * clampedProgress,
+            blue: blue + (other.blue - blue) * clampedProgress,
+            alpha: alpha + (other.alpha - alpha) * clampedProgress
+        )
     }
 }
 

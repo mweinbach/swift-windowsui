@@ -19,6 +19,10 @@ public struct Point: Equatable, Sendable {
         self.y = y
     }
 
+    public func scaled(by factor: Double) -> Point {
+        Point(x: x * factor, y: y * factor)
+    }
+
     public static let zero = Point(x: 0, y: 0)
 }
 
@@ -29,6 +33,18 @@ public struct Size: Equatable, Sendable {
     public init(width: Double, height: Double) {
         self.width = width
         self.height = height
+    }
+
+    public func scaled(by factor: Double) -> Size {
+        Size(width: width * factor, height: height * factor)
+    }
+
+    public func divided(by factor: Double) -> Size {
+        guard factor != 0 else {
+            return self
+        }
+
+        return Size(width: width / factor, height: height / factor)
     }
 
     public static let zero = Size(width: 0, height: 0)
@@ -93,6 +109,10 @@ public struct Rect: Equatable, Sendable {
 
     public func offsetBy(dx: Double, dy: Double) -> Rect {
         Rect(x: origin.x + dx, y: origin.y + dy, width: size.width, height: size.height)
+    }
+
+    public func scaled(by factor: Double) -> Rect {
+        Rect(origin: origin.scaled(by: factor), size: size.scaled(by: factor))
     }
 
     public static let zero = Rect(origin: .zero, size: .zero)

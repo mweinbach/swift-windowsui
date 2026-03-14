@@ -480,7 +480,8 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
-            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, clipRect: effectiveClip, into: &commands) {
+            let displayScale = runtime?.displayScale ?? 1.0
+            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
@@ -675,7 +676,8 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty {
-            return NativeTextRenderer.measure(text, style: textStyle) ?? PixelFont.measure(text, style: textStyle)
+            let displayScale = runtime?.displayScale ?? 1.0
+            return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale) ?? PixelFont.measure(text, style: textStyle)
         }
 
         return frame.size
@@ -869,6 +871,10 @@ public final class ViewNode {
 public final class RetainedViewRuntime {
     public let root: ViewNode
 
+    public var displayScale: Double {
+        didSet { invalidate() }
+    }
+
     public var clearColor: Color {
         didSet { invalidate() }
     }
@@ -888,9 +894,10 @@ public final class RetainedViewRuntime {
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
 
-    public init(clearColor: Color = .black, root: ViewNode = ViewNode()) {
+    public init(clearColor: Color = .black, root: ViewNode = ViewNode(), displayScale: Double = 1.0) {
         self.clearColor = clearColor
         self.root = root
+        self.displayScale = displayScale
         self.root.setRuntime(self)
     }
 

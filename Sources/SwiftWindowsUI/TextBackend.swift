@@ -34,7 +34,7 @@ public struct TextBackendCapabilities: Equatable, Sendable {
     }
 
     public var renderingLabel: String {
-        dwriteFactoryCreationSucceeded ? "GDI + DWRITE" : "GDI TEXT"
+        dwriteFactoryCreationSucceeded ? "GDI TEXT / DWRITE READY" : "GDI TEXT"
     }
 }
 

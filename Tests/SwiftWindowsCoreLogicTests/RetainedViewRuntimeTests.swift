@@ -364,6 +364,28 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDisplayScaleIncreasesRenderedBitmapResolution() async {
+        await MainActor.run {
+            let label = Controls.label("HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let runtime = RetainedViewRuntime(root: root, displayScale: 2.0)
+
+            let bitmapCommand = runtime.renderFrame().commands.first { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+
+            guard case .drawBitmap(let drawBitmap)? = bitmapCommand else {
+                return XCTFail("Expected bitmap text command")
+            }
+
+            XCTAssertEqual(drawBitmap.bitmap.width, 160)
+            XCTAssertEqual(drawBitmap.bitmap.height, 48)
+        }
+    }
+
     func testKeyboardScrollKeysAffectScrollableAncestorOfFocusedNode() async {
         await MainActor.run {
             let child = ViewNode(frame: Rect(x: 0, y: 0, width: 60, height: 40), isFocusable: true)

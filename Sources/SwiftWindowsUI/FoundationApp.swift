@@ -68,7 +68,8 @@ public final class FoundationApp: WindowDelegate {
 
             try renderer.attach(to: surface)
             isRendererReady = true
-            runtime.setRootSize(surface.pixelSize)
+            runtime.displayScale = surface.scaleFactor
+            runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
             syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
@@ -79,7 +80,8 @@ public final class FoundationApp: WindowDelegate {
 
     public func window(_ window: Win32Window, didResizeTo size: IntSize) {
         do {
-            runtime.setRootSize(size)
+            runtime.displayScale = window.scaleFactor
+            runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
             componentHost.reload()
             try renderer.resize(to: size)
             renderCurrentFrame(in: window)
@@ -93,7 +95,7 @@ public final class FoundationApp: WindowDelegate {
     }
 
     public func window(_ window: Win32Window, pointerMovedTo point: Point) {
-        runtime.pointerMoved(to: point)
+        runtime.pointerMoved(to: logicalPoint(point, scaleFactor: window.scaleFactor))
         commitRuntimeState(in: window)
     }
 
@@ -103,17 +105,17 @@ public final class FoundationApp: WindowDelegate {
     }
 
     public func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
-        runtime.mouseWheel(at: point, delta: delta)
+        runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta)
         commitRuntimeState(in: window)
     }
 
     public func window(_ window: Win32Window, leftMouseDownAt point: Point) {
-        runtime.pointerDown(at: point)
+        runtime.pointerDown(at: logicalPoint(point, scaleFactor: window.scaleFactor))
         commitRuntimeState(in: window)
     }
 
     public func window(_ window: Win32Window, leftMouseUpAt point: Point) {
-        runtime.pointerUp(at: point)
+        runtime.pointerUp(at: logicalPoint(point, scaleFactor: window.scaleFactor))
         commitRuntimeState(in: window)
     }
 
@@ -224,7 +226,7 @@ public final class FoundationApp: WindowDelegate {
     private func buildToolbar(_ layout: DemoLayout) -> Component {
         UI.toolbar(frame: layout.toolbarFrame) {
             UI.stackPanel(
-                preferredSize: Size(width: 240, height: 36),
+                preferredSize: Size(width: 260, height: 44),
                 stackLayout: .vertical(spacing: 4, alignment: .leading),
                 isHitTestVisible: false
             ) {
@@ -543,7 +545,7 @@ public final class FoundationApp: WindowDelegate {
         let size: Size
         let inset: Double = 28
         let gap: Double = 24
-        let toolbarHeight: Double = 72
+        let toolbarHeight: Double = 84
 
         var toolbarFrame: Rect {
             Rect(x: inset, y: inset, width: max(640, size.width - inset * 2), height: toolbarHeight)
@@ -614,7 +616,7 @@ public final class FoundationApp: WindowDelegate {
         }
 
         var searchWidth: Double {
-            max(180, toolbarFrame.size.width - 700)
+            max(220, toolbarFrame.size.width - 740)
         }
 
         var sidebarContentWidth: Double {
@@ -644,6 +646,25 @@ public final class FoundationApp: WindowDelegate {
             pixelSize: window.currentClientSize(),
             scaleFactor: window.scaleFactor
         )
+    }
+
+    private func logicalSize(for surface: SurfaceDescriptor) -> IntSize {
+        logicalSize(for: surface.pixelSize, scaleFactor: surface.scaleFactor)
+    }
+
+    private func logicalSize(for pixelSize: IntSize, scaleFactor: Double) -> IntSize {
+        IntSize(
+            width: Int32((Double(pixelSize.width) / max(scaleFactor, 1.0)).rounded(.down)),
+            height: Int32((Double(pixelSize.height) / max(scaleFactor, 1.0)).rounded(.down))
+        )
+    }
+
+    private func logicalPoint(_ point: Point, scaleFactor: Double) -> Point {
+        guard scaleFactor > 0 else {
+            return point
+        }
+
+        return Point(x: point.x / scaleFactor, y: point.y / scaleFactor)
     }
 
     private func report(_ error: Error) {

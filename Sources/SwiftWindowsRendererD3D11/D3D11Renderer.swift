@@ -170,10 +170,13 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
+        let scaleFactor = max(surface.scaleFactor, 1.0)
+
         for command in frame.commands {
             try draw(
                 command,
                 surfaceSize: surface.pixelSize,
+                scaleFactor: scaleFactor,
                 deviceContext: deviceContext,
                 rectangleVertexShader: vertexShader,
                 rectanglePixelShader: pixelShader,
@@ -336,7 +339,7 @@ public final class D3D11Renderer: RenderBackend {
         blendDescriptor.AlphaToCoverageEnable = false
         blendDescriptor.IndependentBlendEnable = false
         blendDescriptor.RenderTarget.0.BlendEnable = true
-        blendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_SRC_ALPHA
+        blendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
         blendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
         blendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
         blendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
@@ -434,6 +437,7 @@ public final class D3D11Renderer: RenderBackend {
     private func draw(
         _ command: RenderCommand,
         surfaceSize: IntSize,
+        scaleFactor: Double,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         rectangleVertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
         rectanglePixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
@@ -448,6 +452,7 @@ public final class D3D11Renderer: RenderBackend {
             try draw(
                 fillRect: fillRectCommand,
                 surfaceSize: surfaceSize,
+                scaleFactor: scaleFactor,
                 deviceContext: deviceContext,
                 vertexShader: rectangleVertexShader,
                 pixelShader: rectanglePixelShader,
@@ -457,6 +462,7 @@ public final class D3D11Renderer: RenderBackend {
             try draw(
                 bitmap: drawBitmapCommand,
                 surfaceSize: surfaceSize,
+                scaleFactor: scaleFactor,
                 deviceContext: deviceContext,
                 vertexShader: bitmapVertexShader,
                 pixelShader: bitmapPixelShader,
@@ -469,20 +475,23 @@ public final class D3D11Renderer: RenderBackend {
     private func draw(
         fillRect command: FillRectCommand,
         surfaceSize: IntSize,
+        scaleFactor: Double,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         vertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
         pixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
         constantBuffer: UnsafeMutablePointer<ID3D11Buffer>
     ) throws {
-        guard command.rect.size.width > 0, command.rect.size.height > 0 else {
+        let scaledCommand = scaled(fillRect: command, factor: scaleFactor)
+
+        guard scaledCommand.rect.size.width > 0, scaledCommand.rect.size.height > 0 else {
             return
         }
 
-        if let clipRect = command.clipRect, clipRect.intersected(with: command.rect) == nil {
+        if let clipRect = scaledCommand.clipRect, clipRect.intersected(with: scaledCommand.rect) == nil {
             return
         }
 
-        let effectiveClip = command.clipRect ?? Rect(
+        let effectiveClip = scaledCommand.clipRect ?? Rect(
             x: 0,
             y: 0,
             width: Double(surfaceSize.width),
@@ -504,16 +513,16 @@ public final class D3D11Renderer: RenderBackend {
         var uniforms = RectangleUniforms(
             surfaceWidth: Float(surfaceSize.width),
             surfaceHeight: Float(surfaceSize.height),
-            rectX: Float(command.rect.origin.x),
-            rectY: Float(command.rect.origin.y),
-            rectWidth: Float(command.rect.size.width),
-            rectHeight: Float(command.rect.size.height),
-            cornerRadius: Float(max(0, command.cornerRadius)),
+            rectX: Float(scaledCommand.rect.origin.x),
+            rectY: Float(scaledCommand.rect.origin.y),
+            rectWidth: Float(scaledCommand.rect.size.width),
+            rectHeight: Float(scaledCommand.rect.size.height),
+            cornerRadius: Float(max(0, scaledCommand.cornerRadius)),
             padding: 0,
-            red: command.color.red,
-            green: command.color.green,
-            blue: command.color.blue,
-            alpha: command.color.alpha
+            red: scaledCommand.color.red,
+            green: scaledCommand.color.green,
+            blue: scaledCommand.color.blue,
+            alpha: scaledCommand.color.alpha
         )
 
         let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
@@ -528,21 +537,24 @@ public final class D3D11Renderer: RenderBackend {
     private func draw(
         bitmap command: DrawBitmapCommand,
         surfaceSize: IntSize,
+        scaleFactor: Double,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         vertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
         pixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
         constantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
         samplerState: UnsafeMutablePointer<ID3D11SamplerState>
     ) throws {
-        guard command.rect.size.width > 0, command.rect.size.height > 0, command.opacity > 0 else {
+        let scaledCommand = scaled(bitmap: command, factor: scaleFactor)
+
+        guard scaledCommand.rect.size.width > 0, scaledCommand.rect.size.height > 0, scaledCommand.opacity > 0 else {
             return
         }
 
-        if let clipRect = command.clipRect, clipRect.intersected(with: command.rect) == nil {
+        if let clipRect = scaledCommand.clipRect, clipRect.intersected(with: scaledCommand.rect) == nil {
             return
         }
 
-        let effectiveClip = command.clipRect ?? Rect(
+        let effectiveClip = scaledCommand.clipRect ?? Rect(
             x: 0,
             y: 0,
             width: Double(surfaceSize.width),
@@ -568,11 +580,11 @@ public final class D3D11Renderer: RenderBackend {
         var uniforms = BitmapUniforms(
             surfaceWidth: Float(surfaceSize.width),
             surfaceHeight: Float(surfaceSize.height),
-            rectX: Float(command.rect.origin.x),
-            rectY: Float(command.rect.origin.y),
-            rectWidth: Float(command.rect.size.width),
-            rectHeight: Float(command.rect.size.height),
-            opacity: command.opacity,
+            rectX: Float(scaledCommand.rect.origin.x),
+            rectY: Float(scaledCommand.rect.origin.y),
+            rectWidth: Float(scaledCommand.rect.size.width),
+            rectHeight: Float(scaledCommand.rect.size.height),
+            opacity: scaledCommand.opacity,
             padding: 0
         )
 
@@ -581,7 +593,7 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
         }
 
-        let shaderResourceView = try createShaderResourceView(for: command.bitmap)
+        let shaderResourceView = try createShaderResourceView(for: scaledCommand.bitmap)
         defer {
             var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = shaderResourceView
             releaseCOM(&releasableView)
@@ -746,6 +758,24 @@ private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_REC
     return D3D11_RECT(left: left, top: top, right: right, bottom: bottom)
 }
 
+private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRectCommand {
+    FillRectCommand(
+        rect: command.rect.scaled(by: factor),
+        color: command.color,
+        cornerRadius: command.cornerRadius * factor,
+        clipRect: command.clipRect?.scaled(by: factor)
+    )
+}
+
+private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapCommand {
+    DrawBitmapCommand(
+        rect: command.rect.scaled(by: factor),
+        bitmap: command.bitmap,
+        opacity: command.opacity,
+        clipRect: command.clipRect?.scaled(by: factor)
+    )
+}
+
 private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     guard let rawPointer = pointer else {
         return
@@ -818,8 +848,8 @@ float roundedRectDistance(float2 localPosition, float2 size, float radius)
 float4 psMain(VSOutput input) : SV_Target
 {
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
-    clip(-distance);
-    return input.color;
+    float alpha = saturate(0.5 - distance);
+    return float4(input.color.rgb * input.color.a * alpha, input.color.a * alpha);
 }
 """#
 

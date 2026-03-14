@@ -4,7 +4,7 @@ import SwiftWindowsGraphics
 import WinSDK
 
 enum NativeTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle) -> Size? {
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
         guard !text.isEmpty else {
             return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
         }
@@ -14,7 +14,7 @@ enum NativeTextRenderer {
         }
         defer { DeleteDC(dc) }
 
-        guard let font = createFont(for: style) else {
+        guard let font = createFont(for: style, scaleFactor: scaleFactor) else {
             return nil
         }
         defer { DeleteObject(HGDIOBJ(font)) }
@@ -33,8 +33,10 @@ enum NativeTextRenderer {
             return nil
         }
 
-        let width = Double(measureRect.right - measureRect.left) + style.insets.leading + style.insets.trailing
-        let height = Double(measureRect.bottom - measureRect.top) + style.insets.top + style.insets.bottom
+        let measuredWidth = Double(measureRect.right - measureRect.left) / scaleFactor
+        let measuredHeight = Double(measureRect.bottom - measureRect.top) / scaleFactor
+        let width = measuredWidth + style.insets.leading + style.insets.trailing
+        let height = measuredHeight + style.insets.top + style.insets.bottom
         return Size(width: max(1, width), height: max(1, height))
     }
 
@@ -42,10 +44,11 @@ enum NativeTextRenderer {
         for text: String,
         in rect: Rect,
         style: PixelTextStyle,
+        scaleFactor: Double,
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
-        guard let bitmap = rasterize(text, in: rect.size, style: style) else {
+        guard let bitmap = rasterize(text, in: rect.size, style: style, scaleFactor: scaleFactor) else {
             return false
         }
 
@@ -63,9 +66,10 @@ enum NativeTextRenderer {
         return true
     }
 
-    private static func rasterize(_ text: String, in size: Size, style: PixelTextStyle) -> BitmapSurface? {
-        let pixelWidth = max(1, Int32(size.width.rounded(.up)))
-        let pixelHeight = max(1, Int32(size.height.rounded(.up)))
+    private static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        let rasterSize = size.scaled(by: scaleFactor)
+        let pixelWidth = max(1, Int32(rasterSize.width.rounded(.up)))
+        let pixelHeight = max(1, Int32(rasterSize.height.rounded(.up)))
         let bytesPerRow = Int32(pixelWidth * 4)
         let bufferSize = Int(bytesPerRow * pixelHeight)
 
@@ -91,7 +95,7 @@ enum NativeTextRenderer {
         let previousBitmap = SelectObject(dc, HGDIOBJ(bitmap))
         defer { _ = SelectObject(dc, previousBitmap) }
 
-        guard let font = createFont(for: style) else {
+        guard let font = createFont(for: style, scaleFactor: scaleFactor) else {
             return nil
         }
         defer { DeleteObject(HGDIOBJ(font)) }
@@ -103,7 +107,7 @@ enum NativeTextRenderer {
         SetBkMode(dc, TRANSPARENT)
         SetTextColor(dc, colorRef(red: 255, green: 255, blue: 255))
 
-        let contentRect = drawRectForInsets(style.insets, width: pixelWidth, height: pixelHeight)
+        let contentRect = drawRectForInsets(style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
         let drawFlags = baseDrawTextFlags(for: text, alignment: style.alignment)
 
         var targetRect = contentRect
@@ -155,10 +159,10 @@ enum NativeTextRenderer {
         }
     }
 
-    private static func createFont(for style: PixelTextStyle) -> HFONT? {
+    private static func createFont(for style: PixelTextStyle, scaleFactor: Double) -> HFONT? {
         withWideString(style.fontFamily) { family in
             CreateFontW(
-                -Int32(style.nativeFontPixelSize.rounded()),
+                -Int32((style.nativeFontPixelSize * scaleFactor).rounded()),
                 0,
                 0,
                 0,
@@ -197,12 +201,19 @@ enum NativeTextRenderer {
         return flags
     }
 
-    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32) -> RECT {
-        RECT(
-            left: LONG(Int32(insets.leading.rounded(.down))),
-            top: LONG(Int32(insets.top.rounded(.down))),
-            right: LONG(width - Int32(insets.trailing.rounded(.down))),
-            bottom: LONG(height - Int32(insets.bottom.rounded(.down)))
+    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double) -> RECT {
+        let scaledInsets = EdgeInsets(
+            top: insets.top * scaleFactor,
+            leading: insets.leading * scaleFactor,
+            bottom: insets.bottom * scaleFactor,
+            trailing: insets.trailing * scaleFactor
+        )
+
+        return RECT(
+            left: LONG(Int32(scaledInsets.leading.rounded(.down))),
+            top: LONG(Int32(scaledInsets.top.rounded(.down))),
+            right: LONG(width - Int32(scaledInsets.trailing.rounded(.down))),
+            bottom: LONG(height - Int32(scaledInsets.bottom.rounded(.down)))
         )
     }
 

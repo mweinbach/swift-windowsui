@@ -12,6 +12,35 @@ public final class FoundationApp: WindowDelegate {
     public init() {
         self.window = Win32Window(title: "Swift Windows UI", clientSize: IntSize(width: 1280, height: 720))
         self.renderer = D3D11Renderer()
+
+        func installFocusablePalette(
+            on node: ViewNode,
+            idle: Color,
+            focused: Color,
+            pressed: Color,
+            keyboardActivated: Color? = nil
+        ) {
+            node.isFocusable = true
+            node.onFocusEnter = { [weak node] in
+                node?.backgroundColor = focused
+            }
+            node.onFocusExit = { [weak node] in
+                node?.backgroundColor = idle
+            }
+            node.onPointerDown = { [weak node] in
+                node?.backgroundColor = pressed
+            }
+            node.onPointerUpInside = { [weak node] in
+                node?.backgroundColor = focused
+            }
+            node.onPointerUpOutside = { [weak node] in
+                node?.backgroundColor = focused
+            }
+            node.onActivate = { [weak node] in
+                node?.backgroundColor = keyboardActivated ?? pressed
+            }
+        }
+
         let root = ViewNode()
 
         let heroCard = ViewNode(
@@ -106,22 +135,48 @@ public final class FoundationApp: WindowDelegate {
         let statusIdleColor = Color(red: 0.22, green: 0.31, blue: 0.41, alpha: 0.96)
         let statusHoverColor = Color(red: 0.27, green: 0.40, blue: 0.52, alpha: 0.98)
         let statusPressedColor = Color(red: 0.96, green: 0.56, blue: 0.33, alpha: 1.0)
+        installFocusablePalette(
+            on: statusPill,
+            idle: statusIdleColor,
+            focused: statusHoverColor,
+            pressed: statusPressedColor,
+            keyboardActivated: Color(red: 0.77, green: 0.87, blue: 0.95, alpha: 1.0)
+        )
 
-        statusPill.onPointerEnter = { [weak statusPill] in
-            statusPill?.backgroundColor = statusHoverColor
-        }
-        statusPill.onPointerExit = { [weak statusPill] in
-            statusPill?.backgroundColor = statusIdleColor
-        }
-        statusPill.onPointerDown = { [weak statusPill] in
-            statusPill?.backgroundColor = statusPressedColor
-        }
-        statusPill.onPointerUpInside = { [weak statusPill] in
-            statusPill?.backgroundColor = statusHoverColor
-        }
-        statusPill.onPointerUpOutside = { [weak statusPill] in
-            statusPill?.backgroundColor = statusIdleColor
-        }
+        installFocusablePalette(
+            on: chipA,
+            idle: Color(red: 0.31, green: 0.46, blue: 0.60, alpha: 1.0),
+            focused: Color(red: 0.39, green: 0.57, blue: 0.73, alpha: 1.0),
+            pressed: Color(red: 0.64, green: 0.79, blue: 0.89, alpha: 1.0)
+        )
+
+        installFocusablePalette(
+            on: chipB,
+            idle: Color(red: 0.20, green: 0.62, blue: 0.55, alpha: 0.96),
+            focused: Color(red: 0.28, green: 0.71, blue: 0.63, alpha: 1.0),
+            pressed: Color(red: 0.74, green: 0.90, blue: 0.84, alpha: 1.0)
+        )
+
+        installFocusablePalette(
+            on: metricCardA,
+            idle: Color(red: 0.24, green: 0.34, blue: 0.45, alpha: 1.0),
+            focused: Color(red: 0.34, green: 0.46, blue: 0.58, alpha: 1.0),
+            pressed: Color(red: 0.56, green: 0.68, blue: 0.80, alpha: 1.0)
+        )
+
+        installFocusablePalette(
+            on: metricCardB,
+            idle: Color(red: 0.41, green: 0.54, blue: 0.72, alpha: 0.98),
+            focused: Color(red: 0.49, green: 0.64, blue: 0.82, alpha: 1.0),
+            pressed: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 1.0)
+        )
+
+        installFocusablePalette(
+            on: metricCardC,
+            idle: Color(red: 0.92, green: 0.68, blue: 0.29, alpha: 0.96),
+            focused: Color(red: 0.97, green: 0.77, blue: 0.41, alpha: 1.0),
+            pressed: Color(red: 1.0, green: 0.89, blue: 0.67, alpha: 1.0)
+        )
 
         let footerBar = ViewNode(
             frame: Rect(x: 72, y: 440, width: 520, height: 96),
@@ -218,6 +273,20 @@ public final class FoundationApp: WindowDelegate {
 
     public func window(_ window: Win32Window, leftMouseUpAt point: Point) {
         runtime.pointerUp(at: point)
+        if runtime.isDirty {
+            window.invalidate()
+        }
+    }
+
+    public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
+        runtime.keyDown(event)
+        if runtime.isDirty {
+            window.invalidate()
+        }
+    }
+
+    public func windowDidLoseKeyboardFocus(_ window: Win32Window) {
+        runtime.keyboardFocusDidLeaveWindow()
         if runtime.isDirty {
             window.invalidate()
         }

@@ -10,6 +10,8 @@ public protocol WindowDelegate: AnyObject {
     func windowPointerDidLeave(_ window: Win32Window)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
+    func window(_ window: Win32Window, keyDown event: KeyboardEvent)
+    func windowDidLoseKeyboardFocus(_ window: Win32Window)
     func windowWillClose(_ window: Win32Window)
 }
 
@@ -21,6 +23,8 @@ public extension WindowDelegate {
     func windowPointerDidLeave(_ window: Win32Window) {}
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
+    func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
+    func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
     func windowWillClose(_ window: Win32Window) {}
 }
 
@@ -189,6 +193,7 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_LBUTTONDOWN):
+            SetFocus(hwnd)
             SetCapture(hwnd)
             delegate?.window(self, leftMouseDownAt: Self.point(from: lParam))
             return 0
@@ -196,6 +201,14 @@ public final class Win32Window {
         case UINT(WM_LBUTTONUP):
             ReleaseCapture()
             delegate?.window(self, leftMouseUpAt: Self.point(from: lParam))
+            return 0
+
+        case UINT(WM_KEYDOWN):
+            delegate?.window(self, keyDown: Self.keyboardEvent(from: wParam, lParam: lParam))
+            return 0
+
+        case UINT(WM_KILLFOCUS):
+            delegate?.windowDidLoseKeyboardFocus(self)
             return 0
 
         case UINT(WM_DESTROY):
@@ -265,6 +278,36 @@ public final class Win32Window {
         let x = Int32(Int16(bitPattern: UInt16(packed & 0xFFFF)))
         let y = Int32(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
         return Point(x: Double(x), y: Double(y))
+    }
+
+    private static func keyboardEvent(from wParam: WPARAM, lParam: LPARAM) -> KeyboardEvent {
+        KeyboardEvent(
+            keyCode: UInt32(truncatingIfNeeded: wParam),
+            modifiers: currentKeyboardModifiers(),
+            isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x40000000) != 0
+        )
+    }
+
+    private static func currentKeyboardModifiers() -> KeyboardModifiers {
+        var modifiers: KeyboardModifiers = []
+
+        if keyIsPressed(VK_SHIFT) {
+            modifiers.insert(.shift)
+        }
+
+        if keyIsPressed(VK_CONTROL) {
+            modifiers.insert(.control)
+        }
+
+        if keyIsPressed(VK_MENU) {
+            modifiers.insert(.alt)
+        }
+
+        return modifiers
+    }
+
+    private static func keyIsPressed(_ virtualKey: Int32) -> Bool {
+        GetKeyState(virtualKey) < 0
     }
 
     private static let className = "SwiftWindowsUI.MainWindow"

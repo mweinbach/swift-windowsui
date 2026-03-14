@@ -33,6 +33,10 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var isFocusable: Bool {
+        didSet { invalidateRuntime() }
+    }
+
     public var isHitTestVisible: Bool {
         didSet { invalidateRuntime() }
     }
@@ -46,6 +50,10 @@ public final class ViewNode {
     public var onPointerDown: (() -> Void)?
     public var onPointerUpInside: (() -> Void)?
     public var onPointerUpOutside: (() -> Void)?
+    public var onFocusEnter: (() -> Void)?
+    public var onFocusExit: (() -> Void)?
+    public var onKeyDown: ((KeyboardEvent) -> Void)?
+    public var onActivate: (() -> Void)?
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -60,6 +68,7 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
+        isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
         children: [ViewNode] = []
@@ -70,6 +79,7 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
+        self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
         self.onPointerEnter = nil
@@ -77,6 +87,10 @@ public final class ViewNode {
         self.onPointerDown = nil
         self.onPointerUpInside = nil
         self.onPointerUpOutside = nil
+        self.onFocusEnter = nil
+        self.onFocusExit = nil
+        self.onKeyDown = nil
+        self.onActivate = nil
         self.children = []
         self.resolvedFrame = frame
 
@@ -302,6 +316,7 @@ public final class RetainedViewRuntime {
     private var cachedFrame: RenderFrame?
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
+    private weak var focusedNode: ViewNode?
 
     public init(clearColor: Color = .black, root: ViewNode = ViewNode()) {
         self.clearColor = clearColor
@@ -342,6 +357,7 @@ public final class RetainedViewRuntime {
 
     public func pointerDown(at point: Point) {
         let hitNode = hitTest(at: point)
+        updateFocusTarget(to: nearestFocusableNode(from: hitNode))
         updateHoverTarget(to: hitNode)
         pressedNode = hitNode
         hitNode?.onPointerDown?()
@@ -353,6 +369,7 @@ public final class RetainedViewRuntime {
         if let pressedNode {
             if pressedNode === hitNode {
                 pressedNode.onPointerUpInside?()
+                pressedNode.onActivate?()
             } else {
                 pressedNode.onPointerUpOutside?()
             }
@@ -362,6 +379,30 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: hitNode)
     }
 
+    public func keyDown(_ event: KeyboardEvent) {
+        switch event.key {
+        case .tab:
+            moveFocus(reverse: event.modifiers.contains(.shift))
+            return
+
+        case .enter, .space:
+            focusedNode?.onActivate?()
+
+        case .escape:
+            updateFocusTarget(to: nil)
+            return
+
+        default:
+            break
+        }
+
+        focusedNode?.onKeyDown?(event)
+    }
+
+    public func keyboardFocusDidLeaveWindow() {
+        updateFocusTarget(to: nil)
+    }
+
     fileprivate func invalidate() {
         isDirty = true
     }
@@ -369,6 +410,57 @@ public final class RetainedViewRuntime {
     private func hitTest(at point: Point) -> ViewNode? {
         updateResolvedLayout()
         return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
+    }
+
+    private func moveFocus(reverse: Bool) {
+        let focusableNodes = focusableNodes(in: root)
+        guard !focusableNodes.isEmpty else {
+            return
+        }
+
+        guard let focusedNode, let index = focusableNodes.firstIndex(where: { $0 === focusedNode }) else {
+            updateFocusTarget(to: reverse ? focusableNodes.last : focusableNodes.first)
+            return
+        }
+
+        let nextIndex: Int
+        if reverse {
+            nextIndex = index == 0 ? focusableNodes.count - 1 : index - 1
+        } else {
+            nextIndex = index == focusableNodes.count - 1 ? 0 : index + 1
+        }
+
+        updateFocusTarget(to: focusableNodes[nextIndex])
+    }
+
+    private func focusableNodes(in node: ViewNode) -> [ViewNode] {
+        if node.isHidden {
+            return []
+        }
+
+        var result: [ViewNode] = []
+        if node.isFocusable {
+            result.append(node)
+        }
+
+        for child in node.children {
+            result.append(contentsOf: focusableNodes(in: child))
+        }
+
+        return result
+    }
+
+    private func nearestFocusableNode(from node: ViewNode?) -> ViewNode? {
+        var currentNode = node
+        while let candidate = currentNode {
+            if candidate.isFocusable {
+                return candidate
+            }
+
+            currentNode = candidate.parent
+        }
+
+        return nil
     }
 
     private func updateResolvedLayout() {
@@ -384,5 +476,16 @@ public final class RetainedViewRuntime {
         hoveredNode?.onPointerExit?()
         hoveredNode = nextHoveredNode
         hoveredNode?.onPointerEnter?()
+    }
+
+    private func updateFocusTarget(to nextFocusedNode: ViewNode?) {
+        guard focusedNode !== nextFocusedNode else {
+            return
+        }
+
+        focusedNode?.onFocusExit?()
+        focusedNode = nextFocusedNode
+        focusedNode?.onFocusEnter?()
+        invalidate()
     }
 }

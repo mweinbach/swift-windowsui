@@ -139,6 +139,7 @@ public final class ViewNode {
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
+    public var onLayout: ((Rect) -> Void)?
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -219,6 +220,7 @@ public final class ViewNode {
         self.onDragStart = nil
         self.onDragChange = nil
         self.onDragEnd = nil
+        self.onLayout = nil
         self.children = []
         self.resolvedFrame = frame
         self.resolvedContentSize = frame.size
@@ -270,6 +272,8 @@ public final class ViewNode {
     }
 
     fileprivate func layoutSubtree() {
+        onLayout?(resolvedFrame)
+
         switch layoutMode {
         case .absolute:
             var maxChildX: Double = 0

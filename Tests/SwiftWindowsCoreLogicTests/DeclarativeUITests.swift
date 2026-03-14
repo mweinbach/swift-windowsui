@@ -86,4 +86,29 @@ final class DeclarativeUITests: XCTestCase {
             XCTAssertTrue(node.children[1].isFocusable)
         }
     }
+
+    func testDeclarativeSplitViewBuildsPaneHosts() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let component = UI.splitView(
+                axis: .horizontal,
+                frame: Rect(x: 0, y: 0, width: 300, height: 120),
+                ratio: 0.25
+            ) {
+                UI.section(title: "LEFT") {
+                    UI.label("NAV")
+                }
+            } secondary: {
+                UI.section(title: "RIGHT") {
+                    UI.label("CONTENT")
+                }
+            }
+
+            let node = component.makeNode(runtime: runtime)
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].children.count, 1)
+            XCTAssertEqual(node.children[1].children.count, 1)
+        }
+    }
 }

@@ -403,6 +403,36 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testSplitViewLaysOutAndDragsDivider() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let splitView = Controls.splitView(
+                runtime: runtime,
+                axis: .horizontal,
+                frame: Rect(x: 0, y: 0, width: 200, height: 100),
+                ratio: 0.3,
+                minPrimaryExtent: 40,
+                minSecondaryExtent: 40,
+                dividerThickness: 20,
+                primary: [Controls.panel(backgroundColor: .white)],
+                secondary: [Controls.panel(backgroundColor: .black)]
+            )
+
+            runtime.root.addChild(splitView)
+            _ = runtime.renderFrame()
+
+            let initialPrimaryWidth = splitView.children[0].frame.size.width
+            XCTAssertEqual(initialPrimaryWidth, 54)
+
+            runtime.pointerDown(at: Point(x: 60, y: 40))
+            runtime.pointerMoved(to: Point(x: 100, y: 40))
+            runtime.pointerUp(at: Point(x: 100, y: 40))
+
+            XCTAssertGreaterThan(splitView.children[0].frame.size.width, initialPrimaryWidth)
+            XCTAssertLessThan(splitView.children[1].frame.size.width, 126)
+        }
+    }
+
     func testKeyboardScrollKeysAffectScrollableAncestorOfFocusedNode() async {
         await MainActor.run {
             let child = ViewNode(frame: Rect(x: 0, y: 0, width: 60, height: 40), isFocusable: true)

@@ -69,6 +69,11 @@ public struct SurfaceChrome: Sendable {
     )
 }
 
+public enum SplitAxis: Sendable {
+    case horizontal
+    case vertical
+}
+
 @MainActor
 public enum Controls {
     public static func panel(
@@ -195,6 +200,119 @@ public enum Controls {
             node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
             node.scrollIndicatorThickness = scrollIndicatorThickness
         }
+    }
+
+    public static func splitView(
+        runtime: RetainedViewRuntime,
+        axis: SplitAxis,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        ratio: Double = 0.25,
+        minPrimaryExtent: Double = 180,
+        minSecondaryExtent: Double = 220,
+        dividerThickness: Double = 16,
+        dividerIdleColor: Color = Color(red: 0.36, green: 0.46, blue: 0.58, alpha: 0.10),
+        dividerHoverColor: Color = Color(red: 0.50, green: 0.64, blue: 0.80, alpha: 0.28),
+        dividerActiveColor: Color = Color(red: 0.70, green: 0.84, blue: 0.98, alpha: 0.48),
+        onRatioChanged: ((Double) -> Void)? = nil,
+        primary: [ViewNode],
+        secondary: [ViewNode]
+    ) -> ViewNode {
+        let primaryContainer = panel(clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: primary)
+        let secondaryContainer = panel(clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: secondary)
+        let dividerHandle = panel(
+            backgroundColor: dividerIdleColor,
+            cornerRadius: dividerThickness * 0.5,
+            isHitTestVisible: true
+        )
+
+        let splitRoot = panel(
+            frame: frame,
+            preferredSize: preferredSize,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [primaryContainer, secondaryContainer, dividerHandle]
+        )
+
+        let state = SplitViewState(ratio: ratio)
+
+        func applyLayout(in bounds: Rect) {
+            state.bounds = bounds
+
+            let totalExtent = axis == .horizontal ? bounds.size.width : bounds.size.height
+            let availableExtent = max(0, totalExtent - dividerThickness)
+            let clampedPrimary = min(max(availableExtent * state.ratio, minPrimaryExtent), max(minPrimaryExtent, availableExtent - minSecondaryExtent))
+            let resolvedPrimary = availableExtent <= 0 ? 0 : min(max(clampedPrimary, 0), availableExtent)
+            let resolvedRatio = availableExtent <= 0 ? state.ratio : resolvedPrimary / availableExtent
+            state.ratio = resolvedRatio
+            onRatioChanged?(resolvedRatio)
+
+            let primaryFrame: Rect
+            let secondaryFrame: Rect
+            let dividerFrame: Rect
+
+            switch axis {
+            case .horizontal:
+                primaryFrame = Rect(x: 0, y: 0, width: resolvedPrimary, height: bounds.size.height)
+                dividerFrame = Rect(x: resolvedPrimary, y: 0, width: dividerThickness, height: bounds.size.height)
+                secondaryFrame = Rect(x: resolvedPrimary + dividerThickness, y: 0, width: max(0, bounds.size.width - resolvedPrimary - dividerThickness), height: bounds.size.height)
+            case .vertical:
+                primaryFrame = Rect(x: 0, y: 0, width: bounds.size.width, height: resolvedPrimary)
+                dividerFrame = Rect(x: 0, y: resolvedPrimary, width: bounds.size.width, height: dividerThickness)
+                secondaryFrame = Rect(x: 0, y: resolvedPrimary + dividerThickness, width: bounds.size.width, height: max(0, bounds.size.height - resolvedPrimary - dividerThickness))
+            }
+
+            if primaryContainer.frame != primaryFrame {
+                primaryContainer.frame = primaryFrame
+            }
+            if secondaryContainer.frame != secondaryFrame {
+                secondaryContainer.frame = secondaryFrame
+            }
+            if dividerHandle.frame != dividerFrame {
+                dividerHandle.frame = dividerFrame
+            }
+
+            if primaryContainer.children.count == 1 {
+                let primaryChildFrame = Rect(x: 0, y: 0, width: primaryFrame.size.width, height: primaryFrame.size.height)
+                if primaryContainer.children[0].frame != primaryChildFrame {
+                    primaryContainer.children[0].frame = primaryChildFrame
+                }
+            }
+
+            if secondaryContainer.children.count == 1 {
+                let secondaryChildFrame = Rect(x: 0, y: 0, width: secondaryFrame.size.width, height: secondaryFrame.size.height)
+                if secondaryContainer.children[0].frame != secondaryChildFrame {
+                    secondaryContainer.children[0].frame = secondaryChildFrame
+                }
+            }
+        }
+
+        splitRoot.onLayout = { bounds in
+            applyLayout(in: bounds)
+        }
+
+        dividerHandle.onPointerEnter = { [weak dividerHandle] in
+            animate(.background, dividerHandle, in: runtime, to: dividerHoverColor, duration: 0.12)
+        }
+        dividerHandle.onPointerExit = { [weak dividerHandle] in
+            animate(.background, dividerHandle, in: runtime, to: dividerIdleColor, duration: 0.12)
+        }
+        dividerHandle.onDragStart = { [weak dividerHandle] _ in
+            state.dragStartRatio = state.ratio
+            animate(.background, dividerHandle, in: runtime, to: dividerActiveColor, duration: 0.08)
+        }
+        dividerHandle.onDragChange = { _, delta in
+            let totalExtent = axis == .horizontal ? state.bounds.size.width : state.bounds.size.height
+            let availableExtent = max(1, totalExtent - dividerThickness)
+            let deltaExtent = axis == .horizontal ? delta.x : delta.y
+            state.ratio = state.dragStartRatio + deltaExtent / availableExtent
+            applyLayout(in: state.bounds)
+        }
+        dividerHandle.onDragEnd = { _, _ in
+            animate(.background, dividerHandle, in: runtime, to: dividerHoverColor, duration: 0.12)
+        }
+
+        return splitRoot
     }
 
     public static func toolbar(
@@ -447,5 +565,17 @@ private extension ViewNode {
     func configured(_ update: (ViewNode) -> Void) -> ViewNode {
         update(self)
         return self
+    }
+}
+
+private final class SplitViewState {
+    var ratio: Double
+    var dragStartRatio: Double
+    var bounds: Rect
+
+    init(ratio: Double) {
+        self.ratio = ratio
+        self.dragStartRatio = ratio
+        self.bounds = .zero
     }
 }

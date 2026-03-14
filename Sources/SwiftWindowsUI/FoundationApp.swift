@@ -16,6 +16,8 @@ public final class FoundationApp: WindowDelegate {
     private var interactionCount: Int
     private var lastAction: String
     private var recentEvents: [String]
+    private var sidebarSplitRatio: Double
+    private var detailSplitRatio: Double
     private var isRendererReady = false
 
     public convenience init(renderer: any RenderBackend) {
@@ -42,6 +44,8 @@ public final class FoundationApp: WindowDelegate {
         self.selectedModule = .layout
         self.interactionCount = 0
         self.lastAction = "READY"
+        self.sidebarSplitRatio = 0.18
+        self.detailSplitRatio = 0.72
         self.recentEvents = [
             "SYSTEM READY",
             "D3D11 PIPELINE ONLINE",
@@ -216,11 +220,30 @@ public final class FoundationApp: WindowDelegate {
                 cornerRadius: 34
             )
             buildToolbar(layout)
-            buildSidebar(layout)
-            buildHeroSection(layout)
-            buildStatsRow(layout)
-            buildActivitySection(layout)
-            buildRightRail(layout)
+            UI.splitView(
+                axis: .horizontal,
+                frame: layout.bodyFrame,
+                ratio: sidebarSplitRatio,
+                minPrimaryExtent: 210,
+                minSecondaryExtent: 620,
+                dividerThickness: 18,
+                onRatioChanged: { [weak self] in self?.sidebarSplitRatio = $0 }
+            ) {
+                buildSidebar()
+            } secondary: {
+                UI.splitView(
+                    axis: .horizontal,
+                    ratio: detailSplitRatio,
+                    minPrimaryExtent: 460,
+                    minSecondaryExtent: 280,
+                    dividerThickness: 18,
+                    onRatioChanged: { [weak self] in self?.detailSplitRatio = $0 }
+                ) {
+                    buildCenterPane(layout)
+                } secondary: {
+                    buildRightRail()
+                }
+            }
         }
     }
 
@@ -300,10 +323,9 @@ public final class FoundationApp: WindowDelegate {
         }
     }
 
-    private func buildSidebar(_ layout: DemoLayout) -> Component {
+    private func buildSidebar() -> Component {
         UI.section(
             title: "WORKSPACE",
-            frame: layout.sidebarFrame,
             backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
             backgroundGradient: LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
@@ -318,12 +340,12 @@ public final class FoundationApp: WindowDelegate {
                 alignment: .stretch
             )
         ) {
-            buildModuleButton(.layout, width: layout.sidebarContentWidth)
-            buildModuleButton(.input, width: layout.sidebarContentWidth)
-            buildModuleButton(.animation, width: layout.sidebarContentWidth)
+            buildModuleButton(.layout, width: 220)
+            buildModuleButton(.input, width: 220)
+            buildModuleButton(.animation, width: 220)
 
             UI.panel(
-                preferredSize: Size(width: layout.sidebarContentWidth, height: 10),
+                preferredSize: Size(width: 220, height: 10),
                 backgroundColor: selectedModule.stripeColor,
                 cornerRadius: 5,
                 isHitTestVisible: false
@@ -333,7 +355,7 @@ public final class FoundationApp: WindowDelegate {
                 title: "STATE",
                 detail: lastAction,
                 accentColor: selectedModule.glowColor,
-                preferredSize: Size(width: layout.sidebarContentWidth, height: 72),
+                preferredSize: Size(width: 220, height: 72),
                 action: { [weak self] in self?.performAction("STATE PANEL OPENED") }
             )
 
@@ -341,7 +363,7 @@ public final class FoundationApp: WindowDelegate {
                 title: "SHORTCUTS",
                 detail: "TAB AND WHEEL ROUTING",
                 accentColor: selectedModule.stripeColor,
-                preferredSize: Size(width: layout.sidebarContentWidth, height: 72),
+                preferredSize: Size(width: 220, height: 72),
                 action: { [weak self] in self?.performAction("SHORTCUTS OPENED") }
             )
         }
@@ -357,10 +379,21 @@ public final class FoundationApp: WindowDelegate {
         )
     }
 
+    private func buildCenterPane(_ layout: DemoLayout) -> Component {
+        UI.stackPanel(
+            stackLayout: .vertical(spacing: 18, alignment: .stretch),
+            isHitTestVisible: false
+        ) {
+            buildHeroSection(layout)
+            buildStatsRow(layout)
+            buildActivitySection(layout)
+        }
+    }
+
     private func buildHeroSection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "CONTROL CENTER",
-            frame: layout.heroFrame,
+            preferredSize: Size(width: 640, height: layout.heroHeight),
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
             backgroundGradient: LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
@@ -417,7 +450,7 @@ public final class FoundationApp: WindowDelegate {
 
     private func buildStatsRow(_ layout: DemoLayout) -> Component {
         UI.stackPanel(
-            frame: layout.statsFrame,
+            preferredSize: Size(width: 640, height: layout.statsHeight),
             stackLayout: .horizontal(spacing: 18, alignment: .stretch),
             isHitTestVisible: false
         ) {
@@ -457,7 +490,7 @@ public final class FoundationApp: WindowDelegate {
     private func buildActivitySection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "RECENT ACTIVITY",
-            frame: layout.activityFrame,
+            preferredSize: Size(width: 640, height: max(180, layout.activityHeight)),
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
             backgroundGradient: LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
@@ -492,7 +525,7 @@ public final class FoundationApp: WindowDelegate {
                         title: event,
                         detail: selectedModule.summary,
                         accentColor: selectedModule.glowColor,
-                        preferredSize: Size(width: layout.activityFrame.size.width - 68, height: 68),
+                        preferredSize: Size(width: 560, height: 68),
                         action: { [weak self] in self?.performAction("OPENED EVENT \(event)") }
                     )
                 }
@@ -500,10 +533,9 @@ public final class FoundationApp: WindowDelegate {
         }
     }
 
-    private func buildRightRail(_ layout: DemoLayout) -> Component {
+    private func buildRightRail() -> Component {
         UI.section(
             title: "DETAILS",
-            frame: layout.rightRailFrame,
             backgroundColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
             backgroundGradient: LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
@@ -519,14 +551,14 @@ public final class FoundationApp: WindowDelegate {
             )
         ) {
             UI.buttonPanel(
-                preferredSize: Size(width: layout.rightRailContentWidth, height: 128),
+                preferredSize: Size(width: 296, height: 128),
                 cornerRadius: 22,
                 palette: selectedModule.metricPalette,
                 layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
                 action: { [weak self] in self?.performAction("DETAIL CARD OPENED") }
             ) {
                 UI.stackPanel(
-                    preferredSize: Size(width: layout.rightRailContentWidth - 40, height: 82),
+                    preferredSize: Size(width: 256, height: 82),
                     stackLayout: .vertical(spacing: 8, alignment: .leading, mainAlignment: .center),
                     isHitTestVisible: false
                 ) {
@@ -538,7 +570,7 @@ public final class FoundationApp: WindowDelegate {
 
             UI.section(
                 title: "QUICK ACTIONS",
-                preferredSize: Size(width: layout.rightRailContentWidth, height: 252),
+                preferredSize: Size(width: 296, height: 252),
                 backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.92),
                 borderColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.08),
                 shadowColor: .clear,
@@ -553,21 +585,21 @@ public final class FoundationApp: WindowDelegate {
                     title: "PROFILE LAYOUT",
                     detail: "MEASURE, PLACE, CACHE",
                     accentColor: selectedModule.glowColor,
-                    preferredSize: Size(width: layout.rightRailContentWidth - 32, height: 68),
+                    preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("LAYOUT PROFILED") }
                 )
                 UI.listRow(
                     title: "INSPECT INPUT",
                     detail: "ROUTE POINTER AND FOCUS",
                     accentColor: selectedModule.stripeColor,
-                    preferredSize: Size(width: layout.rightRailContentWidth - 32, height: 68),
+                    preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("INPUT INSPECTED") }
                 )
                 UI.listRow(
                     title: "QUEUE ANIMATION",
                     detail: "FRAME TIMER AND PALETTES",
                     accentColor: selectedModule.metricPalette.focused,
-                    preferredSize: Size(width: layout.rightRailContentWidth - 32, height: 68),
+                    preferredSize: Size(width: 264, height: 68),
                     action: { [weak self] in self?.performAction("ANIMATION QUEUED") }
                 )
             }
@@ -588,8 +620,12 @@ public final class FoundationApp: WindowDelegate {
             toolbarFrame.maxY + gap
         }
 
+        var bodyFrame: Rect {
+            Rect(x: inset, y: contentTop, width: max(720, size.width - inset * 2), height: max(320, size.height - contentTop - inset))
+        }
+
         var contentHeight: Double {
-            max(320, size.height - contentTop - inset)
+            bodyFrame.size.height
         }
 
         var sidebarWidth: Double {

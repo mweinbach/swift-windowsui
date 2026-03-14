@@ -175,6 +175,43 @@ public enum UI {
         }
     }
 
+    public static func splitView(
+        axis: SplitAxis,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        ratio: Double = 0.25,
+        minPrimaryExtent: Double = 180,
+        minSecondaryExtent: Double = 220,
+        dividerThickness: Double = 16,
+        dividerIdleColor: Color = Color(red: 0.36, green: 0.46, blue: 0.58, alpha: 0.10),
+        dividerHoverColor: Color = Color(red: 0.50, green: 0.64, blue: 0.80, alpha: 0.28),
+        dividerActiveColor: Color = Color(red: 0.70, green: 0.84, blue: 0.98, alpha: 0.48),
+        onRatioChanged: ((Double) -> Void)? = nil,
+        @ComponentBuilder primary: () -> [Component],
+        @ComponentBuilder secondary: () -> [Component]
+    ) -> Component {
+        let primaryComponents = primary()
+        let secondaryComponents = secondary()
+        return Component { runtime in
+            Controls.splitView(
+                runtime: runtime,
+                axis: axis,
+                frame: frame,
+                preferredSize: preferredSize,
+                ratio: ratio,
+                minPrimaryExtent: minPrimaryExtent,
+                minSecondaryExtent: minSecondaryExtent,
+                dividerThickness: dividerThickness,
+                dividerIdleColor: dividerIdleColor,
+                dividerHoverColor: dividerHoverColor,
+                dividerActiveColor: dividerActiveColor,
+                onRatioChanged: onRatioChanged,
+                primary: primaryComponents.map { $0.makeNode(runtime: runtime) },
+                secondary: secondaryComponents.map { $0.makeNode(runtime: runtime) }
+            )
+        }
+    }
+
     public static func toolbar(
         frame: Rect = .zero,
         preferredSize: Size? = nil,

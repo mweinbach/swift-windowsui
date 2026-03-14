@@ -2,6 +2,7 @@ import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+import SwiftWindowsPlatform
 @testable import SwiftWindowsUI
 
 final class RetainedViewRuntimeTests: XCTestCase {
@@ -281,6 +282,53 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testScrollIndicatorHoverAndDragUpdateColorAndOffset() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+
+            let idleColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
+            let hoverColor = Color(red: 0.9, green: 0.95, blue: 1, alpha: 0.55)
+            let activeColor = Color(red: 1, green: 1, blue: 1, alpha: 0.8)
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 70),
+                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                scrollAxis: .vertical,
+                showsScrollIndicator: true,
+                scrollIndicatorColor: idleColor,
+                scrollIndicatorHoverColor: hoverColor,
+                scrollIndicatorActiveColor: activeColor,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+
+            runtime.pointerMoved(to: Point(x: 79, y: 18))
+            _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
+            XCTAssertEqual(scrollPanel.scrollIndicatorColor, hoverColor)
+
+            runtime.pointerDown(at: Point(x: 79, y: 18))
+            _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
+            XCTAssertEqual(scrollPanel.scrollIndicatorColor, activeColor)
+
+            runtime.pointerMoved(to: Point(x: 79, y: 38))
+            XCTAssertGreaterThan(scrollPanel.scrollOffset, 0)
+
+            runtime.pointerUp(at: Point(x: 79, y: 38))
+            _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
+            XCTAssertEqual(scrollPanel.scrollIndicatorColor, hoverColor)
+
+            runtime.pointerExitedWindow()
+            _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
+            XCTAssertEqual(scrollPanel.scrollIndicatorColor, idleColor)
+        }
+    }
+
     func testIntrinsicTextSizeSupportsLabelLayout() async {
         await MainActor.run {
             let label = Controls.label("HELLO", color: .white, scale: 2, alignment: .leading)
@@ -328,6 +376,34 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
             XCTAssertEqual(scrollPanel.scrollOffset, 60)
+        }
+    }
+
+    func testNodeDragCallbacksReceivePointerDelta() async {
+        await MainActor.run {
+            var startPoints: [Point] = []
+            var dragDeltas: [Point] = []
+            var endDeltas: [Point] = []
+
+            let handle = ViewNode(frame: Rect(x: 10, y: 10, width: 24, height: 24))
+            handle.onDragStart = { point in startPoints.append(point) }
+            handle.onDragChange = { _, delta in dragDeltas.append(delta) }
+            handle.onDragEnd = { _, delta in endDeltas.append(delta) }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [handle]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 14, y: 16))
+            runtime.pointerMoved(to: Point(x: 28, y: 42))
+            runtime.pointerUp(at: Point(x: 28, y: 42))
+
+            XCTAssertEqual(startPoints, [Point(x: 14, y: 16)])
+            XCTAssertEqual(dragDeltas.last, Point(x: 14, y: 26))
+            XCTAssertEqual(endDeltas, [Point(x: 14, y: 26)])
         }
     }
 }

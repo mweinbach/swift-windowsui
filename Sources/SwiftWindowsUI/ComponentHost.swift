@@ -13,9 +13,13 @@ public final class ComponentHost {
         reload()
     }
 
-    public func setContent(@ComponentBuilder _ content: @escaping () -> [Component]) {
+    public func setComponents(_ content: @escaping () -> [Component]) {
         buildComponents = content
         reload()
+    }
+
+    public func setContent(@ComponentBuilder _ content: @escaping () -> [Component]) {
+        setComponents(content)
     }
 
     public func reload() {

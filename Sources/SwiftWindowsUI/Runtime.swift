@@ -1,6 +1,7 @@
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+import SwiftWindowsPlatform
 
 public enum ViewLayoutMode: Sendable {
     case absolute
@@ -94,6 +95,22 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var scrollIndicatorIdleColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollIndicatorHoverColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollIndicatorActiveColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollIndicatorThickness: Double {
+        didSet { invalidateRuntime() }
+    }
+
     public var isFocusable: Bool {
         didSet { invalidateRuntime() }
     }
@@ -115,6 +132,9 @@ public final class ViewNode {
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
     public var onActivate: (() -> Void)?
+    public var onDragStart: ((Point) -> Void)?
+    public var onDragChange: ((Point, Point) -> Void)?
+    public var onDragEnd: ((Point, Point) -> Void)?
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -145,6 +165,10 @@ public final class ViewNode {
         scrollStep: Double = 64,
         showsScrollIndicator: Bool = false,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
+        scrollIndicatorIdleColor: Color? = nil,
+        scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
+        scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
+        scrollIndicatorThickness: Double = 6,
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
@@ -170,6 +194,10 @@ public final class ViewNode {
         self.scrollStep = scrollStep
         self.showsScrollIndicator = showsScrollIndicator
         self.scrollIndicatorColor = scrollIndicatorColor
+        self.scrollIndicatorIdleColor = scrollIndicatorIdleColor ?? scrollIndicatorColor
+        self.scrollIndicatorHoverColor = scrollIndicatorHoverColor
+        self.scrollIndicatorActiveColor = scrollIndicatorActiveColor
+        self.scrollIndicatorThickness = scrollIndicatorThickness
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
@@ -182,6 +210,9 @@ public final class ViewNode {
         self.onFocusExit = nil
         self.onKeyDown = nil
         self.onActivate = nil
+        self.onDragStart = nil
+        self.onDragChange = nil
+        self.onDragEnd = nil
         self.children = []
         self.resolvedFrame = frame
         self.resolvedContentSize = frame.size
@@ -580,6 +611,58 @@ public final class ViewNode {
         return nil
     }
 
+    fileprivate func scrollIndicatorHit(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ScrollIndicatorHit? {
+        if isHidden {
+            return nil
+        }
+
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
+        )
+
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    return nil
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        if let effectiveClip, !effectiveClip.contains(point) {
+            return nil
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
+        )
+
+        for child in children.reversed() {
+            if let hit = child.scrollIndicatorHit(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+                return hit
+            }
+        }
+
+        guard let track = scrollIndicatorTrack(in: absoluteFrame), track.indicatorRect.contains(point) else {
+            return nil
+        }
+
+        return ScrollIndicatorHit(node: self, track: track)
+    }
+
     private func invalidateRuntime() {
         runtime?.invalidate()
     }
@@ -598,6 +681,10 @@ public final class ViewNode {
 
     fileprivate var isScrollable: Bool {
         scrollAxis != nil
+    }
+
+    fileprivate var isDraggable: Bool {
+        onDragStart != nil || onDragChange != nil || onDragEnd != nil
     }
 
     fileprivate var maxScrollOffset: Double {
@@ -648,13 +735,22 @@ public final class ViewNode {
         }
     }
 
+    fileprivate func applyScrollIndicatorDrag(startOffset: Double, delta: Double, travel: Double) -> Bool {
+        guard maxScrollOffset > 0, travel > 0 else {
+            return false
+        }
+
+        let translatedOffset = startOffset + delta * (maxScrollOffset / travel)
+        return setScrollOffset(translatedOffset)
+    }
+
     fileprivate func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
         guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
             return nil
         }
 
         let indicatorInset = 6.0
-        let indicatorThickness = 6.0
+        let indicatorThickness = max(4, scrollIndicatorThickness)
 
         switch scrollAxis {
         case .vertical:
@@ -690,6 +786,34 @@ public final class ViewNode {
         }
     }
 
+    fileprivate func scrollIndicatorTrack(in absoluteFrame: Rect) -> ScrollIndicatorTrack? {
+        guard let indicatorRect = scrollIndicatorRect(in: absoluteFrame), let scrollAxis else {
+            return nil
+        }
+
+        let inset = 6.0
+
+        switch scrollAxis {
+        case .vertical:
+            let trackLength = max(0, absoluteFrame.size.height - inset * 2)
+            return ScrollIndicatorTrack(
+                axis: .vertical,
+                origin: absoluteFrame.origin.y + inset,
+                travel: max(0, trackLength - indicatorRect.size.height),
+                indicatorRect: indicatorRect
+            )
+
+        case .horizontal:
+            let trackLength = max(0, absoluteFrame.size.width - inset * 2)
+            return ScrollIndicatorTrack(
+                axis: .horizontal,
+                origin: absoluteFrame.origin.x + inset,
+                travel: max(0, trackLength - indicatorRect.size.width),
+                indicatorRect: indicatorRect
+            )
+        }
+    }
+
     private func clampedScrollOffset(for value: Double) -> Double {
         min(max(value, 0), maxScrollOffset)
     }
@@ -718,6 +842,8 @@ public final class ViewNode {
             return outlineColor
         case .shadow:
             return shadowColor
+        case .scrollIndicator:
+            return scrollIndicatorColor
         }
     }
 
@@ -731,6 +857,8 @@ public final class ViewNode {
             outlineColor = color
         case .shadow:
             shadowColor = color
+        case .scrollIndicator:
+            scrollIndicatorColor = color
         }
     }
 }
@@ -752,7 +880,11 @@ public final class RetainedViewRuntime {
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
     private weak var focusedNode: ViewNode?
+    private weak var hoveredScrollIndicatorNode: ViewNode?
+    private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
+    private var scrollDragState: ScrollDragState?
+    private var nodeDragState: NodeDragState?
 
     public init(clearColor: Color = .black, root: ViewNode = ViewNode()) {
         self.clearColor = clearColor
@@ -784,11 +916,39 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerMoved(to point: Point) {
+        if let dragState = scrollDragState {
+            guard let node = dragState.node else {
+                scrollDragState = nil
+                updateScrollIndicatorHover(to: nil)
+                return
+            }
+
+            let delta = dragState.axis == .vertical ? point.y - dragState.startPoint.y : point.x - dragState.startPoint.x
+            _ = node.applyScrollIndicatorDrag(startOffset: dragState.startOffset, delta: delta, travel: dragState.track.travel)
+            updateScrollIndicatorHover(to: ScrollIndicatorHit(node: node, track: dragState.track))
+            return
+        }
+
+        if let dragState = nodeDragState {
+            guard let node = dragState.node else {
+                nodeDragState = nil
+                return
+            }
+
+            let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
+            node.onDragChange?(point, delta)
+            return
+        }
+
         updateHoverTarget(to: hitTest(at: point))
+        updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
     }
 
     public func pointerExitedWindow() {
         updateHoverTarget(to: nil)
+        if scrollDragState == nil {
+            updateScrollIndicatorHover(to: nil)
+        }
     }
 
     public func mouseWheel(at point: Point, delta: Double) {
@@ -803,7 +963,21 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerDown(at point: Point) {
+        if let scrollIndicatorHit = scrollIndicatorHit(at: point) {
+            scrollDragState = ScrollDragState(node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point, startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
+            activeScrollIndicatorNode = scrollIndicatorHit.node
+            animateColor(.scrollIndicator, of: scrollIndicatorHit.node, to: scrollIndicatorHit.node.scrollIndicatorActiveColor, duration: 0.10, at: Win32Window.currentTimestampSeconds())
+            return
+        }
+
         let hitNode = hitTest(at: point)
+        if let draggableNode = nearestDraggableNode(from: hitNode) {
+            nodeDragState = NodeDragState(node: draggableNode, startPoint: point)
+            draggableNode.onDragStart?(point)
+            updateHoverTarget(to: hitNode)
+            return
+        }
+
         updateFocusTarget(to: nearestFocusableNode(from: hitNode))
         updateHoverTarget(to: hitNode)
         pressedNode = hitNode
@@ -811,6 +985,30 @@ public final class RetainedViewRuntime {
     }
 
     public func pointerUp(at point: Point) {
+        if let dragState = scrollDragState {
+            scrollDragState = nil
+            activeScrollIndicatorNode = nil
+            let nextIndicatorHit = scrollIndicatorHit(at: point)
+            updateScrollIndicatorHover(to: nextIndicatorHit)
+
+            if let node = dragState.node {
+                let targetColor = nextIndicatorHit?.node === node ? node.scrollIndicatorHoverColor : node.scrollIndicatorIdleColor
+                animateColor(.scrollIndicator, of: node, to: targetColor, duration: 0.12, at: Win32Window.currentTimestampSeconds())
+            }
+            return
+        }
+
+        if let dragState = nodeDragState {
+            nodeDragState = nil
+            if let node = dragState.node {
+                let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
+                node.onDragEnd?(point, delta)
+            }
+            updateHoverTarget(to: hitTest(at: point))
+            updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
+            return
+        }
+
         let hitNode = hitTest(at: point)
 
         if let pressedNode {
@@ -926,6 +1124,11 @@ public final class RetainedViewRuntime {
         return root.scrollTarget(at: point, parentOrigin: .zero, inheritedClip: nil)
     }
 
+    private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
+        updateResolvedLayout()
+        return root.scrollIndicatorHit(at: point, parentOrigin: .zero, inheritedClip: nil)
+    }
+
     private func moveFocus(reverse: Bool) {
         let focusableNodes = focusableNodes(in: root)
         guard !focusableNodes.isEmpty else {
@@ -990,6 +1193,19 @@ public final class RetainedViewRuntime {
         return nil
     }
 
+    private func nearestDraggableNode(from node: ViewNode?) -> ViewNode? {
+        var currentNode = node
+        while let candidate = currentNode {
+            if candidate.isDraggable {
+                return candidate
+            }
+
+            currentNode = candidate.parent
+        }
+
+        return nil
+    }
+
     private func handleScrollKey(_ key: KeyboardKey) -> Bool {
         let scrollableNode = nearestScrollableNode(from: focusedNode) ?? nearestScrollableNode(from: hoveredNode)
         guard let scrollableNode else {
@@ -1014,6 +1230,35 @@ public final class RetainedViewRuntime {
         hoveredNode?.onPointerEnter?()
     }
 
+    private func updateScrollIndicatorHover(to nextIndicatorHit: ScrollIndicatorHit?) {
+        let nextNode = nextIndicatorHit?.node
+        guard hoveredScrollIndicatorNode !== nextNode else {
+            return
+        }
+
+        if let previousNode = hoveredScrollIndicatorNode, previousNode !== activeScrollIndicatorNode {
+            animateColor(
+                .scrollIndicator,
+                of: previousNode,
+                to: previousNode.scrollIndicatorIdleColor,
+                duration: 0.12,
+                at: Win32Window.currentTimestampSeconds()
+            )
+        }
+
+        hoveredScrollIndicatorNode = nextNode
+
+        if let nextNode, nextNode !== activeScrollIndicatorNode {
+            animateColor(
+                .scrollIndicator,
+                of: nextNode,
+                to: nextNode.scrollIndicatorHoverColor,
+                duration: 0.12,
+                at: Win32Window.currentTimestampSeconds()
+            )
+        }
+    }
+
     private func updateFocusTarget(to nextFocusedNode: ViewNode?) {
         guard focusedNode !== nextFocusedNode else {
             return
@@ -1026,11 +1271,37 @@ public final class RetainedViewRuntime {
     }
 }
 
+private struct ScrollIndicatorTrack {
+    let axis: ScrollAxis
+    let origin: Double
+    let travel: Double
+    let indicatorRect: Rect
+}
+
+private struct ScrollIndicatorHit {
+    unowned let node: ViewNode
+    let track: ScrollIndicatorTrack
+}
+
+private struct ScrollDragState {
+    weak var node: ViewNode?
+    let axis: ScrollAxis
+    let startPoint: Point
+    let startOffset: Double
+    let track: ScrollIndicatorTrack
+}
+
+private struct NodeDragState {
+    weak var node: ViewNode?
+    let startPoint: Point
+}
+
 public enum AnimatedColorProperty: Hashable, Sendable {
     case background
     case border
     case outline
     case shadow
+    case scrollIndicator
 }
 
 private struct ColorAnimationKey: Hashable {

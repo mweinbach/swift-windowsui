@@ -63,4 +63,27 @@ final class DeclarativeUITests: XCTestCase {
             XCTAssertEqual(node.children.count, 3)
         }
     }
+
+    func testDeclarativeSectionAndListRowBuildExpectedChrome() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let component = UI.section(
+                title: "DETAILS",
+                preferredSize: Size(width: 220, height: 180)
+            ) {
+                UI.listRow(
+                    title: "PIPELINE",
+                    detail: "GPU READY",
+                    accentColor: Color(red: 0.4, green: 0.7, blue: 0.9, alpha: 1),
+                    preferredSize: Size(width: 184, height: 68)
+                )
+            }
+
+            let node = component.makeNode(runtime: runtime)
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "DETAILS")
+            XCTAssertTrue(node.children[1].isFocusable)
+        }
+    }
 }

@@ -160,6 +160,9 @@ public enum Controls {
         stackLayout: StackLayout,
         scrollStep: Double = 64,
         scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
+        scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
+        scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
+        scrollIndicatorThickness: Double = 6,
         isHitTestVisible: Bool = true,
         children: [ViewNode] = []
     ) -> ViewNode {
@@ -182,7 +185,124 @@ public enum Controls {
             node.scrollStep = scrollStep
             node.showsScrollIndicator = true
             node.scrollIndicatorColor = scrollIndicatorColor
+            node.scrollIndicatorIdleColor = scrollIndicatorColor
+            node.scrollIndicatorHoverColor = scrollIndicatorHoverColor
+            node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
+            node.scrollIndicatorThickness = scrollIndicatorThickness
         }
+    }
+
+    public static func toolbar(
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+        borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
+        shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.22),
+        cornerRadius: Double = 22,
+        stackLayout: StackLayout = .horizontal(
+            spacing: 14,
+            padding: EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18),
+            alignment: .center,
+            mainAlignment: .start
+        ),
+        isHitTestVisible: Bool = false,
+        children: [ViewNode] = []
+    ) -> ViewNode {
+        stackPanel(
+            frame: frame,
+            preferredSize: preferredSize,
+            backgroundColor: backgroundColor,
+            borderColor: borderColor,
+            borderWidth: 1,
+            shadowColor: shadowColor,
+            shadowOffset: Point(x: 0, y: 12),
+            shadowSpread: 6,
+            cornerRadius: cornerRadius,
+            clipsToBounds: true,
+            stackLayout: stackLayout,
+            isHitTestVisible: isHitTestVisible,
+            children: children
+        )
+    }
+
+    public static func section(
+        title: String,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+        borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
+        shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.24),
+        cornerRadius: Double = 24,
+        stackLayout: StackLayout = .vertical(
+            spacing: 16,
+            padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+            alignment: .stretch,
+            mainAlignment: .start
+        ),
+        headerColor: Color = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96),
+        headerScale: Double = 1.6,
+        isHitTestVisible: Bool = false,
+        children: [ViewNode] = []
+    ) -> ViewNode {
+        let content = [label(title, color: headerColor, scale: headerScale, alignment: .leading)] + children
+        return stackPanel(
+            frame: frame,
+            preferredSize: preferredSize,
+            backgroundColor: backgroundColor,
+            borderColor: borderColor,
+            borderWidth: 1,
+            shadowColor: shadowColor,
+            shadowOffset: Point(x: 0, y: 14),
+            shadowSpread: 7,
+            cornerRadius: cornerRadius,
+            clipsToBounds: true,
+            stackLayout: stackLayout,
+            isHitTestVisible: isHitTestVisible,
+            children: content
+        )
+    }
+
+    public static func listRow(
+        runtime: RetainedViewRuntime,
+        title: String,
+        detail: String,
+        accentColor: Color,
+        preferredSize: Size = Size(width: 280, height: 68),
+        palette: SurfacePalette = SurfacePalette(
+            idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.98),
+            focused: Color(red: 0.26, green: 0.33, blue: 0.42, alpha: 1.0),
+            pressed: Color(red: 0.72, green: 0.82, blue: 0.92, alpha: 1.0)
+        ),
+        chrome: SurfaceChrome = .elevatedButton,
+        action: (() -> Void)? = nil
+    ) -> ViewNode {
+        let leadingBar = panel(
+            preferredSize: Size(width: 8, height: 44),
+            backgroundColor: accentColor,
+            cornerRadius: 4,
+            isHitTestVisible: false
+        )
+
+        let labels = stackPanel(
+            preferredSize: Size(width: max(0, preferredSize.width - 42), height: 44),
+            stackLayout: .vertical(spacing: 6, alignment: .leading, mainAlignment: .center),
+            isHitTestVisible: false,
+            children: [
+                label(title, color: .white, scale: 1.8, alignment: .leading),
+                label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading),
+            ]
+        )
+
+        return button(
+            runtime: runtime,
+            preferredSize: preferredSize,
+            cornerRadius: 18,
+            palette: palette,
+            chrome: chrome,
+            layoutMode: .stack(.horizontal(spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center)),
+            action: action,
+            children: [leadingBar, labels]
+        )
     }
 
     public static func button(

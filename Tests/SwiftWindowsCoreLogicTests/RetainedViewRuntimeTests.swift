@@ -386,6 +386,23 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testBackgroundGradientFlowsIntoFillRectCommand() async {
+        await MainActor.run {
+            let gradient = LinearGradient(
+                startColor: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                endColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                axis: .horizontal
+            )
+            let node = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: gradient.startColor, backgroundGradient: gradient)
+            let runtime = RetainedViewRuntime(root: node)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills.count, 1)
+            XCTAssertEqual(fills[0].gradient, gradient)
+        }
+    }
+
     func testKeyboardScrollKeysAffectScrollableAncestorOfFocusedNode() async {
         await MainActor.run {
             let child = ViewNode(frame: Rect(x: 0, y: 0, width: 60, height: 40), isFocusable: true)

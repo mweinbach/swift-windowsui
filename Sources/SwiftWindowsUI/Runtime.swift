@@ -23,6 +23,10 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var backgroundGradient: LinearGradient? {
+        didSet { invalidateRuntime() }
+    }
+
     public var text: String? {
         didSet { invalidateRuntime() }
     }
@@ -147,6 +151,7 @@ public final class ViewNode {
     public init(
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
+        backgroundGradient: LinearGradient? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -176,6 +181,7 @@ public final class ViewNode {
     ) {
         self.frame = frame
         self.backgroundColor = backgroundColor
+        self.backgroundGradient = backgroundGradient
         self.text = text
         self.textStyle = textStyle
         self.borderColor = borderColor
@@ -464,15 +470,17 @@ public final class ViewNode {
         let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame
         let fillCornerRadius = max(0, cornerRadius - borderWidth)
 
-        if let backgroundColor, backgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
+        let resolvedBackgroundColor = backgroundColor ?? backgroundGradient?.startColor
+        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: fillRect,
-                            color: backgroundColor,
+                            color: resolvedBackgroundColor,
                             cornerRadius: fillCornerRadius,
-                            clipRect: effectiveClip
+                            clipRect: effectiveClip,
+                            gradient: backgroundGradient
                         )
                     )
                 )

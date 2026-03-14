@@ -203,8 +203,18 @@ public final class FoundationApp: WindowDelegate {
         let layout = DemoLayout(size: effectiveCanvasSize)
 
         return UI.group {
-            UI.panel(frame: layout.backgroundAccentA, backgroundColor: selectedModule.glowColor, cornerRadius: 44)
-            UI.panel(frame: layout.backgroundAccentB, backgroundColor: selectedModule.stripeColor, cornerRadius: 34)
+            UI.panel(
+                frame: layout.backgroundAccentA,
+                backgroundColor: selectedModule.glowColor,
+                backgroundGradient: LinearGradient(startColor: selectedModule.glowColor, endColor: selectedModule.stripeColor, axis: .horizontal),
+                cornerRadius: 44
+            )
+            UI.panel(
+                frame: layout.backgroundAccentB,
+                backgroundColor: selectedModule.stripeColor,
+                backgroundGradient: LinearGradient(startColor: selectedModule.stripeColor, endColor: selectedModule.glowColor, axis: .vertical),
+                cornerRadius: 34
+            )
             buildToolbar(layout)
             buildSidebar(layout)
             buildHeroSection(layout)
@@ -224,7 +234,14 @@ public final class FoundationApp: WindowDelegate {
     }
 
     private func buildToolbar(_ layout: DemoLayout) -> Component {
-        UI.toolbar(frame: layout.toolbarFrame) {
+        UI.toolbar(
+            frame: layout.toolbarFrame,
+            backgroundGradient: LinearGradient(
+                startColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
+                endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
+                axis: .horizontal
+            )
+        ) {
             UI.stackPanel(
                 preferredSize: Size(width: 260, height: 44),
                 stackLayout: .vertical(spacing: 4, alignment: .leading),
@@ -288,6 +305,11 @@ public final class FoundationApp: WindowDelegate {
             title: "WORKSPACE",
             frame: layout.sidebarFrame,
             backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
+            backgroundGradient: LinearGradient(
+                startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
+                endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
+                axis: .vertical
+            ),
             borderColor: Color(red: 0.76, green: 0.84, blue: 0.93, alpha: 0.12),
             cornerRadius: 28,
             stackLayout: .vertical(
@@ -340,6 +362,7 @@ public final class FoundationApp: WindowDelegate {
             title: "CONTROL CENTER",
             frame: layout.heroFrame,
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
+            backgroundGradient: LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
             cornerRadius: 30,
             stackLayout: .vertical(
@@ -436,6 +459,11 @@ public final class FoundationApp: WindowDelegate {
             title: "RECENT ACTIVITY",
             frame: layout.activityFrame,
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+            backgroundGradient: LinearGradient(
+                startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+                endColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+                axis: .vertical
+            ),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: 28,
             stackLayout: .vertical(
@@ -477,6 +505,11 @@ public final class FoundationApp: WindowDelegate {
             title: "DETAILS",
             frame: layout.rightRailFrame,
             backgroundColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
+            backgroundGradient: LinearGradient(
+                startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
+                endColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.98),
+                axis: .vertical
+            ),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: 28,
             stackLayout: .vertical(
@@ -744,6 +777,28 @@ private enum DemoModule: CaseIterable {
             return Color(red: 0.44, green: 0.78, blue: 0.73, alpha: 0.88)
         case .animation:
             return Color(red: 0.95, green: 0.71, blue: 0.38, alpha: 0.90)
+        }
+    }
+
+    var panelStartColor: Color {
+        switch self {
+        case .layout:
+            return Color(red: 0.19, green: 0.24, blue: 0.33, alpha: 0.98)
+        case .input:
+            return Color(red: 0.16, green: 0.24, blue: 0.28, alpha: 0.98)
+        case .animation:
+            return Color(red: 0.24, green: 0.21, blue: 0.18, alpha: 0.98)
+        }
+    }
+
+    var panelEndColor: Color {
+        switch self {
+        case .layout:
+            return Color(red: 0.13, green: 0.18, blue: 0.26, alpha: 0.98)
+        case .input:
+            return Color(red: 0.12, green: 0.21, blue: 0.24, alpha: 0.98)
+        case .animation:
+            return Color(red: 0.20, green: 0.17, blue: 0.14, alpha: 0.98)
         }
     }
 

@@ -3,7 +3,41 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK
 
+@MainActor
 enum NativeTextRenderer {
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
+        DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor)
+            ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func appendCommands(
+        for text: String,
+        in rect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) -> Bool {
+        DirectWriteTextRenderer.appendCommands(
+            for: text,
+            in: rect,
+            style: style,
+            scaleFactor: scaleFactor,
+            clipRect: clipRect,
+            into: &commands
+        ) || GDIRasterTextRenderer.appendCommands(
+            for: text,
+            in: rect,
+            style: style,
+            scaleFactor: scaleFactor,
+            clipRect: clipRect,
+            into: &commands
+        )
+    }
+}
+
+@MainActor
+enum GDIRasterTextRenderer {
     static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
         guard !text.isEmpty else {
             return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
@@ -128,7 +162,7 @@ enum NativeTextRenderer {
         )
     }
 
-    private static func tint(pixelBytes: inout [UInt8], style: PixelTextStyle) {
+    static func tint(pixelBytes: inout [UInt8], style: PixelTextStyle) {
         let red = max(0, min(255, Int(style.color.red * 255)))
         let green = max(0, min(255, Int(style.color.green * 255)))
         let blue = max(0, min(255, Int(style.color.blue * 255)))
@@ -222,13 +256,13 @@ enum NativeTextRenderer {
     }
 }
 
-private extension PixelTextStyle {
+extension PixelTextStyle {
     var nativeFontPixelSize: Double {
         max(12, scale * 6 + 8)
     }
 }
 
-private extension TextWeight {
+extension TextWeight {
     var gdiWeight: Int {
         switch self {
         case .regular:

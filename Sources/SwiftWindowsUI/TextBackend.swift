@@ -34,7 +34,7 @@ public struct TextBackendCapabilities: Equatable, Sendable {
     }
 
     public var renderingLabel: String {
-        dwriteFactoryCreationSucceeded ? "GDI TEXT / DWRITE READY" : "GDI TEXT"
+        dwriteFactoryCreationSucceeded ? "DIRECTWRITE" : "GDI TEXT"
     }
 }
 
@@ -126,17 +126,7 @@ public enum TextSystem {
 
 private typealias DWriteCreateFactoryProc = @convention(c) (UINT32, UnsafePointer<GUID>, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
 
-private let dwriteFactoryTypeShared: UINT32 = 0
 private let sOk: HRESULT = 0
-
-private let iidIDWriteFactory: GUID = {
-    var guid = GUID()
-    guid.Data1 = 0xB859EE5A
-    guid.Data2 = 0xD838
-    guid.Data3 = 0x4B5B
-    guid.Data4 = (0xA2, 0xE8, 0x1A, 0xDC, 0x7D, 0x93, 0xDB, 0x48)
-    return guid
-}()
 
 private func releaseIUnknown(_ rawPointer: UnsafeMutableRawPointer) {
     let unknown = rawPointer.assumingMemoryBound(to: IUnknown.self)

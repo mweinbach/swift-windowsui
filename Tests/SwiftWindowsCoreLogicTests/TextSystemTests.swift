@@ -1,4 +1,6 @@
 import XCTest
+import SwiftWindowsCore
+import SwiftWindowsGraphics
 import WinSDK
 @testable import SwiftWindowsUI
 
@@ -48,6 +50,40 @@ final class TextSystemTests: XCTestCase {
         XCTAssertTrue(capabilities.dwriteLibraryLoaded)
         XCTAssertTrue(capabilities.dwriteCreateFactoryAvailable)
         XCTAssertTrue(capabilities.dwriteFactoryCreationSucceeded)
+    }
+
+    func testDirectWriteRendererProducesBitmapCommandWhenAvailable() async throws {
+        let capabilities = await MainActor.run {
+            TextSystem.capabilities()
+        }
+
+        guard capabilities.dwriteFactoryCreationSucceeded else {
+            throw XCTSkip("DirectWrite is not available on this environment")
+        }
+
+        let result = await MainActor.run { () -> (Size?, Bool) in
+            let style = PixelTextStyle(color: .white, scale: 2, alignment: .leading, weight: .semibold)
+            var commands: [RenderCommand] = []
+            let measured = DirectWriteTextRenderer.measure("DirectWrite", style: style, scaleFactor: 1.0)
+            let didAppend = DirectWriteTextRenderer.appendCommands(
+                for: "DirectWrite",
+                in: Rect(x: 0, y: 0, width: 180, height: 40),
+                style: style,
+                scaleFactor: 1.0,
+                clipRect: nil,
+                into: &commands
+            )
+            let hasBitmap = commands.contains { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+            return (measured, didAppend && hasBitmap)
+        }
+
+        XCTAssertNotNil(result.0)
+        XCTAssertTrue(result.1)
     }
 }
 

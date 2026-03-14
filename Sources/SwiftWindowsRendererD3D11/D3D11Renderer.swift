@@ -510,6 +510,17 @@ public final class D3D11Renderer: RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
+        let startColor = scaledCommand.gradient?.startColor ?? scaledCommand.color
+        let endColor = scaledCommand.gradient?.endColor ?? scaledCommand.color
+        let gradientAxis: Float = {
+            switch scaledCommand.gradient?.axis {
+            case .horizontal:
+                return 1
+            default:
+                return 0
+            }
+        }()
+
         var uniforms = RectangleUniforms(
             surfaceWidth: Float(surfaceSize.width),
             surfaceHeight: Float(surfaceSize.height),
@@ -518,11 +529,15 @@ public final class D3D11Renderer: RenderBackend {
             rectWidth: Float(scaledCommand.rect.size.width),
             rectHeight: Float(scaledCommand.rect.size.height),
             cornerRadius: Float(max(0, scaledCommand.cornerRadius)),
-            padding: 0,
-            red: scaledCommand.color.red,
-            green: scaledCommand.color.green,
-            blue: scaledCommand.color.blue,
-            alpha: scaledCommand.color.alpha
+            gradientAxis: gradientAxis,
+            startRed: startColor.red,
+            startGreen: startColor.green,
+            startBlue: startColor.blue,
+            startAlpha: startColor.alpha,
+            endRed: endColor.red,
+            endGreen: endColor.green,
+            endBlue: endColor.blue,
+            endAlpha: endColor.alpha
         )
 
         let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
@@ -721,11 +736,15 @@ private struct RectangleUniforms {
     var rectWidth: Float
     var rectHeight: Float
     var cornerRadius: Float
-    var padding: Float
-    var red: Float
-    var green: Float
-    var blue: Float
-    var alpha: Float
+    var gradientAxis: Float
+    var startRed: Float
+    var startGreen: Float
+    var startBlue: Float
+    var startAlpha: Float
+    var endRed: Float
+    var endGreen: Float
+    var endBlue: Float
+    var endAlpha: Float
 }
 
 private struct BitmapUniforms {
@@ -763,7 +782,8 @@ private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRe
         rect: command.rect.scaled(by: factor),
         color: command.color,
         cornerRadius: command.cornerRadius * factor,
-        clipRect: command.clipRect?.scaled(by: factor)
+        clipRect: command.clipRect?.scaled(by: factor),
+        gradient: command.gradient
     )
 }
 
@@ -795,8 +815,9 @@ cbuffer RectangleUniforms : register(b0)
     float2 rectOrigin;
     float2 rectSize;
     float cornerRadius;
-    float padding;
-    float4 fillColor;
+    float gradientAxis;
+    float4 startColor;
+    float4 endColor;
 };
 
 struct VSOutput
@@ -805,7 +826,9 @@ struct VSOutput
     float2 localPosition : TEXCOORD0;
     float2 size : TEXCOORD1;
     float radius : TEXCOORD2;
-    float4 color : COLOR0;
+    float gradientAxis : TEXCOORD3;
+    float4 startColor : COLOR0;
+    float4 endColor : COLOR1;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID)
@@ -831,7 +854,9 @@ VSOutput vsMain(uint vertexID : SV_VertexID)
     output.localPosition = unit * rectSize;
     output.size = rectSize;
     output.radius = cornerRadius;
-    output.color = fillColor;
+    output.gradientAxis = gradientAxis;
+    output.startColor = startColor;
+    output.endColor = endColor;
     return output;
 }
 
@@ -848,8 +873,15 @@ float roundedRectDistance(float2 localPosition, float2 size, float radius)
 float4 psMain(VSOutput input) : SV_Target
 {
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
-    float alpha = saturate(0.5 - distance);
-    return float4(input.color.rgb * input.color.a * alpha, input.color.a * alpha);
+    float aa = max(fwidth(distance), 0.75);
+    float alpha = saturate(0.5 - distance / aa);
+
+    float gradientT = input.gradientAxis > 0.5
+        ? saturate(input.localPosition.x / max(input.size.x, 1.0))
+        : saturate(input.localPosition.y / max(input.size.y, 1.0));
+
+    float4 color = lerp(input.startColor, input.endColor, gradientT);
+    return float4(color.rgb * color.a * alpha, color.a * alpha);
 }
 """#
 

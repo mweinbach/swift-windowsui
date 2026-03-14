@@ -28,18 +28,37 @@ public enum RenderCommand: Equatable, Sendable {
     case drawBitmap(DrawBitmapCommand)
 }
 
+public enum GradientAxis: Equatable, Sendable {
+    case vertical
+    case horizontal
+}
+
+public struct LinearGradient: Equatable, Sendable {
+    public var startColor: Color
+    public var endColor: Color
+    public var axis: GradientAxis
+
+    public init(startColor: Color, endColor: Color, axis: GradientAxis = .vertical) {
+        self.startColor = startColor
+        self.endColor = endColor
+        self.axis = axis
+    }
+}
+
 /// Shared solid-fill primitive used by all current renderers.
 public struct FillRectCommand: Equatable, Sendable {
     public var rect: Rect
     public var color: Color
     public var cornerRadius: Double
     public var clipRect: Rect?
+    public var gradient: LinearGradient?
 
-    public init(rect: Rect, color: Color, cornerRadius: Double = 0, clipRect: Rect? = nil) {
+    public init(rect: Rect, color: Color, cornerRadius: Double = 0, clipRect: Rect? = nil, gradient: LinearGradient? = nil) {
         self.rect = rect
         self.color = color
         self.cornerRadius = cornerRadius
         self.clipRect = clipRect
+        self.gradient = gradient
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+import SwiftWindowsGraphics
 import SwiftWindowsLayout
 
 @MainActor
@@ -55,6 +56,7 @@ public enum UI {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         backgroundColor: Color? = nil,
+        backgroundGradient: LinearGradient? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -74,6 +76,7 @@ public enum UI {
                 frame: frame,
                 preferredSize: preferredSize,
                 backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
                 text: text,
                 textStyle: textStyle,
                 borderColor: borderColor,
@@ -94,6 +97,7 @@ public enum UI {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         backgroundColor: Color? = nil,
+        backgroundGradient: LinearGradient? = nil,
         borderColor: Color = .clear,
         borderWidth: Double = 0,
         shadowColor: Color = .clear,
@@ -111,6 +115,7 @@ public enum UI {
                 frame: frame,
                 preferredSize: preferredSize,
                 backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
                 borderColor: borderColor,
                 borderWidth: borderWidth,
                 shadowColor: shadowColor,
@@ -174,6 +179,7 @@ public enum UI {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+        backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
         shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.22),
         cornerRadius: Double = 22,
@@ -192,6 +198,7 @@ public enum UI {
                 frame: frame,
                 preferredSize: preferredSize,
                 backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
                 borderColor: borderColor,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
@@ -207,6 +214,7 @@ public enum UI {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+        backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
         shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.24),
         cornerRadius: Double = 24,
@@ -228,6 +236,7 @@ public enum UI {
                 frame: frame,
                 preferredSize: preferredSize,
                 backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
                 borderColor: borderColor,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,

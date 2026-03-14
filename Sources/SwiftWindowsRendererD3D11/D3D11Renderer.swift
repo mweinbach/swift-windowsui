@@ -54,6 +54,13 @@ public final class D3D11Renderer: RenderBackend {
         self.configuration = configuration
     }
 
+    static func validateShaderSourceForTesting() throws {
+        var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(entryPoint: "vsMain", profile: "vs_4_0")
+        var pixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(entryPoint: "psMain", profile: "ps_4_0")
+        releaseCOM(&pixelShaderBlob)
+        releaseCOM(&vertexShaderBlob)
+    }
+
     public func attach(to surface: SurfaceDescriptor) throws {
         guard let hwnd = unsafeBitCast(surface.windowHandle.rawPointer, to: HWND?.self) else {
             throw D3D11RendererError(operation: "Resolve HWND", hresult: hresultHandle)
@@ -414,6 +421,10 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private func compileShader(entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
+        try Self.compileShaderSource(entryPoint: entryPoint, profile: profile)
+    }
+
+    private static func compileShaderSource(entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
         let sourceBytes = Array(rectangleShaderSource.utf8)
         var shaderBlob: UnsafeMutablePointer<ID3DBlob>?
         var errorBlob: UnsafeMutablePointer<ID3DBlob>?
@@ -453,7 +464,7 @@ public final class D3D11Renderer: RenderBackend {
         return shaderBlob
     }
 
-    private func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> String? {
+    private static func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> String? {
         guard
             let errorBlob,
             let rawPointer = errorBlob.pointee.lpVtbl.pointee.GetBufferPointer(errorBlob)
@@ -567,10 +578,10 @@ VSOutput vsMain(uint vertexID : SV_VertexID)
 float roundedRectDistance(float2 localPosition, float2 size, float radius)
 {
     float2 halfSize = size * 0.5;
-    float2 point = localPosition - halfSize;
+    float2 localPoint = localPosition - halfSize;
     float clampedRadius = min(radius, min(halfSize.x, halfSize.y));
     float2 corner = max(halfSize - float2(clampedRadius, clampedRadius), float2(0.0, 0.0));
-    float2 delta = abs(point) - corner;
+    float2 delta = abs(localPoint) - corner;
     return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
 }
 

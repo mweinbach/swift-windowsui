@@ -65,6 +65,7 @@ let package = Package(
                 "SwiftWindowsGraphics",
                 "SwiftWindowsLayout",
                 "SwiftWindowsPlatform",
+                "SwiftWindowsRendererD3D11",
                 "SwiftWindowsScene",
                 "SwiftWindowsUI",
             ]

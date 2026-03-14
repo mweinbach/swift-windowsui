@@ -417,6 +417,7 @@ public enum Win32Application {
     }
 }
 
+@MainActor
 private enum Win32HighDpiSupport {
     private static var didConfigure = false
     private static let perMonitorAware: Int32 = 2

@@ -25,8 +25,8 @@ final class FoundationAppTests: XCTestCase {
 
             XCTAssertEqual(backend.attachedSurfaces, [expectedSurface])
             XCTAssertEqual(backend.resizedSizes, [IntSize(width: 640, height: 480)])
-            XCTAssertEqual(backend.renderedFrames.count, 1)
-            guard let frame = backend.renderedFrames.first else {
+            XCTAssertEqual(backend.renderedFrames.count, 3)
+            guard let frame = backend.renderedFrames.last else {
                 XCTFail("Expected a rendered frame")
                 return
             }

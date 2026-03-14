@@ -9,6 +9,7 @@ public final class FoundationApp: WindowDelegate {
     private let renderer: any RenderBackend
     private let runtime: RetainedViewRuntime
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
+    private var isRendererReady = false
 
     public convenience init(renderer: any RenderBackend) {
         self.init(renderer: renderer, surfaceDescriptorProvider: Self.defaultSurfaceDescriptor)
@@ -352,9 +353,10 @@ public final class FoundationApp: WindowDelegate {
             }
 
             try renderer.attach(to: surface)
+            isRendererReady = true
             runtime.setRootSize(surface.pixelSize)
             syncAnimationDriver(for: window)
-            window.invalidate()
+            renderCurrentFrame(in: window)
         } catch {
             report(error)
         }
@@ -364,18 +366,14 @@ public final class FoundationApp: WindowDelegate {
         do {
             runtime.setRootSize(size)
             try renderer.resize(to: size)
-            commitRuntimeState(in: window)
+            renderCurrentFrame(in: window)
         } catch {
             report(error)
         }
     }
 
     public func windowNeedsDisplay(_ window: Win32Window) {
-        do {
-            try renderer.render(frame: runtime.renderFrame())
-        } catch {
-            report(error)
-        }
+        renderCurrentFrame(in: window)
     }
 
     public func window(_ window: Win32Window, pointerMovedTo point: Point) {
@@ -417,7 +415,7 @@ public final class FoundationApp: WindowDelegate {
         let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
         syncAnimationDriver(for: window)
         if didAdvanceAnimations || runtime.isDirty {
-            window.invalidate()
+            renderCurrentFrame(in: window)
         }
     }
 
@@ -426,7 +424,22 @@ public final class FoundationApp: WindowDelegate {
     private func commitRuntimeState(in window: Win32Window) {
         syncAnimationDriver(for: window)
         if runtime.isDirty {
-            window.invalidate()
+            renderCurrentFrame(in: window)
+        }
+    }
+
+    private func renderCurrentFrame(in window: Win32Window) {
+        guard isRendererReady else {
+            if runtime.isDirty {
+                window.invalidate()
+            }
+            return
+        }
+
+        do {
+            try renderer.render(frame: runtime.renderFrame())
+        } catch {
+            report(error)
         }
     }
 

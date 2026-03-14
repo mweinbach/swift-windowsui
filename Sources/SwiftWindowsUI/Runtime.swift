@@ -7,6 +7,11 @@ public enum ViewLayoutMode: Sendable {
     case stack(StackLayout)
 }
 
+public enum ScrollAxis: Sendable {
+    case horizontal
+    case vertical
+}
+
 @MainActor
 public final class ViewNode {
     public var frame: Rect {
@@ -69,6 +74,26 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var scrollAxis: ScrollAxis? {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollOffset: Double {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollStep: Double {
+        didSet { invalidateRuntime() }
+    }
+
+    public var showsScrollIndicator: Bool {
+        didSet { invalidateRuntime() }
+    }
+
+    public var scrollIndicatorColor: Color {
+        didSet { invalidateRuntime() }
+    }
+
     public var isFocusable: Bool {
         didSet { invalidateRuntime() }
     }
@@ -96,6 +121,8 @@ public final class ViewNode {
 
     fileprivate weak var runtime: RetainedViewRuntime?
     fileprivate var resolvedFrame: Rect
+    fileprivate var resolvedContentSize: Size
+    fileprivate var resolvedScrollOffset: Double
 
     public init(
         frame: Rect = .zero,
@@ -113,6 +140,11 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
+        scrollAxis: ScrollAxis? = nil,
+        scrollOffset: Double = 0,
+        scrollStep: Double = 64,
+        showsScrollIndicator: Bool = false,
+        scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
@@ -133,6 +165,11 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
+        self.scrollAxis = scrollAxis
+        self.scrollOffset = scrollOffset
+        self.scrollStep = scrollStep
+        self.showsScrollIndicator = showsScrollIndicator
+        self.scrollIndicatorColor = scrollIndicatorColor
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
@@ -147,6 +184,8 @@ public final class ViewNode {
         self.onActivate = nil
         self.children = []
         self.resolvedFrame = frame
+        self.resolvedContentSize = frame.size
+        self.resolvedScrollOffset = 0
 
         for child in children {
             addChild(child)
@@ -196,6 +235,9 @@ public final class ViewNode {
     fileprivate func layoutSubtree() {
         switch layoutMode {
         case .absolute:
+            var maxChildX: Double = 0
+            var maxChildY: Double = 0
+
             for child in children {
                 let size = child.intrinsicContentSize()
                 let resolvedSize = Size(
@@ -204,10 +246,17 @@ public final class ViewNode {
                 )
                 child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
                 child.layoutSubtree()
+                maxChildX = max(maxChildX, child.resolvedFrame.maxX)
+                maxChildY = max(maxChildY, child.resolvedFrame.maxY)
             }
 
+            resolvedContentSize = Size(
+                width: max(resolvedFrame.size.width, maxChildX),
+                height: max(resolvedFrame.size.height, maxChildY)
+            )
+
         case .stack(let stackLayout):
-            let contentRect = resolvedFrame.inset(by: stackLayout.padding)
+            let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
             let desiredSizes = visibleChildren.map { $0.intrinsicContentSize() }
 
@@ -280,7 +329,22 @@ public final class ViewNode {
                 child.resolvedFrame = childFrame
                 child.layoutSubtree()
             }
+
+            switch stackLayout.axis {
+            case .vertical:
+                resolvedContentSize = Size(
+                    width: resolvedFrame.size.width,
+                    height: totalMainExtent + stackLayout.padding.top + stackLayout.padding.bottom
+                )
+            case .horizontal:
+                resolvedContentSize = Size(
+                    width: totalMainExtent + stackLayout.padding.leading + stackLayout.padding.trailing,
+                    height: resolvedFrame.size.height
+                )
+            }
         }
+
+        resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
     }
 
     fileprivate func appendCommands(into commands: inout [RenderCommand], parentOrigin: Point, inheritedClip: Rect?) {
@@ -311,6 +375,11 @@ public final class ViewNode {
         let absoluteOrigin = Point(
             x: parentOrigin.x + resolvedFrame.origin.x,
             y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
 
         if shadowColor.alpha > 0 {
@@ -390,7 +459,20 @@ public final class ViewNode {
         }
 
         for child in children {
-            child.appendCommands(into: &commands, parentOrigin: absoluteOrigin, inheritedClip: effectiveClip)
+            child.appendCommands(into: &commands, parentOrigin: childOrigin, inheritedClip: effectiveClip)
+        }
+
+        if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame) {
+            commands.append(
+                .fillRect(
+                    FillRectCommand(
+                        rect: scrollIndicator,
+                        color: scrollIndicatorColor,
+                        cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
+                        clipRect: effectiveClip
+                    )
+                )
+            )
         }
     }
 
@@ -428,13 +510,70 @@ public final class ViewNode {
             y: parentOrigin.y + resolvedFrame.origin.y
         )
 
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
+        )
+
         for child in children.reversed() {
-            if let hitNode = child.hitTest(at: point, parentOrigin: absoluteOrigin, inheritedClip: effectiveClip) {
+            if let hitNode = child.hitTest(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
                 return hitNode
             }
         }
 
         if isHitTestVisible, absoluteFrame.contains(point) {
+            return self
+        }
+
+        return nil
+    }
+
+    fileprivate func scrollTarget(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+        if isHidden {
+            return nil
+        }
+
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
+        )
+
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    return nil
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        if let effectiveClip, !effectiveClip.contains(point) {
+            return nil
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
+        )
+
+        for child in children.reversed() {
+            if let target = child.scrollTarget(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+                return target
+            }
+        }
+
+        if isScrollable, absoluteFrame.contains(point) {
             return self
         }
 
@@ -455,6 +594,118 @@ public final class ViewNode {
         }
 
         return frame.size
+    }
+
+    fileprivate var isScrollable: Bool {
+        scrollAxis != nil
+    }
+
+    fileprivate var maxScrollOffset: Double {
+        switch scrollAxis {
+        case .horizontal:
+            return max(0, resolvedContentSize.width - resolvedFrame.size.width)
+        case .vertical:
+            return max(0, resolvedContentSize.height - resolvedFrame.size.height)
+        case nil:
+            return 0
+        }
+    }
+
+    fileprivate func applyMouseWheelDelta(_ delta: Double) -> Bool {
+        guard isScrollable else {
+            return false
+        }
+
+        let nextOffset = clampedScrollOffset(for: scrollOffset - delta * scrollStep)
+        guard nextOffset != scrollOffset else {
+            return false
+        }
+
+        scrollOffset = nextOffset
+        return true
+    }
+
+    fileprivate func applyKeyboardScroll(_ key: KeyboardKey) -> Bool {
+        guard isScrollable else {
+            return false
+        }
+
+        switch (scrollAxis, key) {
+        case (.vertical, .downArrow), (.horizontal, .rightArrow):
+            return applyScrollDelta(scrollStep)
+        case (.vertical, .upArrow), (.horizontal, .leftArrow):
+            return applyScrollDelta(-scrollStep)
+        case (_, .pageDown):
+            return applyScrollDelta((scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+        case (_, .pageUp):
+            return applyScrollDelta(-(scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+        case (_, .home):
+            return setScrollOffset(0)
+        case (_, .end):
+            return setScrollOffset(maxScrollOffset)
+        default:
+            return false
+        }
+    }
+
+    fileprivate func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
+        guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
+            return nil
+        }
+
+        let indicatorInset = 6.0
+        let indicatorThickness = 6.0
+
+        switch scrollAxis {
+        case .vertical:
+            let trackHeight = max(0, absoluteFrame.size.height - indicatorInset * 2)
+            guard trackHeight > 0 else { return nil }
+            let visibleRatio = max(0.08, absoluteFrame.size.height / max(resolvedContentSize.height, absoluteFrame.size.height))
+            let indicatorHeight = max(24, trackHeight * visibleRatio)
+            let travel = max(0, trackHeight - indicatorHeight)
+            let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
+            return Rect(
+                x: absoluteFrame.maxX - indicatorInset - indicatorThickness,
+                y: absoluteFrame.origin.y + indicatorInset + travel * progress,
+                width: indicatorThickness,
+                height: indicatorHeight
+            )
+
+        case .horizontal:
+            let trackWidth = max(0, absoluteFrame.size.width - indicatorInset * 2)
+            guard trackWidth > 0 else { return nil }
+            let visibleRatio = max(0.08, absoluteFrame.size.width / max(resolvedContentSize.width, absoluteFrame.size.width))
+            let indicatorWidth = max(24, trackWidth * visibleRatio)
+            let travel = max(0, trackWidth - indicatorWidth)
+            let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
+            return Rect(
+                x: absoluteFrame.origin.x + indicatorInset + travel * progress,
+                y: absoluteFrame.maxY - indicatorInset - indicatorThickness,
+                width: indicatorWidth,
+                height: indicatorThickness
+            )
+
+        case nil:
+            return nil
+        }
+    }
+
+    private func clampedScrollOffset(for value: Double) -> Double {
+        min(max(value, 0), maxScrollOffset)
+    }
+
+    private func applyScrollDelta(_ delta: Double) -> Bool {
+        setScrollOffset(scrollOffset + delta)
+    }
+
+    private func setScrollOffset(_ value: Double) -> Bool {
+        let nextOffset = clampedScrollOffset(for: value)
+        guard nextOffset != scrollOffset else {
+            return false
+        }
+
+        scrollOffset = nextOffset
+        return true
     }
 
     fileprivate func color(for property: AnimatedColorProperty) -> Color {
@@ -540,6 +791,17 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: nil)
     }
 
+    public func mouseWheel(at point: Point, delta: Double) {
+        let scrollTarget = scrollTarget(at: point) ?? nearestScrollableNode(from: hoveredNode)
+        guard let scrollableNode = scrollTarget else {
+            return
+        }
+
+        if scrollableNode.applyMouseWheelDelta(delta) {
+            updateHoverTarget(to: hitTest(at: point))
+        }
+    }
+
     public func pointerDown(at point: Point) {
         let hitNode = hitTest(at: point)
         updateFocusTarget(to: nearestFocusableNode(from: hitNode))
@@ -579,6 +841,10 @@ public final class RetainedViewRuntime {
 
         default:
             break
+        }
+
+        if let key = event.key, handleScrollKey(key) {
+            return
         }
 
         focusedNode?.onKeyDown?(event)
@@ -655,6 +921,11 @@ public final class RetainedViewRuntime {
         return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
     }
 
+    private func scrollTarget(at point: Point) -> ViewNode? {
+        updateResolvedLayout()
+        return root.scrollTarget(at: point, parentOrigin: .zero, inheritedClip: nil)
+    }
+
     private func moveFocus(reverse: Bool) {
         let focusableNodes = focusableNodes(in: root)
         guard !focusableNodes.isEmpty else {
@@ -704,6 +975,28 @@ public final class RetainedViewRuntime {
         }
 
         return nil
+    }
+
+    private func nearestScrollableNode(from node: ViewNode?) -> ViewNode? {
+        var currentNode = node
+        while let candidate = currentNode {
+            if candidate.isScrollable {
+                return candidate
+            }
+
+            currentNode = candidate.parent
+        }
+
+        return nil
+    }
+
+    private func handleScrollKey(_ key: KeyboardKey) -> Bool {
+        let scrollableNode = nearestScrollableNode(from: focusedNode) ?? nearestScrollableNode(from: hoveredNode)
+        guard let scrollableNode else {
+            return false
+        }
+
+        return scrollableNode.applyKeyboardScroll(key)
     }
 
     private func updateResolvedLayout() {

@@ -17,6 +17,14 @@ public enum KeyboardKey: UInt32, Sendable {
     case control = 0x11
     case alt = 0x12
     case escape = 0x1B
+    case pageUp = 0x21
+    case pageDown = 0x22
+    case end = 0x23
+    case home = 0x24
+    case leftArrow = 0x25
+    case upArrow = 0x26
+    case rightArrow = 0x27
+    case downArrow = 0x28
     case space = 0x20
 }
 

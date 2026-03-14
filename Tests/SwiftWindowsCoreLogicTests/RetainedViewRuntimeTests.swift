@@ -220,6 +220,116 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertFalse(runtime.tickAnimations(at: 13))
         }
     }
+
+    func testMouseWheelScrollsNearestScrollableAncestorAndClampsOffset() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1), preferredSize: Size(width: 60, height: 30))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 70),
+                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                showsScrollIndicator: true,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -1)
+            XCTAssertEqual(scrollPanel.scrollOffset, 20)
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -10)
+            XCTAssertEqual(scrollPanel.scrollOffset, 60)
+
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 10)
+            XCTAssertEqual(scrollPanel.scrollOffset, 0)
+        }
+    }
+
+    func testRenderFrameAppliesScrollOffsetAndDrawsScrollIndicator() async {
+        await MainActor.run {
+            let indicatorColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 70),
+                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                scrollIndicatorColor: indicatorColor,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills[0].rect, Rect(x: 20, y: 0, width: 60, height: 30))
+            XCTAssertEqual(fills[1].rect, Rect(x: 20, y: 40, width: 60, height: 30))
+            XCTAssertEqual(fills[2].rect, Rect(x: 20, y: 80, width: 60, height: 30))
+            XCTAssertEqual(fills.last?.color, indicatorColor)
+        }
+    }
+
+    func testIntrinsicTextSizeSupportsLabelLayout() async {
+        await MainActor.run {
+            let label = Controls.label("HELLO", color: .white, scale: 2, alignment: .leading)
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60),
+                layoutMode: .stack(.vertical(padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .leading)),
+                isHitTestVisible: false,
+                children: [label]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertFalse(fills.isEmpty)
+            XCTAssertEqual(fills.first?.rect.origin, Point(x: 8, y: 8))
+        }
+    }
+
+    func testKeyboardScrollKeysAffectScrollableAncestorOfFocusedNode() async {
+        await MainActor.run {
+            let child = ViewNode(frame: Rect(x: 0, y: 0, width: 60, height: 40), isFocusable: true)
+            let filler = ViewNode(frame: Rect(x: 0, y: 90, width: 60, height: 40), isFocusable: true)
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 70),
+                layoutMode: .absolute,
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                isHitTestVisible: false,
+                children: [child, filler]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [scrollPanel]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 20, y: 20))
+            runtime.pointerUp(at: Point(x: 20, y: 20))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.pageDown.rawValue))
+            XCTAssertEqual(scrollPanel.scrollOffset, 59.5)
+
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            XCTAssertEqual(scrollPanel.scrollOffset, 0)
+
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+            XCTAssertEqual(scrollPanel.scrollOffset, 60)
+        }
+    }
 }
 
 private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {

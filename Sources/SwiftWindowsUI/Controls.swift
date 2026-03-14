@@ -146,6 +146,45 @@ public enum Controls {
         )
     }
 
+    public static func scrollPanel(
+        axis: ScrollAxis,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        backgroundColor: Color? = nil,
+        borderColor: Color = .clear,
+        borderWidth: Double = 0,
+        shadowColor: Color = .clear,
+        shadowOffset: Point = .zero,
+        shadowSpread: Double = 0,
+        cornerRadius: Double = 0,
+        stackLayout: StackLayout,
+        scrollStep: Double = 64,
+        scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
+        isHitTestVisible: Bool = true,
+        children: [ViewNode] = []
+    ) -> ViewNode {
+        panel(
+            frame: frame,
+            preferredSize: preferredSize,
+            backgroundColor: backgroundColor,
+            borderColor: borderColor,
+            borderWidth: borderWidth,
+            shadowColor: shadowColor,
+            shadowOffset: shadowOffset,
+            shadowSpread: shadowSpread,
+            cornerRadius: cornerRadius,
+            clipsToBounds: true,
+            layoutMode: .stack(stackLayout),
+            isHitTestVisible: isHitTestVisible,
+            children: children
+        ).configured { node in
+            node.scrollAxis = axis
+            node.scrollStep = scrollStep
+            node.showsScrollIndicator = true
+            node.scrollIndicatorColor = scrollIndicatorColor
+        }
+    }
+
     public static func button(
         runtime: RetainedViewRuntime,
         frame: Rect = .zero,
@@ -270,5 +309,12 @@ public enum Controls {
             duration: duration,
             at: Win32Window.currentTimestampSeconds()
         )
+    }
+}
+
+private extension ViewNode {
+    func configured(_ update: (ViewNode) -> Void) -> ViewNode {
+        update(self)
+        return self
     }
 }

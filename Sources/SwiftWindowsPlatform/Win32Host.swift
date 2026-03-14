@@ -9,6 +9,7 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, animationFrameAt timestamp: Double)
     func window(_ window: Win32Window, pointerMovedTo point: Point)
     func windowPointerDidLeave(_ window: Win32Window)
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double)
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
     func window(_ window: Win32Window, keyDown event: KeyboardEvent)
@@ -23,6 +24,7 @@ public extension WindowDelegate {
     func window(_ window: Win32Window, animationFrameAt timestamp: Double) {}
     func window(_ window: Win32Window, pointerMovedTo point: Point) {}
     func windowPointerDidLeave(_ window: Win32Window) {}
+    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {}
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
@@ -226,6 +228,10 @@ public final class Win32Window {
             delegate?.windowPointerDidLeave(self)
             return 0
 
+        case UINT(WM_MOUSEWHEEL):
+            delegate?.window(self, mouseWheelAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd), delta: Self.mouseWheelDelta(from: wParam))
+            return 0
+
         case UINT(WM_LBUTTONDOWN):
             SetFocus(hwnd)
             SetCapture(hwnd)
@@ -313,6 +319,21 @@ public final class Win32Window {
         let x = Int32(Int16(bitPattern: UInt16(packed & 0xFFFF)))
         let y = Int32(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
         return Point(x: Double(x), y: Double(y))
+    }
+
+    private static func clientPoint(fromScreenLParam lParam: LPARAM, hwnd: HWND?) -> Point {
+        var point = POINT(
+            x: LONG(Int16(bitPattern: UInt16(UInt32(truncatingIfNeeded: lParam) & 0xFFFF))),
+            y: LONG(Int16(bitPattern: UInt16((UInt32(truncatingIfNeeded: lParam) >> 16) & 0xFFFF)))
+        )
+        ScreenToClient(hwnd, &point)
+        return Point(x: Double(point.x), y: Double(point.y))
+    }
+
+    private static func mouseWheelDelta(from wParam: WPARAM) -> Double {
+        let highWord = UInt16((UInt(truncatingIfNeeded: wParam) >> 16) & 0xFFFF)
+        let signedDelta = Int16(bitPattern: highWord)
+        return Double(signedDelta) / Double(WHEEL_DELTA)
     }
 
     public static func currentTimestampSeconds() -> Double {

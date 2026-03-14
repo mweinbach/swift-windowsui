@@ -27,6 +27,7 @@ public final class FoundationApp: WindowDelegate {
             root: root
         )
         self.runtime = runtime
+        let textBackend = TextSystem.capabilities().backend.displayName
 
         func metricCard(title: String, value: String, palette: SurfacePalette) -> ViewNode {
             let content = Controls.stackPanel(
@@ -189,7 +190,8 @@ public final class FoundationApp: WindowDelegate {
             titleScale: 2.0
         )
 
-        let metricsPanel = Controls.stackPanel(
+        let metricsPanel = Controls.scrollPanel(
+            axis: .vertical,
             frame: Rect(x: 864, y: 184, width: 280, height: 292),
             backgroundColor: Color(red: 0.13, green: 0.18, blue: 0.25, alpha: 0.98),
             borderColor: Color(red: 0.73, green: 0.84, blue: 0.94, alpha: 0.14),
@@ -198,12 +200,12 @@ public final class FoundationApp: WindowDelegate {
             shadowOffset: Point(x: 0, y: 16),
             shadowSpread: 7,
             cornerRadius: 26,
-            clipsToBounds: true,
             stackLayout: .vertical(
                 spacing: 16,
                 padding: EdgeInsets(top: 24, leading: 24, bottom: 24, trailing: 24),
                 alignment: .stretch
             ),
+            scrollStep: 52,
             isHitTestVisible: false
         )
 
@@ -271,6 +273,26 @@ public final class FoundationApp: WindowDelegate {
             )
         )
 
+        let metricCardD = metricCard(
+            title: "TEXT",
+            value: textBackend,
+            palette: SurfacePalette(
+                idle: Color(red: 0.24, green: 0.38, blue: 0.31, alpha: 0.98),
+                focused: Color(red: 0.33, green: 0.52, blue: 0.42, alpha: 1.0),
+                pressed: Color(red: 0.74, green: 0.90, blue: 0.80, alpha: 1.0)
+            )
+        )
+
+        let metricCardE = metricCard(
+            title: "SCROLL",
+            value: "MOUSE WHEEL",
+            palette: SurfacePalette(
+                idle: Color(red: 0.35, green: 0.28, blue: 0.46, alpha: 0.98),
+                focused: Color(red: 0.49, green: 0.38, blue: 0.63, alpha: 1.0),
+                pressed: Color(red: 0.86, green: 0.79, blue: 0.95, alpha: 1.0)
+            )
+        )
+
         let footerBar = Controls.stackPanel(
             frame: Rect(x: 72, y: 440, width: 520, height: 96),
             backgroundColor: Color(red: 0.24, green: 0.30, blue: 0.37, alpha: 0.98),
@@ -305,6 +327,8 @@ public final class FoundationApp: WindowDelegate {
         metricsPanel.addChild(metricCardA)
         metricsPanel.addChild(metricCardB)
         metricsPanel.addChild(metricCardC)
+        metricsPanel.addChild(metricCardD)
+        metricsPanel.addChild(metricCardE)
         sideRail.addChild(sideAccent)
         sideRail.addChild(railStack)
         root.addChild(heroCard)
@@ -361,6 +385,11 @@ public final class FoundationApp: WindowDelegate {
 
     public func windowPointerDidLeave(_ window: Win32Window) {
         runtime.pointerExitedWindow()
+        commitRuntimeState(in: window)
+    }
+
+    public func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
+        runtime.mouseWheel(at: point, delta: delta)
         commitRuntimeState(in: window)
     }
 

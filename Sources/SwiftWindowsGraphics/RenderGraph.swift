@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 
 @MainActor
@@ -24,6 +25,7 @@ public struct RenderFrame: Equatable, Sendable {
 /// list rather than requiring shared UI code to branch on renderer type.
 public enum RenderCommand: Equatable, Sendable {
     case fillRect(FillRectCommand)
+    case drawBitmap(DrawBitmapCommand)
 }
 
 /// Shared solid-fill primitive used by all current renderers.
@@ -37,6 +39,34 @@ public struct FillRectCommand: Equatable, Sendable {
         self.rect = rect
         self.color = color
         self.cornerRadius = cornerRadius
+        self.clipRect = clipRect
+    }
+}
+
+public struct BitmapSurface: Equatable, Sendable {
+    public var width: Int32
+    public var height: Int32
+    public var bytesPerRow: Int32
+    public var pixels: Data
+
+    public init(width: Int32, height: Int32, bytesPerRow: Int32, pixels: Data) {
+        self.width = width
+        self.height = height
+        self.bytesPerRow = bytesPerRow
+        self.pixels = pixels
+    }
+}
+
+public struct DrawBitmapCommand: Equatable, Sendable {
+    public var rect: Rect
+    public var bitmap: BitmapSurface
+    public var opacity: Float
+    public var clipRect: Rect?
+
+    public init(rect: Rect, bitmap: BitmapSurface, opacity: Float = 1.0, clipRect: Rect? = nil) {
+        self.rect = rect
+        self.bitmap = bitmap
+        self.opacity = opacity
         self.clipRect = clipRect
     }
 }

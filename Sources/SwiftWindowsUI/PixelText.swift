@@ -8,6 +8,12 @@ public enum TextHorizontalAlignment: Sendable {
     case trailing
 }
 
+public enum TextWeight: Sendable {
+    case regular
+    case semibold
+    case bold
+}
+
 public struct PixelTextStyle: Sendable {
     public var color: Color
     public var scale: Double
@@ -15,6 +21,8 @@ public struct PixelTextStyle: Sendable {
     public var letterSpacing: Double
     public var lineSpacing: Double
     public var insets: EdgeInsets
+    public var fontFamily: String
+    public var weight: TextWeight
 
     public init(
         color: Color,
@@ -22,7 +30,9 @@ public struct PixelTextStyle: Sendable {
         alignment: TextHorizontalAlignment = .center,
         letterSpacing: Double = 1,
         lineSpacing: Double = 2,
-        insets: EdgeInsets = .zero
+        insets: EdgeInsets = .zero,
+        fontFamily: String = "Segoe UI",
+        weight: TextWeight = .regular
     ) {
         self.color = color
         self.scale = scale
@@ -30,6 +40,8 @@ public struct PixelTextStyle: Sendable {
         self.letterSpacing = letterSpacing
         self.lineSpacing = lineSpacing
         self.insets = insets
+        self.fontFamily = fontFamily
+        self.weight = weight
     }
 }
 

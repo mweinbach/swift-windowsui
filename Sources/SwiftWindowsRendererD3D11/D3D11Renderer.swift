@@ -47,6 +47,10 @@ public final class D3D11Renderer: RenderBackend {
     private var vertexShader: UnsafeMutablePointer<ID3D11VertexShader>?
     private var pixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
     private var constantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var bitmapVertexShader: UnsafeMutablePointer<ID3D11VertexShader>?
+    private var bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>?
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
 
@@ -55,8 +59,12 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     static func validateShaderSourceForTesting() throws {
-        var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(entryPoint: "vsMain", profile: "vs_4_0")
-        var pixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(entryPoint: "psMain", profile: "ps_4_0")
+        var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(source: rectangleShaderSource, entryPoint: "vsMain", profile: "vs_4_0")
+        var pixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(source: rectangleShaderSource, entryPoint: "psMain", profile: "ps_4_0")
+        var bitmapVertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(source: bitmapShaderSource, entryPoint: "vsMain", profile: "vs_4_0")
+        var bitmapPixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(source: bitmapShaderSource, entryPoint: "psMain", profile: "ps_4_0")
+        releaseCOM(&bitmapPixelShaderBlob)
+        releaseCOM(&bitmapVertexShaderBlob)
         releaseCOM(&pixelShaderBlob)
         releaseCOM(&vertexShaderBlob)
     }
@@ -113,6 +121,10 @@ public final class D3D11Renderer: RenderBackend {
             let vertexShader,
             let pixelShader,
             let constantBuffer,
+            let bitmapVertexShader,
+            let bitmapPixelShader,
+            let bitmapConstantBuffer,
+            let bitmapSamplerState,
             let blendState,
             let rasterizerState,
             let surface
@@ -159,7 +171,18 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         for command in frame.commands {
-            try draw(command, surfaceSize: surface.pixelSize, deviceContext: deviceContext, constantBuffer: constantBuffer)
+            try draw(
+                command,
+                surfaceSize: surface.pixelSize,
+                deviceContext: deviceContext,
+                rectangleVertexShader: vertexShader,
+                rectanglePixelShader: pixelShader,
+                rectangleConstantBuffer: constantBuffer,
+                bitmapVertexShader: bitmapVertexShader,
+                bitmapPixelShader: bitmapPixelShader,
+                bitmapConstantBuffer: bitmapConstantBuffer,
+                bitmapSamplerState: bitmapSamplerState
+            )
         }
 
         let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
@@ -213,7 +236,17 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private func createPipelineIfNeeded() throws {
-        if vertexShader != nil, pixelShader != nil, constantBuffer != nil, blendState != nil, rasterizerState != nil {
+        if
+            vertexShader != nil,
+            pixelShader != nil,
+            constantBuffer != nil,
+            bitmapVertexShader != nil,
+            bitmapPixelShader != nil,
+            bitmapConstantBuffer != nil,
+            bitmapSamplerState != nil,
+            blendState != nil,
+            rasterizerState != nil
+        {
             return
         }
 
@@ -221,13 +254,19 @@ public final class D3D11Renderer: RenderBackend {
             throw D3D11RendererError(operation: "Create D3D11 pipeline", hresult: hresultHandle)
         }
 
-        var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(entryPoint: "vsMain", profile: "vs_4_0")
+        var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(source: rectangleShaderSource, entryPoint: "vsMain", profile: "vs_4_0")
         defer { releaseCOM(&vertexShaderBlob) }
 
-        var pixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(entryPoint: "psMain", profile: "ps_4_0")
+        var pixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(source: rectangleShaderSource, entryPoint: "psMain", profile: "ps_4_0")
         defer { releaseCOM(&pixelShaderBlob) }
 
-        guard let vertexShaderBlob, let pixelShaderBlob else {
+        var bitmapVertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(source: bitmapShaderSource, entryPoint: "vsMain", profile: "vs_4_0")
+        defer { releaseCOM(&bitmapVertexShaderBlob) }
+
+        var bitmapPixelShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(source: bitmapShaderSource, entryPoint: "psMain", profile: "ps_4_0")
+        defer { releaseCOM(&bitmapPixelShaderBlob) }
+
+        guard let vertexShaderBlob, let pixelShaderBlob, let bitmapVertexShaderBlob, let bitmapPixelShaderBlob else {
             throw D3D11RendererError(operation: "Create D3D11 pipeline", hresult: hresultHandle)
         }
 
@@ -249,6 +288,24 @@ public final class D3D11Renderer: RenderBackend {
         )
         try throwIfFailed(pixelShaderHR, operation: "ID3D11Device.CreatePixelShader")
 
+        let bitmapVertexShaderHR = device.pointee.lpVtbl.pointee.CreateVertexShader(
+            device,
+            bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapVertexShaderBlob),
+            SIZE_T(bitmapVertexShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapVertexShaderBlob)),
+            nil,
+            &bitmapVertexShader
+        )
+        try throwIfFailed(bitmapVertexShaderHR, operation: "ID3D11Device.CreateVertexShader(bitmap)")
+
+        let bitmapPixelShaderHR = device.pointee.lpVtbl.pointee.CreatePixelShader(
+            device,
+            bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferPointer(bitmapPixelShaderBlob),
+            SIZE_T(bitmapPixelShaderBlob.pointee.lpVtbl.pointee.GetBufferSize(bitmapPixelShaderBlob)),
+            nil,
+            &bitmapPixelShader
+        )
+        try throwIfFailed(bitmapPixelShaderHR, operation: "ID3D11Device.CreatePixelShader(bitmap)")
+
         var constantBufferDescriptor = D3D11_BUFFER_DESC()
         constantBufferDescriptor.ByteWidth = UINT(MemoryLayout<RectangleUniforms>.size)
         constantBufferDescriptor.Usage = D3D11_USAGE_DEFAULT
@@ -256,6 +313,24 @@ public final class D3D11Renderer: RenderBackend {
 
         let constantBufferHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &constantBufferDescriptor, nil, &constantBuffer)
         try throwIfFailed(constantBufferHR, operation: "ID3D11Device.CreateBuffer")
+
+        var bitmapConstantBufferDescriptor = D3D11_BUFFER_DESC()
+        bitmapConstantBufferDescriptor.ByteWidth = UINT(MemoryLayout<BitmapUniforms>.size)
+        bitmapConstantBufferDescriptor.Usage = D3D11_USAGE_DEFAULT
+        bitmapConstantBufferDescriptor.BindFlags = UINT(D3D11_BIND_CONSTANT_BUFFER.rawValue)
+
+        let bitmapConstantBufferHR = device.pointee.lpVtbl.pointee.CreateBuffer(device, &bitmapConstantBufferDescriptor, nil, &bitmapConstantBuffer)
+        try throwIfFailed(bitmapConstantBufferHR, operation: "ID3D11Device.CreateBuffer(bitmap)")
+
+        var samplerDescriptor = D3D11_SAMPLER_DESC()
+        samplerDescriptor.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR
+        samplerDescriptor.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP
+        samplerDescriptor.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP
+        samplerDescriptor.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP
+        samplerDescriptor.MaxLOD = FLOAT(D3D11_FLOAT32_MAX)
+
+        let samplerStateHR = device.pointee.lpVtbl.pointee.CreateSamplerState(device, &samplerDescriptor, &bitmapSamplerState)
+        try throwIfFailed(samplerStateHR, operation: "ID3D11Device.CreateSamplerState")
 
         var blendDescriptor = D3D11_BLEND_DESC()
         blendDescriptor.AlphaToCoverageEnable = false
@@ -360,11 +435,34 @@ public final class D3D11Renderer: RenderBackend {
         _ command: RenderCommand,
         surfaceSize: IntSize,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
-        constantBuffer: UnsafeMutablePointer<ID3D11Buffer>
+        rectangleVertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
+        rectanglePixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
+        rectangleConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
+        bitmapVertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
+        bitmapPixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
+        bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
+        bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>
     ) throws {
         switch command {
         case .fillRect(let fillRectCommand):
-            try draw(fillRect: fillRectCommand, surfaceSize: surfaceSize, deviceContext: deviceContext, constantBuffer: constantBuffer)
+            try draw(
+                fillRect: fillRectCommand,
+                surfaceSize: surfaceSize,
+                deviceContext: deviceContext,
+                vertexShader: rectangleVertexShader,
+                pixelShader: rectanglePixelShader,
+                constantBuffer: rectangleConstantBuffer
+            )
+        case .drawBitmap(let drawBitmapCommand):
+            try draw(
+                bitmap: drawBitmapCommand,
+                surfaceSize: surfaceSize,
+                deviceContext: deviceContext,
+                vertexShader: bitmapVertexShader,
+                pixelShader: bitmapPixelShader,
+                constantBuffer: bitmapConstantBuffer,
+                samplerState: bitmapSamplerState
+            )
         }
     }
 
@@ -372,6 +470,8 @@ public final class D3D11Renderer: RenderBackend {
         fillRect command: FillRectCommand,
         surfaceSize: IntSize,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        vertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
+        pixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
         constantBuffer: UnsafeMutablePointer<ID3D11Buffer>
     ) throws {
         guard command.rect.size.width > 0, command.rect.size.height > 0 else {
@@ -395,6 +495,11 @@ public final class D3D11Renderer: RenderBackend {
 
         var activeScissorRect = scissorRect
         deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vertexShader, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, pixelShader, nil, 0)
+        var shaderConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>? = constantBuffer
+        deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
         var uniforms = RectangleUniforms(
             surfaceWidth: Float(surfaceSize.width),
@@ -420,12 +525,81 @@ public final class D3D11Renderer: RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
     }
 
-    private func compileShader(entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
-        try Self.compileShaderSource(entryPoint: entryPoint, profile: profile)
+    private func draw(
+        bitmap command: DrawBitmapCommand,
+        surfaceSize: IntSize,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        vertexShader: UnsafeMutablePointer<ID3D11VertexShader>,
+        pixelShader: UnsafeMutablePointer<ID3D11PixelShader>,
+        constantBuffer: UnsafeMutablePointer<ID3D11Buffer>,
+        samplerState: UnsafeMutablePointer<ID3D11SamplerState>
+    ) throws {
+        guard command.rect.size.width > 0, command.rect.size.height > 0, command.opacity > 0 else {
+            return
+        }
+
+        if let clipRect = command.clipRect, clipRect.intersected(with: command.rect) == nil {
+            return
+        }
+
+        let effectiveClip = command.clipRect ?? Rect(
+            x: 0,
+            y: 0,
+            width: Double(surfaceSize.width),
+            height: Double(surfaceSize.height)
+        )
+
+        guard let scissorRect = makeScissorRect(from: effectiveClip, surfaceSize: surfaceSize) else {
+            return
+        }
+
+        var activeScissorRect = scissorRect
+        deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vertexShader, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, pixelShader, nil, 0)
+
+        var shaderConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>? = constantBuffer
+        deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
+
+        var activeSamplerState: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
+        deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &activeSamplerState)
+
+        var uniforms = BitmapUniforms(
+            surfaceWidth: Float(surfaceSize.width),
+            surfaceHeight: Float(surfaceSize.height),
+            rectX: Float(command.rect.origin.x),
+            rectY: Float(command.rect.origin.y),
+            rectWidth: Float(command.rect.size.width),
+            rectHeight: Float(command.rect.size.height),
+            opacity: command.opacity,
+            padding: 0
+        )
+
+        let constantBufferResource = UnsafeMutableRawPointer(constantBuffer).assumingMemoryBound(to: ID3D11Resource.self)
+        withUnsafePointer(to: &uniforms) { pointer in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(deviceContext, constantBufferResource, 0, nil, UnsafeRawPointer(pointer), 0, 0)
+        }
+
+        let shaderResourceView = try createShaderResourceView(for: command.bitmap)
+        defer {
+            var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = shaderResourceView
+            releaseCOM(&releasableView)
+            var nullView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
+            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &nullView)
+        }
+
+        var activeShaderResourceView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = shaderResourceView
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 0, 1, &activeShaderResourceView)
+        deviceContext.pointee.lpVtbl.pointee.Draw(deviceContext, 6, 0)
     }
 
-    private static func compileShaderSource(entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
-        let sourceBytes = Array(rectangleShaderSource.utf8)
+    private func compileShader(source: String, entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
+        try Self.compileShaderSource(source: source, entryPoint: entryPoint, profile: profile)
+    }
+
+    private static func compileShaderSource(source: String, entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
+        let sourceBytes = Array(source.utf8)
         var shaderBlob: UnsafeMutablePointer<ID3DBlob>?
         var errorBlob: UnsafeMutablePointer<ID3DBlob>?
 
@@ -464,6 +638,51 @@ public final class D3D11Renderer: RenderBackend {
         return shaderBlob
     }
 
+    private func createShaderResourceView(for bitmap: BitmapSurface) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
+        guard let device else {
+            throw D3D11RendererError(operation: "Create text texture", hresult: hresultHandle)
+        }
+
+        var textureDescriptor = D3D11_TEXTURE2D_DESC()
+        textureDescriptor.Width = UINT(bitmap.width)
+        textureDescriptor.Height = UINT(bitmap.height)
+        textureDescriptor.MipLevels = 1
+        textureDescriptor.ArraySize = 1
+        textureDescriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
+        textureDescriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+        textureDescriptor.Usage = D3D11_USAGE_DEFAULT
+        textureDescriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
+
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
+        let textureHR = bitmap.pixels.withUnsafeBytes { pixels in
+            var subresource = D3D11_SUBRESOURCE_DATA()
+            subresource.pSysMem = pixels.baseAddress
+            subresource.SysMemPitch = UINT(bitmap.bytesPerRow)
+            subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
+            return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
+        }
+        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D")
+
+        guard let texture else {
+            throw D3D11RendererError(operation: "ID3D11Device.CreateTexture2D", hresult: hresultHandle)
+        }
+        defer {
+            var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
+            releaseCOM(&releasableTexture)
+        }
+
+        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        var shaderResourceView: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        let shaderResourceViewHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, nil, &shaderResourceView)
+        try throwIfFailed(shaderResourceViewHR, operation: "ID3D11Device.CreateShaderResourceView")
+
+        guard let shaderResourceView else {
+            throw D3D11RendererError(operation: "ID3D11Device.CreateShaderResourceView", hresult: hresultHandle)
+        }
+
+        return shaderResourceView
+    }
+
     private static func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> String? {
         guard
             let errorBlob,
@@ -495,6 +714,17 @@ private struct RectangleUniforms {
     var green: Float
     var blue: Float
     var alpha: Float
+}
+
+private struct BitmapUniforms {
+    var surfaceWidth: Float
+    var surfaceHeight: Float
+    var rectX: Float
+    var rectY: Float
+    var rectWidth: Float
+    var rectHeight: Float
+    var opacity: Float
+    var padding: Float
 }
 
 private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_RECT? {
@@ -590,5 +820,56 @@ float4 psMain(VSOutput input) : SV_Target
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
     clip(-distance);
     return input.color;
+}
+"""#
+
+private let bitmapShaderSource = #"""
+cbuffer BitmapUniforms : register(b0)
+{
+    float2 surfaceSize;
+    float2 rectOrigin;
+    float2 rectSize;
+    float opacity;
+    float padding;
+};
+
+struct VSOutput
+{
+    float4 position : SV_Position;
+    float2 uv : TEXCOORD0;
+};
+
+VSOutput vsMain(uint vertexID : SV_VertexID)
+{
+    const float2 quad[6] = {
+        float2(0.0, 0.0),
+        float2(1.0, 0.0),
+        float2(0.0, 1.0),
+        float2(0.0, 1.0),
+        float2(1.0, 0.0),
+        float2(1.0, 1.0)
+    };
+
+    float2 unit = quad[vertexID];
+    float2 pixelPosition = rectOrigin + unit * rectSize;
+    float2 clipPosition = float2(
+        (pixelPosition.x / surfaceSize.x) * 2.0 - 1.0,
+        1.0 - (pixelPosition.y / surfaceSize.y) * 2.0
+    );
+
+    VSOutput output;
+    output.position = float4(clipPosition, 0.0, 1.0);
+    output.uv = unit;
+    return output;
+}
+
+Texture2D textTexture : register(t0);
+SamplerState textSampler : register(s0);
+
+float4 psMain(VSOutput input) : SV_Target
+{
+    float4 sampleColor = textTexture.Sample(textSampler, input.uv);
+    sampleColor *= opacity;
+    return sampleColor;
 }
 """#

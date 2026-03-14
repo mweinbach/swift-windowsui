@@ -246,6 +246,7 @@ public enum UI {
         preferredSize: Size? = nil,
         color: Color = .white,
         scale: Double = 2,
+        weight: TextWeight = .regular,
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero
     ) -> Component {
@@ -256,6 +257,7 @@ public enum UI {
                 preferredSize: preferredSize,
                 color: color,
                 scale: scale,
+                weight: weight,
                 alignment: alignment,
                 insets: insets
             )
@@ -271,6 +273,7 @@ public enum UI {
         chrome: SurfaceChrome = .elevatedButton,
         titleColor: Color = .white,
         titleScale: Double = 2,
+        titleWeight: TextWeight = .semibold,
         clipsToBounds: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
@@ -286,6 +289,7 @@ public enum UI {
                 chrome: chrome,
                 titleColor: titleColor,
                 titleScale: titleScale,
+                titleWeight: titleWeight,
                 clipsToBounds: clipsToBounds,
                 animation: animation,
                 action: action

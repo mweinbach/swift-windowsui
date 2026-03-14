@@ -32,6 +32,10 @@ public struct TextBackendCapabilities: Equatable, Sendable {
         self.dwriteCreateFactoryAvailable = dwriteCreateFactoryAvailable
         self.dwriteFactoryCreationSucceeded = dwriteFactoryCreationSucceeded
     }
+
+    public var renderingLabel: String {
+        dwriteFactoryCreationSucceeded ? "GDI + DWRITE" : "GDI TEXT"
+    }
 }
 
 protocol TextLibraryLoading {

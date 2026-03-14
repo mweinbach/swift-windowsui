@@ -1,0 +1,237 @@
+import Foundation
+import SwiftWindowsCore
+import SwiftWindowsGraphics
+import WinSDK
+
+enum NativeTextRenderer {
+    static func measure(_ text: String, style: PixelTextStyle) -> Size? {
+        guard !text.isEmpty else {
+            return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
+        }
+
+        guard let dc = CreateCompatibleDC(nil) else {
+            return nil
+        }
+        defer { DeleteDC(dc) }
+
+        guard let font = createFont(for: style) else {
+            return nil
+        }
+        defer { DeleteObject(HGDIOBJ(font)) }
+
+        let previousObject = SelectObject(dc, HGDIOBJ(font))
+        defer { _ = SelectObject(dc, previousObject) }
+
+        var measureRect = RECT(left: 0, top: 0, right: 4096, bottom: 4096)
+        let drawFlags = baseDrawTextFlags(for: text, alignment: style.alignment) | UINT(DT_CALCRECT)
+
+        let measured = withWideString(text) { wideText in
+            DrawTextW(dc, wideText, -1, &measureRect, drawFlags)
+        }
+
+        guard measured > 0 else {
+            return nil
+        }
+
+        let width = Double(measureRect.right - measureRect.left) + style.insets.leading + style.insets.trailing
+        let height = Double(measureRect.bottom - measureRect.top) + style.insets.top + style.insets.bottom
+        return Size(width: max(1, width), height: max(1, height))
+    }
+
+    static func appendCommands(
+        for text: String,
+        in rect: Rect,
+        style: PixelTextStyle,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) -> Bool {
+        guard let bitmap = rasterize(text, in: rect.size, style: style) else {
+            return false
+        }
+
+        commands.append(
+            .drawBitmap(
+                DrawBitmapCommand(
+                    rect: rect,
+                    bitmap: bitmap,
+                    opacity: 1.0,
+                    clipRect: clipRect
+                )
+            )
+        )
+
+        return true
+    }
+
+    private static func rasterize(_ text: String, in size: Size, style: PixelTextStyle) -> BitmapSurface? {
+        let pixelWidth = max(1, Int32(size.width.rounded(.up)))
+        let pixelHeight = max(1, Int32(size.height.rounded(.up)))
+        let bytesPerRow = Int32(pixelWidth * 4)
+        let bufferSize = Int(bytesPerRow * pixelHeight)
+
+        guard let dc = CreateCompatibleDC(nil) else {
+            return nil
+        }
+        defer { DeleteDC(dc) }
+
+        var bitmapInfo = BITMAPINFO()
+        bitmapInfo.bmiHeader.biSize = DWORD(MemoryLayout<BITMAPINFOHEADER>.size)
+        bitmapInfo.bmiHeader.biWidth = LONG(pixelWidth)
+        bitmapInfo.bmiHeader.biHeight = LONG(-pixelHeight)
+        bitmapInfo.bmiHeader.biPlanes = 1
+        bitmapInfo.bmiHeader.biBitCount = 32
+        bitmapInfo.bmiHeader.biCompression = DWORD(BI_RGB)
+
+        var bits: UnsafeMutableRawPointer?
+        guard let bitmap = CreateDIBSection(dc, &bitmapInfo, UINT(DIB_RGB_COLORS), &bits, nil, 0), let bits else {
+            return nil
+        }
+        defer { DeleteObject(HGDIOBJ(bitmap)) }
+
+        let previousBitmap = SelectObject(dc, HGDIOBJ(bitmap))
+        defer { _ = SelectObject(dc, previousBitmap) }
+
+        guard let font = createFont(for: style) else {
+            return nil
+        }
+        defer { DeleteObject(HGDIOBJ(font)) }
+
+        let previousFont = SelectObject(dc, HGDIOBJ(font))
+        defer { _ = SelectObject(dc, previousFont) }
+
+        memset(bits, 0, bufferSize)
+        SetBkMode(dc, TRANSPARENT)
+        SetTextColor(dc, colorRef(red: 255, green: 255, blue: 255))
+
+        let contentRect = drawRectForInsets(style.insets, width: pixelWidth, height: pixelHeight)
+        let drawFlags = baseDrawTextFlags(for: text, alignment: style.alignment)
+
+        var targetRect = contentRect
+        _ = withWideString(text) { wideText in
+            DrawTextW(dc, wideText, -1, &targetRect, drawFlags)
+        }
+
+        let pixelBuffer = bits.assumingMemoryBound(to: UInt8.self)
+        let outputData = Data(bytes: pixelBuffer, count: bufferSize)
+        var bytes = [UInt8](outputData)
+        tint(pixelBytes: &bytes, style: style)
+
+        return BitmapSurface(
+            width: pixelWidth,
+            height: pixelHeight,
+            bytesPerRow: bytesPerRow,
+            pixels: Data(bytes)
+        )
+    }
+
+    private static func tint(pixelBytes: inout [UInt8], style: PixelTextStyle) {
+        let red = max(0, min(255, Int(style.color.red * 255)))
+        let green = max(0, min(255, Int(style.color.green * 255)))
+        let blue = max(0, min(255, Int(style.color.blue * 255)))
+        let alphaScale = max(0, min(1, Double(style.color.alpha)))
+
+        var index = 0
+        while index + 3 < pixelBytes.count {
+            let sourceBlue = Int(pixelBytes[index])
+            let sourceGreen = Int(pixelBytes[index + 1])
+            let sourceRed = Int(pixelBytes[index + 2])
+            let intensity = max(sourceRed, max(sourceGreen, sourceBlue))
+
+            if intensity == 0 {
+                pixelBytes[index] = 0
+                pixelBytes[index + 1] = 0
+                pixelBytes[index + 2] = 0
+                pixelBytes[index + 3] = 0
+                index += 4
+                continue
+            }
+
+            let alpha = Int(Double(intensity) * alphaScale)
+            pixelBytes[index] = UInt8((blue * alpha) / 255)
+            pixelBytes[index + 1] = UInt8((green * alpha) / 255)
+            pixelBytes[index + 2] = UInt8((red * alpha) / 255)
+            pixelBytes[index + 3] = UInt8(alpha)
+            index += 4
+        }
+    }
+
+    private static func createFont(for style: PixelTextStyle) -> HFONT? {
+        withWideString(style.fontFamily) { family in
+            CreateFontW(
+                -Int32(style.nativeFontPixelSize.rounded()),
+                0,
+                0,
+                0,
+                Int32(style.weight.gdiWeight),
+                0,
+                0,
+                0,
+                DWORD(DEFAULT_CHARSET),
+                DWORD(OUT_DEFAULT_PRECIS),
+                DWORD(CLIP_DEFAULT_PRECIS),
+                DWORD(ANTIALIASED_QUALITY),
+                DWORD(DEFAULT_PITCH | FF_DONTCARE),
+                family
+            )
+        }
+    }
+
+    private static func baseDrawTextFlags(for text: String, alignment: TextHorizontalAlignment) -> UINT {
+        var flags = UINT(DT_NOPREFIX)
+
+        switch alignment {
+        case .leading:
+            flags |= UINT(DT_LEFT)
+        case .center:
+            flags |= UINT(DT_CENTER)
+        case .trailing:
+            flags |= UINT(DT_RIGHT)
+        }
+
+        if text.contains("\n") {
+            flags |= UINT(DT_WORDBREAK)
+        } else {
+            flags |= UINT(DT_SINGLELINE | DT_VCENTER)
+        }
+
+        return flags
+    }
+
+    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32) -> RECT {
+        RECT(
+            left: LONG(Int32(insets.leading.rounded(.down))),
+            top: LONG(Int32(insets.top.rounded(.down))),
+            right: LONG(width - Int32(insets.trailing.rounded(.down))),
+            bottom: LONG(height - Int32(insets.bottom.rounded(.down)))
+        )
+    }
+
+    private static func colorRef(red: UInt8, green: UInt8, blue: UInt8) -> COLORREF {
+        COLORREF(UInt32(red) | (UInt32(green) << 8) | (UInt32(blue) << 16))
+    }
+}
+
+private extension PixelTextStyle {
+    var nativeFontPixelSize: Double {
+        max(12, scale * 6 + 8)
+    }
+}
+
+private extension TextWeight {
+    var gdiWeight: Int {
+        switch self {
+        case .regular:
+            return 400
+        case .semibold:
+            return 600
+        case .bold:
+            return 700
+        }
+    }
+}
+
+private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCHAR>) -> Result) -> Result {
+    var wide = Array(string.utf16)
+    wide.append(0)
+    return wide.withUnsafeBufferPointer { body($0.baseAddress!) }
+}

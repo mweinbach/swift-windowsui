@@ -38,7 +38,7 @@ public final class FoundationApp: WindowDelegate {
 
         self.runtime = runtime
         self.componentHost = ComponentHost(runtime: runtime)
-        self.textBackendLabel = TextSystem.capabilities().backend.displayName
+        self.textBackendLabel = TextSystem.capabilities().renderingLabel
         self.selectedModule = .layout
         self.interactionCount = 0
         self.lastAction = "READY"

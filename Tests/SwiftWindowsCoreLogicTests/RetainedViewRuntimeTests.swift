@@ -340,10 +340,27 @@ final class RetainedViewRuntimeTests: XCTestCase {
             )
             let runtime = RetainedViewRuntime(root: root)
 
-            let fills = fillRectCommands(in: runtime.renderFrame())
+            let rects = drawCommandRects(in: runtime.renderFrame())
 
-            XCTAssertFalse(fills.isEmpty)
-            XCTAssertEqual(fills.first?.rect.origin, Point(x: 8, y: 8))
+            XCTAssertFalse(rects.isEmpty)
+            XCTAssertEqual(rects.first?.origin, Point(x: 8, y: 8))
+        }
+    }
+
+    func testLabelProducesBitmapDrawCommandForNativeTextPath() async {
+        await MainActor.run {
+            let label = Controls.label("HELLO", color: .white, scale: 2, alignment: .leading)
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let runtime = RetainedViewRuntime(root: root)
+
+            let hasBitmapCommand = runtime.renderFrame().commands.contains { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+
+            XCTAssertTrue(hasBitmapCommand)
         }
     }
 
@@ -415,5 +432,16 @@ private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
         }
 
         return fillRect
+    }
+}
+
+private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
+    frame.commands.compactMap { command in
+        switch command {
+        case .fillRect(let fillRect):
+            return fillRect.rect
+        case .drawBitmap(let drawBitmap):
+            return drawBitmap.rect
+        }
     }
 }

@@ -244,7 +244,7 @@ public enum Controls {
         isHitTestVisible: Bool = false,
         children: [ViewNode] = []
     ) -> ViewNode {
-        let content = [label(title, color: headerColor, scale: headerScale, alignment: .leading)] + children
+        let content = [label(title, color: headerColor, scale: headerScale, weight: .semibold, alignment: .leading)] + children
         return stackPanel(
             frame: frame,
             preferredSize: preferredSize,
@@ -288,7 +288,7 @@ public enum Controls {
             stackLayout: .vertical(spacing: 6, alignment: .leading, mainAlignment: .center),
             isHitTestVisible: false,
             children: [
-                label(title, color: .white, scale: 1.8, alignment: .leading),
+                label(title, color: .white, scale: 1.8, weight: .semibold, alignment: .leading),
                 label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading),
             ]
         )
@@ -368,6 +368,7 @@ public enum Controls {
         preferredSize: Size? = nil,
         color: Color = .white,
         scale: Double = 2,
+        weight: TextWeight = .regular,
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero
     ) -> ViewNode {
@@ -376,7 +377,7 @@ public enum Controls {
             preferredSize: preferredSize,
             backgroundColor: nil,
             text: text,
-            textStyle: PixelTextStyle(color: color, scale: scale, alignment: alignment, insets: insets),
+            textStyle: PixelTextStyle(color: color, scale: scale, alignment: alignment, insets: insets, weight: weight),
             isHitTestVisible: false
         )
     }
@@ -391,11 +392,12 @@ public enum Controls {
         chrome: SurfaceChrome = .elevatedButton,
         titleColor: Color = .white,
         titleScale: Double = 2,
+        titleWeight: TextWeight = .semibold,
         clipsToBounds: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
     ) -> ViewNode {
-        let labelNode = label(title, color: titleColor, scale: titleScale)
+        let labelNode = label(title, color: titleColor, scale: titleScale, weight: titleWeight)
         return button(
             runtime: runtime,
             frame: frame,

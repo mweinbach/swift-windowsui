@@ -480,13 +480,15 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
-            PixelFont.appendCommands(
-                for: text,
-                in: fillRect,
-                style: textStyle,
-                clipRect: effectiveClip,
-                into: &commands
-            )
+            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, clipRect: effectiveClip, into: &commands) {
+                PixelFont.appendCommands(
+                    for: text,
+                    in: fillRect,
+                    style: textStyle,
+                    clipRect: effectiveClip,
+                    into: &commands
+                )
+            }
         }
 
         for child in children {
@@ -673,7 +675,7 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty {
-            return PixelFont.measure(text, style: textStyle)
+            return NativeTextRenderer.measure(text, style: textStyle) ?? PixelFont.measure(text, style: textStyle)
         }
 
         return frame.size

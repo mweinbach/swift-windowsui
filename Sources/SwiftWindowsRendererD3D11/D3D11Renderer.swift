@@ -326,7 +326,7 @@ public final class D3D11Renderer: RenderBackend {
         try throwIfFailed(bitmapConstantBufferHR, operation: "ID3D11Device.CreateBuffer(bitmap)")
 
         var samplerDescriptor = D3D11_SAMPLER_DESC()
-        samplerDescriptor.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR
+        samplerDescriptor.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT
         samplerDescriptor.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP
         samplerDescriptor.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP
         samplerDescriptor.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP
@@ -789,10 +789,24 @@ private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRe
 
 private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBitmapCommand {
     DrawBitmapCommand(
-        rect: command.rect.scaled(by: factor),
+        rect: makePixelAlignedBitmapRect(
+            from: command.rect,
+            bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
+            scaleFactor: factor
+        ),
         bitmap: command.bitmap,
         opacity: command.opacity,
         clipRect: command.clipRect?.scaled(by: factor)
+    )
+}
+
+func makePixelAlignedBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFactor: Double) -> Rect {
+    let scaledOrigin = rect.origin.scaled(by: scaleFactor)
+    return Rect(
+        x: scaledOrigin.x.rounded(.toNearestOrAwayFromZero),
+        y: scaledOrigin.y.rounded(.toNearestOrAwayFromZero),
+        width: Double(max(bitmapSize.width, 1)),
+        height: Double(max(bitmapSize.height, 1))
     )
 }
 

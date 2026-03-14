@@ -398,6 +398,7 @@ public final class Win32Window {
 public enum Win32Application {
     @discardableResult
     public static func run(window: Win32Window) throws -> Int32 {
+        Win32HighDpiSupport.enableIfNeeded()
         try window.create()
         window.show()
         return try runMessageLoop()
@@ -413,6 +414,84 @@ public enum Win32Application {
         }
 
         return Int32(truncatingIfNeeded: message.wParam)
+    }
+}
+
+private enum Win32HighDpiSupport {
+    private static var didConfigure = false
+    private static let perMonitorAware: Int32 = 2
+    private static let perMonitorAwareV2Context = UnsafeMutableRawPointer(bitPattern: -4)
+
+    static func enableIfNeeded() {
+        guard !didConfigure else {
+            return
+        }
+
+        didConfigure = true
+
+        if setProcessDpiAwarenessContext() {
+            return
+        }
+
+        if setProcessDpiAwareness() {
+            return
+        }
+
+        _ = setProcessDPIAware()
+    }
+
+    private static func setProcessDpiAwarenessContext() -> Bool {
+        guard let module = loadLibrary(named: "user32.dll") else {
+            return false
+        }
+        defer { FreeLibrary(module) }
+
+        guard let symbol = "SetProcessDpiAwarenessContext".withCString({ GetProcAddress(module, $0) }) else {
+            return false
+        }
+
+        typealias Proc = @convention(c) (UnsafeMutableRawPointer?) -> Int32
+        let function = unsafeBitCast(symbol, to: Proc.self)
+        return function(perMonitorAwareV2Context) != 0
+    }
+
+    private static func setProcessDpiAwareness() -> Bool {
+        guard let module = loadLibrary(named: "shcore.dll") else {
+            return false
+        }
+        defer { FreeLibrary(module) }
+
+        guard let symbol = "SetProcessDpiAwareness".withCString({ GetProcAddress(module, $0) }) else {
+            return false
+        }
+
+        typealias Proc = @convention(c) (Int32) -> HRESULT
+        let function = unsafeBitCast(symbol, to: Proc.self)
+        let result = function(perMonitorAware)
+        return result >= 0 || result == HRESULT(bitPattern: 0x80070005)
+    }
+
+    private static func setProcessDPIAware() -> Bool {
+        guard let module = loadLibrary(named: "user32.dll") else {
+            return false
+        }
+        defer { FreeLibrary(module) }
+
+        guard let symbol = "SetProcessDPIAware".withCString({ GetProcAddress(module, $0) }) else {
+            return false
+        }
+
+        typealias Proc = @convention(c) () -> Int32
+        let function = unsafeBitCast(symbol, to: Proc.self)
+        return function() != 0
+    }
+
+    private static func loadLibrary(named name: String) -> HMODULE? {
+        var wideName = Array(name.utf16)
+        wideName.append(0)
+        return wideName.withUnsafeBufferPointer { buffer in
+            LoadLibraryW(buffer.baseAddress)
+        }
     }
 }
 

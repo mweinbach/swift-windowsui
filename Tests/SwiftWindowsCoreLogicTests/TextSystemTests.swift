@@ -85,6 +85,13 @@ final class TextSystemTests: XCTestCase {
         XCTAssertNotNil(result.0)
         XCTAssertTrue(result.1)
     }
+
+    func testSnapLogicalTextSizeRoundsUpToWholePixels() {
+        let snapped = snapLogicalTextSize(Size(width: 18.2, height: 9.1), scaleFactor: 1.5)
+
+        XCTAssertEqual(snapped.width, 18.666666666666668, accuracy: 0.0001)
+        XCTAssertEqual(snapped.height, 9.333333333333334, accuracy: 0.0001)
+    }
 }
 
 private struct MockTextLibraryLoader: TextLibraryLoading {

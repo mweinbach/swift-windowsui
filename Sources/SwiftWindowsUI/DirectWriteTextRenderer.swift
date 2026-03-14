@@ -93,7 +93,8 @@ private final class DirectWriteSystem {
         }
 
         let layoutSize = Size(width: 4096, height: 4096)
-        guard let format = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
+        let wrapping = text.contains("\n") ? dwriteWordWrappingWrap : dwriteWordWrappingNoWrap
+        guard let format = createTextFormat(style: style, wrapping: wrapping) else {
             return nil
         }
         defer {
@@ -113,9 +114,12 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        return Size(
-            width: max(1, bounds.width / scaleFactor + style.insets.leading + style.insets.trailing),
-            height: max(1, bounds.height / scaleFactor + style.insets.top + style.insets.bottom)
+        return snapLogicalTextSize(
+            Size(
+                width: bounds.width + style.insets.leading + style.insets.trailing,
+                height: bounds.height + style.insets.top + style.insets.bottom
+            ),
+            scaleFactor: scaleFactor
         )
     }
 
@@ -169,8 +173,8 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        let bounds = textBounds(for: layout) ?? TextBounds(width: contentSize.width * scaleFactor, height: contentSize.height * scaleFactor, overhangTop: 0)
-        let origin = textOrigin(size: size, style: style, scaleFactor: scaleFactor, bounds: bounds)
+        let bounds = textBounds(for: layout) ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangTop: 0)
+        let origin = textOrigin(size: size, style: style, bounds: bounds)
 
         var drawingContext = DirectWriteDrawingContext(
             bitmapRenderTarget: bitmapTarget,
@@ -289,13 +293,12 @@ private final class DirectWriteSystem {
         )
     }
 
-    private func textOrigin(size: Size, style: PixelTextStyle, scaleFactor: Double, bounds: TextBounds) -> Point {
+    private func textOrigin(size: Size, style: PixelTextStyle, bounds: TextBounds) -> Point {
         let contentHeight = max(0, size.height - style.insets.top - style.insets.bottom)
-        let heightInDips = bounds.height / scaleFactor
-        let centeredOffset = max(0, (contentHeight - heightInDips) * 0.5)
+        let centeredOffset = max(0, (contentHeight - bounds.height) * 0.5)
         return Point(
             x: style.insets.leading,
-            y: style.insets.top + centeredOffset + bounds.overhangTop / scaleFactor
+            y: style.insets.top + centeredOffset + bounds.overhangTop
         )
     }
 
@@ -370,6 +373,21 @@ private struct TextBounds {
     var width: Double
     var height: Double
     var overhangTop: Double
+}
+
+func snapLogicalTextSize(_ size: Size, scaleFactor: Double) -> Size {
+    Size(
+        width: max(1, snapLogicalTextExtent(size.width, scaleFactor: scaleFactor)),
+        height: max(1, snapLogicalTextExtent(size.height, scaleFactor: scaleFactor))
+    )
+}
+
+func snapLogicalTextExtent(_ extent: Double, scaleFactor: Double) -> Double {
+    guard scaleFactor > 0 else {
+        return extent
+    }
+
+    return (extent * scaleFactor).rounded(.up) / scaleFactor
 }
 
 private struct DirectWriteDrawingContext {

@@ -388,6 +388,12 @@ public enum Controls {
             alignment: .stretch,
             mainAlignment: .start
         ),
+        scrollAxis: ScrollAxis? = nil,
+        scrollStep: Double = 64,
+        scrollIndicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
+        scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
+        scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
+        scrollIndicatorThickness: Double = 6,
         headerColor: Color = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96),
         headerScale: Double = 1.6,
         isHitTestVisible: Bool = false,
@@ -410,7 +416,20 @@ public enum Controls {
             stackLayout: stackLayout,
             isHitTestVisible: isHitTestVisible,
             children: content
-        )
+        ).configured { node in
+            guard let scrollAxis else {
+                return
+            }
+
+            node.scrollAxis = scrollAxis
+            node.scrollStep = scrollStep
+            node.showsScrollIndicator = true
+            node.scrollIndicatorColor = scrollIndicatorColor
+            node.scrollIndicatorIdleColor = scrollIndicatorColor
+            node.scrollIndicatorHoverColor = scrollIndicatorHoverColor
+            node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
+            node.scrollIndicatorThickness = scrollIndicatorThickness
+        }
     }
 
     public static func listRow(

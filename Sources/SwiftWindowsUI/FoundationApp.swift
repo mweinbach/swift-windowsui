@@ -18,6 +18,7 @@ public final class FoundationApp: WindowDelegate {
     private var recentEvents: [String]
     private var sidebarSplitRatio: Double
     private var detailSplitRatio: Double
+    private var activeLayoutProfile: DemoLayoutProfile
     private var isRendererReady = false
 
     public convenience init(renderer: any RenderBackend) {
@@ -46,6 +47,7 @@ public final class FoundationApp: WindowDelegate {
         self.lastAction = "READY"
         self.sidebarSplitRatio = 0.18
         self.detailSplitRatio = 0.72
+        self.activeLayoutProfile = DemoLayoutProfile.forSize(Size(width: 1280, height: 720))
         self.recentEvents = [
             "SYSTEM READY",
             "D3D11 PIPELINE ONLINE",
@@ -77,6 +79,7 @@ public final class FoundationApp: WindowDelegate {
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
+            refreshDemoLayoutProfileIfNeeded(for: runtime.root.frame.size)
             syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
         } catch {
@@ -88,6 +91,7 @@ public final class FoundationApp: WindowDelegate {
         do {
             runtime.displayScale = window.scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
+            refreshDemoLayoutProfileIfNeeded(for: runtime.root.frame.size)
             try renderer.resize(to: size)
             renderCurrentFrame(in: window)
         } catch {
@@ -171,6 +175,16 @@ public final class FoundationApp: WindowDelegate {
         commitRuntimeState(in: window)
     }
 
+    private func refreshDemoLayoutProfileIfNeeded(for size: Size) {
+        let nextLayoutProfile = DemoLayoutProfile.forSize(size)
+        guard nextLayoutProfile != activeLayoutProfile else {
+            return
+        }
+
+        activeLayoutProfile = nextLayoutProfile
+        componentHost.reload()
+    }
+
     private func selectModule(_ module: DemoModule) {
         selectedModule = module
         interactionCount += 1
@@ -225,22 +239,22 @@ public final class FoundationApp: WindowDelegate {
                 axis: .horizontal,
                 frame: layout.bodyFrame,
                 ratio: sidebarSplitRatio,
-                minPrimaryExtent: 210,
-                minSecondaryExtent: 620,
-                dividerThickness: 18,
+                minPrimaryExtent: layout.sidebarMinExtent,
+                minSecondaryExtent: layout.bodySecondaryMinExtent,
+                dividerThickness: layout.dividerThickness,
                 dividerIdleColor: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.06),
                 dividerHoverColor: Color(red: 0.58, green: 0.76, blue: 0.94, alpha: 0.16),
                 dividerActiveColor: Color(red: 0.70, green: 0.86, blue: 1.0, alpha: 0.28),
                 onRatioChanged: { [weak self] in self?.sidebarSplitRatio = $0 }
             ) {
-                buildSidebar()
+                buildSidebar(layout)
             } secondary: {
                 UI.splitView(
                     axis: .horizontal,
                     ratio: detailSplitRatio,
-                    minPrimaryExtent: 460,
-                    minSecondaryExtent: 280,
-                    dividerThickness: 18,
+                    minPrimaryExtent: layout.centerMinExtent,
+                    minSecondaryExtent: layout.detailMinExtent,
+                    dividerThickness: layout.dividerThickness,
                     dividerIdleColor: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.05),
                     dividerHoverColor: Color(red: 0.58, green: 0.76, blue: 0.94, alpha: 0.14),
                     dividerActiveColor: Color(red: 0.70, green: 0.86, blue: 1.0, alpha: 0.24),
@@ -248,7 +262,7 @@ public final class FoundationApp: WindowDelegate {
                 ) {
                     buildCenterPane(layout)
                 } secondary: {
-                    buildRightRail()
+                    buildRightRail(layout)
                 }
             }
         }
@@ -270,69 +284,85 @@ public final class FoundationApp: WindowDelegate {
                 startColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
                 endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
                 axis: .horizontal
+            ),
+            cornerRadius: layout.toolbarCornerRadius,
+            stackLayout: .horizontal(
+                spacing: layout.toolbarSpacing,
+                padding: layout.toolbarPadding,
+                alignment: .center,
+                mainAlignment: .start
             )
         ) {
             UI.stackPanel(
-                preferredSize: Size(width: 0, height: 44),
-                stackLayout: .vertical(spacing: 4, alignment: .leading),
+                preferredSize: Size(width: layout.toolbarTitleWidth, height: layout.toolbarTitleHeight),
+                layoutPriority: 1,
+                stackLayout: .vertical(spacing: layout.toolbarTitleSpacing, alignment: .leading),
                 isHitTestVisible: false
             ) {
-                UI.label("SWIFT WINDOWS UI", color: .white, scale: 1.8, alignment: .leading, maximumNumberOfLines: 1)
-                UI.label("CUSTOM WINDOWS RENDER ENGINE", color: Color(red: 0.75, green: 0.86, blue: 0.97, alpha: 0.82), scale: 1.1, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label("SWIFT WINDOWS UI", color: .white, scale: layout.toolbarTitleScale, alignment: .leading, maximumNumberOfLines: 1)
+                if layout.showsToolbarSubtitle {
+                    UI.label(
+                        "CUSTOM WINDOWS RENDER ENGINE",
+                        color: Color(red: 0.75, green: 0.86, blue: 0.97, alpha: 0.82),
+                        scale: layout.toolbarSubtitleScale,
+                        alignment: .leading,
+                        maximumNumberOfLines: 1
+                    )
+                }
             }
 
             UI.panel(
-                preferredSize: Size(width: 0, height: 38),
-                layoutPriority: 1,
+                preferredSize: Size(width: layout.toolbarSearchBaseWidth, height: layout.toolbarPillHeight),
+                layoutPriority: 2,
                 backgroundColor: Color(red: 0.17, green: 0.22, blue: 0.30, alpha: 0.98),
                 borderColor: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.12),
                 borderWidth: 1,
-                cornerRadius: 19,
-                layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 12), alignment: .center)),
+                cornerRadius: layout.toolbarPillHeight * 0.5,
+                layoutMode: .stack(.horizontal(spacing: layout.toolbarSearchSpacing, padding: layout.toolbarSearchPadding, alignment: .center)),
                 isHitTestVisible: false
             ) {
-                UI.icon(.search, preferredSize: Size(width: 18, height: 18), color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: 1.2)
-                UI.label("SEARCH COMMANDS", layoutPriority: 1, color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: 1.2, alignment: .leading, maximumNumberOfLines: 1)
+                UI.icon(.search, preferredSize: Size(width: layout.toolbarIconSize, height: layout.toolbarIconSize), color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: layout.toolbarIconScale)
+                UI.label(layout.toolbarSearchPlaceholder, layoutPriority: 1, color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: layout.toolbarSearchScale, alignment: .leading, maximumNumberOfLines: 1)
             }
 
             UI.button(
                 title: textBackendLabel,
-                preferredSize: Size(width: 138, height: 38),
-                cornerRadius: 19,
+                preferredSize: Size(width: layout.toolbarBackendWidth, height: layout.toolbarPillHeight),
+                cornerRadius: layout.toolbarPillHeight * 0.5,
                 palette: SurfacePalette(
                     idle: Color(red: 0.22, green: 0.32, blue: 0.27, alpha: 0.98),
                     focused: Color(red: 0.30, green: 0.44, blue: 0.38, alpha: 1.0),
                     pressed: Color(red: 0.79, green: 0.92, blue: 0.87, alpha: 1.0)
                 ),
-                titleScale: 1.2,
+                titleScale: layout.toolbarBadgeScale,
                 action: { [weak self] in self?.performAction("TEXT STACK READY") }
             )
 
             UI.button(
                 title: "EVENTS \(interactionCount)",
-                preferredSize: Size(width: 118, height: 38),
-                cornerRadius: 19,
+                preferredSize: Size(width: layout.toolbarEventsWidth, height: layout.toolbarPillHeight),
+                cornerRadius: layout.toolbarPillHeight * 0.5,
                 palette: SurfacePalette(
                     idle: Color(red: 0.24, green: 0.28, blue: 0.40, alpha: 0.98),
                     focused: Color(red: 0.33, green: 0.38, blue: 0.55, alpha: 1.0),
                     pressed: Color(red: 0.83, green: 0.88, blue: 0.99, alpha: 1.0)
                 ),
-                titleScale: 1.2,
+                titleScale: layout.toolbarBadgeScale,
                 action: { [weak self] in self?.performAction("EVENT HUD OPENED") }
             )
 
             UI.button(
-                title: selectedModule.statusLabel,
-                preferredSize: Size(width: 156, height: 38),
-                cornerRadius: 19,
+                title: layout.statusTitle(for: selectedModule),
+                preferredSize: Size(width: layout.toolbarModeWidth, height: layout.toolbarPillHeight),
+                cornerRadius: layout.toolbarPillHeight * 0.5,
                 palette: selectedModule.statusPalette,
-                titleScale: 1.2,
+                titleScale: layout.toolbarBadgeScale,
                 action: { [weak self] in self?.cycleModule() }
             )
         }
     }
 
-    private func buildSidebar() -> Component {
+    private func buildSidebar(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "WORKSPACE",
             backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
@@ -342,21 +372,24 @@ public final class FoundationApp: WindowDelegate {
                 axis: .vertical
             ),
             borderColor: Color(red: 0.76, green: 0.84, blue: 0.93, alpha: 0.12),
-            cornerRadius: 28,
+            cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
-                spacing: 14,
-                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                spacing: layout.sectionSpacing,
+                padding: layout.sectionPadding,
                 alignment: .stretch
-            )
+            ),
+            scrollAxis: .vertical,
+            scrollStep: layout.sidebarScrollStep,
+            scrollIndicatorThickness: layout.paneScrollIndicatorThickness
         ) {
-            buildModuleButton(.layout)
-            buildModuleButton(.input)
-            buildModuleButton(.animation)
+            buildModuleButton(.layout, layout: layout)
+            buildModuleButton(.input, layout: layout)
+            buildModuleButton(.animation, layout: layout)
 
             UI.panel(
-                preferredSize: Size(width: 0, height: 10),
+                preferredSize: Size(width: 0, height: layout.sidebarStripeHeight),
                 backgroundColor: selectedModule.stripeColor,
-                cornerRadius: 5,
+                cornerRadius: layout.sidebarStripeHeight * 0.5,
                 isHitTestVisible: false
             )
 
@@ -365,7 +398,7 @@ public final class FoundationApp: WindowDelegate {
                 detail: lastAction,
                 accentColor: selectedModule.glowColor,
                 symbol: .info,
-                preferredSize: Size(width: 0, height: 72),
+                preferredSize: Size(width: 0, height: layout.sidebarRowHeight),
                 action: { [weak self] in self?.performAction("STATE PANEL OPENED") }
             )
 
@@ -374,25 +407,38 @@ public final class FoundationApp: WindowDelegate {
                 detail: "TAB AND WHEEL ROUTING",
                 accentColor: selectedModule.stripeColor,
                 symbol: .keyboard,
-                preferredSize: Size(width: 0, height: 72),
+                preferredSize: Size(width: 0, height: layout.sidebarRowHeight),
                 action: { [weak self] in self?.performAction("SHORTCUTS OPENED") }
             )
         }
     }
 
-    private func buildModuleButton(_ module: DemoModule) -> Component {
+    private func buildModuleButton(_ module: DemoModule, layout: DemoLayout) -> Component {
         UI.button(
             title: module.label,
-            preferredSize: Size(width: 0, height: 54),
-            cornerRadius: 16,
+            preferredSize: Size(width: 0, height: layout.moduleButtonHeight),
+            cornerRadius: layout.moduleButtonCornerRadius,
             palette: module.buttonPalette(isSelected: selectedModule == module),
             action: { [weak self] in self?.selectModule(module) }
         )
     }
 
     private func buildCenterPane(_ layout: DemoLayout) -> Component {
-        UI.stackPanel(
-            stackLayout: .vertical(spacing: 18, alignment: .stretch),
+        UI.scrollPanel(
+            axis: .vertical,
+            backgroundColor: nil,
+            borderColor: .clear,
+            cornerRadius: 0,
+            stackLayout: .vertical(
+                spacing: layout.contentSectionGap,
+                padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 4),
+                alignment: .stretch
+            ),
+            scrollStep: layout.centerScrollStep,
+            scrollIndicatorColor: Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.18),
+            scrollIndicatorHoverColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.34),
+            scrollIndicatorActiveColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.58),
+            scrollIndicatorThickness: layout.paneScrollIndicatorThickness,
             isHitTestVisible: false
         ) {
             buildHeroSection(layout)
@@ -408,53 +454,53 @@ public final class FoundationApp: WindowDelegate {
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
             backgroundGradient: LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
-            cornerRadius: 30,
+            cornerRadius: layout.heroCornerRadius,
             stackLayout: .vertical(
-                spacing: 16,
-                padding: EdgeInsets(top: 20, leading: 22, bottom: 22, trailing: 22),
+                spacing: layout.heroContentSpacing,
+                padding: layout.heroPadding,
                 alignment: .stretch
             )
         ) {
-            UI.label(selectedModule.headline, color: .white, scale: 3.0, alignment: .leading, maximumNumberOfLines: 1)
-            UI.label(selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.92), scale: 1.55, alignment: .leading, maximumNumberOfLines: 1)
+            UI.label(selectedModule.headline, color: .white, scale: layout.heroHeadlineScale, alignment: .leading, maximumNumberOfLines: 1)
+            UI.label(selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.92), scale: layout.heroDetailScale, alignment: .leading, maximumNumberOfLines: 1)
 
             UI.panel(
-                preferredSize: Size(width: 0, height: 12),
+                preferredSize: Size(width: 0, height: layout.heroStripeHeight),
                 backgroundColor: selectedModule.stripeColor,
-                cornerRadius: 6,
+                cornerRadius: layout.heroStripeHeight * 0.5,
                 isHitTestVisible: false
             )
 
             UI.stackPanel(
-                preferredSize: Size(width: 0, height: 58),
-                stackLayout: .horizontal(spacing: 14, alignment: .stretch),
+                preferredSize: layout.heroActionPreferredSize,
+                stackLayout: layout.heroActionLayout,
                 isHitTestVisible: false
             ) {
                 UI.button(
                     title: "RUN DIAGNOSTICS",
-                    preferredSize: Size(width: 0, height: 54),
+                    preferredSize: Size(width: 0, height: layout.heroButtonHeight),
                     layoutPriority: 1,
-                    cornerRadius: 18,
+                    cornerRadius: layout.heroButtonCornerRadius,
                     palette: SurfacePalette(
                         idle: Color(red: 0.27, green: 0.39, blue: 0.56, alpha: 0.98),
                         focused: Color(red: 0.36, green: 0.52, blue: 0.71, alpha: 1.0),
                         pressed: Color(red: 0.80, green: 0.90, blue: 0.99, alpha: 1.0)
                     ),
-                    titleScale: 1.5,
+                    titleScale: layout.heroButtonScale,
                     action: { [weak self] in self?.performAction("DIAGNOSTICS PASSED") }
                 )
 
                 UI.button(
                     title: "SYNC SURFACES",
-                    preferredSize: Size(width: 0, height: 54),
+                    preferredSize: Size(width: 0, height: layout.heroButtonHeight),
                     layoutPriority: 1,
-                    cornerRadius: 18,
+                    cornerRadius: layout.heroButtonCornerRadius,
                     palette: SurfacePalette(
                         idle: Color(red: 0.18, green: 0.52, blue: 0.56, alpha: 0.98),
                         focused: Color(red: 0.28, green: 0.66, blue: 0.70, alpha: 1.0),
                         pressed: Color(red: 0.79, green: 0.96, blue: 0.98, alpha: 1.0)
                     ),
-                    titleScale: 1.5,
+                    titleScale: layout.heroButtonScale,
                     action: { [weak self] in self?.performAction("SURFACES RESYNCED") }
                 )
             }
@@ -463,17 +509,17 @@ public final class FoundationApp: WindowDelegate {
 
     private func buildStatsRow(_ layout: DemoLayout) -> Component {
         UI.stackPanel(
-            preferredSize: Size(width: 0, height: layout.statsHeight),
-            stackLayout: .horizontal(spacing: 18, alignment: .stretch),
+            preferredSize: layout.statsRowPreferredSize,
+            stackLayout: layout.statsRowLayout,
             isHitTestVisible: false
         ) {
-            buildStatTile(title: "MODULE", value: selectedModule.label, palette: selectedModule.metricPalette, action: "MODULE TILE OPENED")
-            buildStatTile(title: "TEXT", value: textBackendLabel, palette: SurfacePalette(
+            buildStatTile(title: "MODULE", value: selectedModule.label, layout: layout, palette: selectedModule.metricPalette, action: "MODULE TILE OPENED")
+            buildStatTile(title: "TEXT", value: textBackendLabel, layout: layout, palette: SurfacePalette(
                 idle: Color(red: 0.25, green: 0.38, blue: 0.31, alpha: 0.98),
                 focused: Color(red: 0.34, green: 0.51, blue: 0.42, alpha: 1.0),
                 pressed: Color(red: 0.75, green: 0.91, blue: 0.82, alpha: 1.0)
             ), action: "TEXT TILE OPENED")
-            buildStatTile(title: "EVENTS", value: "\(interactionCount)", palette: SurfacePalette(
+            buildStatTile(title: "EVENTS", value: "\(interactionCount)", layout: layout, palette: SurfacePalette(
                 idle: Color(red: 0.42, green: 0.31, blue: 0.23, alpha: 0.98),
                 focused: Color(red: 0.58, green: 0.43, blue: 0.31, alpha: 1.0),
                 pressed: Color(red: 0.99, green: 0.86, blue: 0.66, alpha: 1.0)
@@ -481,23 +527,23 @@ public final class FoundationApp: WindowDelegate {
         }
     }
 
-    private func buildStatTile(title: String, value: String, palette: SurfacePalette, action: String) -> Component {
+    private func buildStatTile(title: String, value: String, layout: DemoLayout, palette: SurfacePalette, action: String) -> Component {
         UI.buttonPanel(
-            preferredSize: Size(width: 0, height: 132),
+            preferredSize: Size(width: 0, height: layout.statTileHeight),
             layoutPriority: 1,
-            cornerRadius: 24,
+            cornerRadius: layout.statTileCornerRadius,
             palette: palette,
             layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
             action: { [weak self] in self?.performAction(action) }
         ) {
             UI.stackPanel(
-                preferredSize: Size(width: 0, height: 76),
+                preferredSize: Size(width: 0, height: layout.statTileContentHeight),
                 layoutPriority: 1,
-                stackLayout: .vertical(spacing: 10, alignment: .leading, mainAlignment: .center),
+                stackLayout: .vertical(spacing: layout.statTileSpacing, alignment: .leading, mainAlignment: .center),
                 isHitTestVisible: false
             ) {
-                UI.label(title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90), scale: 1.4, alignment: .leading, maximumNumberOfLines: 1)
-                UI.label(value, color: .white, scale: 2.4, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label(title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90), scale: layout.statTitleScale, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label(value, color: .white, scale: layout.statValueScale, alignment: .leading, maximumNumberOfLines: 1)
             }
         }
     }
@@ -505,8 +551,6 @@ public final class FoundationApp: WindowDelegate {
     private func buildActivitySection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "RECENT ACTIVITY",
-            preferredSize: Size(width: 0, height: max(180, layout.activityHeight)),
-            layoutPriority: 1,
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
             backgroundGradient: LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
@@ -514,44 +558,27 @@ public final class FoundationApp: WindowDelegate {
                 axis: .vertical
             ),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
-            cornerRadius: 28,
+            cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
-                spacing: 14,
-                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                spacing: layout.sectionSpacing,
+                padding: layout.sectionPadding,
                 alignment: .stretch
             )
         ) {
-            UI.scrollPanel(
-                axis: .vertical,
-                preferredSize: Size(width: 0, height: 0),
-                layoutPriority: 1,
-                backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.88),
-                borderColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.08),
-                borderWidth: 1,
-                cornerRadius: 22,
-                stackLayout: .vertical(
-                    spacing: 12,
-                    padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
-                    alignment: .stretch
-                ),
-                scrollStep: 44,
-                isHitTestVisible: false
-            ) {
-                for event in recentEvents {
-                    UI.listRow(
-                        title: event,
-                        detail: selectedModule.summary,
-                        accentColor: selectedModule.glowColor,
-                        symbol: .activity,
-                        preferredSize: Size(width: 0, height: 68),
-                        action: { [weak self] in self?.performAction("OPENED EVENT \(event)") }
-                    )
-                }
+            for event in recentEvents {
+                UI.listRow(
+                    title: event,
+                    detail: selectedModule.summary,
+                    accentColor: selectedModule.glowColor,
+                    symbol: .activity,
+                    preferredSize: Size(width: 0, height: layout.activityRowHeight),
+                    action: { [weak self] in self?.performAction("OPENED EVENT \(event)") }
+                )
             }
         }
     }
 
-    private func buildRightRail() -> Component {
+    private func buildRightRail(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "DETAILS",
             backgroundColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
@@ -561,85 +588,259 @@ public final class FoundationApp: WindowDelegate {
                 axis: .vertical
             ),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
-            cornerRadius: 28,
+            cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
-                spacing: 16,
-                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                spacing: layout.sectionSpacing,
+                padding: layout.sectionPadding,
                 alignment: .stretch
-            )
+            ),
+            scrollAxis: .vertical,
+            scrollStep: layout.rightRailScrollStep,
+            scrollIndicatorThickness: layout.paneScrollIndicatorThickness
         ) {
             UI.buttonPanel(
-                preferredSize: Size(width: 0, height: 128),
-                cornerRadius: 22,
+                preferredSize: Size(width: 0, height: layout.detailCardHeight),
+                cornerRadius: layout.detailCardCornerRadius,
                 palette: selectedModule.metricPalette,
                 layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
                 action: { [weak self] in self?.performAction("DETAIL CARD OPENED") }
             ) {
                 UI.stackPanel(
-                    preferredSize: Size(width: 0, height: 90),
+                    preferredSize: Size(width: 0, height: layout.detailCardContentHeight),
                     layoutPriority: 1,
-                    stackLayout: .vertical(spacing: 8, alignment: .leading, mainAlignment: .center),
+                    stackLayout: .vertical(spacing: layout.detailCardSpacing, alignment: .leading, mainAlignment: .center),
                     isHitTestVisible: false
                 ) {
-                    UI.label(selectedModule.label, color: .white, scale: 2.2, alignment: .leading, maximumNumberOfLines: 1)
-                    UI.label(selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.92), scale: 1.25, alignment: .leading, lineBreakMode: .wrap, maximumNumberOfLines: 2)
-                    UI.label("LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.80), scale: 1.05, alignment: .leading, maximumNumberOfLines: 1)
+                    UI.label(selectedModule.label, color: .white, scale: layout.detailCardTitleScale, alignment: .leading, maximumNumberOfLines: 1)
+                    UI.label(selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.92), scale: layout.detailCardSummaryScale, alignment: .leading, lineBreakMode: .wrap, maximumNumberOfLines: 2)
+                    UI.label("LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.80), scale: layout.detailCardMetaScale, alignment: .leading, maximumNumberOfLines: 1)
                 }
             }
 
-            UI.scrollPanel(
-                axis: .vertical,
-                preferredSize: Size(width: 0, height: 0),
-                layoutPriority: 1,
-                backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.92),
-                borderColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.08),
-                borderWidth: 1,
-                cornerRadius: 22,
-                stackLayout: .vertical(
-                    spacing: 12,
-                    padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
-                    alignment: .stretch
-                ),
-                scrollStep: 44,
-                isHitTestVisible: false
-            ) {
-                UI.label("QUICK ACTIONS", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96), scale: 1.6, weight: .semibold, alignment: .leading, maximumNumberOfLines: 1)
-                UI.listRow(
-                    title: "PROFILE LAYOUT",
-                    detail: "MEASURE, PLACE, CACHE",
-                    accentColor: selectedModule.glowColor,
-                    symbol: .layout,
-                    preferredSize: Size(width: 0, height: 68),
-                    action: { [weak self] in self?.performAction("LAYOUT PROFILED") }
-                )
-                UI.listRow(
-                    title: "INSPECT INPUT",
-                    detail: "ROUTE POINTER AND FOCUS",
-                    accentColor: selectedModule.stripeColor,
-                    symbol: .keyboard,
-                    preferredSize: Size(width: 0, height: 68),
-                    action: { [weak self] in self?.performAction("INPUT INSPECTED") }
-                )
-                UI.listRow(
-                    title: "QUEUE ANIMATION",
-                    detail: "FRAME TIMER AND PALETTES",
-                    accentColor: selectedModule.metricPalette.focused,
-                    symbol: .sparkle,
-                    preferredSize: Size(width: 0, height: 68),
-                    action: { [weak self] in self?.performAction("ANIMATION QUEUED") }
-                )
-            }
+            UI.label("QUICK ACTIONS", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96), scale: layout.quickActionsTitleScale, weight: .semibold, alignment: .leading, maximumNumberOfLines: 1)
+            UI.listRow(
+                title: "PROFILE LAYOUT",
+                detail: "MEASURE, PLACE, CACHE",
+                accentColor: selectedModule.glowColor,
+                symbol: .layout,
+                preferredSize: Size(width: 0, height: layout.quickActionRowHeight),
+                action: { [weak self] in self?.performAction("LAYOUT PROFILED") }
+            )
+            UI.listRow(
+                title: "INSPECT INPUT",
+                detail: "ROUTE POINTER AND FOCUS",
+                accentColor: selectedModule.stripeColor,
+                symbol: .keyboard,
+                preferredSize: Size(width: 0, height: layout.quickActionRowHeight),
+                action: { [weak self] in self?.performAction("INPUT INSPECTED") }
+            )
+            UI.listRow(
+                title: "QUEUE ANIMATION",
+                detail: "FRAME TIMER AND PALETTES",
+                accentColor: selectedModule.metricPalette.focused,
+                symbol: .sparkle,
+                preferredSize: Size(width: 0, height: layout.quickActionRowHeight),
+                action: { [weak self] in self?.performAction("ANIMATION QUEUED") }
+            )
         }
     }
 
     private struct DemoLayout {
         let size: Size
-        let inset: Double = 28
-        let gap: Double = 24
-        let toolbarHeight: Double = 84
+        let profile: DemoLayoutProfile
+
+        init(size: Size) {
+            self.size = size
+            self.profile = DemoLayoutProfile.forSize(size)
+        }
+
+        var isCompact: Bool {
+            profile != .regular
+        }
+
+        var isCondensed: Bool {
+            profile == .condensed
+        }
+
+        var inset: Double {
+            switch profile {
+            case .regular:
+                return 28
+            case .compact:
+                return 20
+            case .condensed:
+                return 14
+            }
+        }
+
+        var gap: Double {
+            switch profile {
+            case .regular:
+                return 24
+            case .compact:
+                return 18
+            case .condensed:
+                return 12
+            }
+        }
+
+        var dividerThickness: Double {
+            isCondensed ? 14 : 18
+        }
+
+        var toolbarHeight: Double {
+            switch profile {
+            case .regular:
+                return 84
+            case .compact:
+                return 78
+            case .condensed:
+                return 72
+            }
+        }
+
+        var toolbarCornerRadius: Double {
+            isCondensed ? 18 : 22
+        }
+
+        var toolbarSpacing: Double {
+            isCondensed ? 10 : 14
+        }
+
+        var toolbarPadding: EdgeInsets {
+            switch profile {
+            case .regular:
+                return EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+            case .compact:
+                return EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)
+            case .condensed:
+                return EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
+            }
+        }
+
+        var toolbarTitleWidth: Double {
+            switch profile {
+            case .regular:
+                return 260
+            case .compact:
+                return 198
+            case .condensed:
+                return 156
+            }
+        }
+
+        var toolbarTitleHeight: Double {
+            showsToolbarSubtitle ? 44 : 28
+        }
+
+        var toolbarTitleSpacing: Double {
+            showsToolbarSubtitle ? 4 : 0
+        }
+
+        var toolbarTitleScale: Double {
+            switch profile {
+            case .regular:
+                return 1.8
+            case .compact:
+                return 1.65
+            case .condensed:
+                return 1.5
+            }
+        }
+
+        var toolbarSubtitleScale: Double {
+            switch profile {
+            case .regular:
+                return 1.1
+            case .compact:
+                return 1.0
+            case .condensed:
+                return 0.95
+            }
+        }
+
+        var showsToolbarSubtitle: Bool {
+            !isCondensed
+        }
+
+        var toolbarPillHeight: Double {
+            isCondensed ? 34 : 38
+        }
+
+        var toolbarSearchBaseWidth: Double {
+            switch profile {
+            case .regular:
+                return 280
+            case .compact:
+                return 220
+            case .condensed:
+                return 168
+            }
+        }
+
+        var toolbarSearchPadding: EdgeInsets {
+            EdgeInsets(top: 0, leading: isCondensed ? 12 : 14, bottom: 0, trailing: isCondensed ? 10 : 12)
+        }
+
+        var toolbarSearchSpacing: Double {
+            isCondensed ? 8 : 10
+        }
+
+        var toolbarSearchPlaceholder: String {
+            isCondensed ? "SEARCH" : "SEARCH COMMANDS"
+        }
+
+        var toolbarSearchScale: Double {
+            isCondensed ? 1.05 : 1.2
+        }
+
+        var toolbarIconSize: Double {
+            isCondensed ? 16 : 18
+        }
+
+        var toolbarIconScale: Double {
+            isCondensed ? 1.1 : 1.2
+        }
+
+        var toolbarBackendWidth: Double {
+            switch profile {
+            case .regular:
+                return 138
+            case .compact:
+                return 124
+            case .condensed:
+                return 112
+            }
+        }
+
+        var toolbarEventsWidth: Double {
+            switch profile {
+            case .regular:
+                return 118
+            case .compact:
+                return 108
+            case .condensed:
+                return 96
+            }
+        }
+
+        var toolbarModeWidth: Double {
+            switch profile {
+            case .regular:
+                return 156
+            case .compact:
+                return 138
+            case .condensed:
+                return 120
+            }
+        }
+
+        var toolbarBadgeScale: Double {
+            isCondensed ? 1.05 : 1.2
+        }
 
         var toolbarFrame: Rect {
-            Rect(x: inset, y: inset, width: max(640, size.width - inset * 2), height: toolbarHeight)
+            Rect(x: inset, y: inset, width: max(320, size.width - inset * 2), height: toolbarHeight)
         }
 
         var contentTop: Double {
@@ -647,83 +848,260 @@ public final class FoundationApp: WindowDelegate {
         }
 
         var bodyFrame: Rect {
-            Rect(x: inset, y: contentTop, width: max(720, size.width - inset * 2), height: max(320, size.height - contentTop - inset))
+            Rect(x: inset, y: contentTop, width: max(320, size.width - inset * 2), height: max(240, size.height - contentTop - inset))
         }
 
-        var contentHeight: Double {
-            bodyFrame.size.height
+        var sidebarMinExtent: Double {
+            clamp(bodyFrame.size.width * (isCondensed ? 0.22 : 0.18), min: 156, max: isCompact ? 196 : 220)
         }
 
-        var sidebarWidth: Double {
-            min(228, max(200, size.width * 0.18))
+        var detailMinExtent: Double {
+            clamp(bodyFrame.size.width * (isCondensed ? 0.26 : 0.24), min: isCondensed ? 188 : 220, max: 300)
         }
 
-        var rightRailWidth: Double {
-            min(330, max(290, size.width * 0.25))
+        var centerMinExtent: Double {
+            clamp(bodyFrame.size.width * (isCondensed ? 0.42 : 0.48), min: isCondensed ? 260 : 320, max: isCompact ? 460 : 560)
         }
 
-        var sidebarFrame: Rect {
-            Rect(x: inset, y: contentTop, width: sidebarWidth, height: contentHeight)
+        var bodySecondaryMinExtent: Double {
+            centerMinExtent + detailMinExtent + dividerThickness
         }
 
-        var rightRailFrame: Rect {
-            Rect(x: size.width - inset - rightRailWidth, y: contentTop, width: rightRailWidth, height: contentHeight)
+        var sectionCornerRadius: Double {
+            isCondensed ? 22 : 28
         }
 
-        var centerOriginX: Double {
-            sidebarFrame.maxX + gap
+        var sectionSpacing: Double {
+            isCondensed ? 12 : 16
         }
 
-        var centerWidth: Double {
-            max(360, rightRailFrame.origin.x - gap - centerOriginX)
+        var sectionPadding: EdgeInsets {
+            switch profile {
+            case .regular:
+                return EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18)
+            case .compact:
+                return EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+            case .condensed:
+                return EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+            }
         }
 
         var heroHeight: Double {
-            min(250, max(220, size.height * 0.24))
+            switch profile {
+            case .regular:
+                return 240
+            case .compact:
+                return 224
+            case .condensed:
+                return 248
+            }
         }
 
-        var statsHeight: Double {
-            132
+        var heroCornerRadius: Double {
+            isCondensed ? 24 : 30
         }
 
-        var activityHeight: Double {
-            max(180, contentHeight - heroHeight - statsHeight - gap * 2)
+        var heroPadding: EdgeInsets {
+            switch profile {
+            case .regular:
+                return EdgeInsets(top: 20, leading: 22, bottom: 22, trailing: 22)
+            case .compact:
+                return EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18)
+            case .condensed:
+                return EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+            }
         }
 
-        var heroFrame: Rect {
-            Rect(x: centerOriginX, y: contentTop, width: centerWidth, height: heroHeight)
+        var heroContentSpacing: Double {
+            isCondensed ? 12 : 16
         }
 
-        var statsFrame: Rect {
-            Rect(x: centerOriginX, y: heroFrame.maxY + gap, width: centerWidth, height: statsHeight)
+        var heroHeadlineScale: Double {
+            switch profile {
+            case .regular:
+                return 3.0
+            case .compact:
+                return 2.6
+            case .condensed:
+                return 2.2
+            }
         }
 
-        var activityFrame: Rect {
-            Rect(x: centerOriginX, y: statsFrame.maxY + gap, width: centerWidth, height: activityHeight)
+        var heroDetailScale: Double {
+            switch profile {
+            case .regular:
+                return 1.55
+            case .compact:
+                return 1.35
+            case .condensed:
+                return 1.15
+            }
+        }
+
+        var heroStripeHeight: Double {
+            isCondensed ? 10 : 12
+        }
+
+        var heroButtonHeight: Double {
+            isCondensed ? 48 : 54
+        }
+
+        var heroButtonCornerRadius: Double {
+            isCondensed ? 16 : 18
+        }
+
+        var heroButtonScale: Double {
+            isCondensed ? 1.25 : 1.5
+        }
+
+        var heroActionLayout: StackLayout {
+            if isCondensed {
+                return .vertical(spacing: 12, alignment: .stretch)
+            }
+
+            return .horizontal(spacing: 14, alignment: .stretch)
+        }
+
+        var heroActionPreferredSize: Size? {
+            isCondensed ? nil : Size(width: 0, height: heroButtonHeight)
+        }
+
+        var contentSectionGap: Double {
+            isCondensed ? 14 : 18
+        }
+
+        var centerScrollStep: Double {
+            72
+        }
+
+        var sidebarScrollStep: Double {
+            44
+        }
+
+        var rightRailScrollStep: Double {
+            44
+        }
+
+        var paneScrollIndicatorThickness: Double {
+            isCondensed ? 5 : 6
+        }
+
+        var moduleButtonHeight: Double {
+            isCondensed ? 48 : 54
+        }
+
+        var moduleButtonCornerRadius: Double {
+            isCondensed ? 14 : 16
+        }
+
+        var sidebarStripeHeight: Double {
+            isCondensed ? 8 : 10
+        }
+
+        var sidebarRowHeight: Double {
+            isCondensed ? 66 : 72
+        }
+
+        var stackedStats: Bool {
+            isCondensed
+        }
+
+        var statsRowLayout: StackLayout {
+            if stackedStats {
+                return .vertical(spacing: 14, alignment: .stretch)
+            }
+
+            return .horizontal(spacing: 18, alignment: .stretch)
+        }
+
+        var statsRowPreferredSize: Size? {
+            stackedStats ? nil : Size(width: 0, height: statTileHeight)
+        }
+
+        var statTileHeight: Double {
+            isCondensed ? 118 : 132
+        }
+
+        var statTileCornerRadius: Double {
+            isCondensed ? 20 : 24
+        }
+
+        var statTileContentHeight: Double {
+            isCondensed ? 68 : 76
+        }
+
+        var statTileSpacing: Double {
+            isCondensed ? 8 : 10
+        }
+
+        var statTitleScale: Double {
+            isCondensed ? 1.2 : 1.4
+        }
+
+        var statValueScale: Double {
+            isCondensed ? 2.0 : 2.4
+        }
+
+        var activityRowHeight: Double {
+            isCondensed ? 64 : 68
+        }
+
+        var detailCardHeight: Double {
+            isCondensed ? 118 : 128
+        }
+
+        var detailCardCornerRadius: Double {
+            isCondensed ? 20 : 22
+        }
+
+        var detailCardContentHeight: Double {
+            isCondensed ? 82 : 90
+        }
+
+        var detailCardSpacing: Double {
+            isCondensed ? 6 : 8
+        }
+
+        var detailCardTitleScale: Double {
+            isCondensed ? 2.0 : 2.2
+        }
+
+        var detailCardSummaryScale: Double {
+            isCondensed ? 1.15 : 1.25
+        }
+
+        var detailCardMetaScale: Double {
+            isCondensed ? 1.0 : 1.05
+        }
+
+        var quickActionsTitleScale: Double {
+            isCondensed ? 1.45 : 1.6
+        }
+
+        var quickActionRowHeight: Double {
+            isCondensed ? 64 : 68
+        }
+
+        func statusTitle(for module: DemoModule) -> String {
+            isCondensed ? module.label : module.statusLabel
         }
 
         var backgroundAccentA: Rect {
-            Rect(x: centerOriginX - 60, y: contentTop + 26, width: min(320, centerWidth * 0.42), height: 150)
+            Rect(
+                x: bodyFrame.origin.x + bodyFrame.size.width * 0.28,
+                y: bodyFrame.origin.y + (isCondensed ? 18 : 26),
+                width: min(isCondensed ? 180 : 320, bodyFrame.size.width * 0.22),
+                height: isCondensed ? 112 : 150
+            )
         }
 
         var backgroundAccentB: Rect {
-            Rect(x: centerOriginX + centerWidth * 0.48, y: contentTop + heroHeight + 44, width: min(220, centerWidth * 0.28), height: 108)
-        }
-
-        var searchWidth: Double {
-            max(220, toolbarFrame.size.width - 740)
-        }
-
-        var sidebarContentWidth: Double {
-            max(120, sidebarWidth - 36)
-        }
-
-        var rightRailContentWidth: Double {
-            max(220, rightRailWidth - 36)
-        }
-
-        var statTileWidth: Double {
-            max(120, (centerWidth - gap * 2) / 3)
+            Rect(
+                x: bodyFrame.origin.x + bodyFrame.size.width * 0.58,
+                y: bodyFrame.origin.y + heroHeight + gap,
+                width: min(isCondensed ? 150 : 220, bodyFrame.size.width * 0.18),
+                height: isCondensed ? 86 : 108
+            )
         }
     }
 
@@ -784,6 +1162,28 @@ public final class FoundationApp: WindowDelegate {
     private func report(_ error: Error) {
         print("[SwiftWindowsUI] \(error)")
     }
+}
+
+private enum DemoLayoutProfile: Equatable {
+    case regular
+    case compact
+    case condensed
+
+    static func forSize(_ size: Size) -> DemoLayoutProfile {
+        if size.width < 940 || size.height < 640 {
+            return .condensed
+        }
+
+        if size.width < 1180 || size.height < 760 {
+            return .compact
+        }
+
+        return .regular
+    }
+}
+
+private func clamp(_ value: Double, min minimum: Double, max maximum: Double) -> Double {
+    Swift.min(Swift.max(value, minimum), maximum)
 }
 
 private enum DemoModule: CaseIterable {

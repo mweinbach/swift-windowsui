@@ -49,10 +49,12 @@ struct DemoRootView: View {
             let layout = DemoLayout(size: proxy.size)
 
             ZStack(alignment: .topLeading) {
+                DemoBackdrop(size: proxy.size)
+
                 DemoAccent(
                     frame: layout.accentA,
                     fill: LinearGradient(
-                        colors: [model.selectedModule.glowColor, model.selectedModule.stripeColor],
+                        colors: [model.selectedModule.glowColor.opacity(0.32), model.selectedModule.stripeColor.opacity(0.10)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -61,7 +63,7 @@ struct DemoRootView: View {
                 DemoAccent(
                     frame: layout.accentB,
                     fill: LinearGradient(
-                        colors: [model.selectedModule.stripeColor, model.selectedModule.glowColor],
+                        colors: [model.selectedModule.stripeColor.opacity(0.26), model.selectedModule.glowColor.opacity(0.08)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -99,80 +101,94 @@ struct DemoToolbar: View {
     let layout: DemoLayout
 
     var body: some View {
-        HStack(alignment: .center, spacing: layout.gap) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("WINSWIFTUI")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
+        DemoGlassSurface(
+            cornerRadius: layout.toolbarCornerRadius,
+            contentPadding: layout.toolbarPadding,
+            fill: LinearGradient(
+                colors: [DemoTheme.surfaceTop, DemoTheme.surfaceBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            stroke: DemoTheme.surfaceStrokeStrong,
+            shadowColor: DemoTheme.shadow
+        ) {
+            HStack(alignment: .center, spacing: layout.gap) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("WINSWIFTUI")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
 
-                Text("SAME-SOURCE DASHBOARD DEMO")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(Color(red: 0.75, green: 0.86, blue: 0.97, opacity: 0.82))
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            }
-            .frame(width: layout.toolbarTitleWidth, alignment: .leading)
+                    Text("SAME-SOURCE DASHBOARD DEMO")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(DemoTheme.secondaryText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+                }
+                .frame(width: layout.toolbarTitleWidth, alignment: .leading)
 
-            HStack(alignment: .center, spacing: 10) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundColor(Color(red: 0.82, green: 0.89, blue: 0.97, opacity: 0.88))
-                    .font(.system(size: 12))
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(DemoTheme.secondaryText)
+                        .font(.system(size: 12))
 
-                Text("SEARCH COMMANDS")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(Color(red: 0.80, green: 0.88, blue: 0.97, opacity: 0.80))
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            }
-            .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
-            .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
-            .background(Color(red: 0.17, green: 0.22, blue: 0.30, opacity: 0.98))
-            .cornerRadius(layout.pillHeight * 0.5)
-            .allowsHitTesting(false)
-            .layoutPriority(1)
+                    Text("SEARCH COMMANDS")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(DemoTheme.secondaryText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+                }
+                .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
+                .background(
+                    LinearGradient(
+                        colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .cornerRadius(layout.pillHeight * 0.5)
+                .padding(1)
+                .background(DemoTheme.surfaceStroke)
+                .cornerRadius(layout.pillHeight * 0.5 + 1)
+                .allowsHitTesting(false)
+                .layoutPriority(1)
 
-            Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-            DemoPillButton(
-                "D3D11",
-                width: layout.backendWidth,
-                fill: Color(red: 0.22, green: 0.32, blue: 0.27, opacity: 0.98)
-            ) {
-                model.performAction("RENDER STACK READY")
-            }
+                DemoPillButton(
+                    "D3D11",
+                    width: layout.backendWidth,
+                    colors: [
+                        Color(red: 0.30, green: 0.54, blue: 0.43, opacity: 0.92),
+                        Color(red: 0.18, green: 0.36, blue: 0.28, opacity: 0.78),
+                    ]
+                ) {
+                    model.performAction("RENDER STACK READY")
+                }
 
-            DemoPillButton(
-                "EVENTS \(model.interactionCount)",
-                width: layout.eventsWidth,
-                fill: Color(red: 0.24, green: 0.28, blue: 0.40, opacity: 0.98)
-            ) {
-                model.performAction("EVENT HUD OPENED")
-            }
+                DemoPillButton(
+                    "EVENTS \(model.interactionCount)",
+                    width: layout.eventsWidth,
+                    colors: [
+                        Color(red: 0.36, green: 0.48, blue: 0.72, opacity: 0.90),
+                        Color(red: 0.22, green: 0.30, blue: 0.48, opacity: 0.76),
+                    ]
+                ) {
+                    model.performAction("EVENT HUD OPENED")
+                }
 
-            DemoPillButton(
-                model.selectedModule.statusLabel,
-                width: layout.modeWidth,
-                fill: model.selectedModule.fillColor
-            ) {
-                model.cycleModule()
+                DemoPillButton(
+                    model.selectedModule.statusLabel,
+                    width: layout.modeWidth,
+                    colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                ) {
+                    model.cycleModule()
+                }
             }
         }
-        .padding(layout.toolbarPadding)
         .frame(height: layout.toolbarHeight, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.13, green: 0.17, blue: 0.24, opacity: 0.98),
-                    Color(red: 0.10, green: 0.14, blue: 0.20, opacity: 0.98),
-                ],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-        )
-        .cornerRadius(layout.toolbarCornerRadius)
-        .shadow(color: Color.black.opacity(0.22), radius: 6, x: 0, y: 12)
     }
 }
 
@@ -181,57 +197,55 @@ struct DemoSidebar: View {
     let layout: DemoLayout
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                DemoSectionTitle("WORKSPACE")
+        DemoGlassSurface(cornerRadius: layout.panelCornerRadius, contentPadding: .zero) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    DemoSectionTitle("WORKSPACE")
 
-                for module in DemoModule.allCases {
-                    DemoModuleButton(
-                        title: module.label,
-                        fill: model.selectedModule == module ? module.accentColor : module.fillColor
+                    for module in DemoModule.allCases {
+                        DemoModuleButton(
+                            title: module.label,
+                            colors: model.selectedModule == module
+                                ? [module.glowColor.opacity(0.92), module.stripeColor.opacity(0.74)]
+                                : [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                        ) {
+                            model.selectModule(module)
+                        }
+                    }
+
+                    Color.clear
+                        .frame(height: 10)
+                        .background(
+                            LinearGradient(
+                                colors: [model.selectedModule.glowColor.opacity(0.88), model.selectedModule.stripeColor.opacity(0.62)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .cornerRadius(5)
+                        .allowsHitTesting(false)
+
+                    DemoRowButton(
+                        title: "STATE",
+                        detail: model.lastAction,
+                        systemImage: "info.circle",
+                        accent: model.selectedModule.glowColor
                     ) {
-                        model.selectModule(module)
+                        model.performAction("STATE PANEL OPENED")
+                    }
+
+                    DemoRowButton(
+                        title: "SHORTCUTS",
+                        detail: "TAB AND WHEEL ROUTING",
+                        systemImage: "keyboard",
+                        accent: model.selectedModule.stripeColor
+                    ) {
+                        model.performAction("SHORTCUTS OPENED")
                     }
                 }
-
-                Color.clear
-                    .frame(height: 10)
-                    .background(model.selectedModule.stripeColor)
-                    .cornerRadius(5)
-                    .allowsHitTesting(false)
-
-                DemoRowButton(
-                    title: "STATE",
-                    detail: model.lastAction,
-                    systemImage: "info.circle",
-                    accent: model.selectedModule.glowColor
-                ) {
-                    model.performAction("STATE PANEL OPENED")
-                }
-
-                DemoRowButton(
-                    title: "SHORTCUTS",
-                    detail: "TAB AND WHEEL ROUTING",
-                    systemImage: "keyboard",
-                    accent: model.selectedModule.stripeColor
-                ) {
-                    model.performAction("SHORTCUTS OPENED")
-                }
+                .padding(layout.panelPadding)
             }
-            .padding(layout.panelPadding)
         }
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.14, green: 0.18, blue: 0.26, opacity: 0.98),
-                    Color(red: 0.10, green: 0.14, blue: 0.20, opacity: 0.98),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .cornerRadius(layout.panelCornerRadius)
-        .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 14)
     }
 }
 
@@ -325,60 +339,185 @@ struct DemoHeroCard: View {
     let layout: DemoLayout
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            DemoSectionTitle("CONTROL CENTER")
-
-            Text(model.selectedModule.headline)
-                .font(.system(size: layout.headlineSize, weight: .bold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
-
-            Text(model.selectedModule.summary)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(Color(red: 0.79, green: 0.88, blue: 0.97, opacity: 0.88))
-                .multilineTextAlignment(.leading)
-
-            Color.clear
-                .frame(height: 12)
-                .background(model.selectedModule.stripeColor)
-                .cornerRadius(6)
-                .allowsHitTesting(false)
-
-            if layout.compactActions {
-                VStack(alignment: .leading, spacing: 12) {
-                    DemoPillButton("OPEN \(model.selectedModule.label)", fill: model.selectedModule.glowColor) {
-                        model.performAction("OPENED \(model.selectedModule.label)")
-                    }
-
-                    DemoPillButton("CYCLE MODE", fill: model.selectedModule.stripeColor) {
-                        model.cycleModule()
-                    }
+        DemoTintedSurface(
+            cornerRadius: layout.panelCornerRadius + 4,
+            contentPadding: layout.panelPadding,
+            colors: [
+                model.selectedModule.panelStartColor.opacity(0.92),
+                model.selectedModule.panelEndColor.opacity(0.70),
+            ],
+            stroke: DemoTheme.surfaceStrokeStrong,
+            shadowColor: model.selectedModule.glowColor.opacity(0.12)
+        ) {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 10) {
+                    DemoCapsuleText("CONTROL CENTER")
+                    DemoCapsuleText(model.selectedModule.label, tint: model.selectedModule.glowColor)
                 }
-            } else {
-                HStack(alignment: .center, spacing: 12) {
-                    DemoPillButton("OPEN \(model.selectedModule.label)", fill: model.selectedModule.glowColor) {
-                        model.performAction("OPENED \(model.selectedModule.label)")
-                    }
-                    .layoutPriority(1)
 
-                    DemoPillButton("CYCLE MODE", fill: model.selectedModule.stripeColor) {
-                        model.cycleModule()
+                Text(model.selectedModule.headline)
+                    .font(.system(size: layout.headlineSize, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+
+                Text(model.selectedModule.summary)
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .foregroundColor(DemoTheme.secondaryText)
+                    .multilineTextAlignment(.leading)
+
+                Color.clear
+                    .frame(height: 12)
+                    .background(
+                        LinearGradient(
+                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.68)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .cornerRadius(6)
+                    .allowsHitTesting(false)
+
+                if layout.compactActions {
+                    VStack(alignment: .leading, spacing: 12) {
+                        DemoPillButton(
+                            "OPEN \(model.selectedModule.label)",
+                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                        ) {
+                            model.performAction("OPENED \(model.selectedModule.label)")
+                        }
+
+                        DemoPillButton(
+                            "CYCLE MODE",
+                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                        ) {
+                            model.cycleModule()
+                        }
                     }
-                    .layoutPriority(1)
+                } else {
+                    HStack(alignment: .center, spacing: 12) {
+                        DemoPillButton(
+                            "OPEN \(model.selectedModule.label)",
+                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                        ) {
+                            model.performAction("OPENED \(model.selectedModule.label)")
+                        }
+                        .layoutPriority(1)
+
+                        DemoPillButton(
+                            "CYCLE MODE",
+                            colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom]
+                        ) {
+                            model.cycleModule()
+                        }
+                        .layoutPriority(1)
+                    }
                 }
             }
         }
-        .padding(layout.panelPadding)
         .frame(height: layout.heroHeight, alignment: .leading)
-        .background(
-            LinearGradient(
-                colors: [model.selectedModule.panelStartColor, model.selectedModule.panelEndColor],
-                startPoint: .leading,
-                endPoint: .trailing
+    }
+}
+
+struct DemoBackdrop: View {
+    let size: CGSize
+
+    var body: some View {
+        Color.clear
+            .frame(width: size.width, height: size.height)
+            .background(
+                LinearGradient(
+                    colors: [
+                        DemoTheme.backdropTop,
+                        DemoTheme.backdropMiddle,
+                        DemoTheme.backdropBottom,
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             )
-        )
-        .cornerRadius(layout.panelCornerRadius)
-        .shadow(color: Color.black.opacity(0.26), radius: 8, x: 0, y: 14)
+            .allowsHitTesting(false)
+    }
+}
+
+struct DemoGlassSurface<Content: View>: View {
+    let content: Content
+    let cornerRadius: CGFloat
+    let contentPadding: EdgeInsets
+    let fill: LinearGradient
+    let stroke: Color
+    let shadowColor: Color
+
+    init(
+        cornerRadius: CGFloat = 30,
+        contentPadding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+        fill: LinearGradient = LinearGradient(
+            colors: [DemoTheme.surfaceTop, DemoTheme.surfaceBottom],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        ),
+        stroke: Color = DemoTheme.surfaceStroke,
+        shadowColor: Color = DemoTheme.shadow,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.cornerRadius = cornerRadius
+        self.contentPadding = contentPadding
+        self.fill = fill
+        self.stroke = stroke
+        self.shadowColor = shadowColor
+    }
+
+    var body: some View {
+        content
+            .padding(contentPadding)
+            .background(fill)
+            .cornerRadius(cornerRadius)
+            .padding(1)
+            .background(stroke)
+            .cornerRadius(cornerRadius + 1)
+            .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
+    }
+}
+
+struct DemoTintedSurface<Content: View>: View {
+    let content: Content
+    let cornerRadius: CGFloat
+    let contentPadding: EdgeInsets
+    let colors: [Color]
+    let stroke: Color
+    let shadowColor: Color
+
+    init(
+        cornerRadius: CGFloat = 24,
+        contentPadding: EdgeInsets = EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+        colors: [Color],
+        stroke: Color = DemoTheme.surfaceStrokeStrong,
+        shadowColor: Color = DemoTheme.shadow,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.cornerRadius = cornerRadius
+        self.contentPadding = contentPadding
+        self.colors = colors
+        self.stroke = stroke
+        self.shadowColor = shadowColor
+    }
+
+    var body: some View {
+        content
+            .padding(contentPadding)
+            .background(
+                LinearGradient(
+                    colors: colors,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .cornerRadius(cornerRadius)
+            .padding(1)
+            .background(stroke)
+            .cornerRadius(cornerRadius + 1)
+            .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
     }
 }
 
@@ -390,11 +529,33 @@ struct DemoPanel<Content: View>: View {
     }
 
     var body: some View {
-        content
-            .padding(EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18))
-            .background(Color(red: 0.14, green: 0.18, blue: 0.25, opacity: 0.98))
-            .cornerRadius(28)
-            .shadow(color: Color.black.opacity(0.24), radius: 8, x: 0, y: 14)
+        DemoGlassSurface {
+            content
+        }
+    }
+}
+
+struct DemoCapsuleText: View {
+    let title: String
+    let tint: Color?
+
+    init(_ title: String, tint: Color? = nil) {
+        self.title = title
+        self.tint = tint
+    }
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .foregroundColor(.white.opacity(0.88))
+            .multilineTextAlignment(.center)
+            .lineLimit(1)
+            .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
+            .background((tint ?? DemoTheme.fieldTop).opacity(tint == nil ? 0.70 : 0.84))
+            .cornerRadius(12)
+            .padding(1)
+            .background(DemoTheme.surfaceStroke)
+            .cornerRadius(13)
     }
 }
 
@@ -407,8 +568,8 @@ struct DemoSectionTitle: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 16, weight: .bold))
-            .foregroundColor(Color(red: 0.90, green: 0.95, blue: 1.0, opacity: 0.96))
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .foregroundColor(DemoTheme.secondaryText)
             .multilineTextAlignment(.leading)
             .lineLimit(1)
     }
@@ -417,46 +578,61 @@ struct DemoSectionTitle: View {
 struct DemoPillButton: View {
     let title: String
     let width: CGFloat?
-    let fill: Color
+    let colors: [Color]
     let perform: @MainActor @Sendable () -> Void
 
-    init(_ title: String, width: CGFloat? = nil, fill: Color, perform: @escaping @MainActor @Sendable () -> Void) {
+    init(
+        _ title: String,
+        width: CGFloat? = nil,
+        colors: [Color],
+        perform: @escaping @MainActor @Sendable () -> Void
+    ) {
         self.title = title
         self.width = width
-        self.fill = fill
+        self.colors = colors
         self.perform = perform
     }
 
     var body: some View {
         Button(action: perform) {
-            Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .frame(width: width, height: 38)
-                .background(fill)
-                .cornerRadius(19)
-                .shadow(color: Color.black.opacity(0.18), radius: 4, x: 0, y: 8)
+            DemoTintedSurface(
+                cornerRadius: 20,
+                contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                colors: colors,
+                stroke: DemoTheme.surfaceStrokeStrong,
+                shadowColor: DemoTheme.shadow
+            ) {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .frame(width: width, height: 38)
+            }
         }
     }
 }
 
 struct DemoModuleButton: View {
     let title: String
-    let fill: Color
+    let colors: [Color]
     let perform: @MainActor @Sendable () -> Void
 
     var body: some View {
         Button(action: perform) {
-            Text(title)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .lineLimit(1)
-                .frame(height: 52)
-                .background(fill)
-                .cornerRadius(16)
+            DemoTintedSurface(
+                cornerRadius: 18,
+                contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                colors: colors,
+                stroke: DemoTheme.surfaceStroke
+            ) {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+                    .frame(height: 52)
+            }
         }
     }
 }
@@ -470,36 +646,57 @@ struct DemoRowButton: View {
 
     var body: some View {
         Button(action: perform) {
-            HStack(alignment: .center, spacing: 14) {
-                Color.clear
-                    .frame(width: 8, height: 44)
-                    .background(accent)
-                    .cornerRadius(4)
-                    .allowsHitTesting(false)
+            DemoGlassSurface(
+                cornerRadius: 20,
+                contentPadding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
+                fill: LinearGradient(
+                    colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                stroke: DemoTheme.surfaceStroke
+            ) {
+                HStack(alignment: .center, spacing: 14) {
+                    Color.clear
+                        .frame(width: 8, height: 44)
+                        .background(
+                            LinearGradient(
+                                colors: [accent.opacity(0.94), accent.opacity(0.62)],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                        .cornerRadius(4)
+                        .allowsHitTesting(false)
 
-                Image(systemName: systemImage)
-                    .foregroundColor(accent)
-                    .font(.system(size: 15))
-                    .frame(width: 24, height: 24)
+                    DemoTintedSurface(
+                        cornerRadius: 16,
+                        contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                        colors: [accent.opacity(0.90), accent.opacity(0.62)],
+                        stroke: DemoTheme.surfaceStroke
+                    ) {
+                        Image(systemName: systemImage)
+                            .foregroundColor(.white)
+                            .font(.system(size: 15))
+                            .frame(width: 30, height: 30)
+                    }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(title)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
 
-                    Text(detail)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(Color(red: 0.76, green: 0.86, blue: 0.95, opacity: 0.86))
-                        .multilineTextAlignment(.leading)
-                        .lineLimit(1)
+                        Text(detail)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(DemoTheme.tertiaryText)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(1)
+                    }
+                    .layoutPriority(1)
                 }
-                .layoutPriority(1)
             }
-            .padding(EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14))
-            .background(Color(red: 0.18, green: 0.23, blue: 0.31, opacity: 0.98))
-            .cornerRadius(18)
         }
     }
 }
@@ -511,27 +708,25 @@ struct DemoMetricCard: View {
     let accent: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(Color(red: 0.82, green: 0.89, blue: 0.97, opacity: 0.84))
-                .multilineTextAlignment(.leading)
-                .lineLimit(1)
+        DemoGlassSurface(cornerRadius: 26) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(DemoTheme.tertiaryText)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
 
-            Text(value)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
+                Text(value)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
 
-            Text(note)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundColor(accent)
-                .multilineTextAlignment(.leading)
+                Text(note)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(accent)
+                    .multilineTextAlignment(.leading)
+            }
         }
-        .padding(EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18))
-        .background(Color(red: 0.14, green: 0.18, blue: 0.25, opacity: 0.98))
-        .cornerRadius(24)
-        .shadow(color: Color.black.opacity(0.20), radius: 6, x: 0, y: 10)
     }
 }
 
@@ -551,34 +746,32 @@ struct DemoInfoCard: View {
     let card: DemoCard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(card.title)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.leading)
+        DemoGlassSurface(
+            cornerRadius: 24,
+            fill: LinearGradient(
+                colors: [DemoTheme.fieldTop, DemoTheme.fieldBottom],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            stroke: DemoTheme.surfaceStroke
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(card.title)
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
 
-            Text(card.summary)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(Color(red: 0.79, green: 0.88, blue: 0.97, opacity: 0.86))
-                .multilineTextAlignment(.leading)
+                Text(card.summary)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(DemoTheme.secondaryText)
+                    .multilineTextAlignment(.leading)
 
-            Text(card.meta)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundColor(card.accent)
-                .multilineTextAlignment(.leading)
+                Text(card.meta)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(card.accent)
+                    .multilineTextAlignment(.leading)
+            }
         }
-        .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(red: 0.16, green: 0.21, blue: 0.29, opacity: 0.98),
-                    Color(red: 0.12, green: 0.16, blue: 0.22, opacity: 0.98),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-        .cornerRadius(22)
     }
 }
 
@@ -603,26 +796,41 @@ struct DemoAccent: View {
     }
 }
 
+enum DemoTheme {
+    static let backdropTop = Color(red: 0.06, green: 0.09, blue: 0.16, opacity: 1.0)
+    static let backdropMiddle = Color(red: 0.05, green: 0.08, blue: 0.14, opacity: 1.0)
+    static let backdropBottom = Color(red: 0.03, green: 0.05, blue: 0.10, opacity: 1.0)
+    static let surfaceTop = Color(red: 0.13, green: 0.17, blue: 0.27, opacity: 0.78)
+    static let surfaceBottom = Color(red: 0.09, green: 0.12, blue: 0.20, opacity: 0.60)
+    static let fieldTop = Color(red: 0.18, green: 0.23, blue: 0.33, opacity: 0.70)
+    static let fieldBottom = Color(red: 0.12, green: 0.16, blue: 0.25, opacity: 0.52)
+    static let surfaceStroke = Color(red: 0.98, green: 0.99, blue: 1.0, opacity: 0.10)
+    static let surfaceStrokeStrong = Color(red: 0.98, green: 0.99, blue: 1.0, opacity: 0.16)
+    static let secondaryText = Color(red: 0.88, green: 0.93, blue: 0.99, opacity: 0.80)
+    static let tertiaryText = Color(red: 0.76, green: 0.84, blue: 0.94, opacity: 0.70)
+    static let shadow = Color(red: 0.02, green: 0.04, blue: 0.09, opacity: 0.16)
+}
+
 struct DemoLayout {
     let size: CGSize
 
     var compact: Bool { size.width < 980 || size.height < 680 }
-    var outerPadding: CGFloat { compact ? 18 : 26 }
-    var gap: CGFloat { compact ? 14 : 18 }
-    var toolbarHeight: CGFloat { compact ? 76 : 84 }
+    var outerPadding: CGFloat { compact ? 20 : 28 }
+    var gap: CGFloat { compact ? 16 : 20 }
+    var toolbarHeight: CGFloat { compact ? 82 : 92 }
     var bodyHeight: CGFloat { max(280, size.height - outerPadding * 2 - toolbarHeight - gap) }
-    var sidebarWidth: CGFloat { compact ? 220 : 248 }
-    var railWidth: CGFloat { compact ? 260 : 300 }
-    var toolbarCornerRadius: CGFloat { compact ? 18 : 22 }
-    var panelCornerRadius: CGFloat { compact ? 24 : 30 }
+    var sidebarWidth: CGFloat { compact ? 226 : 254 }
+    var railWidth: CGFloat { compact ? 272 : 312 }
+    var toolbarCornerRadius: CGFloat { compact ? 24 : 30 }
+    var panelCornerRadius: CGFloat { compact ? 28 : 34 }
     var toolbarTitleWidth: CGFloat { compact ? 188 : 248 }
     var searchWidth: CGFloat { compact ? 210 : 280 }
     var backendWidth: CGFloat { compact ? 108 : 132 }
     var eventsWidth: CGFloat { compact ? 124 : 136 }
     var modeWidth: CGFloat { compact ? 132 : 156 }
     var pillHeight: CGFloat { 38 }
-    var headlineSize: CGFloat { compact ? 24 : 30 }
-    var heroHeight: CGFloat { compact ? 230 : 250 }
+    var headlineSize: CGFloat { compact ? 26 : 32 }
+    var heroHeight: CGFloat { compact ? 236 : 264 }
     var compactActions: Bool { compact }
 
     var toolbarPadding: EdgeInsets {
@@ -639,19 +847,19 @@ struct DemoLayout {
 
     var accentA: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.30,
-            y: outerPadding + toolbarHeight + gap + 18,
-            width: compact ? 170 : 280,
-            height: compact ? 108 : 146
+            x: outerPadding + size.width * 0.26,
+            y: outerPadding + toolbarHeight + gap + 10,
+            width: compact ? 180 : 300,
+            height: compact ? 112 : 164
         )
     }
 
     var accentB: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.60,
-            y: outerPadding + toolbarHeight + heroHeight + gap * 2,
-            width: compact ? 148 : 210,
-            height: compact ? 82 : 108
+            x: outerPadding + size.width * 0.64,
+            y: outerPadding + toolbarHeight + heroHeight + gap * 2 - 8,
+            width: compact ? 156 : 228,
+            height: compact ? 88 : 118
         )
     }
 }
@@ -718,49 +926,49 @@ enum DemoModule: CaseIterable {
 
     var glowColor: Color {
         switch self {
-        case .layout: return Color(red: 0.30, green: 0.59, blue: 0.80, opacity: 0.92)
-        case .input: return Color(red: 0.25, green: 0.67, blue: 0.62, opacity: 0.92)
-        case .animation: return Color(red: 0.94, green: 0.58, blue: 0.33, opacity: 0.94)
+        case .layout: return Color(red: 0.42, green: 0.68, blue: 0.96, opacity: 0.94)
+        case .input: return Color(red: 0.36, green: 0.80, blue: 0.74, opacity: 0.94)
+        case .animation: return Color(red: 1.0, green: 0.69, blue: 0.44, opacity: 0.96)
         }
     }
 
     var stripeColor: Color {
         switch self {
-        case .layout: return Color(red: 0.43, green: 0.71, blue: 0.86, opacity: 0.88)
-        case .input: return Color(red: 0.44, green: 0.78, blue: 0.73, opacity: 0.88)
-        case .animation: return Color(red: 0.95, green: 0.71, blue: 0.38, opacity: 0.90)
+        case .layout: return Color(red: 0.58, green: 0.80, blue: 1.0, opacity: 0.90)
+        case .input: return Color(red: 0.56, green: 0.88, blue: 0.82, opacity: 0.90)
+        case .animation: return Color(red: 1.0, green: 0.80, blue: 0.54, opacity: 0.92)
         }
     }
 
     var fillColor: Color {
         switch self {
-        case .layout: return Color(red: 0.22, green: 0.31, blue: 0.41, opacity: 0.96)
-        case .input: return Color(red: 0.20, green: 0.35, blue: 0.38, opacity: 0.96)
-        case .animation: return Color(red: 0.39, green: 0.29, blue: 0.21, opacity: 0.96)
+        case .layout: return Color(red: 0.19, green: 0.25, blue: 0.38, opacity: 0.84)
+        case .input: return Color(red: 0.16, green: 0.28, blue: 0.30, opacity: 0.84)
+        case .animation: return Color(red: 0.31, green: 0.24, blue: 0.18, opacity: 0.84)
         }
     }
 
     var accentColor: Color {
         switch self {
-        case .layout: return Color(red: 0.31, green: 0.40, blue: 0.51, opacity: 1.0)
-        case .input: return Color(red: 0.27, green: 0.45, blue: 0.49, opacity: 1.0)
-        case .animation: return Color(red: 0.55, green: 0.42, blue: 0.29, opacity: 1.0)
+        case .layout: return Color(red: 0.30, green: 0.40, blue: 0.58, opacity: 0.98)
+        case .input: return Color(red: 0.24, green: 0.42, blue: 0.44, opacity: 0.98)
+        case .animation: return Color(red: 0.46, green: 0.36, blue: 0.26, opacity: 0.98)
         }
     }
 
     var panelStartColor: Color {
         switch self {
-        case .layout: return Color(red: 0.19, green: 0.24, blue: 0.33, opacity: 0.98)
-        case .input: return Color(red: 0.16, green: 0.24, blue: 0.28, opacity: 0.98)
-        case .animation: return Color(red: 0.24, green: 0.21, blue: 0.18, opacity: 0.98)
+        case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.84)
+        case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.84)
+        case .animation: return Color(red: 0.26, green: 0.21, blue: 0.18, opacity: 0.84)
         }
     }
 
     var panelEndColor: Color {
         switch self {
-        case .layout: return Color(red: 0.13, green: 0.18, blue: 0.26, opacity: 0.98)
-        case .input: return Color(red: 0.12, green: 0.21, blue: 0.24, opacity: 0.98)
-        case .animation: return Color(red: 0.20, green: 0.17, blue: 0.14, opacity: 0.98)
+        case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.68)
+        case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.68)
+        case .animation: return Color(red: 0.18, green: 0.15, blue: 0.13, opacity: 0.68)
         }
     }
 

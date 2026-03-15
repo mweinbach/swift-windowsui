@@ -449,9 +449,11 @@ public struct ButtonSurfaceStyle: Sendable {
     public static let `default` = ButtonSurfaceStyle()
 
     public static let defaultPalette = SurfacePalette(
-        idle: Color(red: 0.20, green: 0.26, blue: 0.35, alpha: 0.98),
-        focused: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 1.0),
-        pressed: Color(red: 0.78, green: 0.87, blue: 0.97, alpha: 1.0)
+        idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.74),
+        hovered: Color(red: 0.22, green: 0.29, blue: 0.39, alpha: 0.82),
+        focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.88),
+        pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.94),
+        activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
     )
 }
 
@@ -485,10 +487,10 @@ public struct ScrollViewStyle: Sendable {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         scrollStep: Double = 64,
-        indicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
-        indicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
-        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
-        indicatorThickness: Double = 6,
+        indicatorColor: Color = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+        indicatorHoverColor: Color = Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.30),
+        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.46),
+        indicatorThickness: Double = 5,
         isHitTestVisible: Bool = true
     ) {
         self.spacing = spacing
@@ -535,19 +537,19 @@ public struct SectionStyle: Sendable {
         spacing: Double = 16,
         padding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
         alignment: HorizontalAlignment = .leading,
-        backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+        backgroundColor: Color = Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78),
         backgroundGradient: LinearGradient? = nil,
-        borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
-        shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.24),
-        cornerRadius: Double = 24,
+        borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+        shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
+        cornerRadius: Double = 28,
         scrollAxis: Axis? = nil,
         scrollStep: Double = 64,
-        indicatorColor: Color = Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.26),
-        indicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
-        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
-        indicatorThickness: Double = 6,
-        headerColor: Color = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96),
-        headerFont: Font = .system(size: 1.6, weight: .semibold),
+        indicatorColor: Color = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+        indicatorHoverColor: Color = Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.30),
+        indicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.46),
+        indicatorThickness: Double = 5,
+        headerColor: Color = Color(red: 0.93, green: 0.97, blue: 1.0, alpha: 0.94),
+        headerFont: Font = .system(size: 1.5, weight: .semibold),
         isHitTestVisible: Bool = false
     ) {
         self.spacing = spacing

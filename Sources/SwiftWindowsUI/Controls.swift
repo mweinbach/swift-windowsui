@@ -19,12 +19,20 @@ public struct ControlAnimationStyle: Sendable {
 
 public struct SurfacePalette: Sendable {
     public var idle: Color
+    public var hovered: Color
     public var focused: Color
     public var pressed: Color
     public var activated: Color
 
-    public init(idle: Color, focused: Color, pressed: Color, activated: Color? = nil) {
+    public init(
+        idle: Color,
+        hovered: Color? = nil,
+        focused: Color,
+        pressed: Color,
+        activated: Color? = nil
+    ) {
         self.idle = idle
+        self.hovered = hovered ?? focused
         self.focused = focused
         self.pressed = pressed
         self.activated = activated ?? focused
@@ -33,39 +41,69 @@ public struct SurfacePalette: Sendable {
 
 public struct SurfaceChrome: Sendable {
     public var borderColor: Color
+    public var borderHoveredColor: Color
+    public var borderFocusedColor: Color
+    public var borderPressedColor: Color
+    public var borderActivatedColor: Color
     public var borderWidth: Double
     public var focusRingColor: Color
     public var focusRingWidth: Double
     public var shadowColor: Color
+    public var shadowHoveredColor: Color
+    public var shadowFocusedColor: Color
+    public var shadowPressedColor: Color
+    public var shadowActivatedColor: Color
     public var shadowOffset: Point
     public var shadowSpread: Double
 
     public init(
         borderColor: Color = .clear,
+        borderHoveredColor: Color? = nil,
+        borderFocusedColor: Color? = nil,
+        borderPressedColor: Color? = nil,
+        borderActivatedColor: Color? = nil,
         borderWidth: Double = 0,
         focusRingColor: Color = .clear,
         focusRingWidth: Double = 0,
         shadowColor: Color = .clear,
+        shadowHoveredColor: Color? = nil,
+        shadowFocusedColor: Color? = nil,
+        shadowPressedColor: Color? = nil,
+        shadowActivatedColor: Color? = nil,
         shadowOffset: Point = .zero,
         shadowSpread: Double = 0
     ) {
         self.borderColor = borderColor
+        self.borderHoveredColor = borderHoveredColor ?? borderColor
+        self.borderFocusedColor = borderFocusedColor ?? borderHoveredColor ?? borderColor
+        self.borderPressedColor = borderPressedColor ?? borderFocusedColor ?? borderColor
+        self.borderActivatedColor = borderActivatedColor ?? borderFocusedColor ?? borderColor
         self.borderWidth = borderWidth
         self.focusRingColor = focusRingColor
         self.focusRingWidth = focusRingWidth
         self.shadowColor = shadowColor
+        self.shadowHoveredColor = shadowHoveredColor ?? shadowColor
+        self.shadowFocusedColor = shadowFocusedColor ?? shadowHoveredColor ?? shadowColor
+        self.shadowPressedColor = shadowPressedColor ?? shadowFocusedColor ?? shadowColor
+        self.shadowActivatedColor = shadowActivatedColor ?? shadowFocusedColor ?? shadowColor
         self.shadowOffset = shadowOffset
         self.shadowSpread = shadowSpread
     }
 
     public static let elevatedButton = SurfaceChrome(
-        borderColor: Color(red: 0.72, green: 0.81, blue: 0.90, alpha: 0.20),
+        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+        borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+        borderFocusedColor: Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
         borderWidth: 1,
-        focusRingColor: Color(red: 0.88, green: 0.96, blue: 1.0, alpha: 0.44),
-        focusRingWidth: 3,
-        shadowColor: Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.30),
-        shadowOffset: Point(x: 0, y: 10),
-        shadowSpread: 6
+        focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28),
+        focusRingWidth: 2,
+        shadowColor: Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.14),
+        shadowHoveredColor: Color(red: 0.02, green: 0.06, blue: 0.12, alpha: 0.18),
+        shadowFocusedColor: Color(red: 0.04, green: 0.10, blue: 0.18, alpha: 0.24),
+        shadowPressedColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.10),
+        shadowOffset: Point(x: 0, y: 16),
+        shadowSpread: 10
     )
 }
 
@@ -339,11 +377,11 @@ public enum Controls {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
-        backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+        backgroundColor: Color = Color(red: 0.09, green: 0.12, blue: 0.19, alpha: 0.76),
         backgroundGradient: LinearGradient? = nil,
-        borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
-        shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.22),
-        cornerRadius: Double = 22,
+        borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.11),
+        shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.18),
+        cornerRadius: Double = 28,
         stackLayout: StackLayout = .horizontal(
             spacing: 14,
             padding: EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18),
@@ -362,8 +400,8 @@ public enum Controls {
             borderColor: borderColor,
             borderWidth: 1,
             shadowColor: shadowColor,
-            shadowOffset: Point(x: 0, y: 12),
-            shadowSpread: 6,
+            shadowOffset: Point(x: 0, y: 18),
+            shadowSpread: 10,
             cornerRadius: cornerRadius,
             clipsToBounds: true,
             stackLayout: stackLayout,
@@ -377,11 +415,11 @@ public enum Controls {
         frame: Rect = .zero,
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
-        backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+        backgroundColor: Color = Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78),
         backgroundGradient: LinearGradient? = nil,
-        borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
-        shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.24),
-        cornerRadius: Double = 24,
+        borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+        shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
+        cornerRadius: Double = 28,
         stackLayout: StackLayout = .vertical(
             spacing: 16,
             padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
@@ -409,8 +447,8 @@ public enum Controls {
             borderColor: borderColor,
             borderWidth: 1,
             shadowColor: shadowColor,
-            shadowOffset: Point(x: 0, y: 14),
-            shadowSpread: 7,
+            shadowOffset: Point(x: 0, y: 20),
+            shadowSpread: 10,
             cornerRadius: cornerRadius,
             clipsToBounds: true,
             stackLayout: stackLayout,
@@ -526,26 +564,74 @@ public enum Controls {
             children: children
         )
 
+        let interactionState = ButtonInteractionState()
+
+        func applySurfaceState(duration: Double) {
+            let backgroundColor: Color
+            let borderColor: Color
+            let shadowColor: Color
+
+            if interactionState.isPressed {
+                backgroundColor = palette.pressed
+                borderColor = chrome.borderPressedColor
+                shadowColor = chrome.shadowPressedColor
+            } else if interactionState.isFocused {
+                backgroundColor = palette.focused
+                borderColor = chrome.borderFocusedColor
+                shadowColor = chrome.shadowFocusedColor
+            } else if interactionState.isHovered {
+                backgroundColor = palette.hovered
+                borderColor = chrome.borderHoveredColor
+                shadowColor = chrome.shadowHoveredColor
+            } else {
+                backgroundColor = palette.idle
+                borderColor = chrome.borderColor
+                shadowColor = chrome.shadowColor
+            }
+
+            animate(.background, node, in: runtime, to: backgroundColor, duration: duration)
+            animate(.border, node, in: runtime, to: borderColor, duration: duration)
+            animate(.shadow, node, in: runtime, to: shadowColor, duration: duration)
+        }
+
+        node.onPointerEnter = {
+            interactionState.isHovered = true
+            applySurfaceState(duration: animation.focusDuration)
+        }
+        node.onPointerExit = {
+            interactionState.isHovered = false
+            interactionState.isPressed = false
+            applySurfaceState(duration: animation.focusDuration)
+        }
         node.isFocusable = true
         node.onFocusEnter = { [weak node] in
-            animate(.background, node, in: runtime, to: palette.focused, duration: animation.focusDuration)
+            interactionState.isFocused = true
+            applySurfaceState(duration: animation.focusDuration)
             animate(.outline, node, in: runtime, to: chrome.focusRingColor, duration: animation.focusDuration)
         }
         node.onFocusExit = { [weak node] in
-            animate(.background, node, in: runtime, to: palette.idle, duration: animation.focusDuration)
+            interactionState.isFocused = false
+            interactionState.isPressed = false
+            applySurfaceState(duration: animation.focusDuration)
             animate(.outline, node, in: runtime, to: .clear, duration: animation.focusDuration)
         }
-        node.onPointerDown = { [weak node] in
-            animate(.background, node, in: runtime, to: palette.pressed, duration: animation.pressDuration)
+        node.onPointerDown = {
+            interactionState.isPressed = true
+            applySurfaceState(duration: animation.pressDuration)
         }
-        node.onPointerUpInside = { [weak node] in
-            animate(.background, node, in: runtime, to: palette.focused, duration: animation.focusDuration)
+        node.onPointerUpInside = {
+            interactionState.isPressed = false
+            applySurfaceState(duration: animation.focusDuration)
         }
-        node.onPointerUpOutside = { [weak node] in
-            animate(.background, node, in: runtime, to: palette.focused, duration: animation.focusDuration)
+        node.onPointerUpOutside = {
+            interactionState.isPressed = false
+            applySurfaceState(duration: animation.focusDuration)
         }
         node.onActivate = { [weak node] in
+            interactionState.isPressed = false
             animate(.background, node, in: runtime, to: palette.activated, duration: animation.activationDuration)
+            animate(.border, node, in: runtime, to: chrome.borderActivatedColor, duration: animation.activationDuration)
+            animate(.shadow, node, in: runtime, to: chrome.shadowActivatedColor, duration: animation.activationDuration)
             action?()
         }
 
@@ -686,4 +772,10 @@ private final class SplitViewState {
         self.dragStartRatio = ratio
         self.bounds = .zero
     }
+}
+
+private final class ButtonInteractionState {
+    var isHovered = false
+    var isFocused = false
+    var isPressed = false
 }

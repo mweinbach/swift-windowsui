@@ -51,7 +51,11 @@ This repository is a Windows-only Swift UI prototype. Keep changes aligned with 
 - Describe the project as a custom-rendered Windows UI toolkit, not as a wrapper around native Win32 widgets.
 - Call out the retained runtime, renderer-neutral frame generation, Win32 host, and D3D11 presentation path.
 - Mention current limits honestly: Windows-only, bitmap text, hardcoded demo UI, and thin automated coverage for renderer/platform layers.
+- Make sure to update the 'README.md' and 'AGENTS.md' with any significant changes.
 
+## Docs
+
+As you work, create and update the documentation in the `docs` directory. Make sure it's organized and up-to-date and keeps us understanding how to use the toolkit.
 
 ## Commmits and Git
 

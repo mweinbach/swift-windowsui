@@ -55,6 +55,9 @@ public final class FoundationApp: WindowDelegate {
         componentHost.setComponents { [weak self] in
             self?.makeDemoComponents() ?? []
         }
+        runtime.root.onLayout = { [weak self] bounds in
+            self?.applyDemoRootLayout(in: bounds)
+        }
 
         self.window.delegate = self
     }
@@ -74,7 +77,6 @@ public final class FoundationApp: WindowDelegate {
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
-            componentHost.reload()
             syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
         } catch {
@@ -86,7 +88,6 @@ public final class FoundationApp: WindowDelegate {
         do {
             runtime.displayScale = window.scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
-            componentHost.reload()
             try renderer.resize(to: size)
             renderCurrentFrame(in: window)
         } catch {
@@ -759,6 +760,25 @@ public final class FoundationApp: WindowDelegate {
         }
 
         return Point(x: point.x / scaleFactor, y: point.y / scaleFactor)
+    }
+
+    private func applyDemoRootLayout(in bounds: Rect) {
+        let children = runtime.root.children
+        guard children.count >= 4 else {
+            return
+        }
+
+        let layout = DemoLayout(size: bounds.size)
+        let demoFrames = [
+            layout.backgroundAccentA,
+            layout.backgroundAccentB,
+            layout.toolbarFrame,
+            layout.bodyFrame,
+        ]
+
+        for (index, frame) in demoFrames.enumerated() where children[index].frame != frame {
+            children[index].frame = frame
+        }
     }
 
     private func report(_ error: Error) {

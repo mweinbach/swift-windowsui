@@ -757,7 +757,7 @@ public final class ViewNode {
         return applyingExplicitDimensions(to: measuredSize, constraints: constraints)
     }
 
-    fileprivate func intrinsicContentSize() -> Size {
+    public func intrinsicContentSize() -> Size {
         sizeThatFits(in: .unconstrained)
     }
 

@@ -11,6 +11,10 @@ let package = Package(
             targets: ["SwiftWindowsUI"]
         ),
         .library(
+            name: "WinSwiftUI",
+            targets: ["WinSwiftUI"]
+        ),
+        .library(
             name: "SwiftWindowsApp",
             targets: ["SwiftWindowsApp"]
         ),
@@ -69,10 +73,21 @@ let package = Package(
                 "SwiftWindowsRendererD3D11",
             ]
         ),
+        .target(
+            name: "WinSwiftUI",
+            dependencies: [
+                "SwiftWindowsCore",
+                "SwiftWindowsGraphics",
+                "SwiftWindowsLayout",
+                "SwiftWindowsPlatform",
+                "SwiftWindowsUI",
+                "SwiftWindowsRendererD3D11",
+            ]
+        ),
         .executableTarget(
             name: "swift-windowsui",
             dependencies: [
-                "SwiftWindowsApp",
+                "WinSwiftUI",
             ]
         ),
         .testTarget(
@@ -86,6 +101,7 @@ let package = Package(
                 "SwiftWindowsRendererD3D11",
                 "SwiftWindowsScene",
                 "SwiftWindowsUI",
+                "WinSwiftUI",
             ]
         ),
     ]

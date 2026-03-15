@@ -24,6 +24,13 @@ let package = Package(
             dependencies: ["SwiftWindowsCore"]
         ),
         .target(
+            name: "CDirect2DInterop",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedLibrary("D2d1"),
+            ]
+        ),
+        .target(
             name: "SwiftWindowsScene",
             dependencies: ["SwiftWindowsCore", "SwiftWindowsGraphics"]
         ),
@@ -37,7 +44,7 @@ let package = Package(
         ),
         .target(
             name: "SwiftWindowsRendererD3D11",
-            dependencies: ["SwiftWindowsCore", "SwiftWindowsGraphics"],
+            dependencies: ["SwiftWindowsCore", "SwiftWindowsGraphics", "CDirect2DInterop"],
             linkerSettings: [
                 .linkedLibrary("D3DCompiler"),
             ]

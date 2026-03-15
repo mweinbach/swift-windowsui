@@ -1,3 +1,4 @@
+import CDirect2DInterop
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK
@@ -34,6 +35,7 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
 
 public final class D3D11Renderer: RenderBackend {
     public private(set) var isAttached = false
+    public private(set) var isDirect2DEnabled = false
 
     private let configuration: D3D11RendererConfiguration
 
@@ -53,6 +55,10 @@ public final class D3D11Renderer: RenderBackend {
     private var bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>?
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
+    private var direct2DFactory: UnsafeMutableRawPointer?
+    private var direct2DDevice: UnsafeMutableRawPointer?
+    private var direct2DDeviceContext: UnsafeMutableRawPointer?
+    private var direct2DTargetBitmap: UnsafeMutableRawPointer?
 
     public init(configuration: D3D11RendererConfiguration = D3D11RendererConfiguration()) {
         self.configuration = configuration
@@ -69,6 +75,20 @@ public final class D3D11Renderer: RenderBackend {
         releaseCOM(&vertexShaderBlob)
     }
 
+    static func validateDirect2DInteropForTesting() throws {
+        var factory: UnsafeMutableRawPointer?
+        let hr = SWU_D2DCreateFactory1(&factory)
+        defer {
+            if let factory {
+                SWU_D2DRelease(factory)
+            }
+        }
+
+        if hr < 0 {
+            throw D3D11RendererError(operation: "D2D1CreateFactory", hresult: hr)
+        }
+    }
+
     public func attach(to surface: SurfaceDescriptor) throws {
         guard let hwnd = unsafeBitCast(surface.windowHandle.rawPointer, to: HWND?.self) else {
             throw D3D11RendererError(operation: "Resolve HWND", hresult: hresultHandle)
@@ -82,6 +102,7 @@ public final class D3D11Renderer: RenderBackend {
         try createPipelineIfNeeded()
         try createSwapChain(size: surface.pixelSize)
         try createRenderTargetView()
+        configureDirect2DIfPossible()
 
         isAttached = true
     }
@@ -97,6 +118,7 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        releaseDirect2DTarget()
         releaseCOM(&renderTargetView)
         deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
 
@@ -110,12 +132,45 @@ public final class D3D11Renderer: RenderBackend {
         )
         try throwIfFailed(hr, operation: "IDXGISwapChain1.ResizeBuffers")
         try createRenderTargetView()
+        configureDirect2DIfPossible()
     }
 
     public func render(frame: RenderFrame) throws {
+        guard isAttached, let swapChain, let surface else {
+            return
+        }
+
+        if surface.pixelSize.width <= 0 || surface.pixelSize.height <= 0 {
+            return
+        }
+
+        let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
+        let scaleFactor = currentScaleFactor()
+
+        if
+            isDirect2DEnabled,
+            let direct2DDeviceContext,
+            let direct2DTargetBitmap
+        {
+            do {
+                try renderWithDirect2D(
+                    frame: frame,
+                    clearColor: clearColor,
+                    scaleFactor: scaleFactor,
+                    deviceContext: direct2DDeviceContext,
+                    targetBitmap: direct2DTargetBitmap
+                )
+
+                let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
+                try throwIfFailed(hr, operation: "IDXGISwapChain1.Present")
+                return
+            } catch {
+                releaseDirect2DTarget()
+                isDirect2DEnabled = false
+            }
+        }
+
         guard
-            isAttached,
-            let swapChain,
             let renderTargetView,
             let deviceContext,
             let vertexShader,
@@ -126,13 +181,8 @@ public final class D3D11Renderer: RenderBackend {
             let bitmapConstantBuffer,
             let bitmapSamplerState,
             let blendState,
-            let rasterizerState,
-            let surface
+            let rasterizerState
         else {
-            return
-        }
-
-        if surface.pixelSize.width <= 0 || surface.pixelSize.height <= 0 {
             return
         }
 
@@ -163,14 +213,11 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
         }
 
-        let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
         let values: [FLOAT] = [clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha]
 
         values.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
-
-        let scaleFactor = max(surface.scaleFactor, 1.0)
 
         for command in frame.commands {
             try draw(
@@ -432,6 +479,199 @@ public final class D3D11Renderer: RenderBackend {
         var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
         releaseCOM(&releasableTexture)
         try throwIfFailed(viewHR, operation: "ID3D11Device.CreateRenderTargetView")
+    }
+
+    private func configureDirect2DIfPossible() {
+        do {
+            try createDirect2DResourcesIfNeeded()
+            try createDirect2DTargetIfNeeded()
+            isDirect2DEnabled = direct2DDeviceContext != nil && direct2DTargetBitmap != nil
+        } catch {
+            releaseDirect2DTarget()
+            if direct2DFactory == nil || direct2DDevice == nil || direct2DDeviceContext == nil {
+                releaseDirect2DResources()
+            }
+            isDirect2DEnabled = false
+        }
+    }
+
+    private func createDirect2DResourcesIfNeeded() throws {
+        if direct2DFactory != nil, direct2DDevice != nil, direct2DDeviceContext != nil {
+            return
+        }
+
+        guard let device else {
+            throw D3D11RendererError(operation: "Create Direct2D resources", hresult: hresultHandle)
+        }
+
+        var factory: UnsafeMutableRawPointer?
+        var d2dDevice: UnsafeMutableRawPointer?
+        var d2dContext: UnsafeMutableRawPointer?
+        let hr = SWU_D2DCreateDeviceResources(
+            UnsafeMutableRawPointer(device),
+            &factory,
+            &d2dDevice,
+            &d2dContext
+        )
+        try throwIfFailed(hr, operation: "Create Direct2D device resources")
+
+        direct2DFactory = factory
+        direct2DDevice = d2dDevice
+        direct2DDeviceContext = d2dContext
+    }
+
+    private func createDirect2DTargetIfNeeded() throws {
+        guard direct2DTargetBitmap == nil else {
+            return
+        }
+
+        guard let swapChain, let direct2DDeviceContext else {
+            throw D3D11RendererError(operation: "Create Direct2D target", hresult: hresultHandle)
+        }
+
+        let dpi = Float(currentScaleFactor() * logicalDpi)
+        var targetBitmap: UnsafeMutableRawPointer?
+        let hr = SWU_D2DConfigureSwapChainTarget(
+            direct2DDeviceContext,
+            UnsafeMutableRawPointer(swapChain),
+            dpi,
+            dpi,
+            &targetBitmap
+        )
+        try throwIfFailed(hr, operation: "Create Direct2D swap chain target")
+        direct2DTargetBitmap = targetBitmap
+    }
+
+    private func renderWithDirect2D(
+        frame: RenderFrame,
+        clearColor: Color,
+        scaleFactor: Double,
+        deviceContext: UnsafeMutableRawPointer,
+        targetBitmap: UnsafeMutableRawPointer
+    ) throws {
+        _ = targetBitmap
+
+        SWU_D2DSetIdentityTransform(deviceContext)
+        SWU_D2DBeginDraw(deviceContext)
+
+        var shouldEndDraw = true
+        defer {
+            if shouldEndDraw {
+                _ = SWU_D2DEndDraw(deviceContext)
+            }
+        }
+
+        SWU_D2DClear(deviceContext, clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha)
+
+        for command in frame.commands {
+            switch command {
+            case .fillRect(let fillRectCommand):
+                try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
+            case .drawBitmap(let drawBitmapCommand):
+                try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
+            }
+        }
+
+        let hr = SWU_D2DEndDraw(deviceContext)
+        shouldEndDraw = false
+        try throwIfFailed(hr, operation: "ID2D1DeviceContext.EndDraw")
+    }
+
+    private func drawWithDirect2D(
+        fillRect command: FillRectCommand,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        guard command.rect.size.width > 0, command.rect.size.height > 0 else {
+            return
+        }
+
+        if let clipRect = command.clipRect, clipRect.intersected(with: command.rect) == nil {
+            return
+        }
+
+        let hr = try withDirect2DClip(command.clipRect, deviceContext: deviceContext) {
+            if let gradient = command.gradient {
+                let axis: Int32 = gradient.axis == .horizontal
+                    ? Int32(SWU_D2D_GRADIENT_AXIS_HORIZONTAL)
+                    : Int32(SWU_D2D_GRADIENT_AXIS_VERTICAL)
+                return SWU_D2DFillRectGradient(
+                    deviceContext,
+                    Float(command.rect.minX),
+                    Float(command.rect.minY),
+                    Float(command.rect.maxX),
+                    Float(command.rect.maxY),
+                    Float(max(command.cornerRadius, 0)),
+                    Float(max(command.cornerRadius, 0)),
+                    gradient.startColor.red,
+                    gradient.startColor.green,
+                    gradient.startColor.blue,
+                    gradient.startColor.alpha,
+                    gradient.endColor.red,
+                    gradient.endColor.green,
+                    gradient.endColor.blue,
+                    gradient.endColor.alpha,
+                    axis
+                )
+            }
+
+            return SWU_D2DFillRectSolid(
+                deviceContext,
+                Float(command.rect.minX),
+                Float(command.rect.minY),
+                Float(command.rect.maxX),
+                Float(command.rect.maxY),
+                Float(max(command.cornerRadius, 0)),
+                Float(max(command.cornerRadius, 0)),
+                command.color.red,
+                command.color.green,
+                command.color.blue,
+                command.color.alpha
+            )
+        }
+
+        try throwIfFailed(hr, operation: "Draw Direct2D fillRect")
+    }
+
+    private func drawWithDirect2D(
+        bitmap command: DrawBitmapCommand,
+        scaleFactor: Double,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        guard command.rect.size.width > 0, command.rect.size.height > 0, command.opacity > 0 else {
+            return
+        }
+
+        let alignedRect = makeLogicalBitmapRect(
+            from: command.rect,
+            bitmapSize: IntSize(width: command.bitmap.width, height: command.bitmap.height),
+            scaleFactor: scaleFactor
+        )
+
+        if let clipRect = command.clipRect, clipRect.intersected(with: alignedRect) == nil {
+            return
+        }
+
+        let dpi = Float(max(scaleFactor, 1.0) * logicalDpi)
+        let hr = try withDirect2DClip(command.clipRect, deviceContext: deviceContext) {
+            command.bitmap.pixels.withUnsafeBytes { pixels in
+                SWU_D2DDrawBitmapBGRA(
+                    deviceContext,
+                    pixels.baseAddress,
+                    command.bitmap.width,
+                    command.bitmap.height,
+                    command.bitmap.bytesPerRow,
+                    dpi,
+                    dpi,
+                    Float(alignedRect.minX),
+                    Float(alignedRect.minY),
+                    Float(alignedRect.maxX),
+                    Float(alignedRect.maxY),
+                    command.opacity
+                )
+            }
+        }
+
+        try throwIfFailed(hr, operation: "Draw Direct2D bitmap")
     }
 
     private func draw(
@@ -726,6 +966,71 @@ public final class D3D11Renderer: RenderBackend {
             throw D3D11RendererError(operation: operation, hresult: hr)
         }
     }
+
+    private func withDirect2DClip<T>(
+        _ clipRect: Rect?,
+        deviceContext: UnsafeMutableRawPointer,
+        _ body: () throws -> T
+    ) throws -> T {
+        guard let clipRect else {
+            return try body()
+        }
+
+        SWU_D2DPushAxisAlignedClip(
+            deviceContext,
+            Float(clipRect.minX),
+            Float(clipRect.minY),
+            Float(clipRect.maxX),
+            Float(clipRect.maxY)
+        )
+        defer { SWU_D2DPopAxisAlignedClip(deviceContext) }
+        return try body()
+    }
+
+    private func currentScaleFactor() -> Double {
+        if let hwnd {
+            let dpi = GetDpiForWindow(hwnd)
+            if dpi > 0 {
+                let scaleFactor = Double(dpi) / logicalDpi
+                surface?.scaleFactor = scaleFactor
+                return max(scaleFactor, 1.0)
+            }
+        }
+
+        return max(surface?.scaleFactor ?? 1.0, 1.0)
+    }
+
+    private func releaseDirect2DTarget() {
+        if let direct2DDeviceContext {
+            SWU_D2DResetTarget(direct2DDeviceContext)
+        }
+
+        if let direct2DTargetBitmap {
+            SWU_D2DRelease(direct2DTargetBitmap)
+            self.direct2DTargetBitmap = nil
+        }
+    }
+
+    private func releaseDirect2DResources() {
+        releaseDirect2DTarget()
+
+        if let direct2DDeviceContext {
+            SWU_D2DRelease(direct2DDeviceContext)
+            self.direct2DDeviceContext = nil
+        }
+
+        if let direct2DDevice {
+            SWU_D2DRelease(direct2DDevice)
+            self.direct2DDevice = nil
+        }
+
+        if let direct2DFactory {
+            SWU_D2DRelease(direct2DFactory)
+            self.direct2DFactory = nil
+        }
+
+        isDirect2DEnabled = false
+    }
 }
 
 private struct RectangleUniforms {
@@ -800,6 +1105,20 @@ private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBi
     )
 }
 
+func makeLogicalBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFactor: Double) -> Rect {
+    guard scaleFactor > 0 else {
+        return rect
+    }
+
+    let scaledOrigin = rect.origin.scaled(by: scaleFactor)
+    return Rect(
+        x: scaledOrigin.x.rounded(.toNearestOrAwayFromZero) / scaleFactor,
+        y: scaledOrigin.y.rounded(.toNearestOrAwayFromZero) / scaleFactor,
+        width: Double(max(bitmapSize.width, 1)) / scaleFactor,
+        height: Double(max(bitmapSize.height, 1)) / scaleFactor
+    )
+}
+
 func makePixelAlignedBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFactor: Double) -> Rect {
     let scaledOrigin = rect.origin.scaled(by: scaleFactor)
     return Rect(
@@ -822,6 +1141,7 @@ private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
 
 private let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
 private let hresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)
+private let logicalDpi: Double = 96
 private let rectangleShaderSource = #"""
 cbuffer RectangleUniforms : register(b0)
 {

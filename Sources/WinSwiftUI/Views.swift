@@ -455,11 +455,13 @@ public struct Button: View {
     private let action: @MainActor () -> Void
     private let label: [AnyView]
     private var style: ButtonSurfaceStyle
+    private var resolvedButtonStyle: ButtonStyle
 
     public init(action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
         self.action = action
         self.label = label()
         self.style = .default
+        self.resolvedButtonStyle = .automatic
     }
 
     public init(_ title: String, action: @escaping @MainActor () -> Void) {
@@ -473,6 +475,7 @@ public struct Button: View {
             )
         ]
         self.style = .default
+        self.resolvedButtonStyle = .automatic
     }
 
     public var body: Never {
@@ -488,14 +491,15 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            let surfaceStyle = resolvedButtonStyle == .automatic ? style : resolvedButtonStyle.surfaceStyle
             return Controls.button(
                 runtime: runtime,
-                cornerRadius: style.cornerRadius,
-                palette: style.palette,
-                chrome: style.chrome,
-                clipsToBounds: style.clipsToBounds,
+                cornerRadius: surfaceStyle.cornerRadius,
+                palette: surfaceStyle.palette,
+                chrome: surfaceStyle.chrome,
+                clipsToBounds: surfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
-                animation: style.animation,
+                animation: surfaceStyle.animation,
                 action: {
                     action()
                     context.invalidate()
@@ -508,6 +512,13 @@ public struct Button: View {
     public func buttonSurface(_ style: ButtonSurfaceStyle) -> Button {
         var copy = self
         copy.style = style
+        copy.resolvedButtonStyle = .automatic
+        return copy
+    }
+
+    public func buttonStyle(_ style: ButtonStyle) -> Button {
+        var copy = self
+        copy.resolvedButtonStyle = style
         return copy
     }
 }

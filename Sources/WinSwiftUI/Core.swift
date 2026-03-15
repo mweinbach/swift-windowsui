@@ -447,6 +447,19 @@ public struct ButtonSurfaceStyle: Sendable {
     }
 
     public static let `default` = ButtonSurfaceStyle()
+    public static let plain = ButtonSurfaceStyle(
+        cornerRadius: 0,
+        palette: SurfacePalette(
+            idle: .clear,
+            hovered: .clear,
+            focused: .clear,
+            pressed: .clear,
+            activated: .clear
+        ),
+        chrome: SurfaceChrome(),
+        clipsToBounds: false,
+        animation: .default
+    )
 
     public static let defaultPalette = SurfacePalette(
         idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.74),
@@ -455,6 +468,31 @@ public struct ButtonSurfaceStyle: Sendable {
         pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.94),
         activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
     )
+}
+
+public struct ButtonStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case plain
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ButtonStyle(kind: .automatic)
+    public static let plain = ButtonStyle(kind: .plain)
+
+    var surfaceStyle: ButtonSurfaceStyle {
+        switch kind {
+        case .automatic:
+            return .default
+        case .plain:
+            return .plain
+        }
+    }
 }
 
 public struct ScrollViewStyle: Sendable {
@@ -783,6 +821,13 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
+                if width != nil || height != nil {
+                    let existingPreferredSize = childNode.preferredSize ?? .zero
+                    childNode.preferredSize = Size(
+                        width: width ?? existingPreferredSize.width,
+                        height: height ?? existingPreferredSize.height
+                    )
+                }
                 return Controls.stackPanel(
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(

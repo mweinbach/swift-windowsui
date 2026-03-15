@@ -72,19 +72,15 @@ struct DemoRootView: View {
                 VStack(alignment: .leading, spacing: layout.gap) {
                     DemoToolbar(model: model, layout: layout)
 
-                    HSplitView {
+                    HStack(alignment: .top, spacing: layout.columnGap) {
                         DemoSidebar(model: model, layout: layout)
                             .frame(width: layout.sidebarWidth, height: layout.bodyHeight, alignment: .topLeading)
 
-                        HSplitView {
-                            DemoCenterPane(model: model, layout: layout)
-                                .frame(height: layout.bodyHeight, alignment: .topLeading)
-                                .layoutPriority(1)
+                        DemoCenterPane(model: model, layout: layout)
+                            .frame(width: layout.contentWidth, height: layout.bodyHeight, alignment: .topLeading)
 
-                            DemoRightRail(model: model, layout: layout)
-                                .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
-                        }
-                        .layoutPriority(1)
+                        DemoRightRail(model: model, layout: layout)
+                            .frame(width: layout.railWidth, height: layout.bodyHeight, alignment: .topLeading)
                     }
                     .frame(height: layout.bodyHeight, alignment: .topLeading)
                 }
@@ -116,7 +112,7 @@ struct DemoToolbar: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("WINSWIFTUI")
                         .font(.system(size: 18, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                        .foregroundColor(DemoTheme.primaryText)
                         .multilineTextAlignment(.leading)
                         .lineLimit(1)
 
@@ -161,8 +157,8 @@ struct DemoToolbar: View {
                     "D3D11",
                     width: layout.backendWidth,
                     colors: [
-                        Color(red: 0.30, green: 0.54, blue: 0.43, opacity: 0.92),
-                        Color(red: 0.18, green: 0.36, blue: 0.28, opacity: 0.78),
+                        Color(red: 0.42, green: 0.70, blue: 0.56, opacity: 0.94),
+                        Color(red: 0.26, green: 0.50, blue: 0.38, opacity: 0.84),
                     ]
                 ) {
                     model.performAction("RENDER STACK READY")
@@ -172,8 +168,8 @@ struct DemoToolbar: View {
                     "EVENTS \(model.interactionCount)",
                     width: layout.eventsWidth,
                     colors: [
-                        Color(red: 0.36, green: 0.48, blue: 0.72, opacity: 0.90),
-                        Color(red: 0.22, green: 0.30, blue: 0.48, opacity: 0.76),
+                        Color(red: 0.55, green: 0.69, blue: 0.95, opacity: 0.92),
+                        Color(red: 0.36, green: 0.48, blue: 0.72, opacity: 0.82),
                     ]
                 ) {
                     model.performAction("EVENT HUD OPENED")
@@ -197,13 +193,23 @@ struct DemoSidebar: View {
     let layout: DemoLayout
 
     var body: some View {
-        DemoGlassSurface(cornerRadius: layout.panelCornerRadius, contentPadding: .zero) {
+        DemoGlassSurface(
+            cornerRadius: layout.panelCornerRadius,
+            contentPadding: .zero,
+            fill: LinearGradient(
+                colors: [DemoTheme.sidebarTop, DemoTheme.sidebarBottom],
+                startPoint: .top,
+                endPoint: .bottom
+            ),
+            stroke: DemoTheme.surfaceStrokeStrong
+        ) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     DemoSectionTitle("WORKSPACE")
 
                     for module in DemoModule.allCases {
                         DemoModuleButton(
+                            systemImage: module.systemImage,
                             title: module.label,
                             colors: model.selectedModule == module
                                 ? [module.glowColor.opacity(0.92), module.stripeColor.opacity(0.74)]
@@ -211,6 +217,7 @@ struct DemoSidebar: View {
                         ) {
                             model.selectModule(module)
                         }
+                        .frame(width: layout.sidebarInnerWidth, alignment: .leading)
                     }
 
                     Color.clear
@@ -233,6 +240,7 @@ struct DemoSidebar: View {
                     ) {
                         model.performAction("STATE PANEL OPENED")
                     }
+                    .frame(width: layout.sidebarInnerWidth, alignment: .leading)
 
                     DemoRowButton(
                         title: "SHORTCUTS",
@@ -242,6 +250,7 @@ struct DemoSidebar: View {
                     ) {
                         model.performAction("SHORTCUTS OPENED")
                     }
+                    .frame(width: layout.sidebarInnerWidth, alignment: .leading)
                 }
                 .padding(layout.panelPadding)
             }
@@ -257,22 +266,27 @@ struct DemoCenterPane: View {
         ScrollView {
             VStack(alignment: .leading, spacing: layout.gap) {
                 DemoHeroCard(model: model, layout: layout)
+                    .frame(width: layout.contentInnerWidth, alignment: .leading)
 
                 if layout.compact {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED", accent: model.selectedModule.glowColor)
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary, accent: model.selectedModule.stripeColor)
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
                         DemoMetricCard(title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI", accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96))
+                            .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
                 } else {
                     HStack(alignment: .center, spacing: 18) {
                         DemoMetricCard(title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED", accent: model.selectedModule.glowColor)
-                            .layoutPriority(1)
+                            .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary, accent: model.selectedModule.stripeColor)
-                            .layoutPriority(1)
+                            .frame(width: layout.metricCardWidth, alignment: .leading)
                         DemoMetricCard(title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI", accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96))
-                            .layoutPriority(1)
+                            .frame(width: layout.metricCardWidth, alignment: .leading)
                     }
+                    .frame(width: layout.contentInnerWidth, alignment: .leading)
                 }
 
                 DemoPanel {
@@ -289,6 +303,7 @@ struct DemoCenterPane: View {
                         }
                     }
                 }
+                .frame(width: layout.contentInnerWidth, alignment: .leading)
             }
             .padding(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6))
         }
@@ -311,6 +326,7 @@ struct DemoRightRail: View {
                         }
                     }
                 }
+                .frame(width: layout.railInnerWidth, alignment: .leading)
 
                 DemoPanel {
                     VStack(alignment: .leading, spacing: 14) {
@@ -325,9 +341,11 @@ struct DemoRightRail: View {
                             ) {
                                 model.performAction(action.eventLabel)
                             }
+                            .frame(width: layout.railInnerWidth - 32, alignment: .leading)
                         }
                     }
                 }
+                .frame(width: layout.railInnerWidth, alignment: .leading)
             }
             .padding(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6))
         }
@@ -547,11 +565,11 @@ struct DemoCapsuleText: View {
     var body: some View {
         Text(title)
             .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .foregroundColor(.white.opacity(0.88))
+            .foregroundColor(DemoTheme.primaryText)
             .multilineTextAlignment(.center)
             .lineLimit(1)
             .padding(EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10))
-            .background((tint ?? DemoTheme.fieldTop).opacity(tint == nil ? 0.70 : 0.84))
+            .background((tint ?? DemoTheme.fieldTop).opacity(tint == nil ? 0.84 : 0.42))
             .cornerRadius(12)
             .padding(1)
             .background(DemoTheme.surfaceStroke)
@@ -604,16 +622,18 @@ struct DemoPillButton: View {
             ) {
                 Text(title)
                     .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(DemoTheme.inverseText)
                     .multilineTextAlignment(.center)
                     .lineLimit(1)
                     .frame(width: width, height: 38)
             }
         }
+        .buttonStyle(.plain)
     }
 }
 
 struct DemoModuleButton: View {
+    let systemImage: String
     let title: String
     let colors: [Color]
     let perform: @MainActor @Sendable () -> Void
@@ -621,19 +641,29 @@ struct DemoModuleButton: View {
     var body: some View {
         Button(action: perform) {
             DemoTintedSurface(
-                cornerRadius: 18,
+                cornerRadius: 16,
                 contentPadding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
                 colors: colors,
                 stroke: DemoTheme.surfaceStroke
             ) {
-                Text(title)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1)
-                    .frame(height: 52)
+                HStack(alignment: .center, spacing: 10) {
+                    Image(systemName: systemImage)
+                        .foregroundColor(DemoTheme.primaryText)
+                        .font(.system(size: 14))
+                        .frame(width: 18, height: 18)
+
+                    Text(title)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(DemoTheme.primaryText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+                        .layoutPriority(1)
+                }
+                .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
+                .frame(height: 42, alignment: .leading)
             }
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -676,7 +706,7 @@ struct DemoRowButton: View {
                         stroke: DemoTheme.surfaceStroke
                     ) {
                         Image(systemName: systemImage)
-                            .foregroundColor(.white)
+                            .foregroundColor(DemoTheme.inverseText)
                             .font(.system(size: 15))
                             .frame(width: 30, height: 30)
                     }
@@ -684,7 +714,7 @@ struct DemoRowButton: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(title)
                             .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
+                            .foregroundColor(DemoTheme.primaryText)
                             .multilineTextAlignment(.leading)
                             .lineLimit(1)
 
@@ -698,6 +728,7 @@ struct DemoRowButton: View {
                 }
             }
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -718,7 +749,7 @@ struct DemoMetricCard: View {
 
                 Text(value)
                     .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(DemoTheme.primaryText)
                     .multilineTextAlignment(.leading)
 
                 Text(note)
@@ -758,7 +789,7 @@ struct DemoInfoCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text(card.title)
                     .font(.system(size: 20, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(DemoTheme.primaryText)
                     .multilineTextAlignment(.leading)
 
                 Text(card.summary)
@@ -797,69 +828,83 @@ struct DemoAccent: View {
 }
 
 enum DemoTheme {
-    static let backdropTop = Color(red: 0.06, green: 0.09, blue: 0.16, opacity: 1.0)
-    static let backdropMiddle = Color(red: 0.05, green: 0.08, blue: 0.14, opacity: 1.0)
-    static let backdropBottom = Color(red: 0.03, green: 0.05, blue: 0.10, opacity: 1.0)
-    static let surfaceTop = Color(red: 0.13, green: 0.17, blue: 0.27, opacity: 0.78)
-    static let surfaceBottom = Color(red: 0.09, green: 0.12, blue: 0.20, opacity: 0.60)
-    static let fieldTop = Color(red: 0.18, green: 0.23, blue: 0.33, opacity: 0.70)
-    static let fieldBottom = Color(red: 0.12, green: 0.16, blue: 0.25, opacity: 0.52)
-    static let surfaceStroke = Color(red: 0.98, green: 0.99, blue: 1.0, opacity: 0.10)
-    static let surfaceStrokeStrong = Color(red: 0.98, green: 0.99, blue: 1.0, opacity: 0.16)
-    static let secondaryText = Color(red: 0.88, green: 0.93, blue: 0.99, opacity: 0.80)
-    static let tertiaryText = Color(red: 0.76, green: 0.84, blue: 0.94, opacity: 0.70)
-    static let shadow = Color(red: 0.02, green: 0.04, blue: 0.09, opacity: 0.16)
+    static let backdropTop = Color(red: 0.91, green: 0.95, blue: 0.92, opacity: 1.0)
+    static let backdropMiddle = Color(red: 0.88, green: 0.92, blue: 0.97, opacity: 1.0)
+    static let backdropBottom = Color(red: 0.96, green: 0.95, blue: 0.91, opacity: 1.0)
+    static let surfaceTop = Color(red: 0.99, green: 0.99, blue: 1.0, opacity: 0.92)
+    static let surfaceBottom = Color(red: 0.93, green: 0.95, blue: 0.98, opacity: 0.86)
+    static let fieldTop = Color(red: 0.97, green: 0.98, blue: 1.0, opacity: 0.96)
+    static let fieldBottom = Color(red: 0.91, green: 0.94, blue: 0.98, opacity: 0.90)
+    static let sidebarTop = Color(red: 0.95, green: 0.96, blue: 0.98, opacity: 0.90)
+    static let sidebarBottom = Color(red: 0.89, green: 0.92, blue: 0.96, opacity: 0.84)
+    static let surfaceStroke = Color(red: 0.39, green: 0.47, blue: 0.60, opacity: 0.14)
+    static let surfaceStrokeStrong = Color(red: 0.32, green: 0.42, blue: 0.58, opacity: 0.18)
+    static let primaryText = Color(red: 0.18, green: 0.22, blue: 0.30, opacity: 0.96)
+    static let secondaryText = Color(red: 0.34, green: 0.40, blue: 0.50, opacity: 0.86)
+    static let tertiaryText = Color(red: 0.46, green: 0.52, blue: 0.62, opacity: 0.80)
+    static let inverseText = Color(red: 0.99, green: 1.0, blue: 1.0, opacity: 0.98)
+    static let shadow = Color(red: 0.16, green: 0.20, blue: 0.30, opacity: 0.10)
 }
 
 struct DemoLayout {
     let size: CGSize
 
-    var compact: Bool { size.width < 980 || size.height < 680 }
-    var outerPadding: CGFloat { compact ? 20 : 28 }
-    var gap: CGFloat { compact ? 16 : 20 }
-    var toolbarHeight: CGFloat { compact ? 82 : 92 }
+    var compact: Bool { size.width < 1180 || size.height < 760 }
+    var outerPadding: CGFloat { compact ? 18 : 24 }
+    var gap: CGFloat { compact ? 14 : 18 }
+    var columnGap: CGFloat { compact ? 14 : 18 }
+    var toolbarHeight: CGFloat { compact ? 72 : 80 }
     var bodyHeight: CGFloat { max(280, size.height - outerPadding * 2 - toolbarHeight - gap) }
-    var sidebarWidth: CGFloat { compact ? 226 : 254 }
-    var railWidth: CGFloat { compact ? 272 : 312 }
-    var toolbarCornerRadius: CGFloat { compact ? 24 : 30 }
-    var panelCornerRadius: CGFloat { compact ? 28 : 34 }
-    var toolbarTitleWidth: CGFloat { compact ? 188 : 248 }
-    var searchWidth: CGFloat { compact ? 210 : 280 }
-    var backendWidth: CGFloat { compact ? 108 : 132 }
-    var eventsWidth: CGFloat { compact ? 124 : 136 }
-    var modeWidth: CGFloat { compact ? 132 : 156 }
-    var pillHeight: CGFloat { 38 }
-    var headlineSize: CGFloat { compact ? 26 : 32 }
-    var heroHeight: CGFloat { compact ? 236 : 264 }
+    var sidebarWidth: CGFloat { compact ? 220 : 236 }
+    var railWidth: CGFloat { compact ? 260 : 292 }
+    var contentWidth: CGFloat {
+        max(420, size.width - outerPadding * 2 - sidebarWidth - railWidth - columnGap * 2)
+    }
+    var contentInnerWidth: CGFloat { max(380, contentWidth - 8) }
+    var railInnerWidth: CGFloat { max(220, railWidth - 8) }
+    var sidebarInnerWidth: CGFloat { max(180, sidebarWidth - 16) }
+    var metricCardWidth: CGFloat {
+        max(120, (contentInnerWidth - gap * 2) / 3)
+    }
+    var toolbarCornerRadius: CGFloat { compact ? 22 : 26 }
+    var panelCornerRadius: CGFloat { compact ? 22 : 26 }
+    var toolbarTitleWidth: CGFloat { compact ? 180 : 220 }
+    var searchWidth: CGFloat { compact ? 220 : 280 }
+    var backendWidth: CGFloat { compact ? 96 : 112 }
+    var eventsWidth: CGFloat { compact ? 116 : 128 }
+    var modeWidth: CGFloat { compact ? 126 : 146 }
+    var pillHeight: CGFloat { 34 }
+    var headlineSize: CGFloat { compact ? 24 : 30 }
+    var heroHeight: CGFloat { compact ? 210 : 232 }
     var compactActions: Bool { compact }
 
     var toolbarPadding: EdgeInsets {
         compact
-            ? EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
-            : EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18)
+            ? EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+            : EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
     }
 
     var panelPadding: EdgeInsets {
         compact
             ? EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
-            : EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18)
+            : EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
     }
 
     var accentA: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.26,
-            y: outerPadding + toolbarHeight + gap + 10,
-            width: compact ? 180 : 300,
-            height: compact ? 112 : 164
+            x: outerPadding + size.width * 0.18,
+            y: outerPadding + toolbarHeight + gap + 18,
+            width: compact ? 160 : 240,
+            height: compact ? 84 : 126
         )
     }
 
     var accentB: CGRect {
         CGRect(
-            x: outerPadding + size.width * 0.64,
-            y: outerPadding + toolbarHeight + heroHeight + gap * 2 - 8,
-            width: compact ? 156 : 228,
-            height: compact ? 88 : 118
+            x: outerPadding + size.width * 0.70,
+            y: outerPadding + toolbarHeight + heroHeight + gap * 2,
+            width: compact ? 132 : 180,
+            height: compact ? 68 : 94
         )
     }
 }

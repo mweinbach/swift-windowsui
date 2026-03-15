@@ -4,9 +4,18 @@ import SwiftWindowsCore
 @MainActor
 /// Consumes renderer-neutral frames emitted by shared UI/runtime code.
 public protocol RenderBackend: AnyObject {
+    var backendDisplayName: String { get }
+    var backendStatusDescription: String { get }
+
     func attach(to surface: SurfaceDescriptor) throws
     func resize(to size: IntSize) throws
     func render(frame: RenderFrame) throws
+}
+
+public extension RenderBackend {
+    var backendDisplayName: String { "2D RENDERER" }
+
+    var backendStatusDescription: String { "\(backendDisplayName) READY" }
 }
 
 /// Backend-neutral display list for a single frame.

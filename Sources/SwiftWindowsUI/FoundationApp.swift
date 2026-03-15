@@ -11,6 +11,8 @@ public final class FoundationApp: WindowDelegate {
     private let componentHost: ComponentHost
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
     private let textBackendLabel: String
+    private var rendererBackendLabel: String
+    private var rendererStatusDescription: String
 
     private var selectedModule: DemoModule
     private var interactionCount: Int
@@ -42,6 +44,8 @@ public final class FoundationApp: WindowDelegate {
         self.runtime = runtime
         self.componentHost = ComponentHost(runtime: runtime)
         self.textBackendLabel = TextSystem.capabilities().renderingLabel
+        self.rendererBackendLabel = renderer.backendDisplayName
+        self.rendererStatusDescription = renderer.backendStatusDescription
         self.selectedModule = .layout
         self.interactionCount = 0
         self.lastAction = "READY"
@@ -50,7 +54,7 @@ public final class FoundationApp: WindowDelegate {
         self.activeLayoutProfile = DemoLayoutProfile.forSize(Size(width: 1280, height: 720))
         self.recentEvents = [
             "SYSTEM READY",
-            "D3D11 PIPELINE ONLINE",
+            rendererStatusDescription,
             "TEXT BACKEND \(textBackendLabel)"
         ]
 
@@ -76,6 +80,7 @@ public final class FoundationApp: WindowDelegate {
             }
 
             try renderer.attach(to: surface)
+            refreshRendererStatus()
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
@@ -218,6 +223,23 @@ public final class FoundationApp: WindowDelegate {
         }
     }
 
+    private func refreshRendererStatus() {
+        rendererBackendLabel = renderer.backendDisplayName
+        rendererStatusDescription = renderer.backendStatusDescription
+
+        if recentEvents.isEmpty {
+            recentEvents = [rendererStatusDescription]
+            return
+        }
+
+        if recentEvents.count >= 2 {
+            recentEvents[1] = rendererStatusDescription
+            return
+        }
+
+        recentEvents.append(rendererStatusDescription)
+    }
+
     private func makeDemoComponents() -> [Component] {
         let layout = DemoLayout(size: effectiveCanvasSize)
 
@@ -326,7 +348,7 @@ public final class FoundationApp: WindowDelegate {
             }
 
             UI.button(
-                title: textBackendLabel,
+                title: rendererBackendLabel,
                 preferredSize: Size(width: layout.toolbarBackendWidth, height: layout.toolbarPillHeight),
                 cornerRadius: layout.toolbarPillHeight * 0.5,
                 palette: SurfacePalette(
@@ -335,7 +357,7 @@ public final class FoundationApp: WindowDelegate {
                     pressed: Color(red: 0.79, green: 0.92, blue: 0.87, alpha: 1.0)
                 ),
                 titleScale: layout.toolbarBadgeScale,
-                action: { [weak self] in self?.performAction("TEXT STACK READY") }
+                action: { [weak self] in self?.performAction("RENDER STACK READY") }
             )
 
             UI.button(

@@ -1,11 +1,10 @@
-import SwiftWindowsUI
-import SwiftWindowsRendererD3D11
+import SwiftWindowsApp
 
 @main
 struct SwiftWindowsUIDemo {
     static func main() {
         do {
-            _ = try FoundationApp(renderer: D3D11Renderer()).run()
+            _ = try SwiftWindowsApplication.makeFoundationApp().run()
         } catch {
             print("Failed to start Swift Windows UI foundation: \(error)")
         }

@@ -36,6 +36,21 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
 public final class D3D11Renderer: RenderBackend {
     public private(set) var isAttached = false
     public private(set) var isDirect2DEnabled = false
+    public var backendDisplayName: String {
+        isDirect2DEnabled ? "DIRECT2D" : "2D RENDERER"
+    }
+
+    public var backendStatusDescription: String {
+        if isDirect2DEnabled {
+            return "DIRECT2D 1.1 ACTIVE"
+        }
+
+        if didAttemptDirect2DSetup {
+            return "D3D11 FALLBACK ACTIVE"
+        }
+
+        return "2D PIPELINE INITIALIZING"
+    }
 
     private let configuration: D3D11RendererConfiguration
 
@@ -59,6 +74,7 @@ public final class D3D11Renderer: RenderBackend {
     private var direct2DDevice: UnsafeMutableRawPointer?
     private var direct2DDeviceContext: UnsafeMutableRawPointer?
     private var direct2DTargetBitmap: UnsafeMutableRawPointer?
+    private var didAttemptDirect2DSetup = false
 
     public init(configuration: D3D11RendererConfiguration = D3D11RendererConfiguration()) {
         self.configuration = configuration
@@ -482,6 +498,8 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private func configureDirect2DIfPossible() {
+        didAttemptDirect2DSetup = true
+
         do {
             try createDirect2DResourcesIfNeeded()
             try createDirect2DTargetIfNeeded()

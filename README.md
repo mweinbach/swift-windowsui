@@ -71,6 +71,7 @@ Included today:
 - Modifiers: `frame`, `padding`, `background`, `cornerRadius`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `ObservableObject` / `Published` / `ObservedObject`
+- Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 
 Current gaps:
 

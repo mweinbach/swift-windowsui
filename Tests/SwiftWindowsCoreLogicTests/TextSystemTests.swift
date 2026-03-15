@@ -92,6 +92,34 @@ final class TextSystemTests: XCTestCase {
         XCTAssertEqual(snapped.width, 18.666666666666668, accuracy: 0.0001)
         XCTAssertEqual(snapped.height, 9.333333333333334, accuracy: 0.0001)
     }
+
+    func testResolveTextLayoutTruncatesSingleLineToFit() {
+        let style = PixelTextStyle(color: .white, lineBreakMode: .truncateTail)
+
+        let layout = resolveTextLayout(
+            for: "HELLO WORLD",
+            style: style,
+            maxContentWidth: 8
+        ) { line in
+            Double(line.count)
+        }
+
+        XCTAssertEqual(layout.lines, ["HELLO..."])
+    }
+
+    func testResolveTextLayoutWrapsAndAppliesLineLimit() {
+        let style = PixelTextStyle(color: .white, lineBreakMode: .wrap, maximumNumberOfLines: 2)
+
+        let layout = resolveTextLayout(
+            for: "ALPHA BETA GAMMA DELTA",
+            style: style,
+            maxContentWidth: 10
+        ) { line in
+            Double(line.count)
+        }
+
+        XCTAssertEqual(layout.lines, ["ALPHA BETA", "GAMMA..."])
+    }
 }
 
 private struct MockTextLibraryLoader: TextLibraryLoading {

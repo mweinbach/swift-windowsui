@@ -5,9 +5,9 @@ import WinSDK
 
 @MainActor
 enum NativeTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
-        DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor)
-            ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor)
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
+        DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+            ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
     }
 
     static func appendCommands(
@@ -38,7 +38,7 @@ enum NativeTextRenderer {
 
 @MainActor
 enum GDIRasterTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
         guard !text.isEmpty else {
             return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
         }
@@ -56,10 +56,29 @@ enum GDIRasterTextRenderer {
         let previousObject = SelectObject(dc, HGDIOBJ(font))
         defer { _ = SelectObject(dc, previousObject) }
 
-        var measureRect = RECT(left: 0, top: 0, right: 4096, bottom: 4096)
-        let drawFlags = baseDrawTextFlags(for: text, alignment: style.alignment) | UINT(DT_CALCRECT)
+        let resolvedLayout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: contentWidthLimit(for: maxWidth, style: style),
+            measureLine: { line in
+                measureSingleLineWidth(line, in: dc, scaleFactor: scaleFactor) ?? 0
+            }
+        )
+        let resolvedText = resolvedLayout.text
 
-        let measured = withWideString(text) { wideText in
+        var measureRect = RECT(
+            left: 0,
+            top: 0,
+            right: LONG(measureRectWidth(maxWidth: maxWidth, style: style, scaleFactor: scaleFactor)),
+            bottom: 4096
+        )
+        let drawFlags = baseDrawTextFlags(
+            for: resolvedText,
+            alignment: style.alignment,
+            lineBreakMode: resolvedLayout.lines.count > 1 ? .wrap : style.lineBreakMode
+        ) | UINT(DT_CALCRECT)
+
+        let measured = withWideString(resolvedText) { wideText in
             DrawTextW(dc, wideText, -1, &measureRect, drawFlags)
         }
 
@@ -67,8 +86,13 @@ enum GDIRasterTextRenderer {
             return nil
         }
 
-        let measuredWidth = Double(measureRect.right - measureRect.left) / scaleFactor
+        let contentWidth = Double(measureRect.right - measureRect.left) / scaleFactor
         let measuredHeight = Double(measureRect.bottom - measureRect.top) / scaleFactor
+        let measuredWidth = clampedMeasuredWidth(
+            contentWidth,
+            style: style,
+            maxWidth: maxWidth
+        )
         let width = measuredWidth + style.insets.leading + style.insets.trailing
         let height = measuredHeight + style.insets.top + style.insets.bottom
         return Size(width: max(1, width), height: max(1, height))
@@ -142,10 +166,22 @@ enum GDIRasterTextRenderer {
         SetTextColor(dc, colorRef(red: 255, green: 255, blue: 255))
 
         let contentRect = drawRectForInsets(style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
-        let drawFlags = baseDrawTextFlags(for: text, alignment: style.alignment)
+        let resolvedLayout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: max(0, size.width - style.insets.leading - style.insets.trailing),
+            measureLine: { line in
+                measureSingleLineWidth(line, in: dc, scaleFactor: scaleFactor) ?? 0
+            }
+        )
+        let drawFlags = baseDrawTextFlags(
+            for: resolvedLayout.text,
+            alignment: style.alignment,
+            lineBreakMode: resolvedLayout.lines.count > 1 ? .wrap : style.lineBreakMode
+        )
 
         var targetRect = contentRect
-        _ = withWideString(text) { wideText in
+        _ = withWideString(resolvedLayout.text) { wideText in
             DrawTextW(dc, wideText, -1, &targetRect, drawFlags)
         }
 
@@ -214,7 +250,11 @@ enum GDIRasterTextRenderer {
         }
     }
 
-    private static func baseDrawTextFlags(for text: String, alignment: TextHorizontalAlignment) -> UINT {
+    private static func baseDrawTextFlags(
+        for text: String,
+        alignment: TextHorizontalAlignment,
+        lineBreakMode: TextLineBreakMode
+    ) -> UINT {
         var flags = UINT(DT_NOPREFIX)
 
         switch alignment {
@@ -226,13 +266,27 @@ enum GDIRasterTextRenderer {
             flags |= UINT(DT_RIGHT)
         }
 
-        if text.contains("\n") {
+        if lineBreakMode == .wrap || text.contains("\n") {
             flags |= UINT(DT_WORDBREAK)
         } else {
             flags |= UINT(DT_SINGLELINE | DT_VCENTER)
         }
 
         return flags
+    }
+
+    private static func measureSingleLineWidth(_ text: String, in dc: HDC, scaleFactor: Double) -> Double? {
+        var measuredSize = SIZE()
+        let utf16Count = Int32(text.utf16.count)
+        let result = withWideString(text) { wideText in
+            GetTextExtentPoint32W(dc, wideText, utf16Count, &measuredSize)
+        }
+
+        guard result else {
+            return nil
+        }
+
+        return Double(measuredSize.cx) / max(scaleFactor, 1)
     }
 
     private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double) -> RECT {
@@ -254,6 +308,27 @@ enum GDIRasterTextRenderer {
     private static func colorRef(red: UInt8, green: UInt8, blue: UInt8) -> COLORREF {
         COLORREF(UInt32(red) | (UInt32(green) << 8) | (UInt32(blue) << 16))
     }
+}
+
+private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> Double? {
+    guard let maxWidth, maxWidth.isFinite else {
+        return nil
+    }
+
+    return max(0, maxWidth - style.insets.leading - style.insets.trailing)
+}
+
+private func measureRectWidth(maxWidth: Double?, style: PixelTextStyle, scaleFactor: Double) -> Int32 {
+    let contentWidth = contentWidthLimit(for: maxWidth, style: style) ?? 4096
+    return max(1, Int32((contentWidth * max(scaleFactor, 1)).rounded(.up)))
+}
+
+private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle, maxWidth: Double?) -> Double {
+    if style.lineBreakMode == .clip, let contentLimit = contentWidthLimit(for: maxWidth, style: style) {
+        return min(contentWidth, contentLimit)
+    }
+
+    return contentWidth
 }
 
 extension PixelTextStyle {

@@ -79,6 +79,10 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var layoutPriority: Double {
+        didSet { invalidateRuntime() }
+    }
+
     public var scrollAxis: ScrollAxis? {
         didSet { invalidateRuntime() }
     }
@@ -166,6 +170,7 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         scrollAxis: ScrollAxis? = nil,
         scrollOffset: Double = 0,
         scrollStep: Double = 64,
@@ -196,6 +201,7 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
+        self.layoutPriority = layoutPriority
         self.scrollAxis = scrollAxis
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
@@ -280,10 +286,14 @@ public final class ViewNode {
             var maxChildY: Double = 0
 
             for child in children {
-                let size = child.intrinsicContentSize()
+                let childConstraints = LayoutConstraints(
+                    maxWidth: remainingConstraintExtent(resolvedFrame.size.width, offset: child.frame.origin.x),
+                    maxHeight: remainingConstraintExtent(resolvedFrame.size.height, offset: child.frame.origin.y)
+                )
+                let size = child.sizeThatFits(in: childConstraints)
                 let resolvedSize = Size(
-                    width: child.frame.size.width > 0 ? child.frame.size.width : size.width,
-                    height: child.frame.size.height > 0 ? child.frame.size.height : size.height
+                    width: child.explicitWidth ?? size.width,
+                    height: child.explicitHeight ?? size.height
                 )
                 child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
                 child.layoutSubtree()
@@ -299,28 +309,38 @@ public final class ViewNode {
         case .stack(let stackLayout):
             let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: stackLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
-            let desiredSizes = visibleChildren.map { $0.intrinsicContentSize() }
-
-            let totalMainExtent = desiredSizes.enumerated().reduce(0.0) { partialResult, element in
-                let size = element.element
-                let mainSize = stackLayout.axis == .vertical ? size.height : size.width
-                let spacing = element.offset == 0 ? 0 : stackLayout.spacing
-                return partialResult + spacing + mainSize
+            let childConstraints = stackChildConstraints(for: contentRect.size, axis: stackLayout.axis)
+            let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            let desiredMainSizes = desiredSizes.map { size in
+                stackLayout.axis == .vertical ? size.height : size.width
             }
+            let spacingTotal = stackLayoutSpacingTotal(count: visibleChildren.count, spacing: stackLayout.spacing)
+            let availableMainExtent = stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
+            let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
+            let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
+            let allocatedMainSizes = allowsOverflowAlongMainAxis
+                ? desiredMainSizes
+                : allocateMainSizes(
+                    desiredSizes: desiredMainSizes,
+                    children: visibleChildren,
+                    availableExtent: availableChildMainExtent
+                )
+            let occupiedMainExtent = allocatedMainSizes.reduce(0, +) + spacingTotal
 
-            let availableMainExtent = stackLayout.axis == .vertical ? contentRect.size.height : contentRect.size.width
             let mainOrigin = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
             let mainCursorStart: Double
             switch stackLayout.mainAlignment {
             case .start:
                 mainCursorStart = mainOrigin
             case .center:
-                mainCursorStart = mainOrigin + max(0, (availableMainExtent - totalMainExtent) * 0.5)
+                mainCursorStart = mainOrigin + max(0, (availableMainExtent - occupiedMainExtent) * 0.5)
             case .end:
-                mainCursorStart = mainOrigin + max(0, availableMainExtent - totalMainExtent)
+                mainCursorStart = mainOrigin + max(0, availableMainExtent - occupiedMainExtent)
             }
 
             var mainCursor = mainCursorStart
+            var visibleIndex = 0
+            var maxCrossExtent: Double = 0
 
             for child in children {
                 if child.isHidden {
@@ -328,13 +348,14 @@ public final class ViewNode {
                     continue
                 }
 
-                let desiredSize = child.intrinsicContentSize()
+                let desiredSize = desiredSizes[visibleIndex]
+                let allocatedMainSize = allocatedMainSizes[visibleIndex]
                 let childFrame: Rect
 
                 switch stackLayout.axis {
                 case .vertical:
-                    let width = stackLayout.alignment == .stretch ? contentRect.size.width : min(desiredSize.width, contentRect.size.width)
-                    let height = min(desiredSize.height, contentRect.size.height)
+                    let width = stackLayout.alignment == .stretch ? max(0, contentRect.size.width) : min(desiredSize.width, max(0, contentRect.size.width))
+                    let height = max(0, allocatedMainSize)
 
                     let x: Double
                     switch stackLayout.alignment {
@@ -348,10 +369,11 @@ public final class ViewNode {
 
                     childFrame = Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height))
                     mainCursor += height + stackLayout.spacing
+                    maxCrossExtent = max(maxCrossExtent, width)
 
                 case .horizontal:
-                    let width = min(desiredSize.width, contentRect.size.width)
-                    let height = stackLayout.alignment == .stretch ? contentRect.size.height : min(desiredSize.height, contentRect.size.height)
+                    let width = max(0, allocatedMainSize)
+                    let height = stackLayout.alignment == .stretch ? max(0, contentRect.size.height) : min(desiredSize.height, max(0, contentRect.size.height))
 
                     let y: Double
                     switch stackLayout.alignment {
@@ -365,22 +387,31 @@ public final class ViewNode {
 
                     childFrame = Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height))
                     mainCursor += width + stackLayout.spacing
+                    maxCrossExtent = max(maxCrossExtent, height)
                 }
 
                 child.resolvedFrame = childFrame
                 child.layoutSubtree()
+                visibleIndex += 1
             }
+
+            let contentMainExtent = (
+                (allowsOverflowAlongMainAxis ? desiredMainSizes : allocatedMainSizes).reduce(0, +) +
+                spacingTotal +
+                stackMainPadding(for: stackLayout)
+            )
+            let contentCrossExtent = maxCrossExtent + stackCrossPadding(for: stackLayout)
 
             switch stackLayout.axis {
             case .vertical:
                 resolvedContentSize = Size(
-                    width: resolvedFrame.size.width,
-                    height: totalMainExtent + stackLayout.padding.top + stackLayout.padding.bottom
+                    width: max(resolvedFrame.size.width, contentCrossExtent),
+                    height: max(resolvedFrame.size.height, contentMainExtent)
                 )
             case .horizontal:
                 resolvedContentSize = Size(
-                    width: totalMainExtent + stackLayout.padding.leading + stackLayout.padding.trailing,
-                    height: resolvedFrame.size.height
+                    width: max(resolvedFrame.size.width, contentMainExtent),
+                    height: max(resolvedFrame.size.height, contentCrossExtent)
                 )
             }
         }
@@ -682,17 +713,178 @@ public final class ViewNode {
         runtime?.invalidate()
     }
 
+    fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
+        var measuredSize = textContentSize(in: constraints) ?? .zero
+
+        switch layoutMode {
+        case .absolute:
+            var maxChildX = measuredSize.width
+            var maxChildY = measuredSize.height
+
+            for child in children where !child.isHidden {
+                let childConstraints = LayoutConstraints(
+                    maxWidth: remainingConstraintExtent(constraints.maxWidth, offset: child.frame.origin.x),
+                    maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: child.frame.origin.y)
+                )
+                let childSize = child.sizeThatFits(in: childConstraints)
+                let resolvedWidth = child.explicitWidth ?? childSize.width
+                let resolvedHeight = child.explicitHeight ?? childSize.height
+                maxChildX = max(maxChildX, child.frame.origin.x + resolvedWidth)
+                maxChildY = max(maxChildY, child.frame.origin.y + resolvedHeight)
+            }
+
+            measuredSize = Size(width: maxChildX, height: maxChildY)
+
+        case .stack(let stackLayout):
+            let contentConstraints = insetConstraints(constraints, by: stackLayout.padding)
+            let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
+            let visibleChildren = children.filter { !$0.isHidden }
+            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            let spacingTotal = stackLayoutSpacingTotal(count: childSizes.count, spacing: stackLayout.spacing)
+            let mainExtent = childSizes.reduce(0.0) { partialResult, size in
+                partialResult + (stackLayout.axis == .vertical ? size.height : size.width)
+            } + spacingTotal + stackMainPadding(for: stackLayout)
+            let crossExtent = (childSizes.map { size in
+                stackLayout.axis == .vertical ? size.width : size.height
+            }.max() ?? 0) + stackCrossPadding(for: stackLayout)
+
+            measuredSize = Size(
+                width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
+                height: stackLayout.axis == .vertical ? mainExtent : crossExtent
+            )
+        }
+
+        return applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+    }
+
     fileprivate func intrinsicContentSize() -> Size {
-        if let preferredSize {
-            return preferredSize
+        sizeThatFits(in: .unconstrained)
+    }
+
+    private func textContentSize(in constraints: LayoutConstraints) -> Size? {
+        guard let text, !text.isEmpty else {
+            return nil
         }
 
-        if let text, !text.isEmpty {
-            let displayScale = runtime?.displayScale ?? 1.0
-            return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale) ?? PixelFont.measure(text, style: textStyle)
+        let displayScale = runtime?.displayScale ?? 1.0
+        let maxWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : nil
+        return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
+            ?? PixelFont.measure(text, style: textStyle, maxWidth: maxWidth)
+    }
+
+    private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
+        let measuredWidth = explicitWidth ?? size.width
+        let measuredHeight = explicitHeight ?? size.height
+
+        return Size(
+            width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
+            height: clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
+        )
+    }
+
+    private var explicitWidth: Double? {
+        if let preferredSize, preferredSize.width > 0 {
+            return preferredSize.width
         }
 
-        return frame.size
+        if frame.size.width > 0 {
+            return frame.size.width
+        }
+
+        return nil
+    }
+
+    private var explicitHeight: Double? {
+        if let preferredSize, preferredSize.height > 0 {
+            return preferredSize.height
+        }
+
+        if frame.size.height > 0 {
+            return frame.size.height
+        }
+
+        return nil
+    }
+
+    private func allocateMainSizes(
+        desiredSizes: [Double],
+        children: [ViewNode],
+        availableExtent: Double
+    ) -> [Double] {
+        var allocatedSizes = desiredSizes
+        let desiredExtent = desiredSizes.reduce(0, +)
+
+        if desiredExtent > availableExtent {
+            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent)
+        } else if desiredExtent < availableExtent {
+            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent)
+        }
+
+        return allocatedSizes
+    }
+
+    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double) {
+        let participantIndices = children.indices.filter { children[$0].layoutPriority > 0 }
+        guard !participantIndices.isEmpty else {
+            return
+        }
+
+        let totalPriority = participantIndices.reduce(0.0) { partialResult, index in
+            partialResult + children[index].layoutPriority
+        }
+        guard totalPriority > 0 else {
+            return
+        }
+
+        var remainingExtent = extraExtent
+        for (offset, index) in participantIndices.enumerated() {
+            let share: Double
+            if offset == participantIndices.count - 1 {
+                share = remainingExtent
+            } else {
+                share = extraExtent * (children[index].layoutPriority / totalPriority)
+                remainingExtent -= share
+            }
+
+            sizes[index] += share
+        }
+    }
+
+    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double) {
+        var remainingDeficit = deficit
+        let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
+
+        for priority in priorities where remainingDeficit > 0 {
+            let indices = children.indices.filter { children[$0].layoutPriority == priority && sizes[$0] > 0 }
+            guard !indices.isEmpty else {
+                continue
+            }
+
+            let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
+                partialResult + sizes[index]
+            }
+            guard shrinkCapacity > 0 else {
+                continue
+            }
+
+            let targetReduction = min(remainingDeficit, shrinkCapacity)
+            var remainingReduction = targetReduction
+
+            for (offset, index) in indices.enumerated() {
+                let reduction: Double
+                if offset == indices.count - 1 {
+                    reduction = remainingReduction
+                } else {
+                    reduction = targetReduction * (sizes[index] / shrinkCapacity)
+                    remainingReduction -= reduction
+                }
+
+                let appliedReduction = min(sizes[index], reduction)
+                sizes[index] -= appliedReduction
+            }
+
+            remainingDeficit -= targetReduction
+        }
     }
 
     fileprivate var isScrollable: Bool {
@@ -877,6 +1069,84 @@ public final class ViewNode {
             scrollIndicatorColor = color
         }
     }
+}
+
+private func insetConstraints(_ constraints: LayoutConstraints, by padding: EdgeInsets) -> LayoutConstraints {
+    LayoutConstraints(
+        minWidth: max(0, constraints.minWidth - padding.leading - padding.trailing),
+        maxWidth: remainingConstraintExtent(constraints.maxWidth, offset: padding.leading + padding.trailing),
+        minHeight: max(0, constraints.minHeight - padding.top - padding.bottom),
+        maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: padding.top + padding.bottom)
+    )
+}
+
+private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutConstraints {
+    switch axis {
+    case .vertical:
+        return LayoutConstraints(maxWidth: max(0, size.width))
+    case .horizontal:
+        return LayoutConstraints(maxHeight: max(0, size.height))
+    }
+}
+
+private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
+    switch axis {
+    case .vertical:
+        return LayoutConstraints(maxWidth: constraints.maxWidth)
+    case .horizontal:
+        return LayoutConstraints(maxHeight: constraints.maxHeight)
+    }
+}
+
+private func stackLayoutSpacingTotal(count: Int, spacing: Double) -> Double {
+    guard count > 1 else {
+        return 0
+    }
+
+    return Double(count - 1) * spacing
+}
+
+private func stackMainPadding(for layout: StackLayout) -> Double {
+    switch layout.axis {
+    case .vertical:
+        return layout.padding.top + layout.padding.bottom
+    case .horizontal:
+        return layout.padding.leading + layout.padding.trailing
+    }
+}
+
+private func stackCrossPadding(for layout: StackLayout) -> Double {
+    switch layout.axis {
+    case .vertical:
+        return layout.padding.leading + layout.padding.trailing
+    case .horizontal:
+        return layout.padding.top + layout.padding.bottom
+    }
+}
+
+private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {
+    switch axis {
+    case .vertical:
+        return .vertical
+    case .horizontal:
+        return .horizontal
+    }
+}
+
+private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> Double {
+    guard maxExtent.isFinite else {
+        return .infinity
+    }
+
+    return max(0, maxExtent - offset)
+}
+
+private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: Double) -> Double {
+    var value = max(extent, minimum)
+    if maximum.isFinite {
+        value = min(value, maximum)
+    }
+    return value
 }
 
 @MainActor

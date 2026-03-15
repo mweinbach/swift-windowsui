@@ -93,6 +93,7 @@ public enum Controls {
     public static func panel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
         text: String? = nil,
@@ -127,6 +128,7 @@ public enum Controls {
             clipsToBounds: clipsToBounds,
             layoutMode: layoutMode,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             isHitTestVisible: isHitTestVisible,
             children: children
         )
@@ -135,6 +137,7 @@ public enum Controls {
     public static func stackPanel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
         text: String? = nil,
@@ -153,6 +156,7 @@ public enum Controls {
         panel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: backgroundColor,
             backgroundGradient: backgroundGradient,
             text: text,
@@ -174,6 +178,7 @@ public enum Controls {
         axis: ScrollAxis,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         borderColor: Color = .clear,
         borderWidth: Double = 0,
@@ -193,6 +198,7 @@ public enum Controls {
         panel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: backgroundColor,
             borderColor: borderColor,
             borderWidth: borderWidth,
@@ -332,6 +338,7 @@ public enum Controls {
     public static func toolbar(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
         backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
@@ -349,6 +356,7 @@ public enum Controls {
         stackPanel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: backgroundColor,
             backgroundGradient: backgroundGradient,
             borderColor: borderColor,
@@ -368,6 +376,7 @@ public enum Controls {
         title: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
         backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
@@ -384,10 +393,11 @@ public enum Controls {
         isHitTestVisible: Bool = false,
         children: [ViewNode] = []
     ) -> ViewNode {
-        let content = [label(title, color: headerColor, scale: headerScale, weight: .semibold, alignment: .leading)] + children
+        let content = [label(title, color: headerColor, scale: headerScale, weight: .semibold, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1)] + children
         return stackPanel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: backgroundColor,
             backgroundGradient: backgroundGradient,
             borderColor: borderColor,
@@ -410,6 +420,7 @@ public enum Controls {
         accentColor: Color,
         symbol: SymbolIcon? = nil,
         preferredSize: Size = Size(width: 280, height: 68),
+        layoutPriority: Double = 0,
         palette: SurfacePalette = SurfacePalette(
             idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.98),
             focused: Color(red: 0.26, green: 0.33, blue: 0.42, alpha: 1.0),
@@ -426,12 +437,13 @@ public enum Controls {
         )
 
         let labels = stackPanel(
-            preferredSize: Size(width: max(0, preferredSize.width - (symbol == nil ? 42 : 78)), height: 44),
+            preferredSize: Size(width: 0, height: 44),
+            layoutPriority: 1,
             stackLayout: .vertical(spacing: 6, alignment: .leading, mainAlignment: .center),
             isHitTestVisible: false,
             children: [
-                label(title, color: .white, scale: 1.8, weight: .semibold, alignment: .leading),
-                label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading),
+                label(title, color: .white, scale: 1.8, weight: .semibold, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
+                label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
             ]
         )
 
@@ -452,6 +464,7 @@ public enum Controls {
         return button(
             runtime: runtime,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             cornerRadius: 18,
             palette: palette,
             chrome: chrome,
@@ -465,6 +478,7 @@ public enum Controls {
         runtime: RetainedViewRuntime,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
@@ -477,6 +491,7 @@ public enum Controls {
         let node = panel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: palette.idle,
             borderColor: chrome.borderColor,
             borderWidth: chrome.borderWidth,
@@ -522,19 +537,32 @@ public enum Controls {
         _ text: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         color: Color = .white,
         scale: Double = 2,
         weight: TextWeight = .regular,
         fontFamily: String = "Segoe UI",
         alignment: TextHorizontalAlignment = .center,
-        insets: EdgeInsets = .zero
+        insets: EdgeInsets = .zero,
+        lineBreakMode: TextLineBreakMode = .truncateTail,
+        maximumNumberOfLines: Int? = nil
     ) -> ViewNode {
         panel(
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             backgroundColor: nil,
             text: text,
-            textStyle: PixelTextStyle(color: color, scale: scale, alignment: alignment, insets: insets, fontFamily: fontFamily, weight: weight),
+            textStyle: PixelTextStyle(
+                color: color,
+                scale: scale,
+                alignment: alignment,
+                insets: insets,
+                fontFamily: fontFamily,
+                weight: weight,
+                lineBreakMode: lineBreakMode,
+                maximumNumberOfLines: maximumNumberOfLines
+            ),
             isHitTestVisible: false
         )
     }
@@ -565,6 +593,7 @@ public enum Controls {
         title: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
@@ -575,11 +604,20 @@ public enum Controls {
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
     ) -> ViewNode {
-        let labelNode = label(title, color: titleColor, scale: titleScale, weight: titleWeight)
+        let labelNode = label(
+            title,
+            layoutPriority: 1,
+            color: titleColor,
+            scale: titleScale,
+            weight: titleWeight,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
         return button(
             runtime: runtime,
             frame: frame,
             preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
             cornerRadius: cornerRadius,
             palette: palette,
             chrome: chrome,

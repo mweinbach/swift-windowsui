@@ -41,6 +41,69 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testHorizontalStackDistributesExtraWidthToHigherPriorityChild() async {
+        await MainActor.run {
+            let first = ViewNode(
+                backgroundColor: .white,
+                preferredSize: Size(width: 20, height: 20)
+            )
+            let second = ViewNode(
+                backgroundColor: .black,
+                preferredSize: Size(width: 20, height: 20),
+                layoutPriority: 1
+            )
+            let third = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 20, height: 20)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 40),
+                layoutMode: .stack(.horizontal(spacing: 10, alignment: .center)),
+                isHitTestVisible: false,
+                children: [first, second, third]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            XCTAssertEqual(
+                fillRectCommands(in: runtime.renderFrame()).map(\.rect),
+                [
+                    Rect(x: 0, y: 10, width: 20, height: 20),
+                    Rect(x: 30, y: 10, width: 60, height: 20),
+                    Rect(x: 100, y: 10, width: 20, height: 20),
+                ]
+            )
+        }
+    }
+
+    func testHorizontalStackShrinksLowerPriorityChildFirst() async {
+        await MainActor.run {
+            let first = ViewNode(
+                backgroundColor: .white,
+                preferredSize: Size(width: 50, height: 20)
+            )
+            let second = ViewNode(
+                backgroundColor: .black,
+                preferredSize: Size(width: 50, height: 20),
+                layoutPriority: 1
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 40),
+                layoutMode: .stack(.horizontal(spacing: 10, alignment: .center)),
+                isHitTestVisible: false,
+                children: [first, second]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            XCTAssertEqual(
+                fillRectCommands(in: runtime.renderFrame()).map(\.rect),
+                [
+                    Rect(x: 0, y: 10, width: 40, height: 20),
+                    Rect(x: 50, y: 10, width: 50, height: 20),
+                ]
+            )
+        }
+    }
+
     func testClippingPreventsPointerHitsOutsideParentBounds() async {
         await MainActor.run {
             var activations = 0

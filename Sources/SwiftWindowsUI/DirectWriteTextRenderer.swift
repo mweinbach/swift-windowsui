@@ -5,12 +5,12 @@ import WinSDK
 
 @MainActor
 enum DirectWriteTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
         guard let system = DirectWriteSystem.shared else {
             return nil
         }
 
-        return system.measure(text, style: style, scaleFactor: scaleFactor)
+        return system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
     }
 
     static func appendCommands(
@@ -87,14 +87,31 @@ private final class DirectWriteSystem {
         self.renderingParams = try DirectWriteSystem.makeRenderingParams(factory: factory)
     }
 
-    func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> Size? {
+    func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
         guard !text.isEmpty else {
             return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
         }
 
-        let layoutSize = Size(width: 4096, height: 4096)
-        let wrapping = text.contains("\n") ? dwriteWordWrappingWrap : dwriteWordWrappingNoWrap
-        guard let format = createTextFormat(style: style, wrapping: wrapping) else {
+        let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
+        guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
+            return nil
+        }
+        defer {
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = measurementFormat
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+
+        let resolvedLayout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: maxContentWidth,
+            measureLine: { [weak self] line in
+                self?.measureSingleLine(line, format: measurementFormat) ?? 0
+            }
+        )
+
+        let layoutSize = Size(width: maxContentWidth ?? 4096, height: 4096)
+        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style)) else {
             return nil
         }
         defer {
@@ -102,7 +119,7 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: text, format: format, size: layoutSize) else {
+        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: layoutSize) else {
             return nil
         }
         defer {
@@ -114,9 +131,10 @@ private final class DirectWriteSystem {
             return nil
         }
 
+        let measuredWidth = clampedMeasuredWidth(bounds.width, style: style, maxWidth: maxWidth)
         return snapLogicalTextSize(
             Size(
-                width: bounds.width + style.insets.leading + style.insets.trailing,
+                width: measuredWidth + style.insets.leading + style.insets.trailing,
                 height: bounds.height + style.insets.top + style.insets.bottom
             ),
             scaleFactor: scaleFactor
@@ -129,8 +147,24 @@ private final class DirectWriteSystem {
             height: max(1, size.height - style.insets.top - style.insets.bottom)
         )
 
-        let wrapping = text.contains("\n") ? dwriteWordWrappingWrap : dwriteWordWrappingNoWrap
-        guard let format = createTextFormat(style: style, wrapping: wrapping) else {
+        guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
+            return nil
+        }
+        defer {
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = measurementFormat
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+
+        let resolvedLayout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: max(0, contentSize.width),
+            measureLine: { [weak self] line in
+                self?.measureSingleLine(line, format: measurementFormat) ?? 0
+            }
+        )
+
+        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style)) else {
             return nil
         }
         defer {
@@ -138,7 +172,7 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: text, format: format, size: contentSize) else {
+        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize) else {
             return nil
         }
         defer {
@@ -367,12 +401,52 @@ private final class DirectWriteSystem {
 
         return BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
     }
+
+    private func measureSingleLine(_ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>) -> Double? {
+        guard !text.isEmpty else {
+            return 0
+        }
+
+        guard let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096)) else {
+            return nil
+        }
+        defer {
+            var releasableLayout: UnsafeMutablePointer<IDWriteTextLayout>? = layout
+            releaseDirectWriteCOM(&releasableLayout)
+        }
+
+        return textBounds(for: layout)?.width
+    }
+
+    private func wrappingMode(for layout: ResolvedTextLayout, style: PixelTextStyle) -> DWriteWordWrapping {
+        if layout.lines.count > 1 || style.lineBreakMode == .wrap {
+            return dwriteWordWrappingWrap
+        }
+
+        return dwriteWordWrappingNoWrap
+    }
 }
 
 private struct TextBounds {
     var width: Double
     var height: Double
     var overhangTop: Double
+}
+
+private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> Double? {
+    guard let maxWidth, maxWidth.isFinite else {
+        return nil
+    }
+
+    return max(0, maxWidth - style.insets.leading - style.insets.trailing)
+}
+
+private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle, maxWidth: Double?) -> Double {
+    if style.lineBreakMode == .clip, let contentLimit = contentWidthLimit(for: maxWidth, style: style) {
+        return min(contentWidth, contentLimit)
+    }
+
+    return contentWidth
 }
 
 func snapLogicalTextSize(_ size: Size, scaleFactor: Double) -> Size {

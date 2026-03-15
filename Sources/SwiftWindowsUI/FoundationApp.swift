@@ -227,6 +227,9 @@ public final class FoundationApp: WindowDelegate {
                 minPrimaryExtent: 210,
                 minSecondaryExtent: 620,
                 dividerThickness: 18,
+                dividerIdleColor: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.06),
+                dividerHoverColor: Color(red: 0.58, green: 0.76, blue: 0.94, alpha: 0.16),
+                dividerActiveColor: Color(red: 0.70, green: 0.86, blue: 1.0, alpha: 0.28),
                 onRatioChanged: { [weak self] in self?.sidebarSplitRatio = $0 }
             ) {
                 buildSidebar()
@@ -237,6 +240,9 @@ public final class FoundationApp: WindowDelegate {
                     minPrimaryExtent: 460,
                     minSecondaryExtent: 280,
                     dividerThickness: 18,
+                    dividerIdleColor: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.05),
+                    dividerHoverColor: Color(red: 0.58, green: 0.76, blue: 0.94, alpha: 0.14),
+                    dividerActiveColor: Color(red: 0.70, green: 0.86, blue: 1.0, alpha: 0.24),
                     onRatioChanged: { [weak self] in self?.detailSplitRatio = $0 }
                 ) {
                     buildCenterPane(layout)
@@ -266,16 +272,17 @@ public final class FoundationApp: WindowDelegate {
             )
         ) {
             UI.stackPanel(
-                preferredSize: Size(width: 260, height: 44),
+                preferredSize: Size(width: 0, height: 44),
                 stackLayout: .vertical(spacing: 4, alignment: .leading),
                 isHitTestVisible: false
             ) {
-                UI.label("SWIFT WINDOWS UI", color: .white, scale: 1.8, alignment: .leading)
-                UI.label("CUSTOM WINDOWS RENDER ENGINE", color: Color(red: 0.75, green: 0.86, blue: 0.97, alpha: 0.82), scale: 1.0, alignment: .leading)
+                UI.label("SWIFT WINDOWS UI", color: .white, scale: 1.8, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label("CUSTOM WINDOWS RENDER ENGINE", color: Color(red: 0.75, green: 0.86, blue: 0.97, alpha: 0.82), scale: 1.1, alignment: .leading, maximumNumberOfLines: 1)
             }
 
             UI.panel(
-                preferredSize: Size(width: layout.searchWidth, height: 38),
+                preferredSize: Size(width: 0, height: 38),
+                layoutPriority: 1,
                 backgroundColor: Color(red: 0.17, green: 0.22, blue: 0.30, alpha: 0.98),
                 borderColor: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.12),
                 borderWidth: 1,
@@ -284,7 +291,7 @@ public final class FoundationApp: WindowDelegate {
                 isHitTestVisible: false
             ) {
                 UI.icon(.search, preferredSize: Size(width: 18, height: 18), color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: 1.2)
-                UI.label("SEARCH COMMANDS", color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: 1.2, alignment: .leading)
+                UI.label("SEARCH COMMANDS", layoutPriority: 1, color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: 1.2, alignment: .leading, maximumNumberOfLines: 1)
             }
 
             UI.button(
@@ -341,12 +348,12 @@ public final class FoundationApp: WindowDelegate {
                 alignment: .stretch
             )
         ) {
-            buildModuleButton(.layout, width: 220)
-            buildModuleButton(.input, width: 220)
-            buildModuleButton(.animation, width: 220)
+            buildModuleButton(.layout)
+            buildModuleButton(.input)
+            buildModuleButton(.animation)
 
             UI.panel(
-                preferredSize: Size(width: 220, height: 10),
+                preferredSize: Size(width: 0, height: 10),
                 backgroundColor: selectedModule.stripeColor,
                 cornerRadius: 5,
                 isHitTestVisible: false
@@ -357,7 +364,7 @@ public final class FoundationApp: WindowDelegate {
                 detail: lastAction,
                 accentColor: selectedModule.glowColor,
                 symbol: .info,
-                preferredSize: Size(width: 220, height: 72),
+                preferredSize: Size(width: 0, height: 72),
                 action: { [weak self] in self?.performAction("STATE PANEL OPENED") }
             )
 
@@ -366,16 +373,16 @@ public final class FoundationApp: WindowDelegate {
                 detail: "TAB AND WHEEL ROUTING",
                 accentColor: selectedModule.stripeColor,
                 symbol: .keyboard,
-                preferredSize: Size(width: 220, height: 72),
+                preferredSize: Size(width: 0, height: 72),
                 action: { [weak self] in self?.performAction("SHORTCUTS OPENED") }
             )
         }
     }
 
-    private func buildModuleButton(_ module: DemoModule, width: Double) -> Component {
+    private func buildModuleButton(_ module: DemoModule) -> Component {
         UI.button(
             title: module.label,
-            preferredSize: Size(width: width, height: 54),
+            preferredSize: Size(width: 0, height: 54),
             cornerRadius: 16,
             palette: module.buttonPalette(isSelected: selectedModule == module),
             action: { [weak self] in self?.selectModule(module) }
@@ -396,7 +403,7 @@ public final class FoundationApp: WindowDelegate {
     private func buildHeroSection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "CONTROL CENTER",
-            preferredSize: Size(width: 640, height: layout.heroHeight),
+            preferredSize: Size(width: 0, height: layout.heroHeight),
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
             backgroundGradient: LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
@@ -407,24 +414,25 @@ public final class FoundationApp: WindowDelegate {
                 alignment: .stretch
             )
         ) {
-            UI.label(selectedModule.headline, color: .white, scale: 3.0, alignment: .leading)
-            UI.label(selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.86), scale: 1.4, alignment: .leading)
+            UI.label(selectedModule.headline, color: .white, scale: 3.0, alignment: .leading, maximumNumberOfLines: 1)
+            UI.label(selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.92), scale: 1.55, alignment: .leading, maximumNumberOfLines: 1)
 
             UI.panel(
-                preferredSize: Size(width: layout.heroFrame.size.width - 44, height: 12),
+                preferredSize: Size(width: 0, height: 12),
                 backgroundColor: selectedModule.stripeColor,
                 cornerRadius: 6,
                 isHitTestVisible: false
             )
 
             UI.stackPanel(
-                preferredSize: Size(width: layout.heroFrame.size.width - 44, height: 58),
+                preferredSize: Size(width: 0, height: 58),
                 stackLayout: .horizontal(spacing: 14, alignment: .stretch),
                 isHitTestVisible: false
             ) {
                 UI.button(
                     title: "RUN DIAGNOSTICS",
-                    preferredSize: Size(width: 192, height: 54),
+                    preferredSize: Size(width: 0, height: 54),
+                    layoutPriority: 1,
                     cornerRadius: 18,
                     palette: SurfacePalette(
                         idle: Color(red: 0.27, green: 0.39, blue: 0.56, alpha: 0.98),
@@ -437,7 +445,8 @@ public final class FoundationApp: WindowDelegate {
 
                 UI.button(
                     title: "SYNC SURFACES",
-                    preferredSize: Size(width: 176, height: 54),
+                    preferredSize: Size(width: 0, height: 54),
+                    layoutPriority: 1,
                     cornerRadius: 18,
                     palette: SurfacePalette(
                         idle: Color(red: 0.18, green: 0.52, blue: 0.56, alpha: 0.98),
@@ -453,17 +462,17 @@ public final class FoundationApp: WindowDelegate {
 
     private func buildStatsRow(_ layout: DemoLayout) -> Component {
         UI.stackPanel(
-            preferredSize: Size(width: 640, height: layout.statsHeight),
+            preferredSize: Size(width: 0, height: layout.statsHeight),
             stackLayout: .horizontal(spacing: 18, alignment: .stretch),
             isHitTestVisible: false
         ) {
-            buildStatTile(title: "MODULE", value: selectedModule.label, width: layout.statTileWidth, palette: selectedModule.metricPalette, action: "MODULE TILE OPENED")
-            buildStatTile(title: "TEXT", value: textBackendLabel, width: layout.statTileWidth, palette: SurfacePalette(
+            buildStatTile(title: "MODULE", value: selectedModule.label, palette: selectedModule.metricPalette, action: "MODULE TILE OPENED")
+            buildStatTile(title: "TEXT", value: textBackendLabel, palette: SurfacePalette(
                 idle: Color(red: 0.25, green: 0.38, blue: 0.31, alpha: 0.98),
                 focused: Color(red: 0.34, green: 0.51, blue: 0.42, alpha: 1.0),
                 pressed: Color(red: 0.75, green: 0.91, blue: 0.82, alpha: 1.0)
             ), action: "TEXT TILE OPENED")
-            buildStatTile(title: "EVENTS", value: "\(interactionCount)", width: layout.statTileWidth, palette: SurfacePalette(
+            buildStatTile(title: "EVENTS", value: "\(interactionCount)", palette: SurfacePalette(
                 idle: Color(red: 0.42, green: 0.31, blue: 0.23, alpha: 0.98),
                 focused: Color(red: 0.58, green: 0.43, blue: 0.31, alpha: 1.0),
                 pressed: Color(red: 0.99, green: 0.86, blue: 0.66, alpha: 1.0)
@@ -471,21 +480,23 @@ public final class FoundationApp: WindowDelegate {
         }
     }
 
-    private func buildStatTile(title: String, value: String, width: Double, palette: SurfacePalette, action: String) -> Component {
+    private func buildStatTile(title: String, value: String, palette: SurfacePalette, action: String) -> Component {
         UI.buttonPanel(
-            preferredSize: Size(width: width, height: 132),
+            preferredSize: Size(width: 0, height: 132),
+            layoutPriority: 1,
             cornerRadius: 24,
             palette: palette,
             layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
             action: { [weak self] in self?.performAction(action) }
         ) {
             UI.stackPanel(
-                preferredSize: Size(width: max(0, width - 44), height: 76),
+                preferredSize: Size(width: 0, height: 76),
+                layoutPriority: 1,
                 stackLayout: .vertical(spacing: 10, alignment: .leading, mainAlignment: .center),
                 isHitTestVisible: false
             ) {
-                UI.label(title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90), scale: 1.4, alignment: .leading)
-                UI.label(value, color: .white, scale: 2.4, alignment: .leading)
+                UI.label(title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90), scale: 1.4, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label(value, color: .white, scale: 2.4, alignment: .leading, maximumNumberOfLines: 1)
             }
         }
     }
@@ -493,7 +504,8 @@ public final class FoundationApp: WindowDelegate {
     private func buildActivitySection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "RECENT ACTIVITY",
-            preferredSize: Size(width: 640, height: max(180, layout.activityHeight)),
+            preferredSize: Size(width: 0, height: max(180, layout.activityHeight)),
+            layoutPriority: 1,
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
             backgroundGradient: LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
@@ -510,7 +522,8 @@ public final class FoundationApp: WindowDelegate {
         ) {
             UI.scrollPanel(
                 axis: .vertical,
-                preferredSize: Size(width: layout.activityFrame.size.width - 36, height: max(120, layout.activityFrame.size.height - 78)),
+                preferredSize: Size(width: 0, height: 0),
+                layoutPriority: 1,
                 backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.88),
                 borderColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.08),
                 borderWidth: 1,
@@ -529,7 +542,7 @@ public final class FoundationApp: WindowDelegate {
                         detail: selectedModule.summary,
                         accentColor: selectedModule.glowColor,
                         symbol: .activity,
-                        preferredSize: Size(width: 560, height: 68),
+                        preferredSize: Size(width: 0, height: 68),
                         action: { [weak self] in self?.performAction("OPENED EVENT \(event)") }
                     )
                 }
@@ -555,42 +568,47 @@ public final class FoundationApp: WindowDelegate {
             )
         ) {
             UI.buttonPanel(
-                preferredSize: Size(width: 296, height: 128),
+                preferredSize: Size(width: 0, height: 128),
                 cornerRadius: 22,
                 palette: selectedModule.metricPalette,
                 layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
                 action: { [weak self] in self?.performAction("DETAIL CARD OPENED") }
             ) {
                 UI.stackPanel(
-                    preferredSize: Size(width: 256, height: 82),
+                    preferredSize: Size(width: 0, height: 90),
+                    layoutPriority: 1,
                     stackLayout: .vertical(spacing: 8, alignment: .leading, mainAlignment: .center),
                     isHitTestVisible: false
                 ) {
-                    UI.label(selectedModule.label, color: .white, scale: 2.2, alignment: .leading)
-                    UI.label(selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.90), scale: 1.2, alignment: .leading)
-                    UI.label("LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.76), scale: 1.0, alignment: .leading)
+                    UI.label(selectedModule.label, color: .white, scale: 2.2, alignment: .leading, maximumNumberOfLines: 1)
+                    UI.label(selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.92), scale: 1.25, alignment: .leading, lineBreakMode: .wrap, maximumNumberOfLines: 2)
+                    UI.label("LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.80), scale: 1.05, alignment: .leading, maximumNumberOfLines: 1)
                 }
             }
 
-            UI.section(
-                title: "QUICK ACTIONS",
-                preferredSize: Size(width: 296, height: 252),
+            UI.scrollPanel(
+                axis: .vertical,
+                preferredSize: Size(width: 0, height: 0),
+                layoutPriority: 1,
                 backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.92),
                 borderColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.08),
-                shadowColor: .clear,
+                borderWidth: 1,
                 cornerRadius: 22,
                 stackLayout: .vertical(
                     spacing: 12,
                     padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
                     alignment: .stretch
-                )
+                ),
+                scrollStep: 44,
+                isHitTestVisible: false
             ) {
+                UI.label("QUICK ACTIONS", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96), scale: 1.6, weight: .semibold, alignment: .leading, maximumNumberOfLines: 1)
                 UI.listRow(
                     title: "PROFILE LAYOUT",
                     detail: "MEASURE, PLACE, CACHE",
                     accentColor: selectedModule.glowColor,
                     symbol: .layout,
-                    preferredSize: Size(width: 264, height: 68),
+                    preferredSize: Size(width: 0, height: 68),
                     action: { [weak self] in self?.performAction("LAYOUT PROFILED") }
                 )
                 UI.listRow(
@@ -598,7 +616,7 @@ public final class FoundationApp: WindowDelegate {
                     detail: "ROUTE POINTER AND FOCUS",
                     accentColor: selectedModule.stripeColor,
                     symbol: .keyboard,
-                    preferredSize: Size(width: 264, height: 68),
+                    preferredSize: Size(width: 0, height: 68),
                     action: { [weak self] in self?.performAction("INPUT INSPECTED") }
                 )
                 UI.listRow(
@@ -606,7 +624,7 @@ public final class FoundationApp: WindowDelegate {
                     detail: "FRAME TIMER AND PALETTES",
                     accentColor: selectedModule.metricPalette.focused,
                     symbol: .sparkle,
-                    preferredSize: Size(width: 264, height: 68),
+                    preferredSize: Size(width: 0, height: 68),
                     action: { [weak self] in self?.performAction("ANIMATION QUEUED") }
                 )
             }

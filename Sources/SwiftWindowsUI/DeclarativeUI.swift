@@ -55,6 +55,7 @@ public enum UI {
     public static func panel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
         text: String? = nil,
@@ -72,12 +73,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.panel(
-                frame: frame,
-                preferredSize: preferredSize,
-                backgroundColor: backgroundColor,
-                backgroundGradient: backgroundGradient,
-                text: text,
+                Controls.panel(
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    backgroundColor: backgroundColor,
+                    backgroundGradient: backgroundGradient,
+                    text: text,
                 textStyle: textStyle,
                 borderColor: borderColor,
                 borderWidth: borderWidth,
@@ -96,6 +98,7 @@ public enum UI {
     public static func stackPanel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
         borderColor: Color = .clear,
@@ -111,12 +114,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.stackPanel(
-                frame: frame,
-                preferredSize: preferredSize,
-                backgroundColor: backgroundColor,
-                backgroundGradient: backgroundGradient,
-                borderColor: borderColor,
+                Controls.stackPanel(
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    backgroundColor: backgroundColor,
+                    backgroundGradient: backgroundGradient,
+                    borderColor: borderColor,
                 borderWidth: borderWidth,
                 shadowColor: shadowColor,
                 shadowOffset: shadowOffset,
@@ -134,6 +138,7 @@ public enum UI {
         axis: ScrollAxis,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
         borderColor: Color = .clear,
         borderWidth: Double = 0,
@@ -152,13 +157,14 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.scrollPanel(
-                axis: axis,
-                frame: frame,
-                preferredSize: preferredSize,
-                backgroundColor: backgroundColor,
-                borderColor: borderColor,
-                borderWidth: borderWidth,
+                Controls.scrollPanel(
+                    axis: axis,
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    backgroundColor: backgroundColor,
+                    borderColor: borderColor,
+                    borderWidth: borderWidth,
                 shadowColor: shadowColor,
                 shadowOffset: shadowOffset,
                 shadowSpread: shadowSpread,
@@ -215,6 +221,7 @@ public enum UI {
     public static func toolbar(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
         backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
@@ -231,12 +238,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.toolbar(
-                frame: frame,
-                preferredSize: preferredSize,
-                backgroundColor: backgroundColor,
-                backgroundGradient: backgroundGradient,
-                borderColor: borderColor,
+                Controls.toolbar(
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    backgroundColor: backgroundColor,
+                    backgroundGradient: backgroundGradient,
+                    borderColor: borderColor,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
                 stackLayout: stackLayout,
@@ -250,6 +258,7 @@ public enum UI {
         title: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
         backgroundGradient: LinearGradient? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
@@ -268,13 +277,14 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.section(
-                title: title,
-                frame: frame,
-                preferredSize: preferredSize,
-                backgroundColor: backgroundColor,
-                backgroundGradient: backgroundGradient,
-                borderColor: borderColor,
+                Controls.section(
+                    title: title,
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    backgroundColor: backgroundColor,
+                    backgroundGradient: backgroundGradient,
+                    borderColor: borderColor,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
                 stackLayout: stackLayout,
@@ -290,24 +300,30 @@ public enum UI {
         _ text: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         color: Color = .white,
         scale: Double = 2,
         weight: TextWeight = .regular,
         fontFamily: String = "Segoe UI",
         alignment: TextHorizontalAlignment = .center,
-        insets: EdgeInsets = .zero
+        insets: EdgeInsets = .zero,
+        lineBreakMode: TextLineBreakMode = .truncateTail,
+        maximumNumberOfLines: Int? = nil
     ) -> Component {
         Component { _ in
             Controls.label(
                 text,
                 frame: frame,
                 preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
                 color: color,
                 scale: scale,
                 weight: weight,
                 fontFamily: fontFamily,
                 alignment: alignment,
-                insets: insets
+                insets: insets,
+                lineBreakMode: lineBreakMode,
+                maximumNumberOfLines: maximumNumberOfLines
             )
         }
     }
@@ -338,6 +354,7 @@ public enum UI {
         title: String,
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
@@ -349,14 +366,15 @@ public enum UI {
         action: (() -> Void)? = nil
     ) -> Component {
         return Component { runtime in
-            Controls.button(
-                runtime: runtime,
-                title: title,
-                frame: frame,
-                preferredSize: preferredSize,
-                cornerRadius: cornerRadius,
-                palette: palette,
-                chrome: chrome,
+                Controls.button(
+                    runtime: runtime,
+                    title: title,
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    cornerRadius: cornerRadius,
+                    palette: palette,
+                    chrome: chrome,
                 titleColor: titleColor,
                 titleScale: titleScale,
                 titleWeight: titleWeight,
@@ -370,6 +388,7 @@ public enum UI {
     public static func buttonPanel(
         frame: Rect = .zero,
         preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
@@ -381,13 +400,14 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-            Controls.button(
-                runtime: runtime,
-                frame: frame,
-                preferredSize: preferredSize,
-                cornerRadius: cornerRadius,
-                palette: palette,
-                chrome: chrome,
+                Controls.button(
+                    runtime: runtime,
+                    frame: frame,
+                    preferredSize: preferredSize,
+                    layoutPriority: layoutPriority,
+                    cornerRadius: cornerRadius,
+                    palette: palette,
+                    chrome: chrome,
                 clipsToBounds: clipsToBounds,
                 layoutMode: layoutMode,
                 animation: animation,
@@ -403,6 +423,7 @@ public enum UI {
         accentColor: Color,
         symbol: SymbolIcon? = nil,
         preferredSize: Size = Size(width: 280, height: 68),
+        layoutPriority: Double = 0,
         palette: SurfacePalette = SurfacePalette(
             idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.98),
             focused: Color(red: 0.26, green: 0.33, blue: 0.42, alpha: 1.0),
@@ -419,6 +440,7 @@ public enum UI {
                 accentColor: accentColor,
                 symbol: symbol,
                 preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
                 palette: palette,
                 chrome: chrome,
                 action: action

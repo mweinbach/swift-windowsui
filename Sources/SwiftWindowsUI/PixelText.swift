@@ -8,6 +8,12 @@ public enum TextHorizontalAlignment: Sendable {
     case trailing
 }
 
+public enum TextVerticalAlignment: Sendable {
+    case top
+    case center
+    case bottom
+}
+
 public enum TextWeight: Sendable {
     case regular
     case semibold
@@ -17,13 +23,28 @@ public enum TextWeight: Sendable {
 public enum TextLineBreakMode: Sendable {
     case clip
     case truncateTail
+    case truncateHead
+    case truncateMiddle
     case wrap
+}
+
+public struct TextSpan: Sendable {
+    public var text: String
+    public var style: PixelTextStyle
+    public var range: Range<String.Index>?
+
+    public init(text: String, style: PixelTextStyle, range: Range<String.Index>? = nil) {
+        self.text = text
+        self.style = style
+        self.range = range
+    }
 }
 
 public struct PixelTextStyle: Sendable {
     public var color: Color
     public var scale: Double
     public var alignment: TextHorizontalAlignment
+    public var verticalAlignment: TextVerticalAlignment
     public var letterSpacing: Double
     public var lineSpacing: Double
     public var insets: EdgeInsets
@@ -31,22 +52,32 @@ public struct PixelTextStyle: Sendable {
     public var weight: TextWeight
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
+    public var underline: Bool
+    public var strikethrough: Bool
+    public var enableKerning: Bool
+    public var spans: [TextSpan]?
 
     public init(
         color: Color,
         scale: Double = 2,
         alignment: TextHorizontalAlignment = .center,
+        verticalAlignment: TextVerticalAlignment = .center,
         letterSpacing: Double = 1,
         lineSpacing: Double = 2,
         insets: EdgeInsets = .zero,
         fontFamily: String = "Segoe UI",
         weight: TextWeight = .regular,
         lineBreakMode: TextLineBreakMode = .truncateTail,
-        maximumNumberOfLines: Int? = nil
+        maximumNumberOfLines: Int? = nil,
+        underline: Bool = false,
+        strikethrough: Bool = false,
+        enableKerning: Bool = true,
+        spans: [TextSpan]? = nil
     ) {
         self.color = color
         self.scale = scale
         self.alignment = alignment
+        self.verticalAlignment = verticalAlignment
         self.letterSpacing = letterSpacing
         self.lineSpacing = lineSpacing
         self.insets = insets
@@ -54,6 +85,10 @@ public struct PixelTextStyle: Sendable {
         self.weight = weight
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
+        self.underline = underline
+        self.strikethrough = strikethrough
+        self.enableKerning = enableKerning
+        self.spans = spans
     }
 }
 
@@ -303,6 +338,18 @@ func resolveTextLayout(
             break
         }
         fittedLines = sourceLines.map { truncateLine($0, toFit: maxContentWidth, measureLine: measureLine) }
+    case .truncateHead:
+        guard let maxContentWidth, maxContentWidth.isFinite else {
+            fittedLines = sourceLines
+            break
+        }
+        fittedLines = sourceLines.map { truncateLineHead($0, toFit: maxContentWidth, measureLine: measureLine) }
+    case .truncateMiddle:
+        guard let maxContentWidth, maxContentWidth.isFinite else {
+            fittedLines = sourceLines
+            break
+        }
+        fittedLines = sourceLines.map { truncateLineMiddle($0, toFit: maxContentWidth, measureLine: measureLine) }
     case .wrap:
         guard let maxContentWidth, maxContentWidth.isFinite else {
             fittedLines = sourceLines
@@ -419,6 +466,96 @@ private func truncateLine(_ line: String, toFit maxWidth: Double, measureLine: (
     }
 
     return appendingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
+}
+
+private func truncateLineHead(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
+    guard measureLine(line) > maxWidth else {
+        return line
+    }
+
+    return prependingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
+}
+
+private func truncateLineMiddle(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
+    guard measureLine(line) > maxWidth else {
+        return line
+    }
+
+    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
+    guard !ellipsis.isEmpty else {
+        return ""
+    }
+
+    let ellipsisWidth = measureLine(ellipsis)
+    let availableWidth = max(0, maxWidth - ellipsisWidth)
+    let halfWidth = availableWidth * 0.5
+
+    let characters = Array(line)
+    let headLength = longestFittingPrefixLength(for: line, maxWidth: halfWidth, measureLine: measureLine)
+    let tailLength = longestFittingSuffixLength(for: line, maxWidth: availableWidth - (headLength > 0 ? measureLine(String(characters.prefix(headLength))) : 0), measureLine: measureLine)
+
+    if headLength <= 0 && tailLength <= 0 {
+        return ellipsis
+    }
+
+    let head = String(characters.prefix(headLength)).trimmingCharacters(in: .whitespaces)
+    let tail = String(characters.suffix(tailLength)).trimmingCharacters(in: .whitespaces)
+    return head + ellipsis + tail
+}
+
+private func prependingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {
+    let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
+    guard !ellipsis.isEmpty else {
+        return ""
+    }
+
+    guard let maxWidth, maxWidth.isFinite else {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        return trimmed.hasPrefix(ellipsis) ? trimmed : ellipsis + trimmed
+    }
+
+    let trimmed = line.trimmingCharacters(in: .whitespaces)
+    guard measureLine(trimmed) + measureLine(ellipsis) > maxWidth else {
+        return ellipsis + trimmed
+    }
+
+    let suffixLength = longestFittingSuffixLength(
+        for: trimmed,
+        maxWidth: max(0, maxWidth - measureLine(ellipsis)),
+        measureLine: measureLine
+    )
+
+    if suffixLength <= 0 {
+        return ellipsis
+    }
+
+    let characters = Array(trimmed)
+    let suffix = String(characters.suffix(suffixLength)).trimmingCharacters(in: .whitespaces)
+    return suffix.isEmpty ? ellipsis : ellipsis + suffix
+}
+
+private func longestFittingSuffixLength(
+    for text: String,
+    maxWidth: Double,
+    measureLine: (String) -> Double
+) -> Int {
+    let characters = Array(text)
+    var lowerBound = 0
+    var upperBound = characters.count
+    var best = 0
+
+    while lowerBound <= upperBound {
+        let midpoint = (lowerBound + upperBound) / 2
+        let candidate = String(characters.suffix(midpoint))
+        if measureLine(candidate) <= maxWidth {
+            best = midpoint
+            lowerBound = midpoint + 1
+        } else {
+            upperBound = midpoint - 1
+        }
+    }
+
+    return best
 }
 
 private func appendingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {

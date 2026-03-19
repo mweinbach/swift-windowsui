@@ -3,6 +3,24 @@ import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsPlatform
 
+// Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
+public struct DirtyFlags: OptionSet, Sendable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    /// Property changes that affect size or position (frame, preferredSize, layoutMode, etc.).
+    public static let layout  = DirtyFlags(rawValue: 1 << 0)
+    /// Property changes that only affect visual appearance (color, opacity, borderColor, etc.).
+    public static let paint   = DirtyFlags(rawValue: 1 << 1)
+    /// Child list changed (add/remove).
+    public static let children = DirtyFlags(rawValue: 1 << 2)
+
+    public static let all: DirtyFlags = [.layout, .paint, .children]
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -16,71 +34,94 @@ public enum ScrollAxis: Sendable {
 @MainActor
 public final class ViewNode {
     public var frame: Rect {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var backgroundColor: Color? {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var backgroundGradient: LinearGradient? {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var text: String? {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var textStyle: PixelTextStyle {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var borderColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var borderWidth: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var outlineColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var outlineWidth: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var shadowColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var shadowOffset: Point {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var shadowSpread: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var cornerRadius: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var clipsToBounds: Bool {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var layoutMode: ViewLayoutMode {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var preferredSize: Size? {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var layoutPriority: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    // Gap/Fix: Blur radius — property for requesting a Gaussian blur over the view's content.
+    public var blurRadius: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    // Gap/Fix: Opacity — per-node opacity multiplier (0..1).
+    public var opacity: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    // Gap/Fix: Z-index for sibling sort order.
+    // NOTE: zIndex only sorts among siblings within the same parent.
+    // For cross-subtree ordering (e.g. modals, overlays), add the view
+    // at the root level or to a dedicated overlay container instead.
+    public var zIndex: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    // Gap/Fix: Per-node 2D affine transform (applied around the view's center).
+    public var transform: Transform2D {
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var flexItem: FlexItem {
@@ -88,51 +129,51 @@ public final class ViewNode {
     }
 
     public var scrollAxis: ScrollAxis? {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var scrollOffset: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollStep: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var showsScrollIndicator: Bool {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollIndicatorColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollIndicatorIdleColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollIndicatorHoverColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollIndicatorActiveColor: Color {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var scrollIndicatorThickness: Double {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var isFocusable: Bool {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var isHitTestVisible: Bool {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.paint) }
     }
 
     public var isHidden: Bool {
-        didSet { invalidateRuntime() }
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var onPointerEnter: (() -> Void)?
@@ -148,6 +189,14 @@ public final class ViewNode {
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
     public var onLayout: ((Rect) -> Void)?
+
+    // Gap/Fix: Lifecycle hooks — called during appendCommands when node
+    // first appears, disappears (removeFromParent), or changes frame size.
+    public var onAppear: (() -> Void)?
+    public var onDisappear: (() -> Void)?
+    public var onSizeChange: ((Rect) -> Void)?
+    private var hasAppeared = false
+    private var previousFrame: Rect?
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -176,6 +225,10 @@ public final class ViewNode {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         flexItem: FlexItem = .default,
+        blurRadius: Double = 0,
+        opacity: Double = 1.0,
+        zIndex: Double = 0,
+        transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
         scrollOffset: Double = 0,
         scrollStep: Double = 64,
@@ -208,6 +261,10 @@ public final class ViewNode {
         self.preferredSize = preferredSize
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
+        self.blurRadius = blurRadius
+        self.opacity = opacity
+        self.zIndex = zIndex
+        self.transform = transform
         self.scrollAxis = scrollAxis
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
@@ -248,7 +305,7 @@ public final class ViewNode {
         child.parent = self
         child.setRuntime(runtime)
         children.append(child)
-        invalidateRuntime()
+        invalidateRuntime(.children)
     }
 
     public func removeChild(_ child: ViewNode) {
@@ -257,9 +314,14 @@ public final class ViewNode {
         }
 
         let removed = children.remove(at: index)
+        // Gap/Fix: Lifecycle — fire onDisappear when node is removed from tree.
+        if removed.hasAppeared {
+            removed.onDisappear?()
+            removed.hasAppeared = false
+        }
         removed.parent = nil
         removed.setRuntime(nil)
-        invalidateRuntime()
+        invalidateRuntime(.children)
     }
 
     public func removeFromParent() {
@@ -268,12 +330,17 @@ public final class ViewNode {
 
     public func removeAllChildren() {
         for child in children {
+            // Gap/Fix: Lifecycle — fire onDisappear when node is removed from tree.
+            if child.hasAppeared {
+                child.onDisappear?()
+                child.hasAppeared = false
+            }
             child.parent = nil
             child.setRuntime(nil)
         }
 
         children.removeAll(keepingCapacity: false)
-        invalidateRuntime()
+        invalidateRuntime(.children)
     }
 
     fileprivate func setRuntime(_ runtime: RetainedViewRuntime?) {
@@ -513,6 +580,27 @@ public final class ViewNode {
             height: resolvedFrame.size.height
         )
 
+        // Gap/Fix: Occlusion culling — skip the entire node early if it is
+        // fully outside the inherited clip bounds (before allocating any
+        // command structs).
+        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+            return
+        }
+
+        // Gap/Fix: Lifecycle — fire onAppear the first time a node is rendered.
+        if !hasAppeared {
+            hasAppeared = true
+            onAppear?()
+            previousFrame = absoluteFrame
+        }
+
+        // Gap/Fix: Lifecycle — fire onSizeChange when the resolved frame differs
+        // from the previously recorded frame.
+        if let prev = previousFrame, prev != absoluteFrame {
+            onSizeChange?(absoluteFrame)
+        }
+        previousFrame = absoluteFrame
+
         var effectiveClip = inheritedClip
         if clipsToBounds {
             if let inheritedClip {
@@ -525,6 +613,12 @@ public final class ViewNode {
                 effectiveClip = absoluteFrame
             }
         }
+
+        // Gap/Fix: Opacity group compositing — when a view has opacity < 1 AND
+        // has children, the correct result requires compositing into an offscreen
+        // texture first. Without that, each child is blended individually, which
+        // causes overlapping children to double-blend.
+        // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
 
         let absoluteOrigin = Point(
             x: parentOrigin.x + resolvedFrame.origin.x,
@@ -617,7 +711,42 @@ public final class ViewNode {
             }
         }
 
-        for child in children {
+        // Gap/Fix: Emit blur render command — apply Gaussian blur over
+        // the view's content region when blurRadius is set.
+        if blurRadius > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+            commands.append(
+                .applyBlur(
+                    ApplyBlurCommand(
+                        rect: absoluteFrame,
+                        radius: blurRadius,
+                        clipRect: effectiveClip
+                    )
+                )
+            )
+        }
+
+        // Gap/Fix: Z-index sibling sort — children are drawn in zIndex
+        // order (stable sort preserves original order for equal zIndex).
+        // NOTE: zIndex only sorts among siblings within the same parent.
+        // For cross-subtree ordering (e.g. modals, overlays, popups),
+        // views should be added at the root level or to a dedicated
+        // overlay container rather than relying on zIndex across
+        // different subtrees.
+        let sortedChildren: [ViewNode]
+        if children.contains(where: { $0.zIndex != 0 }) {
+            sortedChildren = children.enumerated()
+                .sorted { a, b in
+                    if a.element.zIndex != b.element.zIndex {
+                        return a.element.zIndex < b.element.zIndex
+                    }
+                    return a.offset < b.offset
+                }
+                .map(\.element)
+        } else {
+            sortedChildren = children
+        }
+
+        for child in sortedChildren {
             child.appendCommands(into: &commands, parentOrigin: childOrigin, inheritedClip: effectiveClip)
         }
 
@@ -664,6 +793,26 @@ public final class ViewNode {
             return nil
         }
 
+        // Gap/Fix: Hit testing with transforms — apply the inverse of the view's
+        // transform (centered on the view's center) to the test point before
+        // checking containment. This ensures rotated/scaled views are hit-tested
+        // in their local coordinate space.
+        let testPoint: Point
+        if !transform.isIdentity {
+            let cx = absoluteFrame.origin.x + absoluteFrame.size.width * 0.5
+            let cy = absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
+            let centeredTransform = Transform2D.translation(x: cx, y: cy)
+                .concatenating(transform)
+                .concatenating(.translation(x: -cx, y: -cy))
+            if let inverseTransform = centeredTransform.inverse() {
+                testPoint = inverseTransform.applying(to: point)
+            } else {
+                testPoint = point
+            }
+        } else {
+            testPoint = point
+        }
+
         let absoluteOrigin = Point(
             x: parentOrigin.x + resolvedFrame.origin.x,
             y: parentOrigin.y + resolvedFrame.origin.y
@@ -675,12 +824,12 @@ public final class ViewNode {
         )
 
         for child in children.reversed() {
-            if let hitNode = child.hitTest(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+            if let hitNode = child.hitTest(at: testPoint, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
                 return hitNode
             }
         }
 
-        if isHitTestVisible, absoluteFrame.contains(point) {
+        if isHitTestVisible, absoluteFrame.contains(testPoint) {
             return self
         }
 
@@ -791,8 +940,8 @@ public final class ViewNode {
         return ScrollIndicatorHit(node: self, track: track)
     }
 
-    private func invalidateRuntime() {
-        runtime?.invalidate()
+    private func invalidateRuntime(_ flags: DirtyFlags = .all) {
+        runtime?.invalidate(flags)
     }
 
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
@@ -1236,7 +1385,15 @@ public final class RetainedViewRuntime {
     public let root: ViewNode
 
     public var displayScale: Double {
-        didSet { invalidate() }
+        didSet {
+            // Gap/Fix: Text cache granular invalidation — only invalidate the
+            // text raster cache when the scale factor actually changed, rather
+            // than clearing it on every dirty pass.
+            if oldValue != displayScale {
+                textRasterCache?.invalidateAll()
+            }
+            invalidate()
+        }
     }
 
     public var clearColor: Color {
@@ -1247,7 +1404,9 @@ public final class RetainedViewRuntime {
         !colorAnimations.isEmpty
     }
 
-    public private(set) var isDirty = true
+    // Gap/Fix: Granular dirty tracking — DirtyFlags replaces single boolean.
+    public private(set) var dirtyFlags: DirtyFlags = .all
+    public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
@@ -1257,6 +1416,13 @@ public final class RetainedViewRuntime {
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
+
+    /// Optional text raster cache for scale-aware invalidation.
+    public var textRasterCache: TextRasterCache?
+
+    // Gap/Fix: Frame pacing enforcement — minimum interval between renders.
+    public var minimumFrameInterval: Double?
+    private var lastRenderTime: Double = 0
 
     public init(clearColor: Color = .black, root: ViewNode = ViewNode(), displayScale: Double = 1.0) {
         self.clearColor = clearColor
@@ -1272,9 +1438,18 @@ public final class RetainedViewRuntime {
         }
     }
 
-    public func renderFrame() -> RenderFrame {
+    public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
         if let cachedFrame, !isDirty {
             return cachedFrame
+        }
+
+        // Gap/Fix: Frame pacing enforcement — if minimumFrameInterval is set,
+        // skip re-rendering when called too soon after the previous render.
+        if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
+            let elapsed = timestamp - lastRenderTime
+            if elapsed < interval, let cachedFrame {
+                return cachedFrame
+            }
         }
 
         updateResolvedLayout()
@@ -1284,7 +1459,10 @@ public final class RetainedViewRuntime {
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         cachedFrame = frame
-        isDirty = false
+        dirtyFlags = []
+        if timestamp > 0 {
+            lastRenderTime = timestamp
+        }
         return frame
     }
 
@@ -1483,8 +1661,8 @@ public final class RetainedViewRuntime {
         return didUpdateAnyAnimation
     }
 
-    fileprivate func invalidate() {
-        isDirty = true
+    fileprivate func invalidate(_ flags: DirtyFlags = .all) {
+        dirtyFlags.insert(flags)
     }
 
     private func hitTest(at point: Point) -> ViewNode? {

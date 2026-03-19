@@ -510,3 +510,16 @@ public struct ClipCommand: Equatable, Sendable {
         self.operation = operation
     }
 }
+
+/// Command to apply a Gaussian blur over a rectangular region.
+public struct ApplyBlurCommand: Equatable, Sendable {
+    public var rect: Rect
+    public var radius: Double
+    public var clipRect: Rect?
+
+    public init(rect: Rect, radius: Double, clipRect: Rect? = nil) {
+        self.rect = rect
+        self.radius = radius
+        self.clipRect = clipRect
+    }
+}

@@ -21,6 +21,8 @@ let dwriteTextAlignmentLeading: DWriteTextAlignment = 0
 let dwriteTextAlignmentTrailing: DWriteTextAlignment = 1
 let dwriteTextAlignmentCenter: DWriteTextAlignment = 2
 let dwriteParagraphAlignmentNear: DWriteParagraphAlignment = 0
+let dwriteParagraphAlignmentFar: DWriteParagraphAlignment = 1
+let dwriteParagraphAlignmentCenter: DWriteParagraphAlignment = 2
 let dwriteWordWrappingWrap: DWriteWordWrapping = 0
 let dwriteWordWrappingNoWrap: DWriteWordWrapping = 1
 let dwritePixelGeometryFlat: DWritePixelGeometry = 0
@@ -29,6 +31,12 @@ let dwriteMeasuringModeNatural: DWriteMeasuringMode = 0
 let dwriteReadingDirectionLeftToRight: DWriteReadingDirection = 0
 let dwriteFlowDirectionTopToBottom: DWriteFlowDirection = 0
 let dwriteLineSpacingMethodDefault: DWriteLineSpacingMethod = 0
+let dwriteLineSpacingMethodProportional: DWriteLineSpacingMethod = 2
+
+struct DWRITE_TEXT_RANGE {
+    var startPosition: UINT32 = 0
+    var length: UINT32 = 0
+}
 
 struct DWRITE_MATRIX {
     var m11: FLOAT = 1
@@ -128,6 +136,13 @@ typealias DWSetLineSpacingProc = @convention(c) (UnsafeMutableRawPointer?, DWrit
 typealias DWDrawTextLayoutProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) -> HRESULT
 typealias DWGetMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWGetOverhangMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWSetUnderlineProc = @convention(c) (UnsafeMutableRawPointer?, WindowsBool, DWRITE_TEXT_RANGE) -> HRESULT
+typealias DWSetStrikethroughProc = @convention(c) (UnsafeMutableRawPointer?, WindowsBool, DWRITE_TEXT_RANGE) -> HRESULT
+typealias DWLayoutSetFontWeightProc = @convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, DWRITE_TEXT_RANGE) -> HRESULT
+typealias DWLayoutSetFontSizeProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT, DWRITE_TEXT_RANGE) -> HRESULT
+typealias DWLayoutSetTypographyProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, DWRITE_TEXT_RANGE) -> HRESULT
+typealias DWGetFontFamilyNameLengthProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UINT32>?) -> HRESULT
+typealias DWGetFontFamilyNameProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
 
 typealias DWCreateBitmapRenderTargetProc = @convention(c) (UnsafeMutableRawPointer?, HDC?, UINT32, UINT32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
 typealias DWBitmapDrawGlyphRunProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT, FLOAT, DWriteMeasuringMode, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, COLORREF, UnsafeMutableRawPointer?) -> HRESULT
@@ -174,8 +189,8 @@ struct IDWriteTextFormatVtbl {
     var GetTrimming: UnsafeMutableRawPointer?
     var GetLineSpacing: UnsafeMutableRawPointer?
     var GetFontCollection: UnsafeMutableRawPointer?
-    var GetFontFamilyNameLength: UnsafeMutableRawPointer?
-    var GetFontFamilyName: UnsafeMutableRawPointer?
+    var GetFontFamilyNameLength: DWGetFontFamilyNameLengthProc
+    var GetFontFamilyName: DWGetFontFamilyNameProc
     var GetFontWeight: UnsafeMutableRawPointer?
     var GetFontStyle: UnsafeMutableRawPointer?
     var GetFontStretch: UnsafeMutableRawPointer?
@@ -217,15 +232,15 @@ struct IDWriteTextLayoutVtbl {
     var SetMaxHeight: UnsafeMutableRawPointer?
     var SetFontCollection: UnsafeMutableRawPointer?
     var SetFontFamilyName: UnsafeMutableRawPointer?
-    var SetFontWeight: UnsafeMutableRawPointer?
+    var SetFontWeight: DWLayoutSetFontWeightProc
     var SetFontStyle: UnsafeMutableRawPointer?
     var SetFontStretch: UnsafeMutableRawPointer?
-    var SetFontSize: UnsafeMutableRawPointer?
-    var SetUnderline: UnsafeMutableRawPointer?
-    var SetStrikethrough: UnsafeMutableRawPointer?
+    var SetFontSize: DWLayoutSetFontSizeProc
+    var SetUnderline: DWSetUnderlineProc
+    var SetStrikethrough: DWSetStrikethroughProc
     var SetDrawingEffect: UnsafeMutableRawPointer?
     var SetInlineObject: UnsafeMutableRawPointer?
-    var SetTypography: UnsafeMutableRawPointer?
+    var SetTypography: DWLayoutSetTypographyProc
     var SetLocaleName: UnsafeMutableRawPointer?
     var GetMaxWidth: UnsafeMutableRawPointer?
     var GetMaxHeight: UnsafeMutableRawPointer?

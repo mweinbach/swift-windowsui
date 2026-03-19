@@ -119,7 +119,7 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: layoutSize) else {
+        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: layoutSize, style: style) else {
             return nil
         }
         defer {
@@ -172,7 +172,7 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize) else {
+        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize, style: style) else {
             return nil
         }
         defer {
@@ -248,9 +248,58 @@ private final class DirectWriteSystem {
         return surface
     }
 
+    private static let fallbackFontFamilies = ["Segoe UI", "Arial", "sans-serif"]
+
     private func createTextFormat(style: PixelTextStyle, wrapping: DWriteWordWrapping) -> UnsafeMutablePointer<IDWriteTextFormat>? {
+        let format = createTextFormatWithFallback(style: style)
+        guard let format else {
+            return nil
+        }
+
+        _ = format.pointee.lpVtbl!.pointee.SetTextAlignment(UnsafeMutableRawPointer(format), style.alignment.dwriteAlignment)
+        _ = format.pointee.lpVtbl!.pointee.SetParagraphAlignment(UnsafeMutableRawPointer(format), style.verticalAlignment.dwriteParagraphAlignment)
+        _ = format.pointee.lpVtbl!.pointee.SetWordWrapping(UnsafeMutableRawPointer(format), wrapping)
+
+        if style.lineSpacing > 0 {
+            _ = format.pointee.lpVtbl!.pointee.SetLineSpacing(
+                UnsafeMutableRawPointer(format),
+                dwriteLineSpacingMethodProportional,
+                FLOAT(style.nativeFontPixelSize * (1.0 + style.lineSpacing / style.nativeFontPixelSize)),
+                FLOAT(style.nativeFontPixelSize * 0.8)
+            )
+        }
+
+        return format
+    }
+
+    private func createTextFormatWithFallback(style: PixelTextStyle) -> UnsafeMutablePointer<IDWriteTextFormat>? {
+        if let format = attemptCreateTextFormat(fontFamily: style.fontFamily, style: style) {
+            let resolvedFamily = fontFamilyName(from: format)
+            if let resolvedFamily, resolvedFamily.lowercased() != style.fontFamily.lowercased() {
+                debugLog("[DirectWrite] Font family '\(style.fontFamily)' resolved to '\(resolvedFamily)'")
+            }
+            return format
+        }
+
+        debugLog("[DirectWrite] Primary font '\(style.fontFamily)' unavailable, trying fallbacks")
+
+        for fallback in DirectWriteSystem.fallbackFontFamilies {
+            guard fallback.lowercased() != style.fontFamily.lowercased() else {
+                continue
+            }
+            if let format = attemptCreateTextFormat(fontFamily: fallback, style: style) {
+                debugLog("[DirectWrite] Using fallback font '\(fallback)'")
+                return format
+            }
+        }
+
+        debugLog("[DirectWrite] All font fallbacks failed")
+        return nil
+    }
+
+    private func attemptCreateTextFormat(fontFamily: String, style: PixelTextStyle) -> UnsafeMutablePointer<IDWriteTextFormat>? {
         var formatRaw: UnsafeMutableRawPointer?
-        let hr = withWideString(style.fontFamily) { familyName in
+        let hr = withWideString(fontFamily) { familyName in
             withWideString("en-us") { localeName in
                 factory.pointee.lpVtbl!.pointee.CreateTextFormat(
                     UnsafeMutableRawPointer(factory),
@@ -270,14 +319,29 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        let format = formatRaw.assumingMemoryBound(to: IDWriteTextFormat.self)
-        _ = format.pointee.lpVtbl!.pointee.SetTextAlignment(UnsafeMutableRawPointer(format), style.alignment.dwriteAlignment)
-        _ = format.pointee.lpVtbl!.pointee.SetParagraphAlignment(UnsafeMutableRawPointer(format), dwriteParagraphAlignmentNear)
-        _ = format.pointee.lpVtbl!.pointee.SetWordWrapping(UnsafeMutableRawPointer(format), wrapping)
-        return format
+        return formatRaw.assumingMemoryBound(to: IDWriteTextFormat.self)
     }
 
-    private func createTextLayout(text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, size: Size) -> UnsafeMutablePointer<IDWriteTextLayout>? {
+    private func fontFamilyName(from format: UnsafeMutablePointer<IDWriteTextFormat>) -> String? {
+        var nameLength: UINT32 = 0
+        let lengthHR = format.pointee.lpVtbl!.pointee.GetFontFamilyNameLength(UnsafeMutableRawPointer(format), &nameLength)
+        guard isSuccess(lengthHR), nameLength > 0 else {
+            return nil
+        }
+
+        let bufferSize = Int(nameLength + 1)
+        var buffer = [WCHAR](repeating: 0, count: bufferSize)
+        let nameHR = buffer.withUnsafeMutableBufferPointer { bufferPointer in
+            format.pointee.lpVtbl!.pointee.GetFontFamilyName(UnsafeMutableRawPointer(format), bufferPointer.baseAddress!, UINT32(bufferSize))
+        }
+        guard isSuccess(nameHR) else {
+            return nil
+        }
+
+        return String(decodingCString: buffer, as: UTF16.self)
+    }
+
+    private func createTextLayout(text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, size: Size, style: PixelTextStyle? = nil) -> UnsafeMutablePointer<IDWriteTextLayout>? {
         let utf16 = Array(text.utf16)
         var layoutRaw: UnsafeMutableRawPointer?
         let hr = utf16.withUnsafeBufferPointer { buffer in
@@ -296,7 +360,90 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        return layoutRaw.assumingMemoryBound(to: IDWriteTextLayout.self)
+        let layout = layoutRaw.assumingMemoryBound(to: IDWriteTextLayout.self)
+
+        if let style {
+            let fullRange = DWRITE_TEXT_RANGE(startPosition: 0, length: UINT32(utf16.count))
+
+            if style.underline {
+                _ = layout.pointee.lpVtbl!.pointee.SetUnderline(UnsafeMutableRawPointer(layout), WindowsBool(true), fullRange)
+            }
+
+            if style.strikethrough {
+                _ = layout.pointee.lpVtbl!.pointee.SetStrikethrough(UnsafeMutableRawPointer(layout), WindowsBool(true), fullRange)
+            }
+
+            if !style.enableKerning {
+                applyKerningDisabled(layout: layout, textLength: UINT32(utf16.count))
+            }
+
+            if let spans = style.spans {
+                applyTextSpans(spans, to: layout, fullText: text)
+            }
+        }
+
+        return layout
+    }
+
+    private func applyKerningDisabled(layout: UnsafeMutablePointer<IDWriteTextLayout>, textLength: UINT32) {
+        guard let typographyRaw = createTypography() else {
+            return
+        }
+        defer {
+            let unknown = typographyRaw.assumingMemoryBound(to: IUnknown.self)
+            _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
+        }
+
+        let fullRange = DWRITE_TEXT_RANGE(startPosition: 0, length: textLength)
+        _ = layout.pointee.lpVtbl!.pointee.SetTypography(UnsafeMutableRawPointer(layout), typographyRaw, fullRange)
+    }
+
+    private func createTypography() -> UnsafeMutableRawPointer? {
+        let createProc = factory.pointee.lpVtbl!.pointee.CreateTypography
+        guard let createProc else {
+            return nil
+        }
+
+        let createFn = unsafeBitCast(createProc, to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT).self)
+        var typographyRaw: UnsafeMutableRawPointer?
+        let hr = createFn(UnsafeMutableRawPointer(factory), &typographyRaw)
+        guard isSuccess(hr), let typographyRaw else {
+            return nil
+        }
+
+        return typographyRaw
+    }
+
+    private func applyTextSpans(_ spans: [TextSpan], to layout: UnsafeMutablePointer<IDWriteTextLayout>, fullText: String) {
+        let utf16View = fullText.utf16
+
+        for span in spans {
+            guard let range = span.range else {
+                continue
+            }
+
+            guard let utf16Start = range.lowerBound.samePosition(in: utf16View),
+                  let utf16End = range.upperBound.samePosition(in: utf16View) else {
+                continue
+            }
+
+            let startPosition = UINT32(utf16View.distance(from: utf16View.startIndex, to: utf16Start))
+            let length = UINT32(utf16View.distance(from: utf16Start, to: utf16End))
+            let textRange = DWRITE_TEXT_RANGE(startPosition: startPosition, length: length)
+
+            let spanStyle = span.style
+
+            _ = layout.pointee.lpVtbl!.pointee.SetFontWeight(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, textRange)
+            _ = layout.pointee.lpVtbl!.pointee.SetFontSize(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), textRange)
+
+            if spanStyle.underline {
+                _ = layout.pointee.lpVtbl!.pointee.SetUnderline(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
+            }
+
+            if spanStyle.strikethrough {
+                _ = layout.pointee.lpVtbl!.pointee.SetStrikethrough(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
+            }
+        }
     }
 
     private func textBounds(for layout: UnsafeMutablePointer<IDWriteTextLayout>) -> TextBounds? {
@@ -329,10 +476,18 @@ private final class DirectWriteSystem {
 
     private func textOrigin(size: Size, style: PixelTextStyle, bounds: TextBounds) -> Point {
         let contentHeight = max(0, size.height - style.insets.top - style.insets.bottom)
-        let centeredOffset = max(0, (contentHeight - bounds.height) * 0.5)
+        let verticalOffset: Double
+        switch style.verticalAlignment {
+        case .top:
+            verticalOffset = 0
+        case .center:
+            verticalOffset = max(0, (contentHeight - bounds.height) * 0.5)
+        case .bottom:
+            verticalOffset = max(0, contentHeight - bounds.height)
+        }
         return Point(
             x: style.insets.leading,
-            y: style.insets.top + centeredOffset + bounds.overhangTop
+            y: style.insets.top + verticalOffset + bounds.overhangTop
         )
     }
 
@@ -653,6 +808,25 @@ private extension TextHorizontalAlignment {
             return dwriteTextAlignmentTrailing
         }
     }
+}
+
+private extension TextVerticalAlignment {
+    var dwriteParagraphAlignment: DWriteParagraphAlignment {
+        switch self {
+        case .top:
+            return dwriteParagraphAlignmentNear
+        case .center:
+            return dwriteParagraphAlignmentCenter
+        case .bottom:
+            return dwriteParagraphAlignmentFar
+        }
+    }
+}
+
+private func debugLog(_ message: String) {
+    #if DEBUG
+    print(message)
+    #endif
 }
 
 private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCHAR>) -> Result) -> Result {

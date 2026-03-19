@@ -83,6 +83,10 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    public var flexItem: FlexItem {
+        didSet { invalidateRuntime() }
+    }
+
     public var scrollAxis: ScrollAxis? {
         didSet { invalidateRuntime() }
     }
@@ -171,6 +175,7 @@ public final class ViewNode {
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
+        flexItem: FlexItem = .default,
         scrollAxis: ScrollAxis? = nil,
         scrollOffset: Double = 0,
         scrollStep: Double = 64,
@@ -202,6 +207,7 @@ public final class ViewNode {
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
         self.layoutPriority = layoutPriority
+        self.flexItem = flexItem
         self.scrollAxis = scrollAxis
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
@@ -318,24 +324,100 @@ public final class ViewNode {
             let availableMainExtent = stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
             let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
             let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
-            let allocatedMainSizes = allowsOverflowAlongMainAxis
-                ? desiredMainSizes
-                : allocateMainSizes(
+
+            // Allocate main sizes with flex support
+            var allocatedMainSizes: [Double]
+            if allowsOverflowAlongMainAxis {
+                allocatedMainSizes = desiredMainSizes
+            } else {
+                allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
                     children: visibleChildren,
                     availableExtent: availableChildMainExtent
                 )
+            }
+
+            // Apply flex grow/shrink
+            if !allowsOverflowAlongMainAxis, !visibleChildren.isEmpty {
+                let allocatedTotal = allocatedMainSizes.reduce(0, +)
+                let remaining = availableChildMainExtent - allocatedTotal
+
+                if remaining > 0 {
+                    // Distribute remaining space to items with flexGrow > 0
+                    let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.flexGrow }
+                    if totalGrow > 0 {
+                        var leftover = remaining
+                        for (i, child) in visibleChildren.enumerated() {
+                            guard child.flexItem.flexGrow > 0 else { continue }
+                            let share: Double
+                            if i == visibleChildren.count - 1 {
+                                share = leftover
+                            } else {
+                                share = remaining * (child.flexItem.flexGrow / totalGrow)
+                                leftover -= share
+                            }
+                            allocatedMainSizes[i] += share
+                        }
+                    }
+                } else if remaining < 0 {
+                    // Shrink items with flexShrink > 0
+                    let deficit = -remaining
+                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.flexShrink }
+                    if totalShrink > 0 {
+                        var leftover = deficit
+                        for (i, child) in visibleChildren.enumerated() {
+                            guard child.flexItem.flexShrink > 0 else { continue }
+                            let share: Double
+                            if i == visibleChildren.count - 1 {
+                                share = leftover
+                            } else {
+                                share = deficit * (child.flexItem.flexShrink / totalShrink)
+                                leftover -= share
+                            }
+                            allocatedMainSizes[i] = max(0, allocatedMainSizes[i] - share)
+                        }
+                    }
+                }
+            }
+
             let occupiedMainExtent = allocatedMainSizes.reduce(0, +) + spacingTotal
 
+            // Calculate spacing and start position based on distribution
             let mainOrigin = stackLayout.axis == .vertical ? contentRect.origin.y : contentRect.origin.x
             let mainCursorStart: Double
-            switch stackLayout.mainAlignment {
-            case .start:
+            let effectiveSpacing: Double
+
+            switch stackLayout.distribution {
+            case .fill:
+                effectiveSpacing = stackLayout.spacing
+                switch stackLayout.mainAlignment {
+                case .start:
+                    mainCursorStart = mainOrigin
+                case .center:
+                    mainCursorStart = mainOrigin + max(0, (availableMainExtent - occupiedMainExtent) * 0.5)
+                case .end:
+                    mainCursorStart = mainOrigin + max(0, availableMainExtent - occupiedMainExtent)
+                }
+
+            case .spaceBetween:
+                let itemsTotal = allocatedMainSizes.reduce(0, +)
+                let freeSpace = max(0, availableMainExtent - itemsTotal)
+                effectiveSpacing = visibleChildren.count > 1 ? freeSpace / Double(visibleChildren.count - 1) : 0
                 mainCursorStart = mainOrigin
-            case .center:
-                mainCursorStart = mainOrigin + max(0, (availableMainExtent - occupiedMainExtent) * 0.5)
-            case .end:
-                mainCursorStart = mainOrigin + max(0, availableMainExtent - occupiedMainExtent)
+
+            case .spaceAround:
+                let itemsTotal = allocatedMainSizes.reduce(0, +)
+                let freeSpace = max(0, availableMainExtent - itemsTotal)
+                let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count) : 0
+                effectiveSpacing = slotSpace
+                mainCursorStart = mainOrigin + slotSpace * 0.5
+
+            case .spaceEvenly:
+                let itemsTotal = allocatedMainSizes.reduce(0, +)
+                let freeSpace = max(0, availableMainExtent - itemsTotal)
+                let slotSpace = visibleChildren.count > 0 ? freeSpace / Double(visibleChildren.count + 1) : 0
+                effectiveSpacing = slotSpace
+                mainCursorStart = mainOrigin + slotSpace
             }
 
             var mainCursor = mainCursorStart
@@ -368,7 +450,7 @@ public final class ViewNode {
                     }
 
                     childFrame = Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height))
-                    mainCursor += height + stackLayout.spacing
+                    mainCursor += height + effectiveSpacing
                     maxCrossExtent = max(maxCrossExtent, width)
 
                 case .horizontal:
@@ -386,7 +468,7 @@ public final class ViewNode {
                     }
 
                     childFrame = Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height))
-                    mainCursor += width + stackLayout.spacing
+                    mainCursor += width + effectiveSpacing
                     maxCrossExtent = max(maxCrossExtent, height)
                 }
 

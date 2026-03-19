@@ -6,12 +6,35 @@ import SwiftWindowsLayout
 public struct Component {
     private let makeViewNode: (RetainedViewRuntime) -> ViewNode
 
-    public init(makeViewNode: @escaping @MainActor (RetainedViewRuntime) -> ViewNode) {
+    /// Optional stable key for identity-based reconciliation.  When building
+    /// child components from arrays or loops, assign a unique key so the
+    /// diffing algorithm can match nodes by identity across rebuilds instead
+    /// of relying on positional index alone.
+    public var key: String?
+
+    public init(
+        key: String? = nil,
+        makeViewNode: @escaping @MainActor (RetainedViewRuntime) -> ViewNode
+    ) {
+        self.key = key
         self.makeViewNode = makeViewNode
     }
 
     public func makeNode(runtime: RetainedViewRuntime) -> ViewNode {
-        makeViewNode(runtime)
+        let node = makeViewNode(runtime)
+        // Propagate the component key to the ViewNode's stable identity tag
+        // so the diffing algorithm in ComponentHost can use it.
+        if let key, node.nodeTag == nil {
+            node.nodeTag = key
+        }
+        return node
+    }
+
+    /// Return a copy of this component with the given reconciliation key.
+    public func keyed(_ key: String) -> Component {
+        var copy = self
+        copy.key = key
+        return copy
     }
 }
 

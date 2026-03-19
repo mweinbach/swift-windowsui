@@ -20,7 +20,7 @@ public enum TextLineBreakMode: Sendable {
     case wrap
 }
 
-public struct PixelTextStyle: Sendable {
+public struct PixelTextStyle: Sendable, Equatable {
     public var color: Color
     public var scale: Double
     public var alignment: TextHorizontalAlignment

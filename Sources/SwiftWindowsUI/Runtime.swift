@@ -131,6 +131,21 @@ public final class ViewNode {
         didSet { invalidateRuntime() }
     }
 
+    /// Optional stable identity tag used by the diffing algorithm to match
+    /// nodes across rebuilds.  When present, two nodes with the same tag are
+    /// considered equivalent and will have their properties updated in-place
+    /// rather than being torn down and recreated.
+    public var nodeTag: String?
+
+    /// Snapshot of previous property values for animation interpolation.
+    /// When an animation context is active and a property changes, the old
+    /// value is recorded here so that the runtime can interpolate between old
+    /// and new over time.
+    public var previousPropertyValues: PropertySnapshot?
+
+    /// Active per-property animation states driven by the `animation()` modifier.
+    public var animationStates: [AnimatableProperty: AnimationState] = [:]
+
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerDown: (() -> Void)?
@@ -267,6 +282,35 @@ public final class ViewNode {
         }
 
         children.removeAll(keepingCapacity: false)
+        invalidateRuntime()
+    }
+
+    /// Replace the child at the given index with a new node.
+    public func replaceChild(at index: Int, with newChild: ViewNode) {
+        guard index >= 0, index < children.count else {
+            return
+        }
+
+        let old = children[index]
+        old.parent = nil
+        old.setRuntime(nil)
+
+        newChild.removeFromParent()
+        newChild.parent = self
+        newChild.setRuntime(runtime)
+        children[index] = newChild
+        invalidateRuntime()
+    }
+
+    /// Remove the child at the given index.
+    public func removeChild(at index: Int) {
+        guard index >= 0, index < children.count else {
+            return
+        }
+
+        let removed = children.remove(at: index)
+        removed.parent = nil
+        removed.setRuntime(nil)
         invalidateRuntime()
     }
 
@@ -1634,4 +1678,111 @@ private final class ViewColorAnimation {
 
 private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
+}
+
+// MARK: - Animation interpolation support
+
+/// Properties that can be animated via the `animation()` view modifier.
+public enum AnimatableProperty: Hashable, Sendable {
+    case opacity
+    case backgroundColor
+}
+
+/// Tracks the interpolation state for a single animated property change.
+public struct AnimationState {
+    public var startValue: Double
+    public var endValue: Double
+    public var startTime: Double
+    public var duration: Double
+    public var easing: AnimationEasing
+
+    public init(startValue: Double, endValue: Double, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut) {
+        self.startValue = startValue
+        self.endValue = endValue
+        self.startTime = startTime
+        self.duration = duration
+        self.easing = easing
+    }
+
+    /// Returns the interpolated value at the given timestamp.
+    public func interpolatedValue(at timestamp: Double) -> Double {
+        let elapsed = timestamp - startTime
+        guard duration > 0 else {
+            return endValue
+        }
+
+        let linearProgress = min(max(elapsed / duration, 0), 1)
+        let easedProgress = easing.apply(linearProgress)
+        return startValue + (endValue - startValue) * easedProgress
+    }
+
+    /// Whether the animation has completed at the given timestamp.
+    public func isComplete(at timestamp: Double) -> Bool {
+        (timestamp - startTime) >= duration
+    }
+}
+
+/// Easing functions for animation interpolation.
+public enum AnimationEasing: Sendable {
+    case linear
+    case easeIn
+    case easeOut
+    case easeInOut
+
+    func apply(_ t: Double) -> Double {
+        switch self {
+        case .linear:
+            return t
+        case .easeIn:
+            return t * t
+        case .easeOut:
+            return t * (2 - t)
+        case .easeInOut:
+            return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+        }
+    }
+}
+
+/// Color-based animation state for interpolating between two colors over time.
+public struct ColorAnimationState {
+    public var startColor: Color
+    public var endColor: Color
+    public var startTime: Double
+    public var duration: Double
+    public var easing: AnimationEasing
+
+    public init(startColor: Color, endColor: Color, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut) {
+        self.startColor = startColor
+        self.endColor = endColor
+        self.startTime = startTime
+        self.duration = duration
+        self.easing = easing
+    }
+
+    public func interpolatedColor(at timestamp: Double) -> Color {
+        let elapsed = timestamp - startTime
+        guard duration > 0 else {
+            return endColor
+        }
+
+        let linearProgress = min(max(elapsed / duration, 0), 1)
+        let easedProgress = easing.apply(linearProgress)
+        return startColor.interpolated(to: endColor, progress: easedProgress)
+    }
+
+    public func isComplete(at timestamp: Double) -> Bool {
+        (timestamp - startTime) >= duration
+    }
+}
+
+/// Snapshot of property values used by the animation system to track previous
+/// state so it can interpolate between old and new values.
+public struct PropertySnapshot {
+    public var opacity: Double?
+    public var backgroundColor: Color?
+
+    public init(opacity: Double? = nil, backgroundColor: Color? = nil) {
+        self.opacity = opacity
+        self.backgroundColor = backgroundColor
+    }
 }

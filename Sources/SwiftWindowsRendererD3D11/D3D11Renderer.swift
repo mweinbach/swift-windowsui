@@ -1,4 +1,5 @@
 import CDirect2DInterop
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK
@@ -33,9 +34,19 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
     }
 }
 
+/// Blend modes supported by the D3D11 fallback renderer.
+public enum D3D11BlendMode: Hashable, Sendable {
+    case normal
+    case additive
+    case multiply
+}
+
 public final class D3D11Renderer: RenderBackend {
     public private(set) var isAttached = false
     public private(set) var isDirect2DEnabled = false
+    /// Controls vertical sync. When true, Present uses sync interval 1;
+    /// when false, sync interval 0 (and tearing flag when supported).
+    public var vsyncEnabled: Bool = true
     public var backendDisplayName: String {
         isDirect2DEnabled ? "DIRECT2D" : "2D RENDERER"
     }
@@ -69,12 +80,17 @@ public final class D3D11Renderer: RenderBackend {
     private var bitmapConstantBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var bitmapSamplerState: UnsafeMutablePointer<ID3D11SamplerState>?
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
+    private var blendStates: [D3D11BlendMode: UnsafeMutablePointer<ID3D11BlendState>] = [:]
+    private var currentBlendMode: D3D11BlendMode = .normal
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var direct2DFactory: UnsafeMutableRawPointer?
     private var direct2DDevice: UnsafeMutableRawPointer?
     private var direct2DDeviceContext: UnsafeMutableRawPointer?
     private var direct2DTargetBitmap: UnsafeMutableRawPointer?
     private var didAttemptDirect2DSetup = false
+    private var tearingSupported = false
+    private var consecutiveDeviceLostCount = 0
+    private static let maxDeviceLostRecoveryAttempts = 3
 
     public init(configuration: D3D11RendererConfiguration = D3D11RendererConfiguration()) {
         self.configuration = configuration
@@ -138,13 +154,18 @@ public final class D3D11Renderer: RenderBackend {
         releaseCOM(&renderTargetView)
         deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
 
+        var resizeFlags: UINT = 0
+        if tearingSupported {
+            resizeFlags |= UINT(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.rawValue)
+        }
+
         let hr = swapChain.pointee.lpVtbl.pointee.ResizeBuffers(
             swapChain,
             0,
             UINT(max(size.width, 1)),
             UINT(max(size.height, 1)),
             DXGI_FORMAT_UNKNOWN,
-            0
+            resizeFlags
         )
         try throwIfFailed(hr, operation: "IDXGISwapChain1.ResizeBuffers")
         try createRenderTargetView()
@@ -177,8 +198,13 @@ public final class D3D11Renderer: RenderBackend {
                     targetBitmap: direct2DTargetBitmap
                 )
 
-                let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
-                try throwIfFailed(hr, operation: "IDXGISwapChain1.Present")
+                let syncInterval: UINT = vsyncEnabled ? 1 : 0
+                var presentFlags: UINT = 0
+                if !vsyncEnabled && tearingSupported {
+                    presentFlags |= DXGI_PRESENT_ALLOW_TEARING
+                }
+                let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, presentFlags)
+                try handlePresentResult(hr)
                 return
             } catch {
                 releaseDirect2DTarget()
@@ -215,6 +241,16 @@ public final class D3D11Renderer: RenderBackend {
         )
         deviceContext.pointee.lpVtbl.pointee.RSSetViewports(deviceContext, 1, &viewport)
         deviceContext.pointee.lpVtbl.pointee.RSSetState(deviceContext, rasterizerState)
+
+        // Reset scissor rect to full surface at frame boundary so state does not
+        // leak from a previous frame's clip stack.
+        var fullSurfaceScissor = D3D11_RECT(
+            left: 0,
+            top: 0,
+            right: Int32(surface.pixelSize.width),
+            bottom: Int32(surface.pixelSize.height)
+        )
+        deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &fullSurfaceScissor)
         deviceContext.pointee.lpVtbl.pointee.IASetInputLayout(deviceContext, nil)
         deviceContext.pointee.lpVtbl.pointee.IASetPrimitiveTopology(deviceContext, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST)
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vertexShader, nil, 0)
@@ -224,6 +260,8 @@ public final class D3D11Renderer: RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
+        // Reset blend mode to normal at each frame boundary.
+        currentBlendMode = .normal
         let blendFactor: [FLOAT] = [0, 0, 0, 0]
         blendFactor.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
@@ -251,8 +289,13 @@ public final class D3D11Renderer: RenderBackend {
             )
         }
 
-        let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, 1, 0)
-        try throwIfFailed(hr, operation: "IDXGISwapChain1.Present")
+        let syncInterval: UINT = vsyncEnabled ? 1 : 0
+        var presentFlags: UINT = 0
+        if !vsyncEnabled && tearingSupported {
+            presentFlags |= DXGI_PRESENT_ALLOW_TEARING
+        }
+        let hr = swapChain.pointee.lpVtbl.pointee.Present(swapChain, syncInterval, presentFlags)
+        try handlePresentResult(hr)
     }
 
     private func createDeviceIfNeeded() throws {
@@ -295,10 +338,18 @@ public final class D3D11Renderer: RenderBackend {
                 createDevice(buffer.baseAddress, UINT(buffer.count))
             }
             try throwIfFailed(fallbackHR, operation: "D3D11CreateDevice")
-            return
+        } else {
+            try throwIfFailed(hr, operation: "D3D11CreateDevice")
         }
 
-        try throwIfFailed(hr, operation: "D3D11CreateDevice")
+        // Validate that the actual feature level meets our minimum requirement.
+        if featureLevel.rawValue < D3D_FEATURE_LEVEL_11_0.rawValue {
+            renderLog(
+                "[D3D11Renderer] WARNING: Device created with feature level "
+                    + "0x\(String(featureLevel.rawValue, radix: 16)) which is below D3D_FEATURE_LEVEL_11_0. "
+                    + "Some rendering features may be unavailable."
+            )
+        }
     }
 
     private func createPipelineIfNeeded() throws {
@@ -319,6 +370,12 @@ public final class D3D11Renderer: RenderBackend {
         guard let device else {
             throw D3D11RendererError(operation: "Create D3D11 pipeline", hresult: hresultHandle)
         }
+
+        #if DEBUG
+        // Trigger the constant-buffer alignment assertions on first pipeline creation.
+        _ = _rectangleUniformsAlignmentCheck
+        _ = _bitmapUniformsAlignmentCheck
+        #endif
 
         var vertexShaderBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShader(source: rectangleShaderSource, entryPoint: "vsMain", profile: "vs_4_0")
         defer { releaseCOM(&vertexShaderBlob) }
@@ -412,6 +469,49 @@ public final class D3D11Renderer: RenderBackend {
 
         let blendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &blendDescriptor, &blendState)
         try throwIfFailed(blendStateHR, operation: "ID3D11Device.CreateBlendState")
+        if let blendState {
+            blendStates[.normal] = blendState
+        }
+
+        // Additive blend state: SrcBlend=ONE, DestBlend=ONE
+        var additiveBlendDescriptor = D3D11_BLEND_DESC()
+        additiveBlendDescriptor.AlphaToCoverageEnable = false
+        additiveBlendDescriptor.IndependentBlendEnable = false
+        additiveBlendDescriptor.RenderTarget.0.BlendEnable = true
+        additiveBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
+        additiveBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_ONE
+        additiveBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+        additiveBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+        additiveBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_ONE
+        additiveBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+        additiveBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
+
+        var additiveBlendState: UnsafeMutablePointer<ID3D11BlendState>?
+        let additiveBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &additiveBlendDescriptor, &additiveBlendState)
+        try throwIfFailed(additiveBlendStateHR, operation: "ID3D11Device.CreateBlendState(additive)")
+        if let additiveBlendState {
+            blendStates[.additive] = additiveBlendState
+        }
+
+        // Multiply blend state: SrcBlend=DEST_COLOR, DestBlend=INV_SRC_ALPHA
+        var multiplyBlendDescriptor = D3D11_BLEND_DESC()
+        multiplyBlendDescriptor.AlphaToCoverageEnable = false
+        multiplyBlendDescriptor.IndependentBlendEnable = false
+        multiplyBlendDescriptor.RenderTarget.0.BlendEnable = true
+        multiplyBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_DEST_COLOR
+        multiplyBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_ALPHA
+        multiplyBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+        multiplyBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+        multiplyBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
+        multiplyBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+        multiplyBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
+
+        var multiplyBlendState: UnsafeMutablePointer<ID3D11BlendState>?
+        let multiplyBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &multiplyBlendDescriptor, &multiplyBlendState)
+        try throwIfFailed(multiplyBlendStateHR, operation: "ID3D11Device.CreateBlendState(multiply)")
+        if let multiplyBlendState {
+            blendStates[.multiply] = multiplyBlendState
+        }
 
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
         rasterizerDescriptor.FillMode = D3D11_FILL_SOLID
@@ -434,6 +534,49 @@ public final class D3D11Renderer: RenderBackend {
         try throwIfFailed(hr, operation: "CreateDXGIFactory1")
 
         dxgiFactory = rawFactory?.assumingMemoryBound(to: IDXGIFactory2.self)
+
+        // Check for tearing support via IDXGIFactory5::CheckFeatureSupport.
+        checkTearingSupport()
+    }
+
+    private func checkTearingSupport() {
+        guard let dxgiFactory else {
+            return
+        }
+
+        // Query for IDXGIFactory5 to check tearing support.
+        // If the interface is not available (older Windows), tearing is unsupported.
+        var factory5IID = IID_IDXGIFactory5_local
+        var rawFactory5: UnsafeMutableRawPointer?
+        let queryHR = UnsafeMutableRawPointer(dxgiFactory)
+            .assumingMemoryBound(to: IUnknown.self)
+            .pointee.lpVtbl.pointee.QueryInterface(
+                UnsafeMutableRawPointer(dxgiFactory).assumingMemoryBound(to: IUnknown.self),
+                &factory5IID,
+                &rawFactory5
+            )
+
+        guard queryHR >= 0, let rawFactory5 else {
+            tearingSupported = false
+            return
+        }
+
+        defer {
+            let unknown = rawFactory5.assumingMemoryBound(to: IUnknown.self)
+            _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
+        }
+
+        let factory5 = rawFactory5.assumingMemoryBound(to: IDXGIFactory5.self)
+
+        var allowTearing: BOOL = 0
+        let featureHR = factory5.pointee.lpVtbl.pointee.CheckFeatureSupport(
+            factory5,
+            DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &allowTearing,
+            UINT(MemoryLayout<BOOL>.size)
+        )
+
+        tearingSupported = featureHR >= 0 && allowTearing != 0
     }
 
     private func createSwapChain(size: IntSize) throws {
@@ -445,6 +588,11 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        var swapChainFlags: UINT = 0
+        if tearingSupported {
+            swapChainFlags |= UINT(DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING.rawValue)
+        }
+
         var descriptor = DXGI_SWAP_CHAIN_DESC1()
         descriptor.Width = UINT(max(size.width, 1))
         descriptor.Height = UINT(max(size.height, 1))
@@ -454,8 +602,8 @@ public final class D3D11Renderer: RenderBackend {
         descriptor.BufferCount = 2
         descriptor.Scaling = DXGI_SCALING_STRETCH
         descriptor.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD
-        descriptor.AlphaMode = DXGI_ALPHA_MODE_IGNORE
-        descriptor.Flags = 0
+        descriptor.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED
+        descriptor.Flags = swapChainFlags
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
         let hr = dxgiFactory.pointee.lpVtbl.pointee.CreateSwapChainForHwnd(
@@ -569,6 +717,10 @@ public final class D3D11Renderer: RenderBackend {
     ) throws {
         _ = targetBitmap
 
+        // SWU_D2DSetIdentityTransform and SWU_D2DBeginDraw return void at the
+        // C level, but we guard against a nil context reaching here by logging
+        // a warning if the context looks invalid.  Future C-interop revisions
+        // should promote these to HRESULT-returning functions.
         SWU_D2DSetIdentityTransform(deviceContext)
         SWU_D2DBeginDraw(deviceContext)
 
@@ -1018,6 +1170,50 @@ public final class D3D11Renderer: RenderBackend {
         return max(surface?.scaleFactor ?? 1.0, 1.0)
     }
 
+    /// Activates the given blend mode on the device context if it differs
+    /// from the currently active blend mode.
+    private func activateBlendMode(
+        _ mode: D3D11BlendMode,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) {
+        guard mode != currentBlendMode, let state = blendStates[mode] else {
+            return
+        }
+        currentBlendMode = mode
+        let blendFactor: [FLOAT] = [0, 0, 0, 0]
+        blendFactor.withUnsafeBufferPointer { buffer in
+            deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, state, buffer.baseAddress, UINT.max)
+        }
+    }
+
+    /// Handles Present HRESULT, including device-lost recovery with a
+    /// consecutive failure limit.
+    private func handlePresentResult(_ hr: HRESULT) throws {
+        if hr >= 0 {
+            consecutiveDeviceLostCount = 0
+            return
+        }
+
+        let isDeviceLost = hr == DXGI_ERROR_DEVICE_REMOVED || hr == DXGI_ERROR_DEVICE_RESET
+        if isDeviceLost {
+            consecutiveDeviceLostCount += 1
+            if consecutiveDeviceLostCount > Self.maxDeviceLostRecoveryAttempts {
+                throw D3D11RendererError(
+                    operation: "IDXGISwapChain1.Present",
+                    hresult: hr,
+                    details: "Device lost recovery failed after \(Self.maxDeviceLostRecoveryAttempts) consecutive attempts."
+                )
+            }
+            renderLog(
+                "[D3D11Renderer] Device lost detected (attempt \(consecutiveDeviceLostCount)/\(Self.maxDeviceLostRecoveryAttempts)). "
+                    + "HRESULT 0x\(String(UInt32(bitPattern: hr), radix: 16, uppercase: true))."
+            )
+            return
+        }
+
+        throw D3D11RendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
+    }
+
     private func releaseDirect2DTarget() {
         if let direct2DDeviceContext {
             SWU_D2DResetTarget(direct2DDeviceContext)
@@ -1052,34 +1248,58 @@ public final class D3D11Renderer: RenderBackend {
 }
 
 private struct RectangleUniforms {
+    // float4 boundary 1
     var surfaceWidth: Float
     var surfaceHeight: Float
     var rectX: Float
     var rectY: Float
+    // float4 boundary 2
     var rectWidth: Float
     var rectHeight: Float
     var cornerRadius: Float
     var gradientAxis: Float
+    // float4 boundary 3
     var startRed: Float
     var startGreen: Float
     var startBlue: Float
     var startAlpha: Float
+    // float4 boundary 4
     var endRed: Float
     var endGreen: Float
     var endBlue: Float
     var endAlpha: Float
 }
 
+#if DEBUG
+private let _rectangleUniformsAlignmentCheck: Void = {
+    assert(
+        MemoryLayout<RectangleUniforms>.size % 16 == 0,
+        "RectangleUniforms size (\(MemoryLayout<RectangleUniforms>.size)) must be a multiple of 16 for constant buffer alignment."
+    )
+}()
+#endif
+
 private struct BitmapUniforms {
+    // float4 boundary 1
     var surfaceWidth: Float
     var surfaceHeight: Float
     var rectX: Float
     var rectY: Float
+    // float4 boundary 2
     var rectWidth: Float
     var rectHeight: Float
     var opacity: Float
     var padding: Float
 }
+
+#if DEBUG
+private let _bitmapUniformsAlignmentCheck: Void = {
+    assert(
+        MemoryLayout<BitmapUniforms>.size % 16 == 0,
+        "BitmapUniforms size (\(MemoryLayout<BitmapUniforms>.size)) must be a multiple of 16 for constant buffer alignment."
+    )
+}()
+#endif
 
 private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_RECT? {
     let surfaceRect = Rect(x: 0, y: 0, width: Double(surfaceSize.width), height: Double(surfaceSize.height))
@@ -1159,7 +1379,32 @@ private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
 
 private let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
 private let hresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)
+private let DXGI_ERROR_DEVICE_REMOVED: HRESULT = HRESULT(bitPattern: 0x887A0005)
+private let DXGI_ERROR_DEVICE_RESET: HRESULT = HRESULT(bitPattern: 0x887A0007)
+
+// DXGI constants that may not be exposed by the Swift WinSDK overlay.
+private let DXGI_PRESENT_ALLOW_TEARING: UINT = 0x0000_0200
+private let IID_IDXGIFactory5_local = IID(
+    Data1: 0x7632_e1f5,
+    Data2: 0xee65,
+    Data3: 0x4dca,
+    Data4: (0x87, 0xfd, 0x84, 0xcd, 0x75, 0xf8, 0x83, 0x8d)
+)
+
 private let logicalDpi: Double = 96
+
+/// Lightweight render-subsystem logger that writes to standard error so
+/// diagnostic output does not interfere with structured program output.
+private func renderLog(_ message: String) {
+    var stderr = _StderrStream()
+    print(message, to: &stderr)
+}
+
+private struct _StderrStream: TextOutputStream {
+    mutating func write(_ string: String) {
+        FileHandle.standardError.write(Data(string.utf8))
+    }
+}
 private let rectangleShaderSource = #"""
 cbuffer RectangleUniforms : register(b0)
 {

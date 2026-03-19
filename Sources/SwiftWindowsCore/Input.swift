@@ -1,3 +1,21 @@
+public enum MouseButton: UInt8, Sendable {
+    case left
+    case right
+    case middle
+}
+
+public struct MouseEvent: Sendable {
+    public var button: MouseButton
+    public var position: Point
+    public var clickCount: Int
+
+    public init(button: MouseButton, position: Point, clickCount: Int = 1) {
+        self.button = button
+        self.position = position
+        self.clickCount = clickCount
+    }
+}
+
 public struct KeyboardModifiers: OptionSet, Sendable {
     public let rawValue: UInt8
 

@@ -15,6 +15,22 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, keyDown event: KeyboardEvent)
     func windowDidLoseKeyboardFocus(_ window: Win32Window)
     func windowWillClose(_ window: Win32Window)
+    func windowDidChangeDisplay(_ window: Win32Window)
+    func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool)
+    func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent)
+    func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent)
+    func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double)
+    func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool)
+    func windowDidChangeSystemSettings(_ window: Win32Window)
+    func window(_ window: Win32Window, middleMouseDownAt point: Point)
+    func window(_ window: Win32Window, middleMouseUpAt point: Point)
+    func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool)
+    func window(_ window: Win32Window, imeCompositionString text: String)
+    func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool)
+    func window(_ window: Win32Window, imeChar character: UInt32)
+    func window(_ window: Win32Window, touchBegan points: [Point])
+    func window(_ window: Win32Window, touchMoved points: [Point])
+    func window(_ window: Win32Window, touchEnded points: [Point])
 }
 
 public extension WindowDelegate {
@@ -30,6 +46,22 @@ public extension WindowDelegate {
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
     func windowWillClose(_ window: Win32Window) {}
+    func windowDidChangeDisplay(_ window: Win32Window) {}
+    func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {}
+    func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {}
+    func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent) {}
+    func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {}
+    func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {}
+    func windowDidChangeSystemSettings(_ window: Win32Window) {}
+    func window(_ window: Win32Window, middleMouseDownAt point: Point) {}
+    func window(_ window: Win32Window, middleMouseUpAt point: Point) {}
+    func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool) {}
+    func window(_ window: Win32Window, imeCompositionString text: String) {}
+    func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool) {}
+    func window(_ window: Win32Window, imeChar character: UInt32) {}
+    func window(_ window: Win32Window, touchBegan points: [Point]) {}
+    func window(_ window: Win32Window, touchMoved points: [Point]) {}
+    func window(_ window: Win32Window, touchEnded points: [Point]) {}
 }
 
 public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
@@ -57,6 +89,31 @@ public final class Win32Window {
     private var isTrackingMouseLeave = false
     private var isAnimationTimerRunning = false
 
+    // Size-move tracking
+    private var isInSizeMove = false
+
+    // Window position tracking
+    private var windowPosition = POINT(x: 0, y: 0)
+
+    // Active state tracking
+    private var isAppActive = true
+
+    // Visibility tracking
+    private var isVisible = false
+
+    // Fullscreen support
+    public private(set) var isFullscreen = false
+    private var preFullscreenStyle: DWORD = 0
+    private var preFullscreenRect = RECT()
+
+    // Monitor refresh rate cache
+    private var cachedRefreshRate: UINT = 60
+    private var refreshRateDirty = true
+
+    // High-resolution timer support
+    public var useHighResolutionTimer: Bool = false
+    private var highResTimerHandle: HANDLE?
+
     public init(title: String, clientSize: IntSize) {
         self.title = title
         self.clientSize = clientSize
@@ -78,6 +135,14 @@ public final class Win32Window {
         }
 
         return Double(dpi) / 96.0
+    }
+
+    public var monitorRefreshRate: UINT {
+        if refreshRateDirty {
+            refreshRateDirty = false
+            cachedRefreshRate = queryMonitorRefreshRate()
+        }
+        return cachedRefreshRate
     }
 
     public func create() throws {
@@ -120,6 +185,12 @@ public final class Win32Window {
         }
 
         hwnd = createdWindow
+
+        // Register for touch input
+        if let window = createdWindow {
+            RegisterTouchWindow(window, 0)
+        }
+
         delegate?.windowDidCreate(self)
     }
 
@@ -151,7 +222,11 @@ public final class Win32Window {
                 return
             }
 
-            SetTimer(hwnd, Self.animationTimerIdentifier, intervalMilliseconds, nil)
+            if useHighResolutionTimer {
+                startHighResolutionTimer(intervalMilliseconds: intervalMilliseconds)
+            } else {
+                SetTimer(hwnd, Self.animationTimerIdentifier, intervalMilliseconds, nil)
+            }
             isAnimationTimerRunning = true
             return
         }
@@ -160,19 +235,132 @@ public final class Win32Window {
             return
         }
 
-        KillTimer(hwnd, Self.animationTimerIdentifier)
+        if useHighResolutionTimer {
+            stopHighResolutionTimer()
+        } else {
+            KillTimer(hwnd, Self.animationTimerIdentifier)
+        }
         isAnimationTimerRunning = false
     }
 
     public func currentClientSize() -> IntSize {
+        return clientSize
+    }
+
+    public func toggleFullscreen() {
         guard let hwnd else {
-            return clientSize
+            return
         }
 
-        var rect = RECT()
-        GetClientRect(hwnd, &rect)
-        return IntSize(width: Int32(rect.right - rect.left), height: Int32(rect.bottom - rect.top))
+        if isFullscreen {
+            // Restore previous window style and position
+            SetWindowLongW(hwnd, GWL_STYLE, Int32(bitPattern: preFullscreenStyle))
+            SetWindowPos(
+                hwnd,
+                nil,
+                preFullscreenRect.left,
+                preFullscreenRect.top,
+                preFullscreenRect.right - preFullscreenRect.left,
+                preFullscreenRect.bottom - preFullscreenRect.top,
+                UINT(SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER)
+            )
+            isFullscreen = false
+        } else {
+            // Save current window style and position
+            preFullscreenStyle = DWORD(UInt32(bitPattern: UInt32(GetWindowLongW(hwnd, GWL_STYLE))))
+            GetWindowRect(hwnd, &preFullscreenRect)
+
+            // Get monitor info for the monitor this window is on
+            let monitor = MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST))
+            var monitorInfo = MONITORINFO()
+            monitorInfo.cbSize = DWORD(MemoryLayout<MONITORINFO>.size)
+            GetMonitorInfoW(monitor, &monitorInfo)
+
+            // Set popup style and cover the monitor
+            let popupStyle = DWORD(UInt32(bitPattern: Int32(WS_POPUP | WS_VISIBLE)))
+            SetWindowLongW(hwnd, GWL_STYLE, Int32(bitPattern: popupStyle))
+            SetWindowPos(
+                hwnd,
+                nil,
+                monitorInfo.rcMonitor.left,
+                monitorInfo.rcMonitor.top,
+                monitorInfo.rcMonitor.right - monitorInfo.rcMonitor.left,
+                monitorInfo.rcMonitor.bottom - monitorInfo.rcMonitor.top,
+                UINT(SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_NOZORDER)
+            )
+            isFullscreen = true
+        }
     }
+
+    // MARK: - Monitor refresh rate
+
+    private func queryMonitorRefreshRate() -> UINT {
+        guard let hwnd else {
+            return 60
+        }
+
+        let monitor = MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST))
+        var monitorInfoEx = MONITORINFOEXW()
+        monitorInfoEx.monitorInfo.cbSize = DWORD(MemoryLayout<MONITORINFOEXW>.size)
+
+        guard GetMonitorInfoW(monitor, &monitorInfoEx.monitorInfo) else {
+            return 60
+        }
+
+        var devMode = DEVMODEW()
+        devMode.dmSize = WORD(MemoryLayout<DEVMODEW>.size)
+
+        let success = withUnsafeMutablePointer(to: &monitorInfoEx.szDevice.0) { deviceName in
+            EnumDisplaySettingsW(deviceName, ENUM_CURRENT_SETTINGS, &devMode)
+        }
+
+        guard success else {
+            return 60
+        }
+
+        let rate = devMode.dmDisplayFrequency
+        return rate > 0 ? rate : 60
+    }
+
+    // MARK: - High-resolution timer
+
+    private func startHighResolutionTimer(intervalMilliseconds: UINT) {
+        guard let hwnd else {
+            return
+        }
+
+        var timerHandle: HANDLE?
+        let windowValue = UInt(bitPattern: hwnd)
+
+        let created = CreateTimerQueueTimer(
+            &timerHandle,
+            nil,
+            { param, _ in
+                guard let param else { return }
+                let hwndValue = HWND(bitPattern: Int(bitPattern: param))
+                PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0)
+            },
+            UnsafeMutableRawPointer(bitPattern: windowValue),
+            DWORD(intervalMilliseconds),
+            DWORD(intervalMilliseconds),
+            DWORD(WT_EXECUTEDEFAULT)
+        )
+
+        if created {
+            highResTimerHandle = timerHandle
+        }
+    }
+
+    private func stopHighResolutionTimer() {
+        guard let timerHandle = highResTimerHandle else {
+            return
+        }
+
+        DeleteTimerQueueTimer(nil, timerHandle, INVALID_HANDLE_VALUE)
+        highResTimerHandle = nil
+    }
+
+    // MARK: - Message handling
 
     private func handleMessage(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
         switch message {
@@ -180,9 +368,8 @@ public final class Win32Window {
             return 1
 
         case UINT(WM_SIZE):
-            let updatedSize = currentClientSize()
-            clientSize = updatedSize
-            delegate?.window(self, didResizeTo: updatedSize)
+            updateCachedClientSize()
+            delegate?.window(self, didResizeTo: clientSize)
             return 0
 
         case UINT(WM_DPICHANGED):
@@ -198,9 +385,8 @@ public final class Win32Window {
                 )
             }
 
-            let updatedSize = currentClientSize()
-            clientSize = updatedSize
-            delegate?.window(self, didResizeTo: updatedSize)
+            updateCachedClientSize()
+            delegate?.window(self, didResizeTo: clientSize)
             return 0
 
         case UINT(WM_PAINT):
@@ -232,6 +418,10 @@ public final class Win32Window {
             delegate?.window(self, mouseWheelAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd), delta: Self.mouseWheelDelta(from: wParam))
             return 0
 
+        case UINT(WM_MOUSEHWHEEL):
+            delegate?.window(self, horizontalScrollAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd), delta: Self.mouseWheelDelta(from: wParam))
+            return 0
+
         case UINT(WM_LBUTTONDOWN):
             SetFocus(hwnd)
             SetCapture(hwnd)
@@ -243,12 +433,118 @@ public final class Win32Window {
             delegate?.window(self, leftMouseUpAt: Self.point(from: lParam))
             return 0
 
+        case UINT(WM_LBUTTONDBLCLK):
+            let point = Self.point(from: lParam)
+            let event = MouseEvent(button: .left, position: point, clickCount: 2)
+            delegate?.windowDidReceiveDoubleClick(self, event: event)
+            return 0
+
+        case UINT(WM_RBUTTONDOWN):
+            SetCapture(hwnd)
+            let point = Self.point(from: lParam)
+            let event = MouseEvent(button: .right, position: point)
+            delegate?.windowDidReceiveRightClick(self, event: event)
+            return 0
+
+        case UINT(WM_RBUTTONUP):
+            ReleaseCapture()
+            return 0
+
+        case UINT(WM_MBUTTONDOWN):
+            SetCapture(hwnd)
+            delegate?.window(self, middleMouseDownAt: Self.point(from: lParam))
+            return 0
+
+        case UINT(WM_MBUTTONUP):
+            ReleaseCapture()
+            delegate?.window(self, middleMouseUpAt: Self.point(from: lParam))
+            return 0
+
         case UINT(WM_KEYDOWN):
             delegate?.window(self, keyDown: Self.keyboardEvent(from: wParam, lParam: lParam))
             return 0
 
         case UINT(WM_KILLFOCUS):
             delegate?.windowDidLoseKeyboardFocus(self)
+            return 0
+
+        // Window lifecycle and state messages
+
+        case UINT(WM_DISPLAYCHANGE):
+            refreshRateDirty = true
+            delegate?.windowDidChangeDisplay(self)
+            return 0
+
+        case UINT(WM_ENTERSIZEMOVE):
+            isInSizeMove = true
+            if isAnimationTimerRunning && !useHighResolutionTimer {
+                KillTimer(hwnd, Self.animationTimerIdentifier)
+            }
+            return 0
+
+        case UINT(WM_EXITSIZEMOVE):
+            isInSizeMove = false
+            if isAnimationTimerRunning && !useHighResolutionTimer {
+                SetTimer(hwnd, Self.animationTimerIdentifier, 16, nil)
+            }
+            updateCachedClientSize()
+            delegate?.window(self, didResizeTo: clientSize)
+            return 0
+
+        case UINT(WM_MOVE):
+            let packed = UInt32(truncatingIfNeeded: lParam)
+            windowPosition.x = LONG(Int16(bitPattern: UInt16(packed & 0xFFFF)))
+            windowPosition.y = LONG(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
+            // Invalidate refresh rate cache in case the window moved to a different monitor
+            refreshRateDirty = true
+            return 0
+
+        case UINT(WM_ACTIVATEAPP):
+            isAppActive = wParam != 0
+            delegate?.windowDidChangeActiveState(self, isActive: isAppActive)
+            return 0
+
+        case UINT(WM_SHOWWINDOW):
+            isVisible = wParam != 0
+            delegate?.windowDidChangeVisibility(self, isVisible: isVisible)
+            return 0
+
+        case UINT(WM_SETTINGCHANGE):
+            delegate?.windowDidChangeSystemSettings(self)
+            return 0
+
+        case UINT(WM_SETCURSOR):
+            let hitTest = UInt16(UInt(truncatingIfNeeded: lParam) & 0xFFFF)
+            if hitTest == UINT16(HTCLIENT) {
+                SetCursor(LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512)))
+                return 1
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
+        // IME composition messages
+
+        case UINT(WM_IME_STARTCOMPOSITION):
+            delegate?.window(self, imeCompositionStarted: true)
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
+        case UINT(WM_IME_COMPOSITION):
+            if let compositionString = Self.extractIMECompositionString(hwnd: hwnd, lParam: lParam) {
+                delegate?.window(self, imeCompositionString: compositionString)
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
+        case UINT(WM_IME_ENDCOMPOSITION):
+            delegate?.window(self, imeCompositionEnded: true)
+            return DefWindowProcW(hwnd, message, wParam, lParam)
+
+        case UINT(WM_IME_CHAR):
+            delegate?.window(self, imeChar: UInt32(truncatingIfNeeded: wParam))
+            return 0
+
+        // Touch input
+
+        case UINT(WM_TOUCH):
+            handleTouchMessage(hwnd: hwnd, wParam: wParam, lParam: lParam)
             return 0
 
         case UINT(WM_DESTROY):
@@ -262,6 +558,88 @@ public final class Win32Window {
         }
     }
 
+    // MARK: - Cached client size
+
+    private func updateCachedClientSize() {
+        guard let hwnd else {
+            return
+        }
+
+        var rect = RECT()
+        GetClientRect(hwnd, &rect)
+        clientSize = IntSize(width: Int32(rect.right - rect.left), height: Int32(rect.bottom - rect.top))
+    }
+
+    // MARK: - IME helpers
+
+    private static func extractIMECompositionString(hwnd: HWND?, lParam: LPARAM) -> String? {
+        guard let hwnd else { return nil }
+
+        let hasResult = (UInt(truncatingIfNeeded: lParam) & UInt(GCS_RESULTSTR)) != 0
+        let hasComposition = (UInt(truncatingIfNeeded: lParam) & UInt(GCS_COMPSTR)) != 0
+        let flag: DWORD = hasResult ? DWORD(GCS_RESULTSTR) : (hasComposition ? DWORD(GCS_COMPSTR) : 0)
+
+        guard flag != 0 else { return nil }
+
+        let imc = ImmGetContext(hwnd)
+        guard let imc else { return nil }
+        defer { ImmReleaseContext(hwnd, imc) }
+
+        let byteCount = ImmGetCompositionStringW(imc, flag, nil, 0)
+        guard byteCount > 0 else { return nil }
+
+        let charCount = Int(byteCount) / MemoryLayout<WCHAR>.size
+        var buffer = [WCHAR](repeating: 0, count: charCount + 1)
+        ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
+
+        return String(decodingCString: buffer, as: UTF16.self)
+    }
+
+    // MARK: - Touch helpers
+
+    private func handleTouchMessage(hwnd: HWND?, wParam: WPARAM, lParam: LPARAM) {
+        let inputCount = UInt16(UInt(truncatingIfNeeded: wParam) & 0xFFFF)
+        guard inputCount > 0 else { return }
+
+        let touchHandle = HTOUCHINPUT(bitPattern: Int(lParam))
+        var inputs = [TOUCHINPUT](repeating: TOUCHINPUT(), count: Int(inputCount))
+
+        guard GetTouchInputInfo(touchHandle, UINT(inputCount), &inputs, Int32(MemoryLayout<TOUCHINPUT>.size)) else {
+            return
+        }
+        defer { CloseTouchInputHandle(touchHandle) }
+
+        var beganPoints: [Point] = []
+        var movedPoints: [Point] = []
+        var endedPoints: [Point] = []
+
+        for input in inputs {
+            var screenPoint = POINT(x: LONG(input.x / 100), y: LONG(input.y / 100))
+            ScreenToClient(hwnd, &screenPoint)
+            let point = Point(x: Double(screenPoint.x), y: Double(screenPoint.y))
+
+            if (input.dwFlags & DWORD(TOUCHEVENTF_DOWN)) != 0 {
+                beganPoints.append(point)
+            } else if (input.dwFlags & DWORD(TOUCHEVENTF_MOVE)) != 0 {
+                movedPoints.append(point)
+            } else if (input.dwFlags & DWORD(TOUCHEVENTF_UP)) != 0 {
+                endedPoints.append(point)
+            }
+        }
+
+        if !beganPoints.isEmpty {
+            delegate?.window(self, touchBegan: beganPoints)
+        }
+        if !movedPoints.isEmpty {
+            delegate?.window(self, touchMoved: movedPoints)
+        }
+        if !endedPoints.isEmpty {
+            delegate?.window(self, touchEnded: endedPoints)
+        }
+    }
+
+    // MARK: - Window class registration
+
     private static func registerWindowClass() throws {
         if didRegisterClass {
             return
@@ -272,14 +650,16 @@ public final class Win32Window {
         }
 
         let cursor = LoadCursorW(nil, UnsafePointer<WCHAR>(bitPattern: 32512))
+        let backgroundBrush = GetStockObject(Int32(BLACK_BRUSH))
 
         try className.withWideChars { className in
             var windowClass = WNDCLASSEXW()
             windowClass.cbSize = UINT(MemoryLayout<WNDCLASSEXW>.size)
-            windowClass.style = UINT(CS_HREDRAW | CS_VREDRAW)
+            windowClass.style = UINT(CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS)
             windowClass.lpfnWndProc = windowProc
             windowClass.hInstance = instance
             windowClass.hCursor = cursor
+            windowClass.hbrBackground = unsafeBitCast(backgroundBrush, to: HBRUSH?.self)
             windowClass.lpszClassName = className
 
             let atom = RegisterClassExW(&windowClass)

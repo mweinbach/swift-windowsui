@@ -574,6 +574,8 @@ private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
             return fillRect.rect
         case .drawBitmap(let drawBitmap):
             return drawBitmap.rect
+        case .applyBlur(let blur):
+            return blur.rect
         }
     }
 }

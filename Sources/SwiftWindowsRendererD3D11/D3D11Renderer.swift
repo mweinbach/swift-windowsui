@@ -587,6 +587,9 @@ public final class D3D11Renderer: RenderBackend {
                 try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
             case .drawBitmap(let drawBitmapCommand):
                 try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
+            case .applyBlur:
+                // TODO: Implement Gaussian blur via D2D1 effect pipeline.
+                break
             }
         }
 
@@ -727,6 +730,9 @@ public final class D3D11Renderer: RenderBackend {
                 constantBuffer: bitmapConstantBuffer,
                 samplerState: bitmapSamplerState
             )
+        case .applyBlur:
+            // TODO: Implement Gaussian blur via D3D11 compute or multi-pass pipeline.
+            break
         }
     }
 

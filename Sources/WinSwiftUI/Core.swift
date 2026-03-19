@@ -619,12 +619,28 @@ struct ModifiedView<Content: View>: View {
     let content: Content
     let transform: (Content, ViewBuildContext) -> Component
 
+    /// Optional stable identity for the modified view, propagated to the
+    /// resulting ViewNode so the diffing algorithm can match nodes across
+    /// rebuilds by identity rather than position alone.
+    var id: String?
+
     var body: Never {
         fatalError("ModifiedView has no body")
     }
 
     func makeComponent(context: ViewBuildContext) -> Component {
-        transform(content, context)
+        let inner = transform(content, context)
+        guard let id else {
+            return inner
+        }
+
+        // Wrap the inner component so the resulting node carries the id.
+        let capturedID = id
+        return Component { runtime in
+            let node = inner.makeNode(runtime: runtime)
+            node.nodeTag = capturedID
+            return node
+        }
     }
 }
 
@@ -969,6 +985,62 @@ public extension View {
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isHitTestVisible = enabled
                 return childNode
+            }
+        }
+    }
+
+    /// Assign a stable identity to this view so the diffing algorithm can
+    /// match it across rebuilds by identity rather than position.
+    func id(_ identifier: String) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.id = identifier
+        return modified
+    }
+
+    /// Attach an animation context to this view.  When properties (opacity,
+    /// background color) change between rebuilds, the runtime will
+    /// interpolate between the old and new values over the given duration
+    /// using the specified easing curve.
+    func animation(_ duration: Double = 0.25, easing: AnimationEasing = .easeInOut) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+
+                // Snapshot the current property values so that subsequent
+                // property changes can be detected and animated.
+                node.previousPropertyValues = PropertySnapshot(
+                    opacity: Double(node.backgroundColor?.alpha ?? 1.0),
+                    backgroundColor: node.backgroundColor
+                )
+
+                // Store animation configuration on the node for the runtime
+                // to pick up when it detects property changes during
+                // reconciliation.
+                let now = 0.0 // Placeholder; actual start time is set when
+                              // a property change is detected at reconciliation.
+                node.animationStates[.opacity] = AnimationState(
+                    startValue: Double(node.backgroundColor?.alpha ?? 1.0),
+                    endValue: Double(node.backgroundColor?.alpha ?? 1.0),
+                    startTime: now,
+                    duration: duration,
+                    easing: easing
+                )
+                if let bg = node.backgroundColor {
+                    node.animationStates[.backgroundColor] = AnimationState(
+                        startValue: 0,
+                        endValue: 0,
+                        startTime: now,
+                        duration: duration,
+                        easing: easing
+                    )
+                    // Store previous color for interpolation.
+                    node.previousPropertyValues?.backgroundColor = bg
+                }
+
+                return node
             }
         }
     }

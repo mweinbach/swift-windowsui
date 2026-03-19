@@ -100,8 +100,21 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
 
     private var isRendererReady = false
-    private var isObservedObjectReloadScheduled = false
+
+    /// Batching flag: when true, a reload has already been scheduled for the
+    /// next main-actor turn and additional change notifications are coalesced.
+    private var reloadScheduled = false
+
+    /// Set of ObjectIdentifiers for which we currently hold observation tokens.
+    /// Tracked so we can match incoming change notifications to the
+    /// ComponentHost's dependency set and skip rebuilds for unrelated objects.
     private var observedObjectTokens: [ObjectIdentifier: ObservationToken] = [:]
+
+    /// Accumulates the identifiers of observable objects that triggered change
+    /// notifications during the current batched window.  When the deferred
+    /// reload fires, only rebuild if the ComponentHost actually depends on at
+    /// least one of them.
+    private var pendingChangedObjects: Set<ObjectIdentifier> = []
 
     init(
         configuration: WindowGroupConfiguration,
@@ -226,8 +239,17 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func reloadContent() {
+        // Record the objects the ComponentHost accesses during this rebuild
+        // so future notifications can be dependency-checked.
+        componentHost.observedObjects.removeAll()
         resetObservedObjects()
         componentHost.reload()
+
+        // After rebuild, snapshot which objects were observed.
+        for identifier in observedObjectTokens.keys {
+            componentHost.observedObjects.insert(identifier)
+        }
+
         commitRuntimeState(in: window)
     }
 
@@ -238,7 +260,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         observedObjectTokens[identifier] = ObservableObjectCenter.shared.addObserver(for: object) { [weak self] in
-            self?.scheduleObservedObjectReload()
+            self?.scheduleObservedObjectReload(for: identifier)
         }
     }
 
@@ -250,18 +272,40 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
-    private func scheduleObservedObjectReload() {
-        guard !isObservedObjectReloadScheduled else {
+    /// Schedule a batched reload.  Multiple rapid @Published changes within
+    /// the same run-loop turn are coalesced into a single rebuild.
+    ///
+    /// Additionally, when the deferred reload fires, we check whether the
+    /// ComponentHost actually depends on any of the objects that changed.  If
+    /// none of the changed objects are in the host's dependency set, the
+    /// rebuild is skipped entirely.
+    private func scheduleObservedObjectReload(for changedObjectID: ObjectIdentifier) {
+        pendingChangedObjects.insert(changedObjectID)
+
+        guard !reloadScheduled else {
             return
         }
 
-        isObservedObjectReloadScheduled = true
+        reloadScheduled = true
         Task { @MainActor [weak self] in
             guard let self else {
                 return
             }
 
-            self.isObservedObjectReloadScheduled = false
+            self.reloadScheduled = false
+
+            // Dependency tracking: only rebuild if the ComponentHost actually
+            // observed at least one of the changed objects.
+            let relevantChanges = self.pendingChangedObjects
+            self.pendingChangedObjects.removeAll()
+
+            let dependsOnChangedObject = self.componentHost.observedObjects.isEmpty
+                || !relevantChanges.isDisjoint(with: self.componentHost.observedObjects)
+
+            guard dependsOnChangedObject else {
+                return
+            }
+
             self.reloadContent()
         }
     }

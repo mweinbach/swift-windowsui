@@ -28,7 +28,7 @@ public enum TextLineBreakMode: Sendable {
     case wrap
 }
 
-public struct TextSpan: Sendable {
+public struct TextSpan: Sendable, Equatable {
     public var text: String
     public var style: PixelTextStyle
     public var range: Range<String.Index>?
@@ -40,7 +40,7 @@ public struct TextSpan: Sendable {
     }
 }
 
-public struct PixelTextStyle: Sendable {
+public struct PixelTextStyle: Sendable, Equatable {
     public var color: Color
     public var scale: Double
     public var alignment: TextHorizontalAlignment

@@ -462,7 +462,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let fills = fillRectCommands(in: runtime.renderFrame())
 
             XCTAssertEqual(fills.count, 1)
-            XCTAssertEqual(fills[0].gradient, gradient)
+            XCTAssertEqual(fills[0].gradient, .linear(gradient))
         }
     }
 
@@ -574,6 +574,8 @@ private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
             return fillRect.rect
         case .drawBitmap(let drawBitmap):
             return drawBitmap.rect
+        case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
+            return nil
         }
     }
 }

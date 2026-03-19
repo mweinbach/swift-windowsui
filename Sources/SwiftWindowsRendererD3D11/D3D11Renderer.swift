@@ -587,6 +587,9 @@ public final class D3D11Renderer: RenderBackend {
                 try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
             case .drawBitmap(let drawBitmapCommand):
                 try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
+            case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
+                // TODO: implement Direct2D path for new render commands
+                break
             }
         }
 
@@ -608,7 +611,7 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         let hr = try withDirect2DClip(command.clipRect, deviceContext: deviceContext) {
-            if let gradient = command.gradient {
+            if case .linear(let gradient) = command.gradient {
                 let axis: Int32 = gradient.axis == .horizontal
                     ? Int32(SWU_D2D_GRADIENT_AXIS_HORIZONTAL)
                     : Int32(SWU_D2D_GRADIENT_AXIS_VERTICAL)
@@ -727,6 +730,9 @@ public final class D3D11Renderer: RenderBackend {
                 constantBuffer: bitmapConstantBuffer,
                 samplerState: bitmapSamplerState
             )
+        case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
+            // TODO: implement D3D11 path for new render commands
+            break
         }
     }
 
@@ -768,10 +774,14 @@ public final class D3D11Renderer: RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &shaderConstantBuffer)
 
-        let startColor = scaledCommand.gradient?.startColor ?? scaledCommand.color
-        let endColor = scaledCommand.gradient?.endColor ?? scaledCommand.color
+        let linearGradient: LinearGradient? = {
+            if case .linear(let lg) = scaledCommand.gradient { return lg }
+            return nil
+        }()
+        let startColor = linearGradient?.startColor ?? scaledCommand.color
+        let endColor = linearGradient?.endColor ?? scaledCommand.color
         let gradientAxis: Float = {
-            switch scaledCommand.gradient?.axis {
+            switch linearGradient?.axis {
             case .horizontal:
                 return 1
             default:
@@ -1106,7 +1116,8 @@ private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRe
         color: command.color,
         cornerRadius: command.cornerRadius * factor,
         clipRect: command.clipRect?.scaled(by: factor),
-        gradient: command.gradient
+        gradient: command.gradient,
+        blendMode: command.blendMode
     )
 }
 

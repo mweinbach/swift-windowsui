@@ -1042,47 +1042,7 @@ public final class D3D11Renderer: RenderBackend {
     }
 
     private func compileShader(source: String, entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
-        try Self.compileShaderSource(source: source, entryPoint: entryPoint, profile: profile)
-    }
-
-    private static func compileShaderSource(source: String, entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
-        let sourceBytes = Array(source.utf8)
-        var shaderBlob: UnsafeMutablePointer<ID3DBlob>?
-        var errorBlob: UnsafeMutablePointer<ID3DBlob>?
-
-        let hr = sourceBytes.withUnsafeBytes { source in
-            entryPoint.withCString { entryPointCString in
-                profile.withCString { profileCString in
-                    D3DCompile(
-                        source.baseAddress,
-                        SIZE_T(sourceBytes.count),
-                        nil,
-                        nil,
-                        nil,
-                        entryPointCString,
-                        profileCString,
-                        0,
-                        0,
-                        &shaderBlob,
-                        &errorBlob
-                    )
-                }
-            }
-        }
-
-        if hr < 0 {
-            let details = shaderCompilerDetails(from: errorBlob)
-            releaseCOM(&errorBlob)
-            throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: hr, details: details)
-        }
-
-        releaseCOM(&errorBlob)
-
-        guard let shaderBlob else {
-            throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: hresultHandle)
-        }
-
-        return shaderBlob
+        try compileShaderSource(source: source, entryPoint: entryPoint, profile: profile)
     }
 
     private func createShaderResourceView(for bitmap: BitmapSurface) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
@@ -1128,17 +1088,6 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         return shaderResourceView
-    }
-
-    private static func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> String? {
-        guard
-            let errorBlob,
-            let rawPointer = errorBlob.pointee.lpVtbl.pointee.GetBufferPointer(errorBlob)
-        else {
-            return nil
-        }
-
-        return String(cString: rawPointer.assumingMemoryBound(to: CChar.self))
     }
 
     private func throwIfFailed(_ hr: HRESULT, operation: String) throws {
@@ -1378,7 +1327,7 @@ func makePixelAlignedBitmapRect(from rect: Rect, bitmapSize: IntSize, scaleFacto
     )
 }
 
-private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
+func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     guard let rawPointer = pointer else {
         return
     }
@@ -1388,7 +1337,59 @@ private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     pointer = nil
 }
 
-private let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
+let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
+
+func compileShaderSource(source: String, entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
+    let sourceBytes = Array(source.utf8)
+    var shaderBlob: UnsafeMutablePointer<ID3DBlob>?
+    var errorBlob: UnsafeMutablePointer<ID3DBlob>?
+
+    let hr = sourceBytes.withUnsafeBytes { source in
+        entryPoint.withCString { entryPointCString in
+            profile.withCString { profileCString in
+                D3DCompile(
+                    source.baseAddress,
+                    SIZE_T(sourceBytes.count),
+                    nil,
+                    nil,
+                    nil,
+                    entryPointCString,
+                    profileCString,
+                    0,
+                    0,
+                    &shaderBlob,
+                    &errorBlob
+                )
+            }
+        }
+    }
+
+    if hr < 0 {
+        let details = shaderCompilerDetails(from: errorBlob)
+        releaseCOM(&errorBlob)
+        throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: hr, details: details)
+    }
+
+    releaseCOM(&errorBlob)
+
+    guard let shaderBlob else {
+        throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: hresultHandle)
+    }
+
+    return shaderBlob
+}
+
+func shaderCompilerDetails(from errorBlob: UnsafeMutablePointer<ID3DBlob>?) -> String? {
+    guard
+        let errorBlob,
+        let rawPointer = errorBlob.pointee.lpVtbl.pointee.GetBufferPointer(errorBlob)
+    else {
+        return nil
+    }
+
+    return String(cString: rawPointer.assumingMemoryBound(to: CChar.self))
+}
+
 private let hresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)
 private let DXGI_ERROR_DEVICE_REMOVED: HRESULT = HRESULT(bitPattern: 0x887A0005)
 private let DXGI_ERROR_DEVICE_RESET: HRESULT = HRESULT(bitPattern: 0x887A0007)

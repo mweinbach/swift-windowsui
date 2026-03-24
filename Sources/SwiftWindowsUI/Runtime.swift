@@ -24,6 +24,7 @@ public struct DirtyFlags: OptionSet, Sendable {
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
+    case flex(FlexStyle)
 }
 
 public enum ScrollAxis: Sendable {
@@ -126,6 +127,10 @@ public final class ViewNode {
 
     public var flexItem: FlexProperties {
         didSet { invalidateRuntime() }
+    }
+
+    public var flexItemStyle: FlexItemStyle {
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var scrollAxis: ScrollAxis? {
@@ -240,6 +245,7 @@ public final class ViewNode {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
+        flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
         opacity: Double = 1.0,
         zIndex: Double = 0,
@@ -276,6 +282,7 @@ public final class ViewNode {
         self.preferredSize = preferredSize
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
+        self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius
         self.opacity = opacity
         self.zIndex = zIndex
@@ -607,6 +614,42 @@ public final class ViewNode {
                     height: max(resolvedFrame.size.height, contentCrossExtent)
                 )
             }
+
+        case .flex(let flexStyle):
+            let visibleChildren = children.filter { !$0.isHidden }
+
+            let childInputs = visibleChildren.map { child -> FlexboxEngine.LayoutInput.ChildInput in
+                let intrinsicSize = child.intrinsicContentSize()
+                return FlexboxEngine.LayoutInput.ChildInput(
+                    itemStyle: child.flexItemStyle,
+                    intrinsicWidth: child.preferredSize?.width ?? intrinsicSize.width,
+                    intrinsicHeight: child.preferredSize?.height ?? intrinsicSize.height
+                )
+            }
+
+            let input = FlexboxEngine.LayoutInput(
+                containerWidth: resolvedFrame.size.width,
+                containerHeight: resolvedFrame.size.height,
+                style: flexStyle,
+                children: childInputs
+            )
+
+            let layouts = FlexboxEngine.layout(input)
+
+            var visibleIndex = 0
+            for child in children {
+                if child.isHidden {
+                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+                    continue
+                }
+
+                let childLayout = layouts[visibleIndex]
+                child.resolvedFrame = Rect(x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
+                child.layoutSubtree()
+                visibleIndex += 1
+            }
+
+            resolvedContentSize = resolvedFrame.size
         }
 
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
@@ -1025,6 +1068,29 @@ public final class ViewNode {
             measuredSize = Size(
                 width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
                 height: stackLayout.axis == .vertical ? mainExtent : crossExtent
+            )
+
+        case .flex(let flexStyle):
+            let visibleChildren = children.filter { !$0.isHidden }
+            let childSizes = visibleChildren.map { $0.sizeThatFits(in: .unconstrained) }
+            let isRow = flexStyle.direction == .row || flexStyle.direction == .rowReverse
+            let gapTotal = visibleChildren.count > 1 ? flexStyle.gap * Double(visibleChildren.count - 1) : 0
+
+            let mainExtent = childSizes.reduce(0.0) { partialResult, size in
+                partialResult + (isRow ? size.width : size.height)
+            } + gapTotal + (isRow
+                ? flexStyle.padding.leading + flexStyle.padding.trailing
+                : flexStyle.padding.top + flexStyle.padding.bottom)
+
+            let crossExtent = (childSizes.map { size in
+                isRow ? size.height : size.width
+            }.max() ?? 0) + (isRow
+                ? flexStyle.padding.top + flexStyle.padding.bottom
+                : flexStyle.padding.leading + flexStyle.padding.trailing)
+
+            measuredSize = Size(
+                width: isRow ? mainExtent : crossExtent,
+                height: isRow ? crossExtent : mainExtent
             )
         }
 

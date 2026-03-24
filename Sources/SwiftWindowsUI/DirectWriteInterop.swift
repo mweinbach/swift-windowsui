@@ -136,11 +136,10 @@ typealias DWSetLineSpacingProc = @convention(c) (UnsafeMutableRawPointer?, DWrit
 typealias DWDrawTextLayoutProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) -> HRESULT
 typealias DWGetMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWGetOverhangMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWSetUnderlineProc = @convention(c) (UnsafeMutableRawPointer?, WindowsBool, DWRITE_TEXT_RANGE) -> HRESULT
-typealias DWSetStrikethroughProc = @convention(c) (UnsafeMutableRawPointer?, WindowsBool, DWRITE_TEXT_RANGE) -> HRESULT
-typealias DWLayoutSetFontWeightProc = @convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, DWRITE_TEXT_RANGE) -> HRESULT
-typealias DWLayoutSetFontSizeProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT, DWRITE_TEXT_RANGE) -> HRESULT
-typealias DWLayoutSetTypographyProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, DWRITE_TEXT_RANGE) -> HRESULT
+// SetUnderline, SetStrikethrough, SetFontWeight, SetFontSize, SetTypography
+// use DWRITE_TEXT_RANGE which is a custom struct not representable in @convention(c).
+// These vtable slots are accessed via unsafeBitCast at call sites instead,
+// passing startPosition and length as separate UINT32 parameters.
 typealias DWGetFontFamilyNameLengthProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UINT32>?) -> HRESULT
 typealias DWGetFontFamilyNameProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
 
@@ -232,15 +231,15 @@ struct IDWriteTextLayoutVtbl {
     var SetMaxHeight: UnsafeMutableRawPointer?
     var SetFontCollection: UnsafeMutableRawPointer?
     var SetFontFamilyName: UnsafeMutableRawPointer?
-    var SetFontWeight: DWLayoutSetFontWeightProc
+    var SetFontWeight: UnsafeMutableRawPointer?
     var SetFontStyle: UnsafeMutableRawPointer?
     var SetFontStretch: UnsafeMutableRawPointer?
-    var SetFontSize: DWLayoutSetFontSizeProc
-    var SetUnderline: DWSetUnderlineProc
-    var SetStrikethrough: DWSetStrikethroughProc
+    var SetFontSize: UnsafeMutableRawPointer?
+    var SetUnderline: UnsafeMutableRawPointer?
+    var SetStrikethrough: UnsafeMutableRawPointer?
     var SetDrawingEffect: UnsafeMutableRawPointer?
     var SetInlineObject: UnsafeMutableRawPointer?
-    var SetTypography: DWLayoutSetTypographyProc
+    var SetTypography: UnsafeMutableRawPointer?
     var SetLocaleName: UnsafeMutableRawPointer?
     var GetMaxWidth: UnsafeMutableRawPointer?
     var GetMaxHeight: UnsafeMutableRawPointer?

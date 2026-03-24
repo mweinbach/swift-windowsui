@@ -174,79 +174,6 @@ public struct Rect: Equatable, Sendable {
     public static let zero = Rect(origin: .zero, size: .zero)
 }
 
-/// 2D affine transform represented as a 3x2 matrix (row-major).
-/// Layout: [[m11, m12], [m21, m22], [dx, dy]]
-public struct Transform2D: Equatable, Sendable {
-    public var m11: Double
-    public var m12: Double
-    public var m21: Double
-    public var m22: Double
-    public var dx: Double
-    public var dy: Double
-
-    public init(m11: Double = 1, m12: Double = 0, m21: Double = 0, m22: Double = 1, dx: Double = 0, dy: Double = 0) {
-        self.m11 = m11
-        self.m12 = m12
-        self.m21 = m21
-        self.m22 = m22
-        self.dx = dx
-        self.dy = dy
-    }
-
-    public static let identity = Transform2D()
-
-    public var isIdentity: Bool {
-        self == .identity
-    }
-
-    /// Returns the inverse of this transform, or nil if the matrix is singular.
-    public func inverse() -> Transform2D? {
-        let det = m11 * m22 - m12 * m21
-        guard abs(det) > 1e-12 else {
-            return nil
-        }
-
-        let invDet = 1.0 / det
-        return Transform2D(
-            m11: m22 * invDet,
-            m12: -m12 * invDet,
-            m21: -m21 * invDet,
-            m22: m11 * invDet,
-            dx: (m21 * dy - m22 * dx) * invDet,
-            dy: (m12 * dx - m11 * dy) * invDet
-        )
-    }
-
-    /// Applies this transform to a point.
-    public func applying(to point: Point) -> Point {
-        Point(
-            x: m11 * point.x + m21 * point.y + dx,
-            y: m12 * point.x + m22 * point.y + dy
-        )
-    }
-
-    /// Creates a translation transform.
-    public static func translation(x: Double, y: Double) -> Transform2D {
-        Transform2D(dx: x, dy: y)
-    }
-
-    /// Creates a scale transform.
-    public static func scale(x: Double, y: Double) -> Transform2D {
-        Transform2D(m11: x, m22: y)
-    }
-
-    /// Concatenates two transforms: self * other.
-    public func concatenating(_ other: Transform2D) -> Transform2D {
-        Transform2D(
-            m11: m11 * other.m11 + m12 * other.m21,
-            m12: m11 * other.m12 + m12 * other.m22,
-            m21: m21 * other.m11 + m22 * other.m21,
-            m22: m21 * other.m12 + m22 * other.m22,
-            dx: dx * other.m11 + dy * other.m21 + other.dx,
-            dy: dx * other.m12 + dy * other.m22 + other.dy
-        )
-    }
-}
 
 public struct EdgeInsets: Equatable, Sendable {
     public var top: Double
@@ -405,6 +332,33 @@ public struct Transform2D: Equatable, Sendable {
     }
 
     public static let identity = Transform2D()
+
+    public var isIdentity: Bool {
+        self == .identity
+    }
+
+    /// Creates a pure translation transform.
+    public static func translation(x: Double, y: Double) -> Transform2D {
+        Transform2D(translationX: x, translationY: y)
+    }
+
+    /// Creates a pure scale transform.
+    public static func scale(x: Double, y: Double) -> Transform2D {
+        Transform2D(scaleX: x, scaleY: y)
+    }
+
+    /// Applies this transform to a point.
+    public func applying(to point: Point) -> Point {
+        point.applying(self)
+    }
+
+    /// Returns the inverse, or nil if the matrix is singular.
+    public func inverseOrNil() -> Transform2D? {
+        let m = matrix
+        let det = m.a * m.d - m.b * m.c
+        guard abs(det) > 1e-12 else { return nil }
+        return Transform2D(fromMatrix: m.inverted())
+    }
 
     /// Builds the 3x2 affine matrix from decomposed components.
     /// Composition order: scale -> skew -> rotate -> translate.

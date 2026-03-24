@@ -385,3 +385,99 @@ cleanup:
 extern "C" void SWU_D2DRelease(void *object_raw) {
     swu_release_unknown(static_cast<IUnknown *>(object_raw));
 }
+
+// Gap 13: Image loading via WIC
+
+#include <wincodec.h>
+
+extern "C" HRESULT SWU_LoadImageFileToBGRA(
+    const wchar_t *file_path,
+    void **pixels_out,
+    int32_t *width_out,
+    int32_t *height_out,
+    int32_t *bytes_per_row_out
+) {
+    if (!file_path || !pixels_out || !width_out || !height_out || !bytes_per_row_out) {
+        return E_INVALIDARG;
+    }
+
+    *pixels_out = nullptr;
+    *width_out = 0;
+    *height_out = 0;
+    *bytes_per_row_out = 0;
+
+    IWICImagingFactory *factory = nullptr;
+    IWICBitmapDecoder *decoder = nullptr;
+    IWICBitmapFrameDecode *frame = nullptr;
+    IWICFormatConverter *converter = nullptr;
+    HRESULT hr;
+
+    hr = CoCreateInstance(
+        CLSID_WICImagingFactory,
+        nullptr,
+        CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory)
+    );
+    if (FAILED(hr)) goto cleanup;
+
+    hr = factory->CreateDecoderFromFilename(
+        file_path,
+        nullptr,
+        GENERIC_READ,
+        WICDecodeMetadataCacheOnLoad,
+        &decoder
+    );
+    if (FAILED(hr)) goto cleanup;
+
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr)) goto cleanup;
+
+    hr = factory->CreateFormatConverter(&converter);
+    if (FAILED(hr)) goto cleanup;
+
+    hr = converter->Initialize(
+        frame,
+        GUID_WICPixelFormat32bppBGRA,
+        WICBitmapDitherTypeNone,
+        nullptr,
+        0.0,
+        WICBitmapPaletteTypeCustom
+    );
+    if (FAILED(hr)) goto cleanup;
+
+    {
+        UINT w = 0, h = 0;
+        hr = converter->GetSize(&w, &h);
+        if (FAILED(hr)) goto cleanup;
+
+        int32_t bpr = static_cast<int32_t>(w) * 4;
+        UINT bufferSize = bpr * static_cast<int32_t>(h);
+        void *buffer = malloc(bufferSize);
+        if (!buffer) {
+            hr = E_OUTOFMEMORY;
+            goto cleanup;
+        }
+
+        hr = converter->CopyPixels(nullptr, static_cast<UINT>(bpr), bufferSize, static_cast<BYTE *>(buffer));
+        if (FAILED(hr)) {
+            free(buffer);
+            goto cleanup;
+        }
+
+        *pixels_out = buffer;
+        *width_out = static_cast<int32_t>(w);
+        *height_out = static_cast<int32_t>(h);
+        *bytes_per_row_out = bpr;
+    }
+
+cleanup:
+    if (converter) converter->Release();
+    if (frame) frame->Release();
+    if (decoder) decoder->Release();
+    if (factory) factory->Release();
+    return hr;
+}
+
+extern "C" void SWU_FreeImagePixels(void *pixels) {
+    free(pixels);
+}

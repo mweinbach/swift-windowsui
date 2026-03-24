@@ -575,7 +575,7 @@ private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
         case .drawBitmap(let drawBitmap):
             return drawBitmap.rect
         case .applyBlur(let blur):
-            return blur.rect
+            return blur.region
         case .fillPath, .strokePath, .drawText, .pushClip, .popClip:
             return nil
         }

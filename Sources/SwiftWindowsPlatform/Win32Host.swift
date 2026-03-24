@@ -267,7 +267,7 @@ public final class Win32Window {
             isFullscreen = false
         } else {
             // Save current window style and position
-            preFullscreenStyle = DWORD(UInt32(bitPattern: UInt32(GetWindowLongW(hwnd, GWL_STYLE))))
+            preFullscreenStyle = DWORD(bitPattern: GetWindowLongW(hwnd, GWL_STYLE))
             GetWindowRect(hwnd, &preFullscreenRect)
 
             // Get monitor info for the monitor this window is on
@@ -277,8 +277,8 @@ public final class Win32Window {
             GetMonitorInfoW(monitor, &monitorInfo)
 
             // Set popup style and cover the monitor
-            let popupStyle = DWORD(UInt32(bitPattern: Int32(WS_POPUP | WS_VISIBLE)))
-            SetWindowLongW(hwnd, GWL_STYLE, Int32(bitPattern: popupStyle))
+            let popupStyle = Int32(bitPattern: UInt32(WS_POPUP)) | WS_VISIBLE
+            SetWindowLongW(hwnd, GWL_STYLE, popupStyle)
             SetWindowPos(
                 hwnd,
                 nil,
@@ -301,9 +301,13 @@ public final class Win32Window {
 
         let monitor = MonitorFromWindow(hwnd, DWORD(MONITOR_DEFAULTTONEAREST))
         var monitorInfoEx = MONITORINFOEXW()
-        monitorInfoEx.monitorInfo.cbSize = DWORD(MemoryLayout<MONITORINFOEXW>.size)
+        monitorInfoEx.cbSize = DWORD(MemoryLayout<MONITORINFOEXW>.size)
 
-        guard GetMonitorInfoW(monitor, &monitorInfoEx.monitorInfo) else {
+        guard withUnsafeMutablePointer(to: &monitorInfoEx, {
+            $0.withMemoryRebound(to: MONITORINFO.self, capacity: 1) {
+                GetMonitorInfoW(monitor, $0)
+            }
+        }) else {
             return 60
         }
 
@@ -311,7 +315,7 @@ public final class Win32Window {
         devMode.dmSize = WORD(MemoryLayout<DEVMODEW>.size)
 
         let success = withUnsafeMutablePointer(to: &monitorInfoEx.szDevice.0) { deviceName in
-            EnumDisplaySettingsW(deviceName, ENUM_CURRENT_SETTINGS, &devMode)
+            EnumDisplaySettingsW(deviceName, DWORD(bitPattern: -1), &devMode)
         }
 
         guard success else {

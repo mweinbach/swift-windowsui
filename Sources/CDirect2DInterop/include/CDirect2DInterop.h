@@ -75,6 +75,17 @@ HRESULT SWU_D2DDrawBitmapBGRA(
 
 void SWU_D2DRelease(void *object);
 
+// Gap 13: Image loading via WIC
+HRESULT SWU_LoadImageFileToBGRA(
+    const wchar_t *file_path,
+    void **pixels_out,
+    int32_t *width_out,
+    int32_t *height_out,
+    int32_t *bytes_per_row_out
+);
+
+void SWU_FreeImagePixels(void *pixels);
+
 #ifdef __cplusplus
 }
 #endif

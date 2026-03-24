@@ -568,15 +568,15 @@ public final class D3D11Renderer: RenderBackend {
 
         let factory5 = rawFactory5.assumingMemoryBound(to: IDXGIFactory5.self)
 
-        var allowTearing: BOOL = 0
+        var allowTearing: WindowsBool = false
         let featureHR = factory5.pointee.lpVtbl.pointee.CheckFeatureSupport(
             factory5,
             DXGI_FEATURE_PRESENT_ALLOW_TEARING,
             &allowTearing,
-            UINT(MemoryLayout<BOOL>.size)
+            UINT(MemoryLayout<WindowsBool>.size)
         )
 
-        tearingSupported = featureHR >= 0 && allowTearing != 0
+        tearingSupported = featureHR >= 0 && allowTearing != false
     }
 
     private func createSwapChain(size: IntSize) throws {

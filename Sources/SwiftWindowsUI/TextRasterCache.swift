@@ -55,7 +55,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
 }
 
 @MainActor
-final class TextRasterCache {
+public final class TextRasterCache {
     private var entries: [TextRasterCacheKey: CacheEntry] = [:]
     private var accessOrder: [TextRasterCacheKey] = []
     private let maxEntryCount: Int

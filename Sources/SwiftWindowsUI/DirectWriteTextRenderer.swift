@@ -363,14 +363,21 @@ private final class DirectWriteSystem {
         let layout = layoutRaw.assumingMemoryBound(to: IDWriteTextLayout.self)
 
         if let style {
-            let fullRange = DWRITE_TEXT_RANGE(startPosition: 0, length: UINT32(utf16.count))
+            let rangeStart: UINT32 = 0
+            let rangeLength = UINT32(utf16.count)
 
             if style.underline {
-                _ = layout.pointee.lpVtbl!.pointee.SetUnderline(UnsafeMutableRawPointer(layout), WindowsBool(true), fullRange)
+                if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
+                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
+                }
             }
 
             if style.strikethrough {
-                _ = layout.pointee.lpVtbl!.pointee.SetStrikethrough(UnsafeMutableRawPointer(layout), WindowsBool(true), fullRange)
+                if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
+                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
+                }
             }
 
             if !style.enableKerning {
@@ -394,8 +401,10 @@ private final class DirectWriteSystem {
             _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
         }
 
-        let fullRange = DWRITE_TEXT_RANGE(startPosition: 0, length: textLength)
-        _ = layout.pointee.lpVtbl!.pointee.SetTypography(UnsafeMutableRawPointer(layout), typographyRaw, fullRange)
+        if let fn = layout.pointee.lpVtbl!.pointee.SetTypography {
+            let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UINT32) -> HRESULT).self)
+            _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, 0, textLength)
+        }
     }
 
     private func createTypography() -> UnsafeMutableRawPointer? {
@@ -429,19 +438,31 @@ private final class DirectWriteSystem {
 
             let startPosition = UINT32(utf16View.distance(from: utf16View.startIndex, to: utf16Start))
             let length = UINT32(utf16View.distance(from: utf16Start, to: utf16End))
-            let textRange = DWRITE_TEXT_RANGE(startPosition: startPosition, length: length)
 
             let spanStyle = span.style
 
-            _ = layout.pointee.lpVtbl!.pointee.SetFontWeight(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, textRange)
-            _ = layout.pointee.lpVtbl!.pointee.SetFontSize(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), textRange)
+            if let fn = layout.pointee.lpVtbl!.pointee.SetFontWeight {
+                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UINT32, UINT32) -> HRESULT).self)
+                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, startPosition, length)
+            }
+
+            if let fn = layout.pointee.lpVtbl!.pointee.SetFontSize {
+                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UINT32, UINT32) -> HRESULT).self)
+                _ = proc(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), startPosition, length)
+            }
 
             if spanStyle.underline {
-                _ = layout.pointee.lpVtbl!.pointee.SetUnderline(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
+                if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
+                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
+                }
             }
 
             if spanStyle.strikethrough {
-                _ = layout.pointee.lpVtbl!.pointee.SetStrikethrough(UnsafeMutableRawPointer(layout), WindowsBool(true), textRange)
+                if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
+                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
+                }
             }
         }
     }

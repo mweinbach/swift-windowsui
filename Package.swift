@@ -64,6 +64,7 @@ let package = Package(
                 "SwiftWindowsGraphics",
                 "SwiftWindowsLayout",
                 "SwiftWindowsPlatform",
+                "CDirect2DInterop",
             ]
         ),
         .target(

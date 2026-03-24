@@ -124,7 +124,7 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
-    public var flexItem: FlexItem {
+    public var flexItem: FlexProperties {
         didSet { invalidateRuntime() }
     }
 
@@ -239,7 +239,7 @@ public final class ViewNode {
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
-        flexItem: FlexItem = .default,
+        flexItem: FlexProperties = .default,
         blurRadius: Double = 0,
         opacity: Double = 1.0,
         zIndex: Double = 0,
@@ -455,16 +455,16 @@ public final class ViewNode {
 
                 if remaining > 0 {
                     // Distribute remaining space to items with flexGrow > 0
-                    let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.flexGrow }
+                    let totalGrow = visibleChildren.reduce(0.0) { $0 + $1.flexItem.grow }
                     if totalGrow > 0 {
                         var leftover = remaining
                         for (i, child) in visibleChildren.enumerated() {
-                            guard child.flexItem.flexGrow > 0 else { continue }
+                            guard child.flexItem.grow > 0 else { continue }
                             let share: Double
                             if i == visibleChildren.count - 1 {
                                 share = leftover
                             } else {
-                                share = remaining * (child.flexItem.flexGrow / totalGrow)
+                                share = remaining * (child.flexItem.grow / totalGrow)
                                 leftover -= share
                             }
                             allocatedMainSizes[i] += share
@@ -473,16 +473,16 @@ public final class ViewNode {
                 } else if remaining < 0 {
                     // Shrink items with flexShrink > 0
                     let deficit = -remaining
-                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.flexShrink }
+                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
                     if totalShrink > 0 {
                         var leftover = deficit
                         for (i, child) in visibleChildren.enumerated() {
-                            guard child.flexItem.flexShrink > 0 else { continue }
+                            guard child.flexItem.shrink > 0 else { continue }
                             let share: Double
                             if i == visibleChildren.count - 1 {
                                 share = leftover
                             } else {
-                                share = deficit * (child.flexItem.flexShrink / totalShrink)
+                                share = deficit * (child.flexItem.shrink / totalShrink)
                                 leftover -= share
                             }
                             allocatedMainSizes[i] = max(0, allocatedMainSizes[i] - share)
@@ -760,10 +760,9 @@ public final class ViewNode {
         if blurRadius > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             commands.append(
                 .applyBlur(
-                    ApplyBlurCommand(
-                        rect: absoluteFrame,
-                        radius: blurRadius,
-                        clipRect: effectiveClip
+                    BlurCommand(
+                        region: absoluteFrame,
+                        radius: blurRadius
                     )
                 )
             )
@@ -848,7 +847,7 @@ public final class ViewNode {
             let centeredTransform = Transform2D.translation(x: cx, y: cy)
                 .concatenating(transform)
                 .concatenating(.translation(x: -cx, y: -cy))
-            if let inverseTransform = centeredTransform.inverse() {
+            if let inverseTransform = centeredTransform.inverseOrNil() {
                 testPoint = inverseTransform.applying(to: point)
             } else {
                 testPoint = point
@@ -1434,7 +1433,7 @@ public final class RetainedViewRuntime {
             // text raster cache when the scale factor actually changed, rather
             // than clearing it on every dirty pass.
             if oldValue != displayScale {
-                textRasterCache?.invalidateAll()
+                textRasterCache?.clear()
             }
             invalidate()
         }

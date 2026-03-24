@@ -217,9 +217,9 @@ public final class ViewNode {
     public private(set) var children: [ViewNode]
 
     fileprivate weak var runtime: RetainedViewRuntime?
-    fileprivate var resolvedFrame: Rect
-    fileprivate var resolvedContentSize: Size
-    fileprivate var resolvedScrollOffset: Double
+    internal var resolvedFrame: Rect
+    internal var resolvedContentSize: Size
+    internal var resolvedScrollOffset: Double
 
     public init(
         frame: Rect = .zero,

@@ -1575,6 +1575,12 @@ public final class RetainedViewRuntime {
         return frame
     }
 
+    /// Render the current view tree as a GPUIScene for batch rendering.
+    public func renderScene(at timestamp: Double = 0) -> GPUIScene {
+        let frame = renderFrame(at: timestamp)
+        return GPUIScene(from: frame, surfaceSize: root.frame.size)
+    }
+
     public func pointerMoved(to point: Point) {
         if let dragState = scrollDragState {
             guard let node = dragState.node else {

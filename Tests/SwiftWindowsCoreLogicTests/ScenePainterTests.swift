@@ -432,6 +432,41 @@ struct ScenePainterTests {
         #expect(indicatorQuad.startB == node.scrollIndicatorColor.blue)
     }
 
+    @Test("Deferred scroll indicators flush after sibling base quads")
+    func deferredScrollIndicatorsFlushAfterSiblingBaseQuads() {
+        let leftIndicator = Color(red: 0.9, green: 0.2, blue: 0.2, alpha: 0.6)
+        let rightIndicator = Color(red: 0.2, green: 0.7, blue: 1.0, alpha: 0.6)
+
+        let left = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 80, height: 50),
+            scrollAxis: .vertical,
+            scrollOffset: 20,
+            showsScrollIndicator: true,
+            scrollIndicatorColor: leftIndicator,
+            children: [ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 120), backgroundColor: .white)]
+        )
+        let right = ViewNode(
+            frame: Rect(x: 90, y: 0, width: 80, height: 50),
+            scrollAxis: .vertical,
+            scrollOffset: 20,
+            showsScrollIndicator: true,
+            scrollIndicatorColor: rightIndicator,
+            children: [ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 120), backgroundColor: .black)]
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 180, height: 70),
+            children: [left, right]
+        )
+
+        let runtime = RetainedViewRuntime(root: root)
+        let scene = runtime.renderScene()
+        let deferredColors = Array(scene.layers[0].quads.suffix(2)).map {
+            Color(red: $0.startR, green: $0.startG, blue: $0.startB, alpha: $0.startA)
+        }
+
+        #expect(deferredColors == [leftIndicator, rightIndicator])
+    }
+
     // MARK: - Clear color
 
     @Test("Scene preserves the clear color")

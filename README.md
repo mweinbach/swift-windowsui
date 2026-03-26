@@ -12,7 +12,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
-- An experimental batch scene path that scales primitives into device pixels, keeps replayable scene paint records plus per-layer family operations as metadata, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
+- An experimental batch scene path that scales primitives into device pixels, keeps replayable scene paint records plus per-layer family operations as metadata, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and now routes late-painted overlay chrome through a runtime-owned deferred queue while it is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -76,12 +76,13 @@ Zed-style bounds-based draw orders from masked bounds inside each scene layer,
 finishes scenes into ordered family batches before upload, caches logical
 native text layout per runtime, reuses cached subtree layout/measurement state
 plus frame/scene ranges when bounds and inherited paint context stay stable,
-only attaches atlas snapshots to freshly-built scenes, and uploads typed
-primitive ranges without materializing per-operation slice arrays. It now
-follows GPUI-style inherited opacity propagation instead of inventing a
-save-layer opacity model, but it is not the default demo presentation path
-until text rendering, window-owned deferred draw replay, and fuller scene
-parity match the retained/frame behavior more closely.
+collects late overlay fills into a runtime-owned deferred queue shared by the
+frame and scene paths, only attaches atlas snapshots to freshly-built scenes,
+and uploads typed primitive ranges without materializing per-operation slice
+arrays. It now follows GPUI-style inherited opacity propagation instead of
+inventing a save-layer opacity model, but it is not the default demo
+presentation path until text rendering, full deferred element replay, and
+fuller scene parity match the retained/frame behavior more closely.
 
 ## WinSwiftUI Coverage
 
@@ -102,7 +103,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, window-owned deferred draw replay, subpixel sprite families, and text-system-owned line layout
+- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, a shared deferred overlay queue for late-painted chrome, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, full deferred element replay, subpixel sprite families, and text-system-owned line layout
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility

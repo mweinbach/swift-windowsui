@@ -9,6 +9,7 @@ public enum ScenePainter {
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
         var replayCount = 0
+        var deferredPaints: [DeferredOverlayPaint] = []
         return paint(
             root: root,
             clearColor: clearColor,
@@ -16,6 +17,8 @@ public enum ScenePainter {
             displayScale: displayScale,
             textSystem: WindowTextSystem(),
             previousScene: nil,
+            previousDeferredPaints: nil,
+            deferredPaints: &deferredPaints,
             replayCount: &replayCount
         )
     }
@@ -27,6 +30,8 @@ public enum ScenePainter {
         displayScale: Double = 1.0,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
+        previousDeferredPaints: [DeferredOverlayPaint]?,
+        deferredPaints: inout [DeferredOverlayPaint],
         replayCount: inout Int
     ) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
@@ -45,9 +50,17 @@ public enum ScenePainter {
             displayScale: max(displayScale, 1.0),
             textSystem: textSystem,
             previousScene: previousScene,
+            previousDeferredPaints: previousDeferredPaints,
+            deferredPaints: &deferredPaints,
             usedNativeGlyphs: &usedNativeGlyphs,
             usedPixelGlyphs: &usedPixelGlyphs,
             replayCount: &replayCount
+        )
+        appendDeferredPaints(
+            deferredPaints,
+            into: &scene,
+            surfaceSize: deviceSurfaceSize,
+            displayScale: max(displayScale, 1.0)
         )
         if usedNativeGlyphs {
             scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
@@ -77,15 +90,19 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
+        previousDeferredPaints: [DeferredOverlayPaint]?,
+        deferredPaints: inout [DeferredOverlayPaint],
         primitiveOpacity: Float = 1,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) {
         let startPaintRecord = scene.paintRecordCount
+        let deferredStart = deferredPaints.count
         guard !node.isHidden else {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -100,6 +117,7 @@ public enum ScenePainter {
         guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -108,6 +126,7 @@ public enum ScenePainter {
         if !clipAllowsDrawing(clip: inheritedClip, rect: absoluteFrame) {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -118,6 +137,7 @@ public enum ScenePainter {
                 guard let clipped = inherited.intersected(with: absoluteFrame) else {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.cachedDeferredPaintRange = deferredStart..<deferredStart
                     node.markSubtreeRendered()
                     return
                 }
@@ -138,6 +158,7 @@ public enum ScenePainter {
         guard opacity > 0 else {
             node.cachedSceneKey = cacheKey
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -151,8 +172,19 @@ public enum ScenePainter {
             scene.replay(cachedScenePaintRange, from: previousScene)
             let delta = startPaintRecord - cachedScenePaintRange.lowerBound
             node.shiftCachedSceneRangesRecursively(by: delta)
+            if
+                let previousDeferredPaints,
+                let previousDeferredRange = node.cachedDeferredPaintRange
+            {
+                deferredPaints.append(contentsOf: previousDeferredPaints[previousDeferredRange])
+                let deferredDelta = deferredStart - previousDeferredRange.lowerBound
+                node.shiftCachedDeferredRangesRecursively(by: deferredDelta)
+            } else {
+                node.cachedDeferredPaintRange = deferredStart..<deferredStart
+            }
             node.cachedSceneKey = cacheKey
             node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+            node.cachedDeferredPaintRange = deferredStart..<deferredPaints.count
             node.markSubtreeRendered()
             replayCount += 1
             return
@@ -314,6 +346,8 @@ public enum ScenePainter {
                 displayScale: displayScale,
                 textSystem: textSystem,
                 previousScene: previousScene,
+                previousDeferredPaints: previousDeferredPaints,
+                deferredPaints: &deferredPaints,
                 primitiveOpacity: opacity,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
@@ -322,22 +356,22 @@ public enum ScenePainter {
         }
 
         if let scrollIndicator = node.scrollIndicatorRect(in: absoluteFrame) {
-            scene.addQuad(
-                solidQuad(
-                    rect: scrollIndicator,
-                    cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
-                    color: node.scrollIndicatorColor,
-                    opacity: opacity,
-                    clip: effectiveClip,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale
-                ),
-                toLayer: layerIndex
+            deferredPaints.append(
+                DeferredOverlayPaint(
+                    priority: deferredPaints.count,
+                    command: FillRectCommand(
+                        rect: scrollIndicator,
+                        color: node.scrollIndicatorColor.multipliedAlpha(by: opacity),
+                        cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
+                        clipRect: effectiveClip
+                    )
+                )
             )
         }
 
         node.cachedSceneKey = cacheKey
         node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+        node.cachedDeferredPaintRange = deferredStart..<deferredPaints.count
         node.markSubtreeRendered()
     }
 
@@ -386,6 +420,73 @@ public enum ScenePainter {
             )
         }
         return (0, 0, Float(surfaceSize.width), Float(surfaceSize.height))
+    }
+
+    private static func appendDeferredPaints(
+        _ deferredPaints: [DeferredOverlayPaint],
+        into scene: inout GPUIScene,
+        surfaceSize: Size,
+        displayScale: Double
+    ) {
+        for deferredPaint in deferredPaints.enumerated()
+            .sorted(by: { a, b in
+                if a.element.priority != b.element.priority {
+                    return a.element.priority < b.element.priority
+                }
+                return a.offset < b.offset
+            })
+            .map(\.element)
+        {
+            scene.addQuad(
+                quad(for: deferredPaint.command, surfaceSize: surfaceSize, displayScale: displayScale),
+                toLayer: 0
+            )
+        }
+    }
+
+    private static func quad(
+        for command: FillRectCommand,
+        surfaceSize: Size,
+        displayScale: Double
+    ) -> QuadPrimitive {
+        let scaledRect = scaleRect(command.rect, by: displayScale)
+        let clipR = clipRectFloats(command.clipRect, surfaceSize: surfaceSize, displayScale: displayScale)
+
+        let startColor: Color
+        let endColor: Color
+        let axis: Float
+
+        switch command.gradient {
+        case .linear(let gradient):
+            startColor = gradient.startColor
+            endColor = gradient.endColor
+            axis = gradient.axis == .horizontal ? 1 : 0
+        default:
+            startColor = command.color
+            endColor = command.color
+            axis = 0
+        }
+
+        return QuadPrimitive(
+            x: Float(scaledRect.origin.x),
+            y: Float(scaledRect.origin.y),
+            width: Float(scaledRect.size.width),
+            height: Float(scaledRect.size.height),
+            cornerRadius: Float(command.cornerRadius * displayScale),
+            startR: startColor.red,
+            startG: startColor.green,
+            startB: startColor.blue,
+            startA: startColor.alpha,
+            endR: endColor.red,
+            endG: endColor.green,
+            endB: endColor.blue,
+            endA: endColor.alpha,
+            gradientAxis: axis,
+            clipX: clipR.0,
+            clipY: clipR.1,
+            clipWidth: clipR.2,
+            clipHeight: clipR.3
+        )
     }
 
     private static func appendTextGlyphs(

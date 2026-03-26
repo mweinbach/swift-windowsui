@@ -107,6 +107,7 @@ Surface direction:
 - The experimental scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
 - `GPUIScene` now carries replayable scene paint records plus per-layer family operations as metadata, stores semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds per primitive family, and finishes layers into ordered batch ranges before the batch renderer uploads them.
 - `RetainedViewRuntime` now reuses cached `sizeThatFits`/layout results for clean subtrees and replays clean frame/scene ranges, which keeps paint-only updates and scroll movement from relaying out the full tree.
+- `RetainedViewRuntime` also owns a shared deferred overlay queue for late-painted fill chrome such as scroll indicators, and both the frame and scene paths now replay those deferred ranges instead of emitting them inline inside subtree paints.
 - Native scene text now goes through a runtime-owned logical `WindowTextSystem` cache before scene paint, and cached scenes no longer keep re-uploading stale atlas snapshots after the first presentation.
 - Standard text on the default path still goes through native bitmap rasterization; the experimental scene path now captures DirectWrite glyph IDs/font faces for atlas-backed glyphs, while icon/private-use glyphs still fall back to the pixel atlas.
 - `D3D11BatchRenderer` now renders finished ordered batch ranges directly from scene storage instead of replaying per-layer paint operations or allocating temporary arrays per operation, and batch shadows now honor the same content-mask clipping as quads and glyphs.
@@ -143,6 +144,6 @@ Avoid:
 
 - This is not full SwiftUI parity.
 - The repository is still Windows-only because the platform and renderer targets are Win32/D3D11-specific.
-- Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port with cached logical layout, subtree layout/measurement reuse, semantic content masks, inherited-opacity propagation, and glyph-run capture that still stops short of GPUI-style shaped text runs, window-owned deferred draw replay, and sprite families.
+- Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port with cached logical layout, subtree layout/measurement reuse, a shared deferred overlay queue for late-painted chrome, semantic content masks, inherited-opacity propagation, and glyph-run capture that still stops short of GPUI-style shaped text runs, full deferred element replay, and sprite families.
 - `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` remains the richer but still experimental presentation path.
 - API coverage should be extended from real demo/app needs, not by cloning SwiftUI surface area speculatively.

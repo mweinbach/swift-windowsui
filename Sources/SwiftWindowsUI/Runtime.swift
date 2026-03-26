@@ -38,6 +38,11 @@ struct ViewLayoutCacheKey: Equatable, Sendable {
     var displayScale: Double
 }
 
+struct DeferredOverlayPaint: Equatable, Sendable {
+    var priority: Int
+    var command: FillRectCommand
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -248,6 +253,7 @@ public final class ViewNode {
     internal var cachedLayoutKey: ViewLayoutCacheKey?
     internal var cachedFrameKey: ViewPaintCacheKey?
     internal var cachedFrameCommandRange: Range<Int>?
+    internal var cachedDeferredPaintRange: Range<Int>?
     internal var cachedSceneKey: ViewPaintCacheKey?
     internal var cachedScenePaintRange: Range<Int>?
 
@@ -701,13 +707,17 @@ public final class ViewNode {
         inheritedClip: Rect?,
         inheritedOpacity: Float = 1,
         previousRenderedFrame: RenderFrame? = nil,
+        previousDeferredPaints: [DeferredOverlayPaint]? = nil,
+        deferredPaints: inout [DeferredOverlayPaint],
         displayScale: Double = 1,
         replayCount: inout Int
     ) {
         let startIndex = commands.count
+        let deferredStart = deferredPaints.count
         if isHidden {
             cachedFrameKey = nil
             cachedFrameCommandRange = startIndex..<startIndex
+            cachedDeferredPaintRange = deferredStart..<deferredStart
             markSubtreeRendered()
             return
         }
@@ -725,6 +735,7 @@ public final class ViewNode {
         if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
             cachedFrameKey = nil
             cachedFrameCommandRange = startIndex..<startIndex
+            cachedDeferredPaintRange = deferredStart..<deferredStart
             markSubtreeRendered()
             return
         }
@@ -749,6 +760,7 @@ public final class ViewNode {
                 guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
                     cachedFrameKey = nil
                     cachedFrameCommandRange = startIndex..<startIndex
+                    cachedDeferredPaintRange = deferredStart..<deferredStart
                     markSubtreeRendered()
                     return
                 }
@@ -775,6 +787,7 @@ public final class ViewNode {
         guard effectiveOpacity > 0 else {
             cachedFrameKey = cacheKey
             cachedFrameCommandRange = startIndex..<startIndex
+            cachedDeferredPaintRange = deferredStart..<deferredStart
             markSubtreeRendered()
             return
         }
@@ -788,8 +801,19 @@ public final class ViewNode {
             commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
             let delta = startIndex - previousRange.lowerBound
             shiftCachedFrameRangesRecursively(by: delta)
+            if
+                let previousDeferredPaints,
+                let previousDeferredRange = cachedDeferredPaintRange
+            {
+                deferredPaints.append(contentsOf: previousDeferredPaints[previousDeferredRange])
+                let deferredDelta = deferredStart - previousDeferredRange.lowerBound
+                shiftCachedDeferredRangesRecursively(by: deferredDelta)
+            } else {
+                cachedDeferredPaintRange = deferredStart..<deferredStart
+            }
             cachedFrameKey = cacheKey
             cachedFrameCommandRange = startIndex..<commands.count
+            cachedDeferredPaintRange = deferredStart..<deferredPaints.count
             markSubtreeRendered()
             replayCount += 1
             return
@@ -931,6 +955,8 @@ public final class ViewNode {
                 inheritedClip: effectiveClip,
                 inheritedOpacity: effectiveOpacity,
                 previousRenderedFrame: previousRenderedFrame,
+                previousDeferredPaints: previousDeferredPaints,
+                deferredPaints: &deferredPaints,
                 displayScale: displayScale,
                 replayCount: &replayCount
             )
@@ -938,9 +964,10 @@ public final class ViewNode {
 
         if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame) {
             let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
-            commands.append(
-                .fillRect(
-                    FillRectCommand(
+            deferredPaints.append(
+                DeferredOverlayPaint(
+                    priority: deferredPaints.count,
+                    command: FillRectCommand(
                         rect: scrollIndicator,
                         color: effectiveScrollIndicatorColor,
                         cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
@@ -952,6 +979,7 @@ public final class ViewNode {
 
         cachedFrameKey = cacheKey
         cachedFrameCommandRange = startIndex..<commands.count
+        cachedDeferredPaintRange = deferredStart..<deferredPaints.count
         markSubtreeRendered()
     }
 
@@ -1162,6 +1190,16 @@ public final class ViewNode {
 
         for child in children {
             child.shiftCachedFrameRangesRecursively(by: delta)
+        }
+    }
+
+    func shiftCachedDeferredRangesRecursively(by delta: Int) {
+        if let existingRange = cachedDeferredPaintRange {
+            cachedDeferredPaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        }
+
+        for child in children {
+            child.shiftCachedDeferredRangesRecursively(by: delta)
         }
     }
 
@@ -1675,6 +1713,7 @@ public final class RetainedViewRuntime {
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
+    private var cachedDeferredPaints: [DeferredOverlayPaint]?
     internal private(set) var lastFrameReplayCount = 0
     internal private(set) var lastSceneReplayCount = 0
     internal private(set) var lastLayoutReuseCount = 0
@@ -1734,21 +1773,27 @@ public final class RetainedViewRuntime {
         updateResolvedLayout()
 
         let previousFrame = cachedFrame
+        let previousDeferredPaints = cachedDeferredPaints
         var commands: [RenderCommand] = []
+        var deferredPaints: [DeferredOverlayPaint] = []
         var replayCount = 0
         root.appendCommands(
             into: &commands,
             parentOrigin: .zero,
             inheritedClip: nil,
             previousRenderedFrame: previousFrame,
+            previousDeferredPaints: previousDeferredPaints,
+            deferredPaints: &deferredPaints,
             displayScale: displayScale,
             replayCount: &replayCount
         )
+        appendDeferredPaints(deferredPaints, into: &commands)
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         lastFrameReplayCount = replayCount
         cachedFrame = frame
         cachedScene = nil
+        cachedDeferredPaints = deferredPaints
         dirtyFlags = []
         if timestamp > 0 {
             lastRenderTime = timestamp
@@ -1777,7 +1822,9 @@ public final class RetainedViewRuntime {
 
         updateResolvedLayout()
         let previousScene = cachedScene
+        let previousDeferredPaints = cachedDeferredPaints
         var replayCount = 0
+        var deferredPaints: [DeferredOverlayPaint] = []
         let scene = ScenePainter.paint(
             root: root,
             clearColor: clearColor,
@@ -1785,6 +1832,8 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             textSystem: textSystem,
             previousScene: previousScene,
+            previousDeferredPaints: previousDeferredPaints,
+            deferredPaints: &deferredPaints,
             replayCount: &replayCount
         )
 
@@ -1794,6 +1843,7 @@ public final class RetainedViewRuntime {
         lastSceneReplayCount = replayCount
         cachedScene = cachedSceneCopy
         cachedFrame = nil
+        cachedDeferredPaints = deferredPaints
         dirtyFlags = []
         if timestamp > 0 {
             lastRenderTime = timestamp
@@ -2006,6 +2056,23 @@ public final class RetainedViewRuntime {
 
     fileprivate func recordMeasureReuse() {
         lastMeasureReuseCount += 1
+    }
+
+    private func appendDeferredPaints(_ deferredPaints: [DeferredOverlayPaint], into commands: inout [RenderCommand]) {
+        for deferredPaint in orderedDeferredPaints(deferredPaints) {
+            commands.append(.fillRect(deferredPaint.command))
+        }
+    }
+
+    fileprivate func orderedDeferredPaints(_ deferredPaints: [DeferredOverlayPaint]) -> [DeferredOverlayPaint] {
+        deferredPaints.enumerated()
+            .sorted { a, b in
+                if a.element.priority != b.element.priority {
+                    return a.element.priority < b.element.priority
+                }
+                return a.offset < b.offset
+            }
+            .map(\.element)
     }
 
     private func hitTest(at point: Point) -> ViewNode? {

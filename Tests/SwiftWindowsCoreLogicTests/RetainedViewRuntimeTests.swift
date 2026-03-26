@@ -712,12 +712,58 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             _ = runtime.renderFrame()
             XCTAssertEqual(runtime.lastDeferredOverlayReplayCount, 0)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0)
 
             rightContent.backgroundColor = Color(red: 0.1, green: 0.4, blue: 0.9, alpha: 1)
             _ = runtime.renderFrame()
 
             XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
             XCTAssertEqual(runtime.lastDeferredOverlayReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 1)
+        }
+    }
+
+    func testDeferredScrollIndicatorSceneReplayReusesUnchangedSiblingSubtree() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderScene()
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 0)
+
+            rightContent.backgroundColor = Color(red: 0.2, green: 0.5, blue: 0.8, alpha: 1)
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 1)
         }
     }
 

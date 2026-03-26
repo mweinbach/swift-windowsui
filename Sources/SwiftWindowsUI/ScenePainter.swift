@@ -9,6 +9,8 @@ public enum ScenePainter {
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
         var replayCount = 0
+        var deferredReplayCount = 0
+        var deferredDraws: [DeferredDrawState] = []
         return paint(
             root: root,
             clearColor: clearColor,
@@ -16,8 +18,9 @@ public enum ScenePainter {
             displayScale: displayScale,
             textSystem: WindowTextSystem(),
             previousScene: nil,
-            deferredOverlays: [],
-            replayCount: &replayCount
+            deferredDraws: &deferredDraws,
+            replayCount: &replayCount,
+            deferredReplayCount: &deferredReplayCount
         )
     }
 
@@ -28,8 +31,9 @@ public enum ScenePainter {
         displayScale: Double = 1.0,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
-        deferredOverlays: [DeferredOverlayState],
-        replayCount: inout Int
+        deferredDraws: inout [DeferredDrawState],
+        replayCount: inout Int,
+        deferredReplayCount: inout Int
     ) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
         NativeGlyphAtlas.shared.beginFrame()
@@ -51,11 +55,13 @@ public enum ScenePainter {
             usedPixelGlyphs: &usedPixelGlyphs,
             replayCount: &replayCount
         )
-        appendDeferredPaints(
-            deferredOverlays,
+        appendDeferredDraws(
+            &deferredDraws,
             into: &scene,
+            previousScene: previousScene,
             surfaceSize: deviceSurfaceSize,
-            displayScale: max(displayScale, 1.0)
+            displayScale: max(displayScale, 1.0),
+            replayCount: &deferredReplayCount
         )
         if usedNativeGlyphs {
             scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
@@ -381,25 +387,39 @@ public enum ScenePainter {
         return (0, 0, Float(surfaceSize.width), Float(surfaceSize.height))
     }
 
-    private static func appendDeferredPaints(
-        _ deferredPaints: [DeferredOverlayState],
+    private static func appendDeferredDraws(
+        _ deferredDraws: inout [DeferredDrawState],
         into scene: inout GPUIScene,
+        previousScene: GPUIScene?,
         surfaceSize: Size,
-        displayScale: Double
+        displayScale: Double,
+        replayCount: inout Int
     ) {
-        for deferredPaint in deferredPaints.enumerated()
-            .sorted(by: { a, b in
-                if a.element.priority != b.element.priority {
-                    return a.element.priority < b.element.priority
-                }
-                return a.offset < b.offset
-            })
-            .map(\.element)
-        {
-            scene.addQuad(
-                quad(for: deferredPaint.command, surfaceSize: surfaceSize, displayScale: displayScale),
-                toLayer: 0
-            )
+        for deferredDrawIndex in deferredDraws.indices.sorted(by: { lhs, rhs in
+            let left = deferredDraws[lhs]
+            let right = deferredDraws[rhs]
+            if left.priority != right.priority {
+                return left.priority < right.priority
+            }
+            return lhs < rhs
+        }) {
+            let startPaintRecord = scene.paintRecordCount
+            if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
+                scene.replay(cachedScenePaintRange, from: previousScene)
+                deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+                replayCount += 1
+                continue
+            }
+
+            switch deferredDraws[deferredDrawIndex].command {
+            case .fillRect(let fillRect):
+                scene.addQuad(
+                    quad(for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale),
+                    toLayer: 0
+                )
+            }
+
+            deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
         }
     }
 

@@ -39,10 +39,26 @@ struct ViewLayoutCacheKey: Equatable, Sendable {
 }
 
 @MainActor
-struct DeferredOverlayState {
+enum DeferredDrawCommand {
+    case fillRect(FillRectCommand)
+
+    var rect: Rect {
+        switch self {
+        case .fillRect(let command):
+            return command.rect
+        }
+    }
+}
+
+@MainActor
+struct DeferredDrawState {
     var priority: Int
-    var command: FillRectCommand
+    var parentDispatchIndex: Int
+    var contentMask: Rect?
+    var command: DeferredDrawCommand
     var interaction: DeferredOverlayInteraction?
+    var cachedFrameCommandRange: Range<Int>?
+    var cachedScenePaintRange: Range<Int>?
 }
 
 @MainActor
@@ -54,7 +70,7 @@ struct PrepaintStateIndex: Equatable, Sendable {
     var dispatchIndex: Int
     var interactionIndex: Int
     var focusOrderIndex: Int
-    var deferredOverlayIndex: Int
+    var deferredDrawIndex: Int
 }
 
 struct PrepaintStateRange: Equatable, Sendable {
@@ -120,7 +136,7 @@ struct RuntimePrepaintState {
     var dispatchNodes: [PrepaintDispatchState] = []
     var interactions: [PrepaintInteractionState] = []
     var focusOrder: [Int] = []
-    var deferredOverlays: [DeferredOverlayState] = []
+    var deferredDraws: [DeferredDrawState] = []
 }
 
 public enum ViewLayoutMode: Sendable {
@@ -812,7 +828,7 @@ public final class ViewNode {
             dispatchIndex: state.dispatchNodes.count,
             interactionIndex: state.interactions.count,
             focusOrderIndex: state.focusOrder.count,
-            deferredOverlayIndex: state.deferredOverlays.count
+            deferredDrawIndex: state.deferredDraws.count
         )
 
         if isHidden {
@@ -866,7 +882,7 @@ public final class ViewNode {
             let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
             let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
             let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
-            let deferredOverlayDelta = startIndex.deferredOverlayIndex - previousRange.start.deferredOverlayIndex
+            let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
 
             let copiedDispatchNodes = previousState.dispatchNodes[previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex]
                 .enumerated()
@@ -897,26 +913,32 @@ public final class ViewNode {
                 .map { $0 + dispatchDelta }
             state.focusOrder.append(contentsOf: copiedFocusOrder)
 
-            let copiedDeferredOverlays = previousState.deferredOverlays[previousRange.start.deferredOverlayIndex..<previousRange.end.deferredOverlayIndex]
-                .map { overlay in
-                    guard let interaction = overlay.interaction else {
-                        return overlay
+            let copiedDeferredDraws = previousState.deferredDraws[previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex]
+                .map { deferredDraw in
+                    var nextDeferredDraw = deferredDraw
+                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredDraw.parentDispatchIndex {
+                        nextDeferredDraw.parentDispatchIndex += dispatchDelta
+                    } else if let parentDispatchIndex {
+                        nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
                     }
 
-                    var nextOverlay = overlay
+                    guard let interaction = deferredDraw.interaction else {
+                        return nextDeferredDraw
+                    }
+
                     switch interaction {
                     case .scrollIndicator(let dispatchIndex, let track):
-                        nextOverlay.interaction = .scrollIndicator(dispatchIndex: dispatchIndex + dispatchDelta, track: track)
+                        nextDeferredDraw.interaction = .scrollIndicator(dispatchIndex: dispatchIndex + dispatchDelta, track: track)
                     }
-                    return nextOverlay
+                    return nextDeferredDraw
                 }
-            state.deferredOverlays.append(contentsOf: copiedDeferredOverlays)
+            state.deferredDraws.append(contentsOf: copiedDeferredDraws)
 
             shiftCachedPrepaintRangesRecursively(
                 dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
-                deferredOverlayDelta: deferredOverlayDelta
+                deferredDrawDelta: deferredDrawDelta
             )
             cachedPrepaintKey = cacheKey
             cachedPrepaintRange = PrepaintStateRange(
@@ -925,7 +947,7 @@ public final class ViewNode {
                     dispatchIndex: state.dispatchNodes.count,
                     interactionIndex: state.interactions.count,
                     focusOrderIndex: state.focusOrder.count,
-                    deferredOverlayIndex: state.deferredOverlays.count
+                    deferredDrawIndex: state.deferredDraws.count
                 )
             )
             replayCount += 1
@@ -1005,14 +1027,18 @@ public final class ViewNode {
 
         if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: absoluteFrame) {
             let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
-            state.deferredOverlays.append(
-                DeferredOverlayState(
-                    priority: state.deferredOverlays.count,
-                    command: FillRectCommand(
-                        rect: track.indicatorRect,
-                        color: effectiveScrollIndicatorColor,
-                        cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
-                        clipRect: effectiveClip
+            state.deferredDraws.append(
+                DeferredDrawState(
+                    priority: state.deferredDraws.count,
+                    parentDispatchIndex: dispatchIndex,
+                    contentMask: effectiveClip,
+                    command: .fillRect(
+                        FillRectCommand(
+                            rect: track.indicatorRect,
+                            color: effectiveScrollIndicatorColor,
+                            cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
+                            clipRect: effectiveClip
+                        )
                     ),
                     interaction: .scrollIndicator(dispatchIndex: dispatchIndex, track: track)
                 )
@@ -1026,7 +1052,7 @@ public final class ViewNode {
                 dispatchIndex: state.dispatchNodes.count,
                 interactionIndex: state.interactions.count,
                 focusOrderIndex: state.focusOrder.count,
-                deferredOverlayIndex: state.deferredOverlays.count
+                deferredDrawIndex: state.deferredDraws.count
             )
         )
     }
@@ -1425,7 +1451,7 @@ public final class ViewNode {
         dispatchDelta: Int,
         interactionDelta: Int,
         focusOrderDelta: Int,
-        deferredOverlayDelta: Int
+        deferredDrawDelta: Int
     ) {
         if let existingRange = cachedPrepaintRange {
             cachedPrepaintRange = PrepaintStateRange(
@@ -1433,13 +1459,13 @@ public final class ViewNode {
                     dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.start.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
-                    deferredOverlayIndex: existingRange.start.deferredOverlayIndex + deferredOverlayDelta
+                    deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta
                 ),
                 end: PrepaintStateIndex(
                     dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.end.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
-                    deferredOverlayIndex: existingRange.end.deferredOverlayIndex + deferredOverlayDelta
+                    deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta
                 )
             )
         }
@@ -1449,7 +1475,7 @@ public final class ViewNode {
                 dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
-                deferredOverlayDelta: deferredOverlayDelta
+                deferredDrawDelta: deferredDrawDelta
             )
         }
     }
@@ -1971,6 +1997,8 @@ public final class RetainedViewRuntime {
     internal private(set) var lastMeasureReuseCount = 0
     internal private(set) var lastPrepaintReplayCount = 0
     internal private(set) var lastDeferredOverlayReplayCount = 0
+    internal private(set) var lastDeferredDrawFrameReplayCount = 0
+    internal private(set) var lastDeferredDrawSceneReplayCount = 0
     let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
@@ -2010,6 +2038,8 @@ public final class RetainedViewRuntime {
             lastMeasureReuseCount = 0
             lastPrepaintReplayCount = 0
             lastDeferredOverlayReplayCount = 0
+            lastDeferredDrawFrameReplayCount = 0
+            lastDeferredDrawSceneReplayCount = 0
             return cachedFrame
         }
 
@@ -2023,6 +2053,8 @@ public final class RetainedViewRuntime {
                 lastMeasureReuseCount = 0
                 lastPrepaintReplayCount = 0
                 lastDeferredOverlayReplayCount = 0
+                lastDeferredDrawFrameReplayCount = 0
+                lastDeferredDrawSceneReplayCount = 0
                 return cachedFrame
             }
         }
@@ -2032,6 +2064,7 @@ public final class RetainedViewRuntime {
         let previousFrame = cachedFrame
         var commands: [RenderCommand] = []
         var replayCount = 0
+        var deferredDrawReplayCount = 0
         root.appendCommands(
             into: &commands,
             parentOrigin: .zero,
@@ -2040,10 +2073,12 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &replayCount
         )
-        appendDeferredPaints(prepaintState.deferredOverlays, into: &commands)
+        appendDeferredDraws(into: &commands, previousFrame: previousFrame, replayCount: &deferredDrawReplayCount)
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         lastFrameReplayCount = replayCount
+        lastDeferredDrawFrameReplayCount = deferredDrawReplayCount
+        lastDeferredDrawSceneReplayCount = 0
         cachedFrame = frame
         cachedScene = nil
         dirtyFlags = []
@@ -2061,6 +2096,8 @@ public final class RetainedViewRuntime {
             lastMeasureReuseCount = 0
             lastPrepaintReplayCount = 0
             lastDeferredOverlayReplayCount = 0
+            lastDeferredDrawFrameReplayCount = 0
+            lastDeferredDrawSceneReplayCount = 0
             return cachedScene
         }
 
@@ -2072,6 +2109,8 @@ public final class RetainedViewRuntime {
                 lastMeasureReuseCount = 0
                 lastPrepaintReplayCount = 0
                 lastDeferredOverlayReplayCount = 0
+                lastDeferredDrawFrameReplayCount = 0
+                lastDeferredDrawSceneReplayCount = 0
                 return cachedScene
             }
         }
@@ -2079,6 +2118,8 @@ public final class RetainedViewRuntime {
         updateResolvedLayout()
         let previousScene = cachedScene
         var replayCount = 0
+        var deferredDrawReplayCount = 0
+        var deferredDraws = prepaintState.deferredDraws
         let scene = ScenePainter.paint(
             root: root,
             clearColor: clearColor,
@@ -2086,14 +2127,18 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             textSystem: textSystem,
             previousScene: previousScene,
-            deferredOverlays: prepaintState.deferredOverlays,
-            replayCount: &replayCount
+            deferredDraws: &deferredDraws,
+            replayCount: &replayCount,
+            deferredReplayCount: &deferredDrawReplayCount
         )
+        prepaintState.deferredDraws = deferredDraws
 
         var cachedSceneCopy = scene
         cachedSceneCopy.glyphAtlas = nil
         cachedSceneCopy.pixelGlyphAtlas = nil
         lastSceneReplayCount = replayCount
+        lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
+        lastDeferredDrawFrameReplayCount = 0
         cachedScene = cachedSceneCopy
         cachedFrame = nil
         dirtyFlags = []
@@ -2310,21 +2355,63 @@ public final class RetainedViewRuntime {
         lastMeasureReuseCount += 1
     }
 
-    private func appendDeferredPaints(_ deferredPaints: [DeferredOverlayState], into commands: inout [RenderCommand]) {
-        for deferredPaint in orderedDeferredPaints(deferredPaints) {
-            commands.append(.fillRect(deferredPaint.command))
+    private func appendDeferredDraws(
+        into commands: inout [RenderCommand],
+        previousFrame: RenderFrame?,
+        replayCount: inout Int
+    ) {
+        for deferredDrawIndex in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
+            let startCommandIndex = commands.count
+            if let previousFrame, let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange {
+                commands.append(contentsOf: previousFrame.commands[cachedFrameCommandRange])
+                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
+                replayCount += 1
+                continue
+            }
+
+            switch prepaintState.deferredDraws[deferredDrawIndex].command {
+            case .fillRect(let fillRect):
+                commands.append(.fillRect(fillRect))
+            }
+
+            prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
         }
     }
 
-    fileprivate func orderedDeferredPaints(_ deferredPaints: [DeferredOverlayState]) -> [DeferredOverlayState] {
-        deferredPaints.enumerated()
-            .sorted { a, b in
-                if a.element.priority != b.element.priority {
-                    return a.element.priority < b.element.priority
-                }
-                return a.offset < b.offset
+    fileprivate func orderedDeferredDrawIndices(_ deferredDraws: [DeferredDrawState]) -> [Int] {
+        deferredDraws.indices.sorted { lhs, rhs in
+            let left = deferredDraws[lhs]
+            let right = deferredDraws[rhs]
+            if left.priority != right.priority {
+                return left.priority < right.priority
             }
-            .map(\.element)
+            return lhs < rhs
+        }
+    }
+
+    private func deferredDrawRect(_ deferredDraw: DeferredDrawState) -> Rect {
+        deferredDraw.command.rect
+    }
+
+    private func deferredDrawContentMask(_ deferredDraw: DeferredDrawState) -> Rect? {
+        deferredDraw.contentMask
+    }
+
+    private func deferredDrawContains(_ point: Point, deferredDraw: DeferredDrawState) -> Bool {
+        if let contentMask = deferredDrawContentMask(deferredDraw), !contentMask.contains(point) {
+            return false
+        }
+        return deferredDrawRect(deferredDraw).contains(point)
+    }
+
+    private func deferredDrawsInteracting(at point: Point) -> [DeferredDrawState] {
+        orderedDeferredDrawIndices(prepaintState.deferredDraws).reversed().compactMap { index in
+            let deferredDraw = prepaintState.deferredDraws[index]
+            guard deferredDrawContains(point, deferredDraw: deferredDraw) else {
+                return nil
+            }
+            return deferredDraw
+        }
     }
 
     private func dispatchIndex(for node: ViewNode?) -> Int? {
@@ -2401,12 +2488,8 @@ public final class RetainedViewRuntime {
 
     private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
         updateResolvedLayout()
-        for overlay in orderedDeferredPaints(prepaintState.deferredOverlays).reversed() {
-            guard overlay.command.rect.contains(point) else {
-                continue
-            }
-
-            switch overlay.interaction {
+        for deferredDraw in deferredDrawsInteracting(at: point) {
+            switch deferredDraw.interaction {
             case .scrollIndicator(let dispatchIndex, let track):
                 guard let node = node(for: dispatchIndex) else {
                     continue
@@ -2482,6 +2565,8 @@ public final class RetainedViewRuntime {
         lastMeasureReuseCount = 0
         lastPrepaintReplayCount = 0
         lastDeferredOverlayReplayCount = 0
+        lastDeferredDrawFrameReplayCount = 0
+        lastDeferredDrawSceneReplayCount = 0
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
         updatePrepaintState()

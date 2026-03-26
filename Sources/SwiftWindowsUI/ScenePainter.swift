@@ -81,7 +81,7 @@ public enum ScenePainter {
 
             if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
                 let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
-                scene.layers[layerIndex].shadows.append(ShadowPrimitive(
+                scene.addShadow(ShadowPrimitive(
                     x: Float(scaledShadowRect.origin.x),
                     y: Float(scaledShadowRect.origin.y),
                     width: Float(scaledShadowRect.size.width),
@@ -94,7 +94,7 @@ public enum ScenePainter {
                     blurRadius: Float(node.shadowSpread * displayScale),
                     offsetX: Float(node.shadowOffset.x * displayScale),
                     offsetY: Float(node.shadowOffset.y * displayScale)
-                ))
+                ), toLayer: layerIndex)
             }
         }
 
@@ -102,7 +102,7 @@ public enum ScenePainter {
         if node.outlineColor.alpha > 0, node.outlineWidth > 0 {
             let outlineRect = absoluteFrame.outset(by: node.outlineWidth)
             if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
-                scene.layers[layerIndex].quads.append(solidQuad(
+                scene.addQuad(solidQuad(
                 rect: outlineRect,
                 cornerRadius: node.cornerRadius + node.outlineWidth,
                 color: node.outlineColor,
@@ -110,15 +110,15 @@ public enum ScenePainter {
                 clip: inheritedClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale
-            ))
-        }
+            ), toLayer: layerIndex)
+            }
         }
 
         // Border (full rect drawn under the fill area)
         if node.borderColor.alpha > 0, node.borderWidth > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: absoluteFrame)
         {
-            scene.layers[layerIndex].quads.append(solidQuad(
+            scene.addQuad(solidQuad(
                 rect: absoluteFrame,
                 cornerRadius: node.cornerRadius,
                 color: node.borderColor,
@@ -126,7 +126,7 @@ public enum ScenePainter {
                 clip: effectiveClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale
-            ))
+            ), toLayer: layerIndex)
         }
 
         // Background fill (inset by border width)
@@ -146,7 +146,7 @@ public enum ScenePainter {
                 return grad.axis == .horizontal ? 1 : 0
             }()
 
-            scene.layers[layerIndex].quads.append(QuadPrimitive(
+            scene.addQuad(QuadPrimitive(
                 x: Float(scaledFillRect.origin.x),
                 y: Float(scaledFillRect.origin.y),
                 width: Float(scaledFillRect.size.width),
@@ -159,13 +159,14 @@ public enum ScenePainter {
                 gradientAxis: axis,
                 clipX: clipR.0, clipY: clipR.1,
                 clipWidth: clipR.2, clipHeight: clipR.3
-            ))
+            ), toLayer: layerIndex)
         }
 
         if let text = node.text, !text.isEmpty,
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
+            var glyphs: [GlyphPrimitive] = []
             appendTextGlyphs(
                 for: text,
                 style: node.textStyle,
@@ -174,8 +175,11 @@ public enum ScenePainter {
                 clip: effectiveClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
-                into: &scene.layers[layerIndex].glyphs
+                into: &glyphs
             )
+            for glyph in glyphs {
+                scene.addGlyph(glyph, toLayer: layerIndex)
+            }
         }
 
         // Children -- sort by zIndex (stable), push new layers when zIndex changes.

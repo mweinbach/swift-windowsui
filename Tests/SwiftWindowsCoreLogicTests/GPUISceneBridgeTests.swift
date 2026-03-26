@@ -135,7 +135,7 @@ struct GPUISceneBridgeTests {
 
     // MARK: - Layer Splitting
 
-    @Test("fillRect, drawBitmap, fillRect produces 3 layers")
+    @Test("fillRect, drawBitmap, fillRect preserves paint order through operations")
     func layerSplitOnTypeChange() {
         let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 0, 0, 255]))
         let commands: [RenderCommand] = [
@@ -146,16 +146,17 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        #expect(scene.layers.count == 3)
-        #expect(scene.layers[0].quads.count == 1)
-        #expect(scene.layers[0].images.isEmpty)
-        #expect(scene.layers[1].quads.isEmpty)
-        #expect(scene.layers[1].images.count == 1)
-        #expect(scene.layers[2].quads.count == 1)
-        #expect(scene.layers[2].images.isEmpty)
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].images.count == 1)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+        ])
     }
 
-    @Test("Consecutive same-type commands stay in the same layer")
+    @Test("Consecutive same-type commands stay in one paint operation")
     func noSplitForSameType() {
         let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 0, 255]))
         let commands: [RenderCommand] = [
@@ -167,6 +168,9 @@ struct GPUISceneBridgeTests {
 
         #expect(scene.layers.count == 1)
         #expect(scene.layers[0].images.count == 2)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
+        ])
     }
 
     // MARK: - Clip Stack
@@ -299,9 +303,12 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // drawText is skipped, so both fillRects stay in the same layer
+        // drawText is skipped, so both fillRects stay in one quad paint operation
         #expect(scene.layers[0].quads.count == 2)
         #expect(scene.layers[0].glyphs.isEmpty)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+        ])
     }
 
     // MARK: - GPUIScene Structure

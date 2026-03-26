@@ -2,22 +2,13 @@ import SwiftWindowsCore
 
 // MARK: - RenderFrame to GPUIScene Bridge
 
-/// Tracks which primitive type was most recently appended so the bridge
-/// can split layers on type transitions to preserve z-order.
-private enum LastPrimitiveKind {
-    case none
-    case quad
-    case image
-}
-
 extension GPUIScene {
     /// Creates a `GPUIScene` from an existing `RenderFrame`.
     ///
     /// The bridge walks each `RenderCommand` and converts it to the
-    /// corresponding GPU primitive type. When consecutive commands produce
-    /// different primitive types (e.g. `fillRect` followed by `drawBitmap`),
-    /// a new layer is started to preserve z-ordering while still allowing
-    /// batch rendering within each layer.
+    /// corresponding GPU primitive type. Paint order is preserved through
+    /// per-layer paint operations instead of splitting layers every time the
+    /// primitive family changes.
     ///
     /// - Parameters:
     ///   - frame: The backend-neutral render frame to convert.
@@ -28,25 +19,16 @@ extension GPUIScene {
         self.layers = [GPUILayer()]
 
         var clipStack: [Rect] = []
-        var lastKind: LastPrimitiveKind = .none
 
         for command in frame.commands {
             switch command {
             case .fillRect(let cmd):
-                if lastKind != .none && lastKind != .quad {
-                    self.pushLayer()
-                }
-                lastKind = .quad
                 let quad = Self.makeQuad(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                self.layers[self.layers.count - 1].quads.append(quad)
+                self.addQuad(quad)
 
             case .drawBitmap(let cmd):
-                if lastKind != .none && lastKind != .image {
-                    self.pushLayer()
-                }
-                lastKind = .image
                 let image = Self.makeImage(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                self.layers[self.layers.count - 1].images.append(image)
+                self.addImage(image)
 
             case .pushClip(let cmd):
                 switch cmd.shape {

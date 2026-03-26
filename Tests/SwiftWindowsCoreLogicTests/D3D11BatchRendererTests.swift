@@ -32,7 +32,7 @@ final class D3D11BatchRendererTests: XCTestCase {
 
     func testGPUISceneWithQuads() {
         var scene = GPUIScene()
-        scene.layers[0].quads.append(
+        scene.addQuad(
             QuadPrimitive(
                 x: 10, y: 20, width: 100, height: 50,
                 cornerRadius: 5,
@@ -41,7 +41,7 @@ final class D3D11BatchRendererTests: XCTestCase {
                 gradientAxis: 1
             )
         )
-        scene.layers[0].quads.append(
+        scene.addQuad(
             QuadPrimitive(
                 x: 200, y: 300, width: 80, height: 40,
                 startR: 0, startG: 1, startB: 0, startA: 1,
@@ -56,7 +56,7 @@ final class D3D11BatchRendererTests: XCTestCase {
 
     func testGPUISceneWithShadows() {
         var scene = GPUIScene()
-        scene.layers[0].shadows.append(
+        scene.addShadow(
             ShadowPrimitive(
                 x: 50, y: 50, width: 200, height: 100,
                 cornerRadius: 8,
@@ -72,7 +72,7 @@ final class D3D11BatchRendererTests: XCTestCase {
 
     func testGPUISceneWithImages() {
         var scene = GPUIScene()
-        scene.layers[0].images.append(
+        scene.addImage(
             ImagePrimitive(
                 screenX: 0, screenY: 0, screenW: 256, screenH: 256,
                 uvX: 0, uvY: 0, uvW: 1, uvH: 1,
@@ -87,7 +87,7 @@ final class D3D11BatchRendererTests: XCTestCase {
 
     func testGPUISceneWithGlyphs() {
         var scene = GPUIScene()
-        scene.layers[0].glyphs.append(
+        scene.addGlyph(
             GlyphPrimitive(
                 screenX: 10, screenY: 20, screenW: 8, screenH: 16,
                 atlasU0: 0, atlasV0: 0, atlasU1: 0.1, atlasV1: 0.2,
@@ -121,7 +121,7 @@ final class D3D11BatchRendererTests: XCTestCase {
 
     func testMultiLayerScene() {
         var scene = GPUIScene()
-        scene.layers[0].quads.append(
+        scene.addQuad(
             QuadPrimitive(
                 x: 0, y: 0, width: 800, height: 600,
                 startR: 0.1, startG: 0.1, startB: 0.2, startA: 1,
@@ -129,17 +129,19 @@ final class D3D11BatchRendererTests: XCTestCase {
             )
         )
 
-        scene.pushLayer()
-        scene.layers[1].shadows.append(
-            ShadowPrimitive(x: 100, y: 100, width: 200, height: 150)
+        let overlayLayer = scene.pushLayer()
+        scene.addShadow(
+            ShadowPrimitive(x: 100, y: 100, width: 200, height: 150),
+            toLayer: overlayLayer
         )
-        scene.layers[1].quads.append(
+        scene.addQuad(
             QuadPrimitive(
                 x: 100, y: 100, width: 200, height: 150,
                 cornerRadius: 10,
                 startR: 1, startG: 1, startB: 1, startA: 1,
                 endR: 1, endG: 1, endB: 1, endA: 1
-            )
+            ),
+            toLayer: overlayLayer
         )
 
         XCTAssertEqual(scene.layers.count, 2)

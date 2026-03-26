@@ -3,6 +3,25 @@ import SwiftWindowsCore
 
 // MARK: - GPUILayer
 
+public enum GPUIPaintPrimitiveKind: Equatable, Sendable {
+    case shadow
+    case quad
+    case glyph
+    case image
+}
+
+public struct GPUIPaintOperation: Equatable, Sendable {
+    public var kind: GPUIPaintPrimitiveKind
+    public var startIndex: Int
+    public var count: Int
+
+    public init(kind: GPUIPaintPrimitiveKind, startIndex: Int, count: Int = 1) {
+        self.kind = kind
+        self.startIndex = startIndex
+        self.count = count
+    }
+}
+
 public struct GlyphAtlasSnapshot: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
@@ -22,17 +41,20 @@ public struct GPUILayer: Equatable, Sendable {
     public var quads: [QuadPrimitive]
     public var glyphs: [GlyphPrimitive]
     public var images: [ImagePrimitive]
+    public var paintOperations: [GPUIPaintOperation]
 
     public init(
         shadows: [ShadowPrimitive] = [],
         quads: [QuadPrimitive] = [],
         glyphs: [GlyphPrimitive] = [],
-        images: [ImagePrimitive] = []
+        images: [ImagePrimitive] = [],
+        paintOperations: [GPUIPaintOperation] = []
     ) {
         self.shadows = shadows
         self.quads = quads
         self.glyphs = glyphs
         self.images = images
+        self.paintOperations = paintOperations
     }
 
     public var primitiveCount: Int {
@@ -41,6 +63,50 @@ public struct GPUILayer: Equatable, Sendable {
 
     public var isEmpty: Bool {
         primitiveCount == 0
+    }
+
+    public var paintOperationCount: Int {
+        paintOperations.count
+    }
+
+    mutating func addShadow(_ shadow: ShadowPrimitive) {
+        let startIndex = shadows.count
+        shadows.append(shadow)
+        appendPaintOperation(kind: .shadow, startIndex: startIndex)
+    }
+
+    mutating func addQuad(_ quad: QuadPrimitive) {
+        let startIndex = quads.count
+        quads.append(quad)
+        appendPaintOperation(kind: .quad, startIndex: startIndex)
+    }
+
+    mutating func addGlyph(_ glyph: GlyphPrimitive) {
+        let startIndex = glyphs.count
+        glyphs.append(glyph)
+        appendPaintOperation(kind: .glyph, startIndex: startIndex)
+    }
+
+    mutating func addImage(_ image: ImagePrimitive) {
+        let startIndex = images.count
+        images.append(image)
+        appendPaintOperation(kind: .image, startIndex: startIndex)
+    }
+
+    private mutating func appendPaintOperation(kind: GPUIPaintPrimitiveKind, startIndex: Int) {
+        guard var lastOperation = paintOperations.last else {
+            paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
+            return
+        }
+
+        let expectedNextIndex = lastOperation.startIndex + lastOperation.count
+        if lastOperation.kind == kind, expectedNextIndex == startIndex {
+            lastOperation.count += 1
+            paintOperations[paintOperations.count - 1] = lastOperation
+            return
+        }
+
+        paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
     }
 }
 
@@ -72,19 +138,35 @@ public struct GPUIScene: Equatable, Sendable {
     // MARK: - Primitive insertion (appends to last layer)
 
     public mutating func addQuad(_ quad: QuadPrimitive) {
-        layers[layers.count - 1].quads.append(quad)
+        addQuad(quad, toLayer: layers.count - 1)
     }
 
     public mutating func addGlyph(_ glyph: GlyphPrimitive) {
-        layers[layers.count - 1].glyphs.append(glyph)
+        addGlyph(glyph, toLayer: layers.count - 1)
     }
 
     public mutating func addImage(_ image: ImagePrimitive) {
-        layers[layers.count - 1].images.append(image)
+        addImage(image, toLayer: layers.count - 1)
     }
 
     public mutating func addShadow(_ shadow: ShadowPrimitive) {
-        layers[layers.count - 1].shadows.append(shadow)
+        addShadow(shadow, toLayer: layers.count - 1)
+    }
+
+    public mutating func addQuad(_ quad: QuadPrimitive, toLayer layerIndex: Int) {
+        layers[layerIndex].addQuad(quad)
+    }
+
+    public mutating func addGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
+        layers[layerIndex].addGlyph(glyph)
+    }
+
+    public mutating func addImage(_ image: ImagePrimitive, toLayer layerIndex: Int) {
+        layers[layerIndex].addImage(image)
+    }
+
+    public mutating func addShadow(_ shadow: ShadowPrimitive, toLayer layerIndex: Int) {
+        layers[layerIndex].addShadow(shadow)
     }
 
     public var primitiveCount: Int {

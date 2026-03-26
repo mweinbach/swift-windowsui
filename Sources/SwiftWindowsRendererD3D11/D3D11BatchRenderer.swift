@@ -172,42 +172,47 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
         for layer in scene.layers {
-            if !layer.shadows.isEmpty {
-                try renderBatch(
-                    layer.shadows,
-                    capacity: &shadowInstanceCapacity,
-                    buffer: &shadowInstanceBuffer,
-                    srv: &shadowInstanceSRV,
-                    vs: shadowVS, ps: shadowPS,
-                    label: "shadow",
-                    deviceContext: deviceContext
-                )
-            }
-            if !layer.quads.isEmpty {
-                try renderBatch(
-                    layer.quads,
-                    capacity: &quadInstanceCapacity,
-                    buffer: &quadInstanceBuffer,
-                    srv: &quadInstanceSRV,
-                    vs: quadVS, ps: quadPS,
-                    label: "quad",
-                    deviceContext: deviceContext
-                )
-            }
-            if !layer.glyphs.isEmpty {
-                try renderGlyphBatch(layer.glyphs, deviceContext: deviceContext)
-            }
-            if !layer.images.isEmpty {
-                try renderBatch(
-                    layer.images,
-                    capacity: &imageInstanceCapacity,
-                    buffer: &imageInstanceBuffer,
-                    srv: &imageInstanceSRV,
-                    vs: imageVS, ps: imagePS,
-                    label: "image",
-                    deviceContext: deviceContext,
-                    bindSampler: true
-                )
+            let paintOperations = layer.paintOperations.isEmpty
+                ? Self.synthesizedPaintOperations(for: layer)
+                : layer.paintOperations
+
+            for operation in paintOperations {
+                let range = operation.startIndex..<(operation.startIndex + operation.count)
+                switch operation.kind {
+                case .shadow:
+                    try renderBatch(
+                        Array(layer.shadows[range]),
+                        capacity: &shadowInstanceCapacity,
+                        buffer: &shadowInstanceBuffer,
+                        srv: &shadowInstanceSRV,
+                        vs: shadowVS, ps: shadowPS,
+                        label: "shadow",
+                        deviceContext: deviceContext
+                    )
+                case .quad:
+                    try renderBatch(
+                        Array(layer.quads[range]),
+                        capacity: &quadInstanceCapacity,
+                        buffer: &quadInstanceBuffer,
+                        srv: &quadInstanceSRV,
+                        vs: quadVS, ps: quadPS,
+                        label: "quad",
+                        deviceContext: deviceContext
+                    )
+                case .glyph:
+                    try renderGlyphBatch(Array(layer.glyphs[range]), deviceContext: deviceContext)
+                case .image:
+                    try renderBatch(
+                        Array(layer.images[range]),
+                        capacity: &imageInstanceCapacity,
+                        buffer: &imageInstanceBuffer,
+                        srv: &imageInstanceSRV,
+                        vs: imageVS, ps: imagePS,
+                        label: "image",
+                        deviceContext: deviceContext,
+                        bindSampler: true
+                    )
+                }
             }
         }
 
@@ -864,6 +869,23 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         if hr < 0 {
             throw BatchRendererError(operation: operation, hresult: hr)
         }
+    }
+
+    private static func synthesizedPaintOperations(for layer: GPUILayer) -> [GPUIPaintOperation] {
+        var operations: [GPUIPaintOperation] = []
+        if !layer.shadows.isEmpty {
+            operations.append(GPUIPaintOperation(kind: .shadow, startIndex: 0, count: layer.shadows.count))
+        }
+        if !layer.quads.isEmpty {
+            operations.append(GPUIPaintOperation(kind: .quad, startIndex: 0, count: layer.quads.count))
+        }
+        if !layer.glyphs.isEmpty {
+            operations.append(GPUIPaintOperation(kind: .glyph, startIndex: 0, count: layer.glyphs.count))
+        }
+        if !layer.images.isEmpty {
+            operations.append(GPUIPaintOperation(kind: .image, startIndex: 0, count: layer.images.count))
+        }
+        return operations
     }
 }
 

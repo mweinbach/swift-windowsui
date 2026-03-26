@@ -70,11 +70,14 @@ final class IntegrationTests: XCTestCase {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: Size(width: 200, height: 200))
 
-        // quad -> image (new layer) -> quad (new layer) = 3 layers
-        XCTAssertEqual(scene.layers.count, 3)
-        XCTAssertEqual(scene.layers[0].quads.count, 1)
-        XCTAssertEqual(scene.layers[1].images.count, 1)
-        XCTAssertEqual(scene.layers[2].quads.count, 1)
+        XCTAssertEqual(scene.layers.count, 1)
+        XCTAssertEqual(scene.layers[0].quads.count, 2)
+        XCTAssertEqual(scene.layers[0].images.count, 1)
+        XCTAssertEqual(scene.layers[0].paintOperations, [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+        ])
     }
 
     func testBridgePreservesClearColor() {
@@ -206,21 +209,21 @@ final class IntegrationTests: XCTestCase {
 
     func testPrimitiveCountAcrossLayers() {
         var scene = GPUIScene(clearColor: .black)
-        scene.layers[0].quads.append(QuadPrimitive(
+        scene.addQuad(QuadPrimitive(
             x: 0, y: 0, width: 10, height: 10,
             startR: 1, startG: 1, startB: 1, startA: 1,
             endR: 1, endG: 1, endB: 1, endA: 1
         ))
-        scene.pushLayer()
-        scene.layers[1].shadows.append(ShadowPrimitive(
+        let overlayLayer = scene.pushLayer()
+        scene.addShadow(ShadowPrimitive(
             x: 0, y: 0, width: 10, height: 10,
             colorR: 0, colorG: 0, colorB: 0, colorA: 0.5
-        ))
-        scene.layers[1].quads.append(QuadPrimitive(
+        ), toLayer: overlayLayer)
+        scene.addQuad(QuadPrimitive(
             x: 0, y: 0, width: 20, height: 20,
             startR: 0, startG: 0, startB: 1, startA: 1,
             endR: 0, endG: 0, endB: 1, endA: 1
-        ))
+        ), toLayer: overlayLayer)
 
         XCTAssertEqual(scene.primitiveCount, 3)
     }

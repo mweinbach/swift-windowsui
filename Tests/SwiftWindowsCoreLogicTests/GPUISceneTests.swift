@@ -47,6 +47,7 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertTrue(scene.layers[0].glyphs.isEmpty)
         XCTAssertTrue(scene.layers[0].images.isEmpty)
         XCTAssertTrue(scene.layers[0].shadows.isEmpty)
+        XCTAssertTrue(scene.layers[0].paintOperations.isEmpty)
     }
 
     // MARK: - pushLayer
@@ -74,6 +75,9 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(scene.layers[0].quads.count, 2)
         XCTAssertEqual(scene.layers[0].quads[0].x, 10)
         XCTAssertEqual(scene.layers[0].quads[1].x, 30)
+        XCTAssertEqual(scene.layers[0].paintOperations, [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+        ])
     }
 
     func testAddGlyphAppendsToLastLayer() {
@@ -98,6 +102,19 @@ final class GPUISceneTests: XCTestCase {
 
         XCTAssertEqual(scene.layers[0].shadows.count, 1)
         XCTAssertEqual(scene.layers[0].shadows[0].blurRadius, 8)
+    }
+
+    func testPaintOperationsPreservePrimitiveFamilyOrderWithinLayer() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 10, height: 10))
+        scene.addGlyph(GlyphPrimitive(screenX: 2, screenY: 2, screenW: 4, screenH: 8))
+        scene.addQuad(QuadPrimitive(x: 12, y: 0, width: 10, height: 10))
+
+        XCTAssertEqual(scene.layers[0].paintOperations, [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+        ])
     }
 
     // MARK: - Multi-layer scene

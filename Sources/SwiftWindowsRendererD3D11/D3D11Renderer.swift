@@ -611,7 +611,7 @@ public final class D3D11Renderer: RenderBackend {
         descriptor.BufferCount = 2
         descriptor.Scaling = DXGI_SCALING_STRETCH
         descriptor.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD
-        descriptor.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED
+        descriptor.AlphaMode = DXGI_ALPHA_MODE_IGNORE
         descriptor.Flags = swapChainFlags
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)

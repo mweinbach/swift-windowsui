@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsPlatform
@@ -92,6 +93,11 @@ public struct WindowGroupConfiguration {
 
 @MainActor
 final class WinSwiftUIWindowHost: WindowDelegate {
+    private enum PresentationBackend {
+        case frame
+        case batch
+    }
+
     private let configuration: WindowGroupConfiguration
     private let window: Win32Window
     private let renderer: any RenderBackend
@@ -101,6 +107,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
 
     private var isRendererReady = false
+    private var activeBackend: PresentationBackend = .frame
+    private var surfaceDescriptor: SurfaceDescriptor?
 
     /// Batching flag: when true, a reload has already been scheduled for the
     /// next main-actor turn and additional change notifications are coalesced.
@@ -147,11 +155,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 return
             }
 
-            if let batchRenderer {
-                try batchRenderer.attach(to: surface)
-            } else {
-                try renderer.attach(to: surface)
-            }
+            surfaceDescriptor = surface
+            try attachPreferredRenderer(to: surface)
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
@@ -166,13 +171,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func window(_ window: Win32Window, didResizeTo size: IntSize) {
         do {
             runtime.displayScale = window.scaleFactor
+            surfaceDescriptor?.pixelSize = size
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
             componentHost.reload()
-            if let batchRenderer {
-                try batchRenderer.resize(to: size)
-            } else {
-                try renderer.resize(to: size)
-            }
+            try resizeActiveRenderer(to: size, in: window)
+            syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
         } catch {
             report(error)
@@ -222,8 +225,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
         syncAnimationDriver(for: window)
         if didAdvanceAnimations || runtime.isDirty {
-            renderCurrentFrame(in: window)
+            renderCurrentFrame(in: window, timestamp: timestamp)
         }
+    }
+
+    func windowDidChangeDisplay(_ window: Win32Window) {
+        syncAnimationDriver(for: window)
+    }
+
+    func windowDidChangeSystemSettings(_ window: Win32Window) {
+        syncAnimationDriver(for: window)
     }
 
     func windowWillClose(_ window: Win32Window) {}
@@ -328,7 +339,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
-    private func renderCurrentFrame(in window: Win32Window) {
+    private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) {
         guard isRendererReady else {
             if runtime.isDirty {
                 window.invalidate()
@@ -337,18 +348,27 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         do {
-            if let batchRenderer {
-                try batchRenderer.render(scene: runtime.renderScene())
+            if activeBackend == .batch, let batchRenderer {
+                try batchRenderer.render(scene: runtime.renderScene(at: timestamp ?? 0))
             } else {
-                try renderer.render(frame: runtime.renderFrame())
+                try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
             }
         } catch {
-            report(error)
+            do {
+                try fallbackToFrameRenderer(becauseOf: error, in: window)
+                try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
+            } catch {
+                report(error)
+            }
         }
     }
 
     private func syncAnimationDriver(for window: Win32Window) {
-        window.setAnimationTimerEnabled(runtime.hasActiveAnimations)
+        let refreshRate = max(Int(window.monitorRefreshRate), 1)
+        runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
+        window.useHighResolutionTimer = refreshRate > 60
+        let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded(.down))))
+        window.setAnimationTimerEnabled(runtime.hasActiveAnimations, intervalMilliseconds: intervalMilliseconds)
     }
 
     private func logicalSize(for surface: SurfaceDescriptor) -> IntSize {
@@ -382,7 +402,54 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         )
     }
 
+    private func attachPreferredRenderer(to surface: SurfaceDescriptor) throws {
+        if let batchRenderer {
+            do {
+                try batchRenderer.attach(to: surface)
+                activeBackend = .batch
+                return
+            } catch {
+                report("Batch renderer attach failed; falling back to frame renderer. \(error)")
+            }
+        }
+
+        try renderer.attach(to: surface)
+        activeBackend = .frame
+    }
+
+    private func resizeActiveRenderer(to size: IntSize, in window: Win32Window) throws {
+        if activeBackend == .batch, let batchRenderer {
+            do {
+                try batchRenderer.resize(to: size)
+                return
+            } catch {
+                try fallbackToFrameRenderer(becauseOf: error, in: window)
+            }
+        }
+
+        try renderer.resize(to: size)
+    }
+
+    private func fallbackToFrameRenderer(becauseOf error: Error, in window: Win32Window) throws {
+        report("Batch renderer failed; switching to frame renderer. \(error)")
+
+        let surface = surfaceDescriptor ?? surfaceDescriptorProvider(window)
+        guard let surface else {
+            throw error
+        }
+
+        surfaceDescriptor = surface
+        try renderer.attach(to: surface)
+        try renderer.resize(to: surface.pixelSize)
+        activeBackend = .frame
+        isRendererReady = true
+    }
+
     private func report(_ error: Error) {
         print("[WinSwiftUI] \(error)")
+    }
+
+    private func report(_ message: String) {
+        print("[WinSwiftUI] \(message)")
     }
 }

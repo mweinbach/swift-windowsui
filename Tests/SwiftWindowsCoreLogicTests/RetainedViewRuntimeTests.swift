@@ -488,6 +488,33 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testMinimumFrameIntervalDefersSceneRefreshUntilEnoughTimeElapses() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1)
+            )
+            let runtime = RetainedViewRuntime(root: node)
+            runtime.minimumFrameInterval = 1.0 / 60.0
+
+            let firstScene = runtime.renderScene(at: 1.0)
+            XCTAssertEqual(firstScene.layers[0].quads[0].startR, 1)
+            XCTAssertFalse(runtime.isDirty)
+
+            node.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+            XCTAssertTrue(runtime.isDirty)
+
+            let throttledScene = runtime.renderScene(at: 1.005)
+            XCTAssertEqual(throttledScene, firstScene)
+            XCTAssertTrue(runtime.isDirty)
+
+            let refreshedScene = runtime.renderScene(at: 1.020)
+            XCTAssertEqual(refreshedScene.layers[0].quads[0].startR, 0)
+            XCTAssertEqual(refreshedScene.layers[0].quads[0].startB, 1)
+            XCTAssertFalse(runtime.isDirty)
+        }
+    }
+
     func testSplitViewLaysOutAndDragsDivider() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

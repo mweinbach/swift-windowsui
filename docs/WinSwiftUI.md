@@ -12,7 +12,7 @@ Its job is not to imitate SwiftUI internally. Its job is to let app code use a f
 
 The active demo path now prefers `GPUIScene` -> `D3D11BatchRenderer`. The
 older `RenderFrame` -> `D3D11Renderer` route remains available as a fallback
-for explicit opt-out and frame-graph compatibility.
+for explicit opt-out, startup recovery, and frame-graph compatibility.
 
 ## Goal
 

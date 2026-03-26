@@ -10,7 +10,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A retained `ViewNode` runtime with mutable state, layout, hit testing, focus, clipping, and animation
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
-- An active demo path that prefers `GPUIScene` -> `D3D11BatchRenderer` and falls back to `RenderFrame` -> `D3D11Renderer`
+- An active demo path that prefers `GPUIScene` -> `D3D11BatchRenderer` and automatically falls back to `RenderFrame` -> `D3D11Renderer` if batch startup/rendering fails
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal

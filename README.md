@@ -103,7 +103,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, a shared deferred overlay queue for late-painted chrome, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, full deferred element replay, subpixel sprite families, and text-system-owned line layout
+- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, runtime-owned prepainted deferred overlay state shared by rendering and scroll-indicator hit testing, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, full deferred element replay, subpixel sprite families, and text-system-owned line layout
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility

@@ -9,7 +9,6 @@ public enum ScenePainter {
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
         var replayCount = 0
-        var deferredPaints: [DeferredOverlayPaint] = []
         return paint(
             root: root,
             clearColor: clearColor,
@@ -17,8 +16,7 @@ public enum ScenePainter {
             displayScale: displayScale,
             textSystem: WindowTextSystem(),
             previousScene: nil,
-            previousDeferredPaints: nil,
-            deferredPaints: &deferredPaints,
+            deferredOverlays: [],
             replayCount: &replayCount
         )
     }
@@ -30,8 +28,7 @@ public enum ScenePainter {
         displayScale: Double = 1.0,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
-        previousDeferredPaints: [DeferredOverlayPaint]?,
-        deferredPaints: inout [DeferredOverlayPaint],
+        deferredOverlays: [DeferredOverlayState],
         replayCount: inout Int
     ) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
@@ -50,14 +47,12 @@ public enum ScenePainter {
             displayScale: max(displayScale, 1.0),
             textSystem: textSystem,
             previousScene: previousScene,
-            previousDeferredPaints: previousDeferredPaints,
-            deferredPaints: &deferredPaints,
             usedNativeGlyphs: &usedNativeGlyphs,
             usedPixelGlyphs: &usedPixelGlyphs,
             replayCount: &replayCount
         )
         appendDeferredPaints(
-            deferredPaints,
+            deferredOverlays,
             into: &scene,
             surfaceSize: deviceSurfaceSize,
             displayScale: max(displayScale, 1.0)
@@ -90,19 +85,15 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         previousScene: GPUIScene?,
-        previousDeferredPaints: [DeferredOverlayPaint]?,
-        deferredPaints: inout [DeferredOverlayPaint],
         primitiveOpacity: Float = 1,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) {
         let startPaintRecord = scene.paintRecordCount
-        let deferredStart = deferredPaints.count
         guard !node.isHidden else {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -117,7 +108,6 @@ public enum ScenePainter {
         guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -126,7 +116,6 @@ public enum ScenePainter {
         if !clipAllowsDrawing(clip: inheritedClip, rect: absoluteFrame) {
             node.cachedSceneKey = nil
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -137,7 +126,6 @@ public enum ScenePainter {
                 guard let clipped = inherited.intersected(with: absoluteFrame) else {
                     node.cachedSceneKey = nil
                     node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-                    node.cachedDeferredPaintRange = deferredStart..<deferredStart
                     node.markSubtreeRendered()
                     return
                 }
@@ -158,7 +146,6 @@ public enum ScenePainter {
         guard opacity > 0 else {
             node.cachedSceneKey = cacheKey
             node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
-            node.cachedDeferredPaintRange = deferredStart..<deferredStart
             node.markSubtreeRendered()
             return
         }
@@ -172,19 +159,8 @@ public enum ScenePainter {
             scene.replay(cachedScenePaintRange, from: previousScene)
             let delta = startPaintRecord - cachedScenePaintRange.lowerBound
             node.shiftCachedSceneRangesRecursively(by: delta)
-            if
-                let previousDeferredPaints,
-                let previousDeferredRange = node.cachedDeferredPaintRange
-            {
-                deferredPaints.append(contentsOf: previousDeferredPaints[previousDeferredRange])
-                let deferredDelta = deferredStart - previousDeferredRange.lowerBound
-                node.shiftCachedDeferredRangesRecursively(by: deferredDelta)
-            } else {
-                node.cachedDeferredPaintRange = deferredStart..<deferredStart
-            }
             node.cachedSceneKey = cacheKey
             node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-            node.cachedDeferredPaintRange = deferredStart..<deferredPaints.count
             node.markSubtreeRendered()
             replayCount += 1
             return
@@ -346,8 +322,6 @@ public enum ScenePainter {
                 displayScale: displayScale,
                 textSystem: textSystem,
                 previousScene: previousScene,
-                previousDeferredPaints: previousDeferredPaints,
-                deferredPaints: &deferredPaints,
                 primitiveOpacity: opacity,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
@@ -355,23 +329,8 @@ public enum ScenePainter {
             )
         }
 
-        if let scrollIndicator = node.scrollIndicatorRect(in: absoluteFrame) {
-            deferredPaints.append(
-                DeferredOverlayPaint(
-                    priority: deferredPaints.count,
-                    command: FillRectCommand(
-                        rect: scrollIndicator,
-                        color: node.scrollIndicatorColor.multipliedAlpha(by: opacity),
-                        cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
-                        clipRect: effectiveClip
-                    )
-                )
-            )
-        }
-
         node.cachedSceneKey = cacheKey
         node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
-        node.cachedDeferredPaintRange = deferredStart..<deferredPaints.count
         node.markSubtreeRendered()
     }
 
@@ -423,7 +382,7 @@ public enum ScenePainter {
     }
 
     private static func appendDeferredPaints(
-        _ deferredPaints: [DeferredOverlayPaint],
+        _ deferredPaints: [DeferredOverlayState],
         into scene: inout GPUIScene,
         surfaceSize: Size,
         displayScale: Double

@@ -677,6 +677,85 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDeferredScrollIndicatorPrepaintReplaysUnchangedSiblingSubtree() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            XCTAssertEqual(runtime.lastDeferredOverlayReplayCount, 0)
+
+            rightContent.backgroundColor = Color(red: 0.1, green: 0.4, blue: 0.9, alpha: 1)
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(runtime.lastDeferredOverlayReplayCount, 1)
+        }
+    }
+
+    func testScrollIndicatorHitUsesUpdatedPrepaintedOverlayGeometryWithoutRender() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+
+            let idleColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
+            let hoverColor = Color(red: 0.9, green: 0.95, blue: 1, alpha: 0.55)
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 70),
+                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                scrollAxis: .vertical,
+                showsScrollIndicator: true,
+                scrollIndicatorColor: idleColor,
+                scrollIndicatorHoverColor: hoverColor,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                isHitTestVisible: false,
+                children: [scrollPanel]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            scrollPanel.scrollOffset = 40
+
+            runtime.pointerMoved(to: Point(x: 83, y: 50))
+            _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
+
+            XCTAssertEqual(scrollPanel.scrollIndicatorColor, hoverColor)
+        }
+    }
+
     func testParentRelayoutReusesCleanChildMeasurementCache() async {
         await MainActor.run {
             var childLayouts = 0

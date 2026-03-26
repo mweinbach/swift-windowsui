@@ -537,6 +537,140 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testRenderFrameReplaysUnchangedSiblingSubtree() async {
+        await MainActor.run {
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1)
+            )
+            let right = ViewNode(
+                frame: Rect(x: 50, y: 0, width: 40, height: 40),
+                backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60),
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            XCTAssertEqual(runtime.lastFrameReplayCount, 0)
+
+            right.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(runtime.lastFrameReplayCount, 1)
+            XCTAssertEqual(left.subtreeDirtyFlags, [])
+            XCTAssertEqual(right.subtreeDirtyFlags, [])
+        }
+    }
+
+    func testRenderSceneReplaysUnchangedSiblingSubtree() async {
+        await MainActor.run {
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1)
+            )
+            let right = ViewNode(
+                frame: Rect(x: 50, y: 0, width: 40, height: 40),
+                backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60),
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderScene()
+            XCTAssertEqual(runtime.lastSceneReplayCount, 0)
+
+            right.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+            _ = runtime.renderScene()
+
+            XCTAssertEqual(runtime.lastSceneReplayCount, 1)
+            XCTAssertEqual(left.subtreeDirtyFlags, [])
+            XCTAssertEqual(right.subtreeDirtyFlags, [])
+        }
+    }
+
+    func testPaintOnlyScrollUpdateReusesLayoutSubtreesAndStillMovesContent() async {
+        await MainActor.run {
+            var scrollLayouts = 0
+            var contentLayouts = 0
+
+            let content = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            content.onLayout = { _ in contentLayouts += 1 }
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 40),
+                layoutMode: .absolute,
+                scrollAxis: .vertical,
+                showsScrollIndicator: true,
+                isHitTestVisible: false,
+                children: [content]
+            )
+            scrollPanel.onLayout = { _ in scrollLayouts += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 80),
+                isHitTestVisible: false,
+                children: [scrollPanel]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let initialFrame = runtime.renderFrame()
+            XCTAssertEqual(scrollLayouts, 1)
+            XCTAssertEqual(contentLayouts, 1)
+
+            let initialContentRect = fillRectCommands(in: initialFrame).first(where: { $0.color == .white })?.rect
+            XCTAssertNotNil(initialContentRect)
+            XCTAssertEqual(initialContentRect?.origin.y, 10)
+
+            scrollPanel.scrollOffset = 20
+            let scrolledFrame = runtime.renderFrame()
+
+            XCTAssertGreaterThanOrEqual(runtime.lastLayoutReuseCount, 2)
+            XCTAssertEqual(scrollLayouts, 1)
+            XCTAssertEqual(contentLayouts, 1)
+
+            let scrolledContentRect = fillRectCommands(in: scrolledFrame).first(where: { $0.color == .white })?.rect
+            XCTAssertNotNil(scrolledContentRect)
+            XCTAssertEqual(scrolledContentRect?.origin.y, -10)
+        }
+    }
+
+    func testParentRelayoutReusesCleanChildMeasurementCache() async {
+        await MainActor.run {
+            var childLayouts = 0
+
+            let child = ViewNode(
+                backgroundColor: .white,
+                preferredSize: Size(width: 40, height: 20)
+            )
+            child.onLayout = { _ in childLayouts += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 80),
+                layoutMode: .stack(.vertical(spacing: 8, alignment: .center)),
+                isHitTestVisible: false,
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            XCTAssertEqual(childLayouts, 1)
+
+            root.frame.size.height = 120
+            _ = runtime.renderFrame()
+
+            XCTAssertGreaterThan(runtime.lastMeasureReuseCount, 0)
+            XCTAssertEqual(childLayouts, 1)
+        }
+    }
+
     func testMinimumFrameIntervalDefersSceneRefreshUntilEnoughTimeElapses() async {
         await MainActor.run {
             let node = ViewNode(

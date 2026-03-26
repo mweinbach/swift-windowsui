@@ -7,7 +7,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 ## What It Is
 
 - A custom-rendered UI stack, not a wrapper around native Win32 widgets
-- A retained `ViewNode` runtime with mutable state, layout, hit testing, focus, clipping, and animation
+- A retained `ViewNode` runtime with mutable state, subtree layout/measurement reuse, frame/scene replay for clean subtrees, hit testing, focus, clipping, and animation
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
@@ -74,12 +74,14 @@ target. It now keeps replayable scene paint records plus per-layer family paint
 operations, carries semantic content masks on typed primitives, assigns
 Zed-style bounds-based draw orders from masked bounds inside each scene layer,
 finishes scenes into ordered family batches before upload, caches logical
-native text layout per runtime, only attaches atlas snapshots to freshly-built
-scenes, and uploads typed primitive ranges without materializing per-operation
-slice arrays. It now follows GPUI-style inherited opacity propagation instead
-of inventing a save-layer opacity model, but it is not the default demo
-presentation path until text rendering, deferred/prepaint replay, and full
-scene parity match the retained/frame behavior more closely.
+native text layout per runtime, reuses cached subtree layout/measurement state
+plus frame/scene ranges when bounds and inherited paint context stay stable,
+only attaches atlas snapshots to freshly-built scenes, and uploads typed
+primitive ranges without materializing per-operation slice arrays. It now
+follows GPUI-style inherited opacity propagation instead of inventing a
+save-layer opacity model, but it is not the default demo presentation path
+until text rendering, window-owned deferred draw replay, and fuller scene
+parity match the retained/frame behavior more closely.
 
 ## WinSwiftUI Coverage
 
@@ -100,7 +102,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, deferred/prepaint replay, subpixel sprite families, and text-system-owned line layout
+- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, window-owned deferred draw replay, subpixel sprite families, and text-system-owned line layout
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility

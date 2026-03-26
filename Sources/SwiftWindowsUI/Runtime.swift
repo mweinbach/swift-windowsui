@@ -21,6 +21,23 @@ public struct DirtyFlags: OptionSet, Sendable {
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
 
+struct ViewPaintCacheKey: Equatable, Sendable {
+    var bounds: Rect
+    var contentMask: Rect?
+    var opacity: Float
+    var displayScale: Double
+}
+
+struct ViewMeasureCacheKey: Equatable, Sendable {
+    var constraints: LayoutConstraints
+    var displayScale: Double
+}
+
+struct ViewLayoutCacheKey: Equatable, Sendable {
+    var frame: Rect
+    var displayScale: Double
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -225,6 +242,14 @@ public final class ViewNode {
     internal var resolvedFrame: Rect
     internal var resolvedContentSize: Size
     internal var resolvedScrollOffset: Double
+    internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
+    internal var cachedMeasureKey: ViewMeasureCacheKey?
+    internal var cachedMeasuredSize: Size?
+    internal var cachedLayoutKey: ViewLayoutCacheKey?
+    internal var cachedFrameKey: ViewPaintCacheKey?
+    internal var cachedFrameCommandRange: Range<Int>?
+    internal var cachedSceneKey: ViewPaintCacheKey?
+    internal var cachedScenePaintRange: Range<Int>?
 
     public init(
         frame: Rect = .zero,
@@ -401,7 +426,21 @@ public final class ViewNode {
         }
     }
 
-    fileprivate func layoutSubtree() {
+    fileprivate func layoutSubtree(displayScale: Double) {
+        let layoutKey = ViewLayoutCacheKey(frame: resolvedFrame, displayScale: displayScale)
+        let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
+        if layoutDirtyFlags.isEmpty, cachedLayoutKey == layoutKey {
+            runtime?.recordLayoutReuse()
+            resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+
+            if hasDirtySubtree {
+                for child in children where child.hasDirtySubtree {
+                    child.layoutSubtree(displayScale: displayScale)
+                }
+            }
+            return
+        }
+
         onLayout?(resolvedFrame)
 
         switch layoutMode {
@@ -420,7 +459,7 @@ public final class ViewNode {
                     height: child.explicitHeight ?? size.height
                 )
                 child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 maxChildX = max(maxChildX, child.resolvedFrame.maxX)
                 maxChildY = max(maxChildY, child.resolvedFrame.maxY)
             }
@@ -591,7 +630,7 @@ public final class ViewNode {
                 }
 
                 child.resolvedFrame = childFrame
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 visibleIndex += 1
             }
 
@@ -645,13 +684,14 @@ public final class ViewNode {
 
                 let childLayout = layouts[visibleIndex]
                 child.resolvedFrame = Rect(x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 visibleIndex += 1
             }
 
             resolvedContentSize = resolvedFrame.size
         }
 
+        cachedLayoutKey = layoutKey
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
     }
 
@@ -659,9 +699,16 @@ public final class ViewNode {
         into commands: inout [RenderCommand],
         parentOrigin: Point,
         inheritedClip: Rect?,
-        inheritedOpacity: Float = 1
+        inheritedOpacity: Float = 1,
+        previousRenderedFrame: RenderFrame? = nil,
+        displayScale: Double = 1,
+        replayCount: inout Int
     ) {
+        let startIndex = commands.count
         if isHidden {
+            cachedFrameKey = nil
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
             return
         }
 
@@ -676,6 +723,9 @@ public final class ViewNode {
         // fully outside the inherited clip bounds (before allocating any
         // command structs).
         if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+            cachedFrameKey = nil
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
             return
         }
 
@@ -697,6 +747,9 @@ public final class ViewNode {
         if clipsToBounds {
             if let inheritedClip {
                 guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    cachedFrameKey = nil
+                    cachedFrameCommandRange = startIndex..<startIndex
+                    markSubtreeRendered()
                     return
                 }
 
@@ -713,7 +766,32 @@ public final class ViewNode {
         // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
         // GPUI/Zed instead carries opacity as an inherited paint scalar.
         let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let cacheKey = ViewPaintCacheKey(
+            bounds: absoluteFrame,
+            contentMask: effectiveClip,
+            opacity: effectiveOpacity,
+            displayScale: displayScale
+        )
         guard effectiveOpacity > 0 else {
+            cachedFrameKey = cacheKey
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
+            return
+        }
+
+        if
+            let previousRenderedFrame,
+            !hasDirtySubtree,
+            cachedFrameKey == cacheKey,
+            let previousRange = cachedFrameCommandRange
+        {
+            commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
+            let delta = startIndex - previousRange.lowerBound
+            shiftCachedFrameRangesRecursively(by: delta)
+            cachedFrameKey = cacheKey
+            cachedFrameCommandRange = startIndex..<commands.count
+            markSubtreeRendered()
+            replayCount += 1
             return
         }
 
@@ -807,7 +885,6 @@ public final class ViewNode {
         }
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
-            let displayScale = runtime?.displayScale ?? 1.0
             let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
             if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(
@@ -852,7 +929,10 @@ public final class ViewNode {
                 into: &commands,
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
-                inheritedOpacity: effectiveOpacity
+                inheritedOpacity: effectiveOpacity,
+                previousRenderedFrame: previousRenderedFrame,
+                displayScale: displayScale,
+                replayCount: &replayCount
             )
         }
 
@@ -869,6 +949,10 @@ public final class ViewNode {
                 )
             )
         }
+
+        cachedFrameKey = cacheKey
+        cachedFrameCommandRange = startIndex..<commands.count
+        markSubtreeRendered()
     }
 
     fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
@@ -1051,10 +1135,55 @@ public final class ViewNode {
     }
 
     private func invalidateRuntime(_ flags: DirtyFlags = .all) {
+        markDirty(flags)
         runtime?.invalidate(flags)
     }
 
+    var hasDirtySubtree: Bool {
+        !subtreeDirtyFlags.isEmpty
+    }
+
+    func markSubtreeRendered() {
+        subtreeDirtyFlags = []
+    }
+
+    private func markDirty(_ flags: DirtyFlags) {
+        var currentNode: ViewNode? = self
+        while let node = currentNode {
+            node.subtreeDirtyFlags.insert(flags)
+            currentNode = node.parent
+        }
+    }
+
+    func shiftCachedFrameRangesRecursively(by delta: Int) {
+        if let existingRange = cachedFrameCommandRange {
+            cachedFrameCommandRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        }
+
+        for child in children {
+            child.shiftCachedFrameRangesRecursively(by: delta)
+        }
+    }
+
+    func shiftCachedSceneRangesRecursively(by delta: Int) {
+        if let existingRange = cachedScenePaintRange {
+            cachedScenePaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        }
+
+        for child in children {
+            child.shiftCachedSceneRangesRecursively(by: delta)
+        }
+    }
+
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
+        let displayScale = runtime?.displayScale ?? 1.0
+        let cacheKey = ViewMeasureCacheKey(constraints: constraints, displayScale: displayScale)
+        let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
+        if layoutDirtyFlags.isEmpty, cachedMeasureKey == cacheKey, let cachedMeasuredSize {
+            runtime?.recordMeasureReuse()
+            return cachedMeasuredSize
+        }
+
         var measuredSize = textContentSize(in: constraints) ?? .zero
 
         switch layoutMode {
@@ -1118,7 +1247,10 @@ public final class ViewNode {
             )
         }
 
-        return applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+        let resolvedSize = applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+        cachedMeasureKey = cacheKey
+        cachedMeasuredSize = resolvedSize
+        return resolvedSize
     }
 
     public func intrinsicContentSize() -> Size {
@@ -1543,6 +1675,10 @@ public final class RetainedViewRuntime {
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
+    internal private(set) var lastFrameReplayCount = 0
+    internal private(set) var lastSceneReplayCount = 0
+    internal private(set) var lastLayoutReuseCount = 0
+    internal private(set) var lastMeasureReuseCount = 0
     let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
@@ -1577,6 +1713,9 @@ public final class RetainedViewRuntime {
 
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
         if let cachedFrame, !isDirty {
+            lastFrameReplayCount = 0
+            lastLayoutReuseCount = 0
+            lastMeasureReuseCount = 0
             return cachedFrame
         }
 
@@ -1585,16 +1724,29 @@ public final class RetainedViewRuntime {
         if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
             let elapsed = timestamp - lastRenderTime
             if elapsed < interval, let cachedFrame {
+                lastFrameReplayCount = 0
+                lastLayoutReuseCount = 0
+                lastMeasureReuseCount = 0
                 return cachedFrame
             }
         }
 
         updateResolvedLayout()
 
+        let previousFrame = cachedFrame
         var commands: [RenderCommand] = []
-        root.appendCommands(into: &commands, parentOrigin: .zero, inheritedClip: nil)
+        var replayCount = 0
+        root.appendCommands(
+            into: &commands,
+            parentOrigin: .zero,
+            inheritedClip: nil,
+            previousRenderedFrame: previousFrame,
+            displayScale: displayScale,
+            replayCount: &replayCount
+        )
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
+        lastFrameReplayCount = replayCount
         cachedFrame = frame
         cachedScene = nil
         dirtyFlags = []
@@ -1607,28 +1759,39 @@ public final class RetainedViewRuntime {
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
         if let cachedScene, !isDirty {
+            lastSceneReplayCount = 0
+            lastLayoutReuseCount = 0
+            lastMeasureReuseCount = 0
             return cachedScene
         }
 
         if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
             let elapsed = timestamp - lastRenderTime
             if elapsed < interval, let cachedScene {
+                lastSceneReplayCount = 0
+                lastLayoutReuseCount = 0
+                lastMeasureReuseCount = 0
                 return cachedScene
             }
         }
 
         updateResolvedLayout()
+        let previousScene = cachedScene
+        var replayCount = 0
         let scene = ScenePainter.paint(
             root: root,
             clearColor: clearColor,
             surfaceSize: root.frame.size,
             displayScale: displayScale,
-            textSystem: textSystem
+            textSystem: textSystem,
+            previousScene: previousScene,
+            replayCount: &replayCount
         )
 
         var cachedSceneCopy = scene
         cachedSceneCopy.glyphAtlas = nil
         cachedSceneCopy.pixelGlyphAtlas = nil
+        lastSceneReplayCount = replayCount
         cachedScene = cachedSceneCopy
         cachedFrame = nil
         dirtyFlags = []
@@ -1837,6 +2000,14 @@ public final class RetainedViewRuntime {
         dirtyFlags.insert(flags)
     }
 
+    fileprivate func recordLayoutReuse() {
+        lastLayoutReuseCount += 1
+    }
+
+    fileprivate func recordMeasureReuse() {
+        lastMeasureReuseCount += 1
+    }
+
     private func hitTest(at point: Point) -> ViewNode? {
         updateResolvedLayout()
         return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
@@ -1939,8 +2110,10 @@ public final class RetainedViewRuntime {
     }
 
     private func updateResolvedLayout() {
+        lastLayoutReuseCount = 0
+        lastMeasureReuseCount = 0
         root.resolvedFrame = root.frame
-        root.layoutSubtree()
+        root.layoutSubtree(displayScale: displayScale)
     }
 
     private func updateHoverTarget(to nextHoveredNode: ViewNode?) {

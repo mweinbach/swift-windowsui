@@ -8,7 +8,16 @@ import SwiftWindowsGraphics
 public enum ScenePainter {
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
-        paint(root: root, clearColor: clearColor, surfaceSize: surfaceSize, displayScale: displayScale, textSystem: WindowTextSystem())
+        var replayCount = 0
+        return paint(
+            root: root,
+            clearColor: clearColor,
+            surfaceSize: surfaceSize,
+            displayScale: displayScale,
+            textSystem: WindowTextSystem(),
+            previousScene: nil,
+            replayCount: &replayCount
+        )
     }
 
     static func paint(
@@ -16,7 +25,9 @@ public enum ScenePainter {
         clearColor: Color,
         surfaceSize: Size,
         displayScale: Double = 1.0,
-        textSystem: WindowTextSystem
+        textSystem: WindowTextSystem,
+        previousScene: GPUIScene?,
+        replayCount: inout Int
     ) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
         NativeGlyphAtlas.shared.beginFrame()
@@ -33,8 +44,10 @@ public enum ScenePainter {
             surfaceSize: deviceSurfaceSize,
             displayScale: max(displayScale, 1.0),
             textSystem: textSystem,
+            previousScene: previousScene,
             usedNativeGlyphs: &usedNativeGlyphs,
-            usedPixelGlyphs: &usedPixelGlyphs
+            usedPixelGlyphs: &usedPixelGlyphs,
+            replayCount: &replayCount
         )
         if usedNativeGlyphs {
             scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
@@ -63,11 +76,19 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
+        previousScene: GPUIScene?,
         primitiveOpacity: Float = 1,
         usedNativeGlyphs: inout Bool,
-        usedPixelGlyphs: inout Bool
+        usedPixelGlyphs: inout Bool,
+        replayCount: inout Int
     ) {
-        guard !node.isHidden else { return }
+        let startPaintRecord = scene.paintRecordCount
+        guard !node.isHidden else {
+            node.cachedSceneKey = nil
+            node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.markSubtreeRendered()
+            return
+        }
 
         let absoluteFrame = Rect(
             x: parentOrigin.x + node.resolvedFrame.origin.x,
@@ -76,10 +97,18 @@ public enum ScenePainter {
             height: node.resolvedFrame.size.height
         )
 
-        guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else { return }
+        guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else {
+            node.cachedSceneKey = nil
+            node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.markSubtreeRendered()
+            return
+        }
 
         // Occlusion culling against inherited clip.
         if !clipAllowsDrawing(clip: inheritedClip, rect: absoluteFrame) {
+            node.cachedSceneKey = nil
+            node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.markSubtreeRendered()
             return
         }
 
@@ -87,6 +116,9 @@ public enum ScenePainter {
         if node.clipsToBounds {
             if let inherited = inheritedClip {
                 guard let clipped = inherited.intersected(with: absoluteFrame) else {
+                    node.cachedSceneKey = nil
+                    node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    node.markSubtreeRendered()
                     return
                 }
                 effectiveClip = clipped
@@ -97,7 +129,34 @@ public enum ScenePainter {
 
         // GPUI/Zed carries opacity as an inherited paint scalar.
         let opacity = primitiveOpacity * Float(node.opacity)
-        guard opacity > 0 else { return }
+        let cacheKey = ViewPaintCacheKey(
+            bounds: absoluteFrame,
+            contentMask: effectiveClip,
+            opacity: opacity,
+            displayScale: displayScale
+        )
+        guard opacity > 0 else {
+            node.cachedSceneKey = cacheKey
+            node.cachedScenePaintRange = startPaintRecord..<startPaintRecord
+            node.markSubtreeRendered()
+            return
+        }
+
+        if
+            let previousScene,
+            !node.hasDirtySubtree,
+            node.cachedSceneKey == cacheKey,
+            let cachedScenePaintRange = node.cachedScenePaintRange
+        {
+            scene.replay(cachedScenePaintRange, from: previousScene)
+            let delta = startPaintRecord - cachedScenePaintRange.lowerBound
+            node.shiftCachedSceneRangesRecursively(by: delta)
+            node.cachedSceneKey = cacheKey
+            node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+            node.markSubtreeRendered()
+            replayCount += 1
+            return
+        }
 
         // Shadow
         let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
@@ -254,9 +313,11 @@ public enum ScenePainter {
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 textSystem: textSystem,
+                previousScene: previousScene,
                 primitiveOpacity: opacity,
                 usedNativeGlyphs: &usedNativeGlyphs,
-                usedPixelGlyphs: &usedPixelGlyphs
+                usedPixelGlyphs: &usedPixelGlyphs,
+                replayCount: &replayCount
             )
         }
 
@@ -274,6 +335,10 @@ public enum ScenePainter {
                 toLayer: layerIndex
             )
         }
+
+        node.cachedSceneKey = cacheKey
+        node.cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
+        node.markSubtreeRendered()
     }
 
     // MARK: - Helpers

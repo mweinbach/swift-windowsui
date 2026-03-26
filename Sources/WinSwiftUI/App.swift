@@ -105,10 +105,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
+    private let inputRateTracker = WindowInputRateTracker()
 
     private var isRendererReady = false
     private var activeBackend: PresentationBackend = .frame
     private var surfaceDescriptor: SurfaceDescriptor?
+    private var pendingPresentation = false
 
     /// Batching flag: when true, a reload has already been scheduled for the
     /// next main-actor turn and additional change notifications are coalesced.
@@ -140,7 +142,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.componentHost = ComponentHost(runtime: runtime)
 
         runtime.setRootSize(configuration.size)
-        componentHost.setContent(buildRootComponent())
+        componentHost.setComponents { [weak self] in
+            guard let self else {
+                return []
+            }
+
+            return [self.buildRootComponent()]
+        }
         window.delegate = self
     }
 
@@ -161,7 +169,6 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
-            syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
         } catch {
             report(error)
@@ -175,8 +182,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
             componentHost.reload()
             try resizeActiveRenderer(to: size, in: window)
-            syncAnimationDriver(for: window)
-            renderCurrentFrame(in: window)
+            requestFrame(in: window)
         } catch {
             report(error)
         }
@@ -188,44 +194,50 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
         runtime.pointerMoved(to: logicalPoint(point, scaleFactor: window.scaleFactor))
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func windowPointerDidLeave(_ window: Win32Window) {
         runtime.pointerExitedWindow()
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
         runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta)
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
+    }
+
+    func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {
+        runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta, axis: .horizontal)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
         runtime.pointerDown(at: logicalPoint(point, scaleFactor: window.scaleFactor))
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {
         runtime.pointerUp(at: logicalPoint(point, scaleFactor: window.scaleFactor))
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
         runtime.keyDown(event)
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
         runtime.keyboardFocusDidLeaveWindow()
-        commitRuntimeState(in: window)
+        commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, animationFrameAt timestamp: Double) {
         let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
-        syncAnimationDriver(for: window)
-        if didAdvanceAnimations || runtime.isDirty {
+        if didAdvanceAnimations || runtime.isDirty || pendingPresentation {
             renderCurrentFrame(in: window, timestamp: timestamp)
+        } else {
+            syncAnimationDriver(for: window)
         }
     }
 
@@ -332,16 +344,28 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
-    private func commitRuntimeState(in window: Win32Window) {
-        syncAnimationDriver(for: window)
-        if runtime.isDirty {
-            renderCurrentFrame(in: window)
+    private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {
+        if interactive {
+            inputRateTracker.recordInput()
         }
+
+        guard runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate else {
+            syncAnimationDriver(for: window)
+            return
+        }
+
+        requestFrame(in: window)
+    }
+
+    private func requestFrame(in window: Win32Window) {
+        pendingPresentation = true
+        syncAnimationDriver(for: window)
+        window.invalidate()
     }
 
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) {
         guard isRendererReady else {
-            if runtime.isDirty {
+            if runtime.isDirty || pendingPresentation {
                 window.invalidate()
             }
             return
@@ -361,6 +385,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 report(error)
             }
         }
+
+        pendingPresentation = runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        syncAnimationDriver(for: window)
     }
 
     private func syncAnimationDriver(for window: Win32Window) {
@@ -368,7 +395,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
         window.useHighResolutionTimer = refreshRate > 60
         let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded(.down))))
-        window.setAnimationTimerEnabled(runtime.hasActiveAnimations, intervalMilliseconds: intervalMilliseconds)
+        let shouldDriveFrames = runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
+        window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)
     }
 
     private func logicalSize(for surface: SurfaceDescriptor) -> IntSize {
@@ -451,5 +479,32 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private func report(_ message: String) {
         print("[WinSwiftUI] \(message)")
+    }
+}
+
+@MainActor
+private final class WindowInputRateTracker {
+    private var timestamps: [TimeInterval] = []
+    private let windowDuration: TimeInterval = 0.1
+    private let inputsPerSecond = 60.0
+    private let sustainDuration: TimeInterval = 1.0
+    private var sustainUntil: TimeInterval = 0
+
+    func recordInput(at timestamp: TimeInterval = Win32Window.currentTimestampSeconds()) {
+        timestamps.append(timestamp)
+        prune(before: timestamp - windowDuration)
+
+        let minEvents = Int((inputsPerSecond * windowDuration).rounded(.down))
+        if timestamps.count >= max(minEvents, 1) {
+            sustainUntil = timestamp + sustainDuration
+        }
+    }
+
+    var isHighRate: Bool {
+        Win32Window.currentTimestampSeconds() < sustainUntil
+    }
+
+    private func prune(before threshold: TimeInterval) {
+        timestamps.removeAll { $0 < threshold }
     }
 }

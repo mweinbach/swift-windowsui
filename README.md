@@ -11,6 +11,8 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that prefers `GPUIScene` -> `D3D11BatchRenderer` and automatically falls back to `RenderFrame` -> `D3D11Renderer` if batch startup/rendering fails
+- A `WinSwiftUI` host loop that coalesces rebuilds and keeps the frame pump alive during resize, scroll, and other high-rate interaction
+- A batch scene path that now scales primitives into device pixels and uses a cached native glyph atlas for standard text, with pixel-atlas fallback for icon glyphs
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -82,7 +84,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text is still limited by the current pixel-font atlas/native bitmap pipeline; there is no full font shaping yet
+- Text now prefers cached native glyph bitmaps in the scene path and uses the pixel atlas for icon/private-use glyph fallback; there is still no full shaping/run segmentation yet
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the active scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility
@@ -122,7 +124,7 @@ swift test
 swift build --product swift-windowsui
 ```
 
-The GUI demo was not manually launched in this pass.
+The GUI demo was also launched with a short `swift run swift-windowsui` startup probe.
 
 ## Important Files
 

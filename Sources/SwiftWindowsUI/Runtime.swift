@@ -915,7 +915,7 @@ public final class ViewNode {
         return nil
     }
 
-    fileprivate func scrollTarget(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+    fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
         if isHidden {
             return nil
         }
@@ -955,12 +955,15 @@ public final class ViewNode {
         )
 
         for child in children.reversed() {
-            if let target = child.scrollTarget(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+            if let target = child.scrollTarget(at: point, axis: axis, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
                 return target
             }
         }
 
-        if isScrollable, absoluteFrame.contains(point) {
+        if isScrollable,
+           absoluteFrame.contains(point),
+           axis == nil || scrollAxis == axis
+        {
             return self
         }
 
@@ -1587,7 +1590,8 @@ public final class RetainedViewRuntime {
         let scene = ScenePainter.paint(
             root: root,
             clearColor: clearColor,
-            surfaceSize: root.frame.size
+            surfaceSize: root.frame.size,
+            displayScale: displayScale
         )
 
         cachedScene = scene
@@ -1635,8 +1639,8 @@ public final class RetainedViewRuntime {
         }
     }
 
-    public func mouseWheel(at point: Point, delta: Double) {
-        let scrollTarget = scrollTarget(at: point) ?? nearestScrollableNode(from: hoveredNode)
+    public func mouseWheel(at point: Point, delta: Double, axis: ScrollAxis? = nil) {
+        let scrollTarget = scrollTarget(at: point, axis: axis) ?? nearestScrollableNode(from: hoveredNode, axis: axis)
         guard let scrollableNode = scrollTarget else {
             return
         }
@@ -1803,9 +1807,9 @@ public final class RetainedViewRuntime {
         return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
     }
 
-    private func scrollTarget(at point: Point) -> ViewNode? {
+    private func scrollTarget(at point: Point, axis: ScrollAxis? = nil) -> ViewNode? {
         updateResolvedLayout()
-        return root.scrollTarget(at: point, parentOrigin: .zero, inheritedClip: nil)
+        return root.scrollTarget(at: point, axis: axis, parentOrigin: .zero, inheritedClip: nil)
     }
 
     private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
@@ -1864,10 +1868,10 @@ public final class RetainedViewRuntime {
         return nil
     }
 
-    private func nearestScrollableNode(from node: ViewNode?) -> ViewNode? {
+    private func nearestScrollableNode(from node: ViewNode?, axis: ScrollAxis? = nil) -> ViewNode? {
         var currentNode = node
         while let candidate = currentNode {
-            if candidate.isScrollable {
+            if candidate.isScrollable, axis == nil || candidate.scrollAxis == axis {
                 return candidate
             }
 

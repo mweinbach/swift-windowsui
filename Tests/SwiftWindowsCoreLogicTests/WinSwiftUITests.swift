@@ -121,6 +121,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGeometryReaderRebuildsAfterCanvasSizeChange() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var rootSize = Size(width: 320, height: 180)
+            let context = ViewBuildContext(canvasSizeProvider: { rootSize }, invalidateHandler: {})
+
+            host.setComponents {
+                [
+                    ZStack(alignment: .center) {
+                        GeometryReader { proxy in
+                            Text("\(Int(proxy.size.width)) X \(Int(proxy.size.height))")
+                                .frame(width: 80, height: 24)
+                        }
+                    }.makeComponent(context: context)
+                ]
+            }
+
+            XCTAssertEqual(firstText(in: runtime.root), "320 X 180")
+
+            rootSize = Size(width: 640, height: 360)
+            host.reload()
+
+            XCTAssertEqual(firstText(in: runtime.root), "640 X 360")
+        }
+    }
+
     func testObservedObjectMutationTriggersInvalidation() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {
@@ -165,4 +192,19 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+@MainActor
+private func firstText(in node: ViewNode) -> String? {
+    if let text = node.text {
+        return text
+    }
+
+    for child in node.children {
+        if let text = firstText(in: child) {
+            return text
+        }
+    }
+
+    return nil
 }

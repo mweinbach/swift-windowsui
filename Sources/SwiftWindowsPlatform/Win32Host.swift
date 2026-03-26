@@ -481,16 +481,10 @@ public final class Win32Window {
 
         case UINT(WM_ENTERSIZEMOVE):
             isInSizeMove = true
-            if isAnimationTimerRunning && !useHighResolutionTimer {
-                KillTimer(hwnd, Self.animationTimerIdentifier)
-            }
             return 0
 
         case UINT(WM_EXITSIZEMOVE):
             isInSizeMove = false
-            if isAnimationTimerRunning && !useHighResolutionTimer {
-                SetTimer(hwnd, Self.animationTimerIdentifier, 16, nil)
-            }
             updateCachedClientSize()
             delegate?.window(self, didResizeTo: clientSize)
             return 0
@@ -501,6 +495,7 @@ public final class Win32Window {
             windowPosition.y = LONG(Int16(bitPattern: UInt16((packed >> 16) & 0xFFFF)))
             // Invalidate refresh rate cache in case the window moved to a different monitor
             refreshRateDirty = true
+            delegate?.windowDidChangeDisplay(self)
             return 0
 
         case UINT(WM_ACTIVATEAPP):

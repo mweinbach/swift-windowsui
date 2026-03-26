@@ -17,7 +17,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 
 - The active demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `GPUIScene` -> `D3D11BatchRenderer`.
 - The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
-- `RenderFrame` is still the fallback renderer-neutral command list. The batch path uses typed scene primitives and a pixel-font atlas for text.
+- `RenderFrame` is still the fallback renderer-neutral command list. The batch path uses typed scene primitives, device-pixel scaling, and a cached native glyph atlas with pixel-atlas fallback for icon glyphs.
 - `SwiftWindowsScene` exists, but `GPUIScene` in `SwiftWindowsGraphics` is the primary scene path used by the demo.
 - `LayoutNode` and `FixedLayoutBox` are present, but the running UI currently relies on `ViewLayoutMode` and `StackLayout`.
 - `FoundationApp` still exists, but it is no longer the main demo bootstrap path.
@@ -27,7 +27,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - Treat `Sources/SwiftWindowsUI/Runtime.swift` as the source of truth for layout, hit testing, focus traversal, clipping, frame caching, and animation behavior.
 - Keep UI-facing code on the main actor. `ViewNode`, `RetainedViewRuntime`, `Controls`, `WinSwiftUI`, and the demo app are all main-actor-centric.
 - When changing `Controls.button`, preserve the focus/press/activate animation lifecycle unless the task explicitly changes interaction behavior.
-- Remember that text in `PixelText.swift` / `PixelFontAtlas.swift` is uppercase bitmap text with `?` fallback. Do not assume full font shaping or native text measurement.
+- Remember that `PixelText.swift` / `PixelFontAtlas.swift` remain the icon/private-use fallback and the legacy frame-text path. The active batch scene path now prefers cached native glyph bitmaps, but there is still no full shaped-text system.
 - If you add new visual features, consider whether they belong in the shared render graph first, not only in `D3D11Renderer`.
 - If you change renderer behavior, keep the backend-neutral API in `SwiftWindowsGraphics` coherent with the implementation.
 - If you change Win32 message handling, keep `WindowDelegate` callbacks and `KeyboardEvent` translation consistent with existing runtime expectations.

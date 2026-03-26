@@ -7,13 +7,26 @@ import SwiftWindowsGraphics
 @MainActor
 public enum ScenePainter {
 
-    public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size) -> GPUIScene {
+    public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
+        NativeGlyphAtlas.shared.beginFrame()
         let fullClip = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
-        paintNode(root, into: &scene, parentOrigin: .zero, inheritedClip: fullClip, surfaceSize: surfaceSize)
+        let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
+        paintNode(
+            root,
+            into: &scene,
+            parentOrigin: .zero,
+            inheritedClip: fullClip,
+            surfaceSize: deviceSurfaceSize,
+            displayScale: max(displayScale, 1.0)
+        )
         if scene.layers.contains(where: { !$0.glyphs.isEmpty }) {
-            let atlas = PixelFontAtlas.shared.surface
-            scene.glyphAtlas = GlyphAtlasSnapshot(width: atlas.width, height: atlas.height, pixels: atlas.pixels)
+            if let atlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame() {
+                scene.glyphAtlas = atlas
+            } else {
+                let atlas = PixelFontAtlas.shared.surface
+                scene.glyphAtlas = GlyphAtlasSnapshot(width: atlas.width, height: atlas.height, pixels: atlas.pixels)
+            }
         }
         return scene
     }
@@ -25,7 +38,8 @@ public enum ScenePainter {
         into scene: inout GPUIScene,
         parentOrigin: Point,
         inheritedClip: Rect?,
-        surfaceSize: Size
+        surfaceSize: Size,
+        displayScale: Double
     ) {
         guard !node.isHidden else { return }
 
@@ -66,19 +80,20 @@ public enum ScenePainter {
                 .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
 
             if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
+                let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
                 scene.layers[layerIndex].shadows.append(ShadowPrimitive(
-                    x: Float(shadowRect.origin.x),
-                    y: Float(shadowRect.origin.y),
-                    width: Float(shadowRect.size.width),
-                    height: Float(shadowRect.size.height),
-                    cornerRadius: Float(node.cornerRadius + max(0, node.shadowSpread)),
+                    x: Float(scaledShadowRect.origin.x),
+                    y: Float(scaledShadowRect.origin.y),
+                    width: Float(scaledShadowRect.size.width),
+                    height: Float(scaledShadowRect.size.height),
+                    cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
                     colorR: node.shadowColor.red,
                     colorG: node.shadowColor.green,
                     colorB: node.shadowColor.blue,
                     colorA: node.shadowColor.alpha,
-                    blurRadius: Float(node.shadowSpread),
-                    offsetX: Float(node.shadowOffset.x),
-                    offsetY: Float(node.shadowOffset.y)
+                    blurRadius: Float(node.shadowSpread * displayScale),
+                    offsetX: Float(node.shadowOffset.x * displayScale),
+                    offsetY: Float(node.shadowOffset.y * displayScale)
                 ))
             }
         }
@@ -88,14 +103,15 @@ public enum ScenePainter {
             let outlineRect = absoluteFrame.outset(by: node.outlineWidth)
             if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
                 scene.layers[layerIndex].quads.append(solidQuad(
-                    rect: outlineRect,
-                    cornerRadius: node.cornerRadius + node.outlineWidth,
-                    color: node.outlineColor,
-                    opacity: opacity,
-                    clip: inheritedClip,
-                    surfaceSize: surfaceSize
-                ))
-            }
+                rect: outlineRect,
+                cornerRadius: node.cornerRadius + node.outlineWidth,
+                color: node.outlineColor,
+                opacity: opacity,
+                clip: inheritedClip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            ))
+        }
         }
 
         // Border (full rect drawn under the fill area)
@@ -108,7 +124,8 @@ public enum ScenePainter {
                 color: node.borderColor,
                 opacity: opacity,
                 clip: effectiveClip,
-                surfaceSize: surfaceSize
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
             ))
         }
 
@@ -121,7 +138,8 @@ public enum ScenePainter {
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
-            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize)
+            let scaledFillRect = scaleRect(fillRect, by: displayScale)
+            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
             let endColor = node.backgroundGradient?.endColor ?? bg
             let axis: Float = {
                 guard let grad = node.backgroundGradient else { return 0 }
@@ -129,11 +147,11 @@ public enum ScenePainter {
             }()
 
             scene.layers[layerIndex].quads.append(QuadPrimitive(
-                x: Float(fillRect.origin.x),
-                y: Float(fillRect.origin.y),
-                width: Float(fillRect.size.width),
-                height: Float(fillRect.size.height),
-                cornerRadius: Float(fillCornerRadius),
+                x: Float(scaledFillRect.origin.x),
+                y: Float(scaledFillRect.origin.y),
+                width: Float(scaledFillRect.size.width),
+                height: Float(scaledFillRect.size.height),
+                cornerRadius: Float(fillCornerRadius * displayScale),
                 startR: bg.red, startG: bg.green, startB: bg.blue,
                 startA: bg.alpha * opacity,
                 endR: endColor.red, endG: endColor.green, endB: endColor.blue,
@@ -155,6 +173,7 @@ public enum ScenePainter {
                 opacity: opacity,
                 clip: effectiveClip,
                 surfaceSize: surfaceSize,
+                displayScale: displayScale,
                 into: &scene.layers[layerIndex].glyphs
             )
         }
@@ -185,7 +204,14 @@ public enum ScenePainter {
                 scene.pushLayer()
                 currentZIndex = child.zIndex
             }
-            paintNode(child, into: &scene, parentOrigin: childOrigin, inheritedClip: effectiveClip, surfaceSize: surfaceSize)
+            paintNode(
+                child,
+                into: &scene,
+                parentOrigin: childOrigin,
+                inheritedClip: effectiveClip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            )
         }
     }
 
@@ -198,16 +224,18 @@ public enum ScenePainter {
         color: Color,
         opacity: Float,
         clip: Rect?,
-        surfaceSize: Size
+        surfaceSize: Size,
+        displayScale: Double
     ) -> QuadPrimitive {
-        let clipR = clipRectFloats(clip, surfaceSize: surfaceSize)
+        let scaledRect = scaleRect(rect, by: displayScale)
+        let clipR = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
         let a = color.alpha * opacity
         return QuadPrimitive(
-            x: Float(rect.origin.x),
-            y: Float(rect.origin.y),
-            width: Float(rect.size.width),
-            height: Float(rect.size.height),
-            cornerRadius: Float(cornerRadius),
+            x: Float(scaledRect.origin.x),
+            y: Float(scaledRect.origin.y),
+            width: Float(scaledRect.size.width),
+            height: Float(scaledRect.size.height),
+            cornerRadius: Float(cornerRadius * displayScale),
             startR: color.red, startG: color.green, startB: color.blue, startA: a,
             endR: color.red, endG: color.green, endB: color.blue, endA: a,
             clipX: clipR.0, clipY: clipR.1,
@@ -221,9 +249,15 @@ public enum ScenePainter {
     }
 
     /// Converts an optional clip Rect into four Float values for primitive clip fields.
-    private static func clipRectFloats(_ clip: Rect?, surfaceSize: Size) -> (Float, Float, Float, Float) {
+    private static func clipRectFloats(_ clip: Rect?, surfaceSize: Size, displayScale: Double) -> (Float, Float, Float, Float) {
         if let c = clip {
-            return (Float(c.origin.x), Float(c.origin.y), Float(c.size.width), Float(c.size.height))
+            let scaledClip = scaleRect(c, by: displayScale)
+            return (
+                Float(scaledClip.origin.x),
+                Float(scaledClip.origin.y),
+                Float(scaledClip.size.width),
+                Float(scaledClip.size.height)
+            )
         }
         return (0, 0, Float(surfaceSize.width), Float(surfaceSize.height))
     }
@@ -235,9 +269,23 @@ public enum ScenePainter {
         opacity: Float,
         clip: Rect?,
         surfaceSize: Size,
+        displayScale: Double,
         into glyphs: inout [GlyphPrimitive]
     ) {
         guard !text.isEmpty, style.color.alpha > 0 else {
+            return
+        }
+
+        if appendNativeTextGlyphs(
+            for: text,
+            style: style,
+            in: rect,
+            opacity: opacity,
+            clip: clip,
+            surfaceSize: surfaceSize,
+            displayScale: displayScale,
+            into: &glyphs
+        ) {
             return
         }
 
@@ -264,10 +312,12 @@ public enum ScenePainter {
             startY = contentRect.maxY - totalTextHeight
         }
 
-        let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize)
-        let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale
-        let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale
-        var cursorY = startY
+        let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
+        let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale * displayScale
+        let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale * displayScale
+        let horizontalAdvance = (Double(PixelFontAtlas.glyphWidth) + style.letterSpacing) * scale * displayScale
+        let verticalAdvance = (Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale) * displayScale
+        var cursorY = startY * displayScale
 
         for line in layout.lines {
             let lineWidth = PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * scale
@@ -281,10 +331,10 @@ public enum ScenePainter {
                 startX = contentRect.maxX - lineWidth
             }
 
-            var cursorX = startX
+            var cursorX = startX * displayScale
             for character in line.uppercased() {
                 defer {
-                    cursorX += (Double(PixelFontAtlas.glyphWidth) + style.letterSpacing) * scale
+                    cursorX += horizontalAdvance
                 }
 
                 guard character != " " else {
@@ -316,7 +366,140 @@ public enum ScenePainter {
                 )
             }
 
-            cursorY += Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale
+            cursorY += verticalAdvance
         }
+    }
+
+    private static func appendNativeTextGlyphs(
+        for text: String,
+        style: PixelTextStyle,
+        in rect: Rect,
+        opacity: Float,
+        clip: Rect?,
+        surfaceSize: Size,
+        displayScale: Double,
+        into glyphs: inout [GlyphPrimitive]
+    ) -> Bool {
+        guard !text.unicodeScalars.contains(where: isPrivateUseScalar) else {
+            return false
+        }
+
+        var glyphStyle = style
+        glyphStyle.insets = .zero
+        glyphStyle.maximumNumberOfLines = 1
+
+        let contentRect = rect.inset(by: style.insets)
+        let measureLine: (String) -> Double = { line in
+            NativeTextRenderer.measure(line, style: glyphStyle, scaleFactor: displayScale, maxWidth: nil)?.width ?? 0
+        }
+        let layout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: max(0, contentRect.size.width),
+            measureLine: measureLine
+        )
+
+        let lineHeight = NativeTextRenderer.measure("Ag", style: glyphStyle, scaleFactor: displayScale, maxWidth: nil)?.height
+            ?? max(1, style.nativeFontPixelSize / max(displayScale, 1))
+        let totalTextHeight = lineHeight * Double(max(layout.lines.count, 1))
+            + style.lineSpacing * Double(max(layout.lines.count - 1, 0))
+
+        let startY: Double
+        switch style.verticalAlignment {
+        case .top:
+            startY = contentRect.origin.y
+        case .center:
+            startY = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
+        case .bottom:
+            startY = contentRect.maxY - totalTextHeight
+        }
+
+        let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
+        var appendedAnyGlyph = false
+        var cursorY = startY
+
+        for line in layout.lines {
+            let lineWidth = measureLine(line)
+            let startX: Double
+            switch style.alignment {
+            case .leading:
+                startX = contentRect.origin.x
+            case .center:
+                startX = contentRect.origin.x + max(0, (contentRect.size.width - lineWidth) * 0.5)
+            case .trailing:
+                startX = contentRect.maxX - lineWidth
+            }
+
+            var previousAdvance = 0.0
+            var prefix = ""
+
+            for character in line {
+                let nextPrefix = prefix + String(character)
+                let totalAdvance = measureLine(nextPrefix)
+                defer {
+                    prefix = nextPrefix
+                    previousAdvance = totalAdvance
+                }
+
+                guard character != " " else {
+                    continue
+                }
+
+                guard let entry = NativeGlyphAtlas.shared.glyph(for: character, style: glyphStyle, scaleFactor: displayScale) else {
+                    continue
+                }
+
+                let destinationRect = Rect(
+                    x: (startX + previousAdvance) * displayScale,
+                    y: cursorY * displayScale,
+                    width: Double(entry.width),
+                    height: Double(entry.height)
+                )
+
+                let atlasSize = NativeGlyphAtlas.shared.size
+                let uv = entry.uvRect(atlasWidth: atlasSize.width, atlasHeight: atlasSize.height)
+                glyphs.append(
+                    GlyphPrimitive(
+                        screenX: Float(destinationRect.origin.x),
+                        screenY: Float(destinationRect.origin.y),
+                        screenW: Float(destinationRect.size.width),
+                        screenH: Float(destinationRect.size.height),
+                        atlasU0: uv.u0,
+                        atlasV0: uv.v0,
+                        atlasU1: uv.u1,
+                        atlasV1: uv.v1,
+                        colorR: style.color.red,
+                        colorG: style.color.green,
+                        colorB: style.color.blue,
+                        colorA: style.color.alpha * opacity,
+                        clipX: clipRect.0,
+                        clipY: clipRect.1,
+                        clipWidth: clipRect.2,
+                        clipHeight: clipRect.3
+                    )
+                )
+                appendedAnyGlyph = true
+            }
+
+            cursorY += lineHeight + style.lineSpacing
+        }
+
+        return appendedAnyGlyph
+    }
+
+    private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {
+        Rect(
+            x: rect.origin.x * factor,
+            y: rect.origin.y * factor,
+            width: rect.size.width * factor,
+            height: rect.size.height * factor
+        )
+    }
+
+    private static func isPrivateUseScalar(_ scalar: UnicodeScalar) -> Bool {
+        let value = scalar.value
+        return (0xE000...0xF8FF).contains(value)
+            || (0xF0000...0xFFFFD).contains(value)
+            || (0x100000...0x10FFFD).contains(value)
     }
 }

@@ -40,6 +40,16 @@ enum DirectWriteTextRenderer {
 
         return true
     }
+
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        guard let system = DirectWriteSystem.shared,
+              let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
+        else {
+            return nil
+        }
+
+        return system.rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+    }
 }
 
 @MainActor

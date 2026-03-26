@@ -161,6 +161,30 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testRenderSceneScalesPrimitivesIntoDevicePixels() async {
+        await MainActor.run {
+            let child = ViewNode(
+                frame: Rect(x: 10, y: 12, width: 40, height: 24),
+                backgroundColor: .white
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 48),
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: root, displayScale: 2.0)
+            let scene = runtime.renderScene()
+
+            XCTAssertEqual(scene.layers.count, 1)
+            XCTAssertEqual(scene.layers[0].quads.count, 1)
+            XCTAssertEqual(scene.layers[0].quads[0].x, 20)
+            XCTAssertEqual(scene.layers[0].quads[0].y, 24)
+            XCTAssertEqual(scene.layers[0].quads[0].width, 80)
+            XCTAssertEqual(scene.layers[0].quads[0].height, 48)
+            XCTAssertEqual(scene.layers[0].quads[0].clipWidth, 120)
+            XCTAssertEqual(scene.layers[0].quads[0].clipHeight, 96)
+        }
+    }
+
     // MARK: - GPUIScene Layer Management Tests
 
     func testPushLayerIncreasesCount() {

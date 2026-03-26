@@ -316,6 +316,34 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testHorizontalMouseWheelTargetsHorizontalScrollableAncestor() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1), preferredSize: Size(width: 60, height: 30))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 90, height: 40),
+                layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5))),
+                scrollAxis: .horizontal,
+                scrollStep: 20,
+                showsScrollIndicator: true,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 80), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+
+            runtime.mouseWheel(at: Point(x: 40, y: 30), delta: -1, axis: .horizontal)
+            XCTAssertEqual(scrollPanel.scrollOffset, 20)
+
+            runtime.mouseWheel(at: Point(x: 40, y: 30), delta: 10, axis: .horizontal)
+            XCTAssertEqual(scrollPanel.scrollOffset, 0)
+        }
+    }
+
     func testRenderFrameAppliesScrollOffsetAndDrawsScrollIndicator() async {
         await MainActor.run {
             let indicatorColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)

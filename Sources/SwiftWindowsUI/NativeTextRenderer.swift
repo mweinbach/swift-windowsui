@@ -34,6 +34,11 @@ enum NativeTextRenderer {
             into: &commands
         )
     }
+
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        DirectWriteTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+            ?? GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+    }
 }
 
 @MainActor
@@ -124,7 +129,15 @@ enum GDIRasterTextRenderer {
         return true
     }
 
-    private static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        guard let size = measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil) else {
+            return nil
+        }
+
+        return rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
         let rasterSize = size.scaled(by: scaleFactor)
         let pixelWidth = max(1, Int32(rasterSize.width.rounded(.up)))
         let pixelHeight = max(1, Int32(rasterSize.height.rounded(.up)))

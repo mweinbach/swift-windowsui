@@ -767,6 +767,54 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDeferredScrollIndicatorPayloadRerunsWhenSwitchingFromSceneToFramePath() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderScene()
+
+            rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
+            let frame = runtime.renderFrame()
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)) else {
+                XCTFail("expected scroll indicator")
+                return
+            }
+
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0)
+            XCTAssertTrue(fillRectCommands(in: frame).contains(where: { $0.rect == expectedIndicatorRect }))
+        }
+    }
+
     func testScrollIndicatorHitUsesUpdatedPrepaintedOverlayGeometryWithoutRender() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

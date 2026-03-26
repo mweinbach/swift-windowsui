@@ -411,13 +411,13 @@ public enum ScenePainter {
                 continue
             }
 
-            switch deferredDraws[deferredDrawIndex].command {
-            case .fillRect(let fillRect):
-                scene.addQuad(
-                    quad(for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale),
-                    toLayer: 0
-                )
-            }
+            let fillRect = deferredDraws[deferredDrawIndex].payload.fillRectCommand(
+                contentMask: deferredDraws[deferredDrawIndex].contentMask
+            )
+            scene.addQuad(
+                quad(for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale),
+                toLayer: 0
+            )
 
             deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
         }

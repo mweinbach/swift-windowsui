@@ -39,13 +39,52 @@ struct ViewLayoutCacheKey: Equatable, Sendable {
 }
 
 @MainActor
-enum DeferredDrawCommand {
-    case fillRect(FillRectCommand)
+struct ScrollIndicatorDeferredDrawPayload {
+    var dispatchIndex: Int
+    var track: ScrollIndicatorTrack
+    var color: Color
+    var cornerRadius: Double
+
+    func fillRectCommand(contentMask: Rect?) -> FillRectCommand {
+        FillRectCommand(
+            rect: track.indicatorRect,
+            color: color,
+            cornerRadius: cornerRadius,
+            clipRect: contentMask
+        )
+    }
+}
+
+@MainActor
+enum DeferredDrawPayload {
+    case scrollIndicator(ScrollIndicatorDeferredDrawPayload)
 
     var rect: Rect {
         switch self {
-        case .fillRect(let command):
-            return command.rect
+        case .scrollIndicator(let payload):
+            return payload.track.indicatorRect
+        }
+    }
+
+    var interaction: DeferredOverlayInteraction? {
+        switch self {
+        case .scrollIndicator(let payload):
+            return .scrollIndicator(dispatchIndex: payload.dispatchIndex, track: payload.track)
+        }
+    }
+
+    func fillRectCommand(contentMask: Rect?) -> FillRectCommand {
+        switch self {
+        case .scrollIndicator(let payload):
+            return payload.fillRectCommand(contentMask: contentMask)
+        }
+    }
+
+    func remappedDispatchIndices(by delta: Int) -> DeferredDrawPayload {
+        switch self {
+        case .scrollIndicator(var payload):
+            payload.dispatchIndex += delta
+            return .scrollIndicator(payload)
         }
     }
 }
@@ -55,10 +94,17 @@ struct DeferredDrawState {
     var priority: Int
     var parentDispatchIndex: Int
     var contentMask: Rect?
-    var command: DeferredDrawCommand
-    var interaction: DeferredOverlayInteraction?
+    var payload: DeferredDrawPayload
     var cachedFrameCommandRange: Range<Int>?
     var cachedScenePaintRange: Range<Int>?
+
+    var rect: Rect {
+        payload.rect
+    }
+
+    var interaction: DeferredOverlayInteraction? {
+        payload.interaction
+    }
 }
 
 @MainActor
@@ -921,15 +967,7 @@ public final class ViewNode {
                     } else if let parentDispatchIndex {
                         nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
                     }
-
-                    guard let interaction = deferredDraw.interaction else {
-                        return nextDeferredDraw
-                    }
-
-                    switch interaction {
-                    case .scrollIndicator(let dispatchIndex, let track):
-                        nextDeferredDraw.interaction = .scrollIndicator(dispatchIndex: dispatchIndex + dispatchDelta, track: track)
-                    }
+                    nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
                     return nextDeferredDraw
                 }
             state.deferredDraws.append(contentsOf: copiedDeferredDraws)
@@ -1032,15 +1070,14 @@ public final class ViewNode {
                     priority: state.deferredDraws.count,
                     parentDispatchIndex: dispatchIndex,
                     contentMask: effectiveClip,
-                    command: .fillRect(
-                        FillRectCommand(
-                            rect: track.indicatorRect,
+                    payload: .scrollIndicator(
+                        ScrollIndicatorDeferredDrawPayload(
+                            dispatchIndex: dispatchIndex,
+                            track: track,
                             color: effectiveScrollIndicatorColor,
-                            cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
-                            clipRect: effectiveClip
+                            cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5
                         )
                     ),
-                    interaction: .scrollIndicator(dispatchIndex: dispatchIndex, track: track)
                 )
             )
         }
@@ -2369,10 +2406,10 @@ public final class RetainedViewRuntime {
                 continue
             }
 
-            switch prepaintState.deferredDraws[deferredDrawIndex].command {
-            case .fillRect(let fillRect):
-                commands.append(.fillRect(fillRect))
-            }
+            let fillRect = prepaintState.deferredDraws[deferredDrawIndex].payload.fillRectCommand(
+                contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask
+            )
+            commands.append(.fillRect(fillRect))
 
             prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
         }
@@ -2390,7 +2427,7 @@ public final class RetainedViewRuntime {
     }
 
     private func deferredDrawRect(_ deferredDraw: DeferredDrawState) -> Rect {
-        deferredDraw.command.rect
+        deferredDraw.rect
     }
 
     private func deferredDrawContentMask(_ deferredDraw: DeferredDrawState) -> Rect? {

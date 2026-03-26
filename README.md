@@ -77,9 +77,10 @@ finishes scenes into ordered family batches before upload, caches logical
 native text layout per runtime, reuses cached subtree layout/measurement state
 plus frame/scene ranges when bounds and inherited paint context stay stable,
 collects late deferred draws into a runtime-owned replay stream shared by the
-frame and scene paths, reuses runtime-owned prepaint dispatch metadata for hit
-testing, focus traversal, scroll targeting, and draggable ancestor lookup,
-replays cached deferred frame and scene ranges when clean subtrees are reused,
+frame and scene paths, stores rerunnable deferred payloads plus cached output
+ranges, reuses runtime-owned prepaint dispatch metadata for hit testing, focus
+traversal, scroll targeting, and draggable ancestor lookup, replays cached
+deferred frame and scene ranges when clean subtrees are reused,
 only attaches atlas snapshots to freshly-built scenes, and uploads typed
 primitive ranges without materializing per-operation slice arrays. It now
 follows GPUI-style inherited opacity propagation instead of inventing a

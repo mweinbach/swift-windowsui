@@ -1,5 +1,13 @@
 import SwiftWindowsCore
 
+public struct GPUIContentMask: Equatable, Sendable {
+    public var bounds: Rect?
+
+    public init(bounds: Rect? = nil) {
+        self.bounds = bounds
+    }
+}
+
 // MARK: - Quad Primitive
 
 /// A rounded rectangle with optional gradient fill, designed for direct upload
@@ -66,6 +74,35 @@ public struct QuadPrimitive: Equatable, Sendable {
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Glyph Primitive
@@ -120,6 +157,35 @@ public struct GlyphPrimitive: Equatable, Sendable {
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Image Primitive
@@ -177,12 +243,41 @@ public struct ImagePrimitive: Equatable, Sendable {
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Shadow Primitive
 
 /// A soft shadow rectangle, designed for direct upload to a D3D11 structured
-/// buffer. Total: 12 floats = 48 bytes (divisible by 16).
+/// buffer. Total: 16 floats = 64 bytes (divisible by 16).
 @frozen
 public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow rect
@@ -202,13 +297,19 @@ public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow offset
     public var offsetX: Float
     public var offsetY: Float
+    // Content mask / clip bounds
+    public var clipX: Float
+    public var clipY: Float
+    public var clipWidth: Float
+    public var clipHeight: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
         cornerRadius: Float = 0,
         colorR: Float = 0, colorG: Float = 0, colorB: Float = 0, colorA: Float = 0.5,
         blurRadius: Float = 4,
-        offsetX: Float = 0, offsetY: Float = 0
+        offsetX: Float = 0, offsetY: Float = 0,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -222,7 +323,40 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.blurRadius = blurRadius
         self.offsetX = offsetX
         self.offsetY = offsetY
+        self.clipX = clipX
+        self.clipY = clipY
+        self.clipWidth = clipWidth
+        self.clipHeight = clipHeight
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }

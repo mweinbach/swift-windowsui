@@ -129,9 +129,9 @@ final class GPUISceneTests: XCTestCase {
 
         // Layer 1: 3 glyphs, 1 image
         scene.pushLayer()
-        scene.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10))
-        scene.addGlyph(GlyphPrimitive(screenX: 20, screenY: 10))
-        scene.addGlyph(GlyphPrimitive(screenX: 30, screenY: 10))
+        scene.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 8, screenH: 12))
+        scene.addGlyph(GlyphPrimitive(screenX: 20, screenY: 10, screenW: 8, screenH: 12))
+        scene.addGlyph(GlyphPrimitive(screenX: 30, screenY: 10, screenW: 8, screenH: 12))
         scene.addImage(ImagePrimitive(screenX: 0, screenY: 0, screenW: 256, screenH: 256))
 
         // Layer 2: 1 quad
@@ -224,5 +224,61 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(iterator.next(), .quads(0..<1))
         XCTAssertEqual(iterator.next(), .glyphs(0..<1))
         XCTAssertNil(iterator.next())
+    }
+
+    func testMaskedPrimitiveOutsideContentMaskIsDropped() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 40,
+            clipX: 100,
+            clipY: 100,
+            clipWidth: 20,
+            clipHeight: 20
+        ))
+
+        XCTAssertTrue(scene.layers[0].quads.isEmpty)
+        XCTAssertEqual(scene.paintRecordCount, 0)
+    }
+
+    func testMaskedBoundsDriveDrawOrderAssignment() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(
+            x: 0,
+            y: 0,
+            width: 300,
+            height: 20,
+            clipX: 0,
+            clipY: 0,
+            clipWidth: 40,
+            clipHeight: 20
+        ))
+        scene.addQuad(QuadPrimitive(
+            x: 200,
+            y: 0,
+            width: 20,
+            height: 20
+        ))
+
+        scene.finish()
+
+        var iterator = scene.layers[0].orderedBatches()
+        XCTAssertEqual(iterator.next(), .quads(0..<2))
+        XCTAssertNil(iterator.next())
+    }
+
+    func testReplayCopiesScenePaintRecords() {
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 120, height: 120), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 80, height: 80))
+        original.addGlyph(GlyphPrimitive(screenX: 8, screenY: 8, screenW: 12, screenH: 12))
+        original.popScopedLayer(fromLayer: 0)
+
+        var replayed = GPUIScene(clearColor: .white)
+        replayed.replay(0..<original.paintRecordCount, from: original)
+
+        XCTAssertEqual(replayed, original)
     }
 }

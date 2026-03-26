@@ -95,6 +95,23 @@ public struct PixelTextStyle: Sendable, Equatable {
     }
 }
 
+extension PixelTextStyle {
+    func multipliedOpacity(by opacity: Float) -> PixelTextStyle {
+        guard opacity != 1 else {
+            return self
+        }
+
+        var copy = self
+        copy.color = copy.color.multipliedAlpha(by: opacity)
+        copy.spans = copy.spans?.map { span in
+            var span = span
+            span.style = span.style.multipliedOpacity(by: opacity)
+            return span
+        }
+        return copy
+    }
+}
+
 enum PixelFont {
     static func measure(_ text: String, style: PixelTextStyle, maxWidth: Double? = nil) -> Size {
         let scale = max(style.scale, 1)

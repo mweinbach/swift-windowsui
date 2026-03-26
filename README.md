@@ -12,7 +12,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
-- An experimental batch scene path that scales primitives into device pixels, keeps bridge-style paint operations as metadata, assigns bounds-based draw orders inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
+- An experimental batch scene path that scales primitives into device pixels, keeps replayable scene paint records plus per-layer family operations as metadata, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -70,13 +70,16 @@ swift run swift-windowsui
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
 
 `GPUIScene` -> `D3D11BatchRenderer` remains in the repo as the active porting
-target. It now keeps typed paint operations for bridge/replay metadata, assigns
-Zed-style bounds-based draw orders inside each scene layer, finishes scenes
-into ordered family batches before upload, caches logical native text layout
-per runtime, only attaches atlas snapshots to freshly-built scenes, and uploads
-typed primitive ranges without materializing per-operation slice arrays, but it
-is not the default demo presentation path until text rendering and full scene
-parity match the retained/frame behavior more closely.
+target. It now keeps replayable scene paint records plus per-layer family paint
+operations, carries semantic content masks on typed primitives, assigns
+Zed-style bounds-based draw orders from masked bounds inside each scene layer,
+finishes scenes into ordered family batches before upload, caches logical
+native text layout per runtime, only attaches atlas snapshots to freshly-built
+scenes, and uploads typed primitive ranges without materializing per-operation
+slice arrays. It now follows GPUI-style inherited opacity propagation instead
+of inventing a save-layer opacity model, but it is not the default demo
+presentation path until text rendering, deferred/prepaint replay, and full
+scene parity match the retained/frame behavior more closely.
 
 ## WinSwiftUI Coverage
 
@@ -97,7 +100,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, subpixel sprite families, and text-system-owned line layout
+- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, deferred/prepaint replay, subpixel sprite families, and text-system-owned line layout
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility

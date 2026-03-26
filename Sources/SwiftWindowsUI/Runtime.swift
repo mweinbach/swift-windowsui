@@ -655,7 +655,12 @@ public final class ViewNode {
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
     }
 
-    fileprivate func appendCommands(into commands: inout [RenderCommand], parentOrigin: Point, inheritedClip: Rect?) {
+    fileprivate func appendCommands(
+        into commands: inout [RenderCommand],
+        parentOrigin: Point,
+        inheritedClip: Rect?,
+        inheritedOpacity: Float = 1
+    ) {
         if isHidden {
             return
         }
@@ -706,6 +711,11 @@ public final class ViewNode {
         // texture first. Without that, each child is blended individually, which
         // causes overlapping children to double-blend.
         // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
+        // GPUI/Zed instead carries opacity as an inherited paint scalar.
+        let effectiveOpacity = inheritedOpacity * Float(opacity)
+        guard effectiveOpacity > 0 else {
+            return
+        }
 
         let absoluteOrigin = Point(
             x: parentOrigin.x + resolvedFrame.origin.x,
@@ -717,7 +727,8 @@ public final class ViewNode {
             y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
 
-        if shadowColor.alpha > 0 {
+        let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveShadowColor.alpha > 0 {
             let shadowRect = absoluteFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
@@ -727,7 +738,7 @@ public final class ViewNode {
                     .fillRect(
                         FillRectCommand(
                             rect: shadowRect,
-                            color: shadowColor,
+                            color: effectiveShadowColor,
                             cornerRadius: cornerRadius + max(0, shadowSpread),
                             clipRect: inheritedClip
                         )
@@ -736,14 +747,15 @@ public final class ViewNode {
             }
         }
 
-        if outlineColor.alpha > 0, outlineWidth > 0 {
+        let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = absoluteFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: outlineRect,
-                            color: outlineColor,
+                            color: effectiveOutlineColor,
                             cornerRadius: cornerRadius + outlineWidth,
                             clipRect: inheritedClip
                         )
@@ -752,12 +764,13 @@ public final class ViewNode {
             }
         }
 
-        if borderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+        let effectiveBorderColor = borderColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             commands.append(
                 .fillRect(
                     FillRectCommand(
                         rect: absoluteFrame,
-                        color: borderColor,
+                        color: effectiveBorderColor,
                         cornerRadius: cornerRadius,
                         clipRect: effectiveClip
                     )
@@ -768,7 +781,15 @@ public final class ViewNode {
         let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame
         let fillCornerRadius = max(0, cornerRadius - borderWidth)
 
-        let resolvedBackgroundColor = backgroundColor ?? backgroundGradient?.startColor
+        var resolvedBackgroundGradient = backgroundGradient
+        if var gradient = resolvedBackgroundGradient {
+            gradient.stops = gradient.stops.map { stop in
+                GradientStop(color: stop.color.multipliedAlpha(by: effectiveOpacity), position: stop.position)
+            }
+            resolvedBackgroundGradient = gradient
+        }
+        let resolvedBackgroundColor = backgroundColor?.multipliedAlpha(by: effectiveOpacity)
+            ?? resolvedBackgroundGradient?.startColor
         if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
                 commands.append(
@@ -778,7 +799,7 @@ public final class ViewNode {
                             color: resolvedBackgroundColor,
                             cornerRadius: fillCornerRadius,
                             clipRect: effectiveClip,
-                            gradient: backgroundGradient
+                            gradient: resolvedBackgroundGradient
                         )
                     )
                 )
@@ -787,11 +808,12 @@ public final class ViewNode {
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             let displayScale = runtime?.displayScale ?? 1.0
-            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
+            let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
+            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
-                    style: textStyle,
+                    style: effectiveTextStyle,
                     clipRect: effectiveClip,
                     into: &commands
                 )
@@ -826,15 +848,21 @@ public final class ViewNode {
         }
 
         for child in sortedChildren {
-            child.appendCommands(into: &commands, parentOrigin: childOrigin, inheritedClip: effectiveClip)
+            child.appendCommands(
+                into: &commands,
+                parentOrigin: childOrigin,
+                inheritedClip: effectiveClip,
+                inheritedOpacity: effectiveOpacity
+            )
         }
 
         if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame) {
+            let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
             commands.append(
                 .fillRect(
                     FillRectCommand(
                         rect: scrollIndicator,
-                        color: scrollIndicatorColor,
+                        color: effectiveScrollIndicatorColor,
                         cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
                         clipRect: effectiveClip
                     )

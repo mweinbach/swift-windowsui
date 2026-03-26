@@ -110,8 +110,8 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testShadowPrimitiveStride() {
-        // ShadowPrimitive should be 48 bytes (12 floats * 4 bytes)
-        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 48)
+        // ShadowPrimitive should be 64 bytes (16 floats * 4 bytes)
+        XCTAssertEqual(MemoryLayout<ShadowPrimitive>.stride, 64)
     }
 
     func testImagePrimitiveStride() {

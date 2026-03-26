@@ -42,8 +42,8 @@ final class GPUILayerStackTests: XCTestCase {
 
     // MARK: - needsCompositingLayer
 
-    func testSemiTransparentWithChildrenNeedsLayer() {
-        XCTAssertTrue(
+    func testSemiTransparentWithChildrenDoesNotNeedLayer() {
+        XCTAssertFalse(
             GPUILayerStack.needsCompositingLayer(
                 opacity: 0.5, hasChildren: true, hasBlur: false, hasTransform: false
             )

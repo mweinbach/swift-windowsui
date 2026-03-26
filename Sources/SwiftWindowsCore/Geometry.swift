@@ -221,6 +221,15 @@ public struct Color: Equatable, Sendable {
             alpha: alpha + (other.alpha - alpha) * clampedProgress
         )
     }
+
+    public func multipliedAlpha(by multiplier: Float) -> Color {
+        Color(
+            red: red,
+            green: green,
+            blue: blue,
+            alpha: max(0, min(1, alpha * multiplier))
+        )
+    }
 }
 
 public struct NativeWindowHandle: Equatable, Sendable {

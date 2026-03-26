@@ -516,6 +516,27 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testParentOpacityCascadesIntoChildFillCommands() async {
+        await MainActor.run {
+            let child = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                opacity: 0.4
+            )
+            let parent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                opacity: 0.5,
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: parent)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills.count, 1)
+            XCTAssertEqual(fills[0].color.alpha, 0.2, accuracy: 0.0001)
+        }
+    }
+
     func testMinimumFrameIntervalDefersSceneRefreshUntilEnoughTimeElapses() async {
         await MainActor.run {
             let node = ViewNode(

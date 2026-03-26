@@ -159,8 +159,12 @@ final class IntegrationTests: XCTestCase {
             let scene = runtime.renderScene()
 
             XCTAssertEqual(scene.layers.count, 1)
-            XCTAssertGreaterThan(scene.layers[0].glyphs.count, 0)
-            XCTAssertTrue(scene.glyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame)
+            XCTAssertGreaterThan(scene.layers[0].glyphs.count + scene.layers[0].pixelGlyphs.count, 0)
+            XCTAssertTrue(
+                scene.glyphAtlas != nil ||
+                scene.pixelGlyphAtlas != nil ||
+                NativeGlyphAtlas.shared.wasUsedInCurrentFrame
+            )
         }
     }
 
@@ -176,8 +180,9 @@ final class IntegrationTests: XCTestCase {
             let firstScene = runtime.renderScene()
             let cachedScene = runtime.renderScene()
 
-            XCTAssertNotNil(firstScene.glyphAtlas)
+            XCTAssertTrue(firstScene.glyphAtlas != nil || firstScene.pixelGlyphAtlas != nil)
             XCTAssertNil(cachedScene.glyphAtlas)
+            XCTAssertNil(cachedScene.pixelGlyphAtlas)
         }
     }
 

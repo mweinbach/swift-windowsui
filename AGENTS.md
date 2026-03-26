@@ -17,7 +17,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 
 - The default demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `RenderFrame` -> `D3D11Renderer`.
 - The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
-- `RenderFrame` is still the default renderer-neutral command list. The experimental batch path uses typed scene primitives, keeps per-layer paint operations as bridge/replay metadata, assigns bounds-based draw orders inside `GPUIScene`, finishes layers into ordered batch ranges before upload, uses device-pixel scaling, a runtime-owned logical text layout cache, and a cached native glyph atlas with pixel-atlas fallback for icon glyphs.
+- `RenderFrame` is still the default renderer-neutral command list. The experimental batch path uses typed scene primitives, keeps replayable scene paint records plus per-layer family paint operations as bridge/replay metadata, carries semantic content masks on those primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, finishes layers into ordered batch ranges before upload, uses device-pixel scaling, a runtime-owned logical text layout cache, and a cached native glyph atlas with pixel-atlas fallback for icon glyphs.
 - `SwiftWindowsScene` exists, but `GPUIScene` in `SwiftWindowsGraphics` is the primary scene contract being brought up toward the batch renderer.
 - `LayoutNode` and `FixedLayoutBox` are present, but the running UI currently relies on `ViewLayoutMode` and `StackLayout`.
 - `FoundationApp` still exists, but it is no longer the main demo bootstrap path.
@@ -27,7 +27,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - Treat `Sources/SwiftWindowsUI/Runtime.swift` as the source of truth for layout, hit testing, focus traversal, clipping, frame caching, and animation behavior.
 - Keep UI-facing code on the main actor. `ViewNode`, `RetainedViewRuntime`, `Controls`, `WinSwiftUI`, and the demo app are all main-actor-centric.
 - When changing `Controls.button`, preserve the focus/press/activate animation lifecycle unless the task explicitly changes interaction behavior.
-- Remember that `PixelText.swift` / `PixelFontAtlas.swift` remain the icon/private-use fallback and the legacy frame-text path. The experimental batch scene path now prefers runtime-cached native layout plus cached glyph bitmaps, but there is still no full shaped-text system or GPUI-style sprite family split.
+- Remember that `PixelText.swift` / `PixelFontAtlas.swift` remain the icon/private-use fallback and the legacy frame-text path. The experimental batch scene path now prefers runtime-cached native layout plus cached glyph bitmaps, and it follows GPUI-style inherited opacity propagation, but there is still no full shaped-text system, deferred/prepaint replay pass, or GPUI-style sprite family split.
 - If you add new visual features, consider whether they belong in the shared render graph first, not only in `D3D11Renderer`.
 - If you change renderer behavior, keep the backend-neutral API in `SwiftWindowsGraphics` coherent with the implementation.
 - If you change Win32 message handling, keep `WindowDelegate` callbacks and `KeyboardEvent` translation consistent with existing runtime expectations.

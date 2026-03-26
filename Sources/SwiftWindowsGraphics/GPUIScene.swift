@@ -23,6 +23,20 @@ public struct GPUIPaintOperation: Equatable, Sendable {
     }
 }
 
+public enum GPUIScenePrimitive: Equatable, Sendable {
+    case shadow(ShadowPrimitive)
+    case quad(QuadPrimitive)
+    case glyph(GlyphPrimitive)
+    case pixelGlyph(GlyphPrimitive)
+    case image(ImagePrimitive)
+}
+
+public enum GPUIScenePaintRecord: Equatable, Sendable {
+    case primitive(layerIndex: Int, primitive: GPUIScenePrimitive)
+    case startLayer(layerIndex: Int, bounds: Rect)
+    case endLayer(layerIndex: Int)
+}
+
 public struct GlyphAtlasRegion: Equatable, Sendable {
     public var x: Int32
     public var y: Int32
@@ -106,53 +120,79 @@ public struct GPUILayer: Equatable, Sendable {
         paintOperations.count
     }
 
-    public mutating func pushScopedLayer(_ bounds: Rect) {
+    public mutating func pushScopedLayer(_ bounds: Rect) -> Bool {
         guard !bounds.isEmpty else {
-            return
+            return false
         }
 
         let order = primitiveBounds.insert(bounds)
         maxAssignedOrder = max(maxAssignedOrder, order)
         layerStack.append(order)
+        return true
     }
 
-    public mutating func popScopedLayer() {
-        _ = layerStack.popLast()
+    public mutating func popScopedLayer() -> Bool {
+        layerStack.popLast() != nil
     }
 
-    mutating func addShadow(_ shadow: ShadowPrimitive) {
+    mutating func addShadow(_ shadow: ShadowPrimitive) -> Bool {
+        guard let maskedBounds = shadow.contentMaskedBounds else {
+            return false
+        }
+
         let startIndex = shadows.count
         shadows.append(shadow)
-        shadowOrderings.append(reserveOrdering(for: shadow.effectiveBounds, primitiveIndex: startIndex))
+        shadowOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .shadow, startIndex: startIndex)
+        return true
     }
 
-    mutating func addQuad(_ quad: QuadPrimitive) {
+    mutating func addQuad(_ quad: QuadPrimitive) -> Bool {
+        guard let maskedBounds = quad.contentMaskedBounds else {
+            return false
+        }
+
         let startIndex = quads.count
         quads.append(quad)
-        quadOrderings.append(reserveOrdering(for: quad.effectiveBounds, primitiveIndex: startIndex))
+        quadOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .quad, startIndex: startIndex)
+        return true
     }
 
-    mutating func addGlyph(_ glyph: GlyphPrimitive) {
+    mutating func addGlyph(_ glyph: GlyphPrimitive) -> Bool {
+        guard let maskedBounds = glyph.contentMaskedBounds else {
+            return false
+        }
+
         let startIndex = glyphs.count
         glyphs.append(glyph)
-        glyphOrderings.append(reserveOrdering(for: glyph.effectiveBounds, primitiveIndex: startIndex))
+        glyphOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .glyph, startIndex: startIndex)
+        return true
     }
 
-    mutating func addPixelGlyph(_ glyph: GlyphPrimitive) {
+    mutating func addPixelGlyph(_ glyph: GlyphPrimitive) -> Bool {
+        guard let maskedBounds = glyph.contentMaskedBounds else {
+            return false
+        }
+
         let startIndex = pixelGlyphs.count
         pixelGlyphs.append(glyph)
-        pixelGlyphOrderings.append(reserveOrdering(for: glyph.effectiveBounds, primitiveIndex: startIndex))
+        pixelGlyphOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .pixelGlyph, startIndex: startIndex)
+        return true
     }
 
-    mutating func addImage(_ image: ImagePrimitive) {
+    mutating func addImage(_ image: ImagePrimitive) -> Bool {
+        guard let maskedBounds = image.contentMaskedBounds else {
+            return false
+        }
+
         let startIndex = images.count
         images.append(image)
-        imageOrderings.append(reserveOrdering(for: image.effectiveBounds, primitiveIndex: startIndex))
+        imageOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .image, startIndex: startIndex)
+        return true
     }
 
     public mutating func finish() {
@@ -263,6 +303,7 @@ public struct GPUILayer: Equatable, Sendable {
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
+    public var paintRecords: [GPUIScenePaintRecord]
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
     private var isFinished = false
@@ -274,6 +315,7 @@ public struct GPUIScene: Equatable, Sendable {
     ) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
+        self.paintRecords = []
         self.glyphAtlas = glyphAtlas
         self.pixelGlyphAtlas = pixelGlyphAtlas
     }
@@ -302,14 +344,18 @@ public struct GPUIScene: Equatable, Sendable {
 
     public mutating func pushScopedLayer(_ bounds: Rect, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].pushScopedLayer(bounds)
-        isFinished = false
+        if layers[layerIndex].pushScopedLayer(bounds) {
+            paintRecords.append(.startLayer(layerIndex: layerIndex, bounds: bounds))
+            isFinished = false
+        }
     }
 
     public mutating func popScopedLayer(fromLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].popScopedLayer()
-        isFinished = false
+        if layers[layerIndex].popScopedLayer() {
+            paintRecords.append(.endLayer(layerIndex: layerIndex))
+            isFinished = false
+        }
     }
 
     // MARK: - Primitive insertion (appends to last layer)
@@ -336,32 +382,70 @@ public struct GPUIScene: Equatable, Sendable {
 
     public mutating func addQuad(_ quad: QuadPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].addQuad(quad)
-        isFinished = false
+        if layers[layerIndex].addQuad(quad) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .quad(quad)))
+            isFinished = false
+        }
     }
 
     public mutating func addGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].addGlyph(glyph)
-        isFinished = false
+        if layers[layerIndex].addGlyph(glyph) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .glyph(glyph)))
+            isFinished = false
+        }
     }
 
     public mutating func addImage(_ image: ImagePrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].addImage(image)
-        isFinished = false
+        if layers[layerIndex].addImage(image) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .image(image)))
+            isFinished = false
+        }
     }
 
     public mutating func addShadow(_ shadow: ShadowPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].addShadow(shadow)
-        isFinished = false
+        if layers[layerIndex].addShadow(shadow) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .shadow(shadow)))
+            isFinished = false
+        }
     }
 
     public mutating func addPixelGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
-        layers[layerIndex].addPixelGlyph(glyph)
-        isFinished = false
+        if layers[layerIndex].addPixelGlyph(glyph) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .pixelGlyph(glyph)))
+            isFinished = false
+        }
+    }
+
+    public mutating func replay(_ range: Range<Int>, from previousScene: GPUIScene) {
+        for record in previousScene.paintRecords[range] {
+            switch record {
+            case .primitive(let layerIndex, let primitive):
+                switch primitive {
+                case .shadow(let shadow):
+                    addShadow(shadow, toLayer: layerIndex)
+                case .quad(let quad):
+                    addQuad(quad, toLayer: layerIndex)
+                case .glyph(let glyph):
+                    addGlyph(glyph, toLayer: layerIndex)
+                case .pixelGlyph(let glyph):
+                    addPixelGlyph(glyph, toLayer: layerIndex)
+                case .image(let image):
+                    addImage(image, toLayer: layerIndex)
+                }
+            case .startLayer(let layerIndex, let bounds):
+                pushScopedLayer(bounds, toLayer: layerIndex)
+            case .endLayer(let layerIndex):
+                popScopedLayer(fromLayer: layerIndex)
+            }
+        }
+    }
+
+    public var paintRecordCount: Int {
+        paintRecords.count
     }
 
     public mutating func finish() {
@@ -386,47 +470,64 @@ public struct GPUIScene: Equatable, Sendable {
     public static func == (lhs: GPUIScene, rhs: GPUIScene) -> Bool {
         lhs.clearColor == rhs.clearColor &&
         lhs.layers == rhs.layers &&
+        lhs.paintRecords == rhs.paintRecords &&
         lhs.glyphAtlas == rhs.glyphAtlas &&
         lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas
     }
 }
 
 private extension QuadPrimitive {
-    var effectiveBounds: Rect? {
+    var contentMaskedBounds: Rect? {
         guard width > 0, height > 0 else {
             return nil
         }
 
-        return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        guard let maskBounds = contentMask.bounds else {
+            return bounds
+        }
+        return bounds.intersected(with: maskBounds)
     }
 }
 
 private extension GlyphPrimitive {
-    var effectiveBounds: Rect? {
+    var contentMaskedBounds: Rect? {
         guard screenW > 0, screenH > 0 else {
             return nil
         }
 
-        return Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        guard let maskBounds = contentMask.bounds else {
+            return bounds
+        }
+        return bounds.intersected(with: maskBounds)
     }
 }
 
 private extension ImagePrimitive {
-    var effectiveBounds: Rect? {
+    var contentMaskedBounds: Rect? {
         guard screenW > 0, screenH > 0 else {
             return nil
         }
 
-        return Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        guard let maskBounds = contentMask.bounds else {
+            return bounds
+        }
+        return bounds.intersected(with: maskBounds)
     }
 }
 
 private extension ShadowPrimitive {
-    var effectiveBounds: Rect? {
+    var contentMaskedBounds: Rect? {
         guard width > 0, height > 0 else {
             return nil
         }
 
-        return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        guard let maskBounds = contentMask.bounds else {
+            return bounds
+        }
+        return bounds.intersected(with: maskBounds)
     }
 }

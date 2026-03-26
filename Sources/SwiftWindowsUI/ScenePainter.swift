@@ -63,6 +63,7 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
+        primitiveOpacity: Float = 1,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
     ) {
@@ -76,7 +77,6 @@ public enum ScenePainter {
         )
 
         guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else { return }
-        guard node.opacity > 0 else { return }
 
         // Occlusion culling against inherited clip.
         if !clipAllowsDrawing(clip: inheritedClip, rect: absoluteFrame) {
@@ -95,29 +95,37 @@ public enum ScenePainter {
             }
         }
 
-        let opacity = Float(node.opacity)
+        // GPUI/Zed carries opacity as an inherited paint scalar.
+        let opacity = primitiveOpacity * Float(node.opacity)
+        guard opacity > 0 else { return }
 
         // Shadow
-        if node.shadowColor.alpha > 0 {
+        let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
+        if effectiveShadowColor.alpha > 0 {
             let shadowRect = absoluteFrame
                 .outset(by: max(0, node.shadowSpread))
                 .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
 
             if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
                 let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
+                let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
                 scene.addShadow(ShadowPrimitive(
                     x: Float(scaledShadowRect.origin.x),
                     y: Float(scaledShadowRect.origin.y),
                     width: Float(scaledShadowRect.size.width),
                     height: Float(scaledShadowRect.size.height),
                     cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
-                    colorR: node.shadowColor.red,
-                    colorG: node.shadowColor.green,
-                    colorB: node.shadowColor.blue,
-                    colorA: node.shadowColor.alpha,
+                    colorR: effectiveShadowColor.red,
+                    colorG: effectiveShadowColor.green,
+                    colorB: effectiveShadowColor.blue,
+                    colorA: effectiveShadowColor.alpha,
                     blurRadius: Float(node.shadowSpread * displayScale),
                     offsetX: Float(node.shadowOffset.x * displayScale),
-                    offsetY: Float(node.shadowOffset.y * displayScale)
+                    offsetY: Float(node.shadowOffset.y * displayScale),
+                    clipX: shadowClip.0,
+                    clipY: shadowClip.1,
+                    clipWidth: shadowClip.2,
+                    clipHeight: shadowClip.3
                 ), toLayer: layerIndex)
             }
         }
@@ -190,13 +198,14 @@ public enum ScenePainter {
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
+            let effectiveTextStyle = node.textStyle.multipliedOpacity(by: opacity)
             var nativeGlyphs: [GlyphPrimitive] = []
             var pixelGlyphs: [GlyphPrimitive] = []
             appendTextGlyphs(
                 for: text,
-                style: node.textStyle,
+                style: effectiveTextStyle,
                 in: fillRect,
-                opacity: opacity,
+                opacity: 1,
                 clip: effectiveClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
@@ -245,6 +254,7 @@ public enum ScenePainter {
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 textSystem: textSystem,
+                primitiveOpacity: opacity,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs
             )
@@ -455,7 +465,8 @@ public enum ScenePainter {
             baseY = contentRect.maxY - totalTextHeight
         }
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
-        var appendedAnyGlyph = false
+        let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
+        var appendedGlyphs: [GlyphPrimitive] = []
         var lineOriginY = baseY
 
         for line in layout.lines {
@@ -473,14 +484,29 @@ public enum ScenePainter {
                 guard let entry = NativeGlyphAtlas.shared.glyph(for: glyph, style: style, scaleFactor: displayScale) else {
                     continue
                 }
+                guard entry.width > 0, entry.height > 0 else {
+                    continue
+                }
 
                 let destinationOrigin = Point(
                     x: (startX + glyph.origin.x) * displayScale + Double(entry.bearingX),
                     y: (lineOriginY + glyph.origin.y) * displayScale + Double(entry.bearingY)
                 )
+                guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
+                    continue
+                }
+                let glyphRect = Rect(
+                    x: destinationOrigin.x,
+                    y: destinationOrigin.y,
+                    width: Double(entry.width),
+                    height: Double(entry.height)
+                )
+                if let scaledVisibleClip, scaledVisibleClip.intersected(with: glyphRect) == nil {
+                    continue
+                }
                 let atlasSize = NativeGlyphAtlas.shared.size
                 let uv = entry.uvRect(atlasWidth: atlasSize.width, atlasHeight: atlasSize.height)
-                glyphs.append(
+                appendedGlyphs.append(
                     GlyphPrimitive(
                         screenX: Float(destinationOrigin.x),
                         screenY: Float(destinationOrigin.y),
@@ -500,13 +526,13 @@ public enum ScenePainter {
                         clipHeight: clipRect.3
                     )
                 )
-                appendedAnyGlyph = true
             }
 
             lineOriginY += line.height + style.lineSpacing
         }
 
-        return appendedAnyGlyph
+        glyphs.append(contentsOf: appendedGlyphs)
+        return !appendedGlyphs.isEmpty
     }
 
     private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {

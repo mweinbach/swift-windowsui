@@ -15,8 +15,7 @@ extension GPUIScene {
     ///   - surfaceSize: The surface dimensions, used as the default clip rect
     ///     when no explicit clip is active.
     public init(from frame: RenderFrame, surfaceSize: Size) {
-        self.clearColor = frame.clearColor
-        self.layers = [GPUILayer()]
+        self = GPUIScene(clearColor: frame.clearColor)
 
         var clipStack: [Rect] = []
 

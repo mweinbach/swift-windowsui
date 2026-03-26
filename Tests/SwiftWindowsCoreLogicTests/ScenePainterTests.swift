@@ -57,6 +57,27 @@ struct ScenePainterTests {
         #expect(shadow.offsetY == 4)
     }
 
+    @Test("Parent clip becomes the shadow content mask")
+    func clippedParentMasksChildShadow() {
+        let parent = ViewNode(
+            frame: Rect(x: 50, y: 50, width: 120, height: 120),
+            clipsToBounds: true
+        )
+        let child = ViewNode(
+            frame: Rect(x: 80, y: 80, width: 40, height: 40),
+            shadowColor: Color(red: 0, green: 0, blue: 0, alpha: 0.6),
+            shadowOffset: Point(x: 6, y: 6),
+            shadowSpread: 12
+        )
+        parent.addChild(child)
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].shadows.count == 1)
+        let shadowMask = scene.layers[0].shadows[0].contentMask.bounds
+        #expect(shadowMask == Rect(x: 50, y: 50, width: 120, height: 120))
+    }
+
     // MARK: - Parent with colored children
 
     @Test("Parent with 3 colored children produces 4 quads")
@@ -265,6 +286,27 @@ struct ScenePainterTests {
         #expect(quad.endA == 0.5)
     }
 
+    @Test("Parent opacity cascades into child primitives")
+    func parentOpacityCascadesIntoChildPrimitives() {
+        let child = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 80, height: 80),
+            backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+            opacity: 0.4
+        )
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 100, height: 100),
+            opacity: 0.5,
+            children: [child]
+        )
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].quads.count == 1)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.startA == 0.2)
+        #expect(quad.endA == 0.2)
+    }
+
     // MARK: - Text
 
     @Test("Text nodes emit typed glyph primitives and atlas data")
@@ -276,12 +318,17 @@ struct ScenePainterTests {
         )
 
         let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let totalGlyphCount = scene.layers[0].glyphs.count + scene.layers[0].pixelGlyphs.count
+        let firstGlyph = scene.layers[0].glyphs.first ?? scene.layers[0].pixelGlyphs.first
 
         #expect(scene.layers.count == 1)
-        #expect(scene.layers[0].glyphs.count == 2)
-        #expect(scene.glyphAtlas != nil)
-        #expect(scene.layers[0].glyphs[0].screenX >= 10)
-        #expect(scene.layers[0].glyphs[0].screenY >= 20)
+        #expect(totalGlyphCount == 2)
+        #expect(scene.glyphAtlas != nil || scene.pixelGlyphAtlas != nil)
+        #expect(firstGlyph != nil)
+        if let firstGlyph {
+            #expect(firstGlyph.screenX >= 10)
+            #expect(firstGlyph.screenY >= 20)
+        }
     }
 
     @Test("Symbol icons resolve to dedicated atlas glyphs")

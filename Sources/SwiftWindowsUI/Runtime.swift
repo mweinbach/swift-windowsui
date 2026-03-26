@@ -47,10 +47,11 @@ struct DeferredOverlayState {
 
 @MainActor
 enum DeferredOverlayInteraction {
-    case scrollIndicator(node: ViewNode, track: ScrollIndicatorTrack)
+    case scrollIndicator(dispatchIndex: Int, track: ScrollIndicatorTrack)
 }
 
 struct PrepaintStateIndex: Equatable, Sendable {
+    var dispatchIndex: Int
     var interactionIndex: Int
     var focusOrderIndex: Int
     var deferredOverlayIndex: Int
@@ -62,7 +63,14 @@ struct PrepaintStateRange: Equatable, Sendable {
 }
 
 @MainActor
+struct PrepaintDispatchState {
+    var node: ViewNode
+    var parentIndex: Int?
+}
+
+@MainActor
 struct PrepaintInteractionState {
+    var dispatchIndex: Int
     var node: ViewNode
     var frame: Rect
     var clipRect: Rect?
@@ -109,8 +117,9 @@ struct PrepaintInteractionState {
 
 @MainActor
 struct RuntimePrepaintState {
+    var dispatchNodes: [PrepaintDispatchState] = []
     var interactions: [PrepaintInteractionState] = []
-    var focusOrder: [ViewNode] = []
+    var focusOrder: [Int] = []
     var deferredOverlays: [DeferredOverlayState] = []
 }
 
@@ -793,12 +802,14 @@ public final class ViewNode {
         parentOrigin: Point,
         inheritedClip: Rect?,
         inheritedOpacity: Float = 1,
+        parentDispatchIndex: Int? = nil,
         inheritedInverseTransform: Transform2D? = nil,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
     ) {
         let startIndex = PrepaintStateIndex(
+            dispatchIndex: state.dispatchNodes.count,
             interactionIndex: state.interactions.count,
             focusOrderIndex: state.focusOrder.count,
             deferredOverlayIndex: state.deferredOverlays.count
@@ -852,18 +863,66 @@ public final class ViewNode {
             cachedPrepaintKey == cacheKey,
             let previousRange = cachedPrepaintRange
         {
-            state.interactions.append(contentsOf: previousState.interactions[previousRange.start.interactionIndex..<previousRange.end.interactionIndex])
-            state.focusOrder.append(contentsOf: previousState.focusOrder[previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex])
-            state.deferredOverlays.append(contentsOf: previousState.deferredOverlays[previousRange.start.deferredOverlayIndex..<previousRange.end.deferredOverlayIndex])
+            let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
+            let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
+            let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
+            let deferredOverlayDelta = startIndex.deferredOverlayIndex - previousRange.start.deferredOverlayIndex
+
+            let copiedDispatchNodes = previousState.dispatchNodes[previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex]
+                .enumerated()
+                .map { offset, dispatchState in
+                    var nextDispatchState = dispatchState
+                    if let parentIndex = dispatchState.parentIndex {
+                        if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
+                            nextDispatchState.parentIndex = parentIndex + dispatchDelta
+                        } else {
+                            nextDispatchState.parentIndex = parentDispatchIndex
+                        }
+                    } else {
+                        nextDispatchState.parentIndex = parentDispatchIndex
+                    }
+                    return nextDispatchState
+                }
+            state.dispatchNodes.append(contentsOf: copiedDispatchNodes)
+
+            let copiedInteractions = previousState.interactions[previousRange.start.interactionIndex..<previousRange.end.interactionIndex]
+                .map { interaction in
+                    var nextInteraction = interaction
+                    nextInteraction.dispatchIndex += dispatchDelta
+                    return nextInteraction
+                }
+            state.interactions.append(contentsOf: copiedInteractions)
+
+            let copiedFocusOrder = previousState.focusOrder[previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex]
+                .map { $0 + dispatchDelta }
+            state.focusOrder.append(contentsOf: copiedFocusOrder)
+
+            let copiedDeferredOverlays = previousState.deferredOverlays[previousRange.start.deferredOverlayIndex..<previousRange.end.deferredOverlayIndex]
+                .map { overlay in
+                    guard let interaction = overlay.interaction else {
+                        return overlay
+                    }
+
+                    var nextOverlay = overlay
+                    switch interaction {
+                    case .scrollIndicator(let dispatchIndex, let track):
+                        nextOverlay.interaction = .scrollIndicator(dispatchIndex: dispatchIndex + dispatchDelta, track: track)
+                    }
+                    return nextOverlay
+                }
+            state.deferredOverlays.append(contentsOf: copiedDeferredOverlays)
+
             shiftCachedPrepaintRangesRecursively(
-                interactionDelta: startIndex.interactionIndex - previousRange.start.interactionIndex,
-                focusOrderDelta: startIndex.focusOrderIndex - previousRange.start.focusOrderIndex,
-                deferredOverlayDelta: startIndex.deferredOverlayIndex - previousRange.start.deferredOverlayIndex
+                dispatchDelta: dispatchDelta,
+                interactionDelta: interactionDelta,
+                focusOrderDelta: focusOrderDelta,
+                deferredOverlayDelta: deferredOverlayDelta
             )
             cachedPrepaintKey = cacheKey
             cachedPrepaintRange = PrepaintStateRange(
                 start: startIndex,
                 end: PrepaintStateIndex(
+                    dispatchIndex: state.dispatchNodes.count,
                     interactionIndex: state.interactions.count,
                     focusOrderIndex: state.focusOrder.count,
                     deferredOverlayIndex: state.deferredOverlays.count
@@ -895,9 +954,18 @@ public final class ViewNode {
             }
         }
 
+        let dispatchIndex = state.dispatchNodes.count
+        state.dispatchNodes.append(
+            PrepaintDispatchState(
+                node: self,
+                parentIndex: parentDispatchIndex
+            )
+        )
+
         if isHitTestVisible || isScrollable {
             state.interactions.append(
                 PrepaintInteractionState(
+                    dispatchIndex: dispatchIndex,
                     node: self,
                     frame: absoluteFrame,
                     clipRect: effectiveClip,
@@ -908,7 +976,7 @@ public final class ViewNode {
         }
 
         if isFocusable {
-            state.focusOrder.append(self)
+            state.focusOrder.append(dispatchIndex)
         }
 
         let absoluteOrigin = Point(
@@ -927,6 +995,7 @@ public final class ViewNode {
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
                 inheritedOpacity: effectiveOpacity,
+                parentDispatchIndex: dispatchIndex,
                 inheritedInverseTransform: nodeInverseTransform,
                 previousState: previousState,
                 displayScale: displayScale,
@@ -945,7 +1014,7 @@ public final class ViewNode {
                         cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
                         clipRect: effectiveClip
                     ),
-                    interaction: .scrollIndicator(node: self, track: track)
+                    interaction: .scrollIndicator(dispatchIndex: dispatchIndex, track: track)
                 )
             )
         }
@@ -954,6 +1023,7 @@ public final class ViewNode {
         cachedPrepaintRange = PrepaintStateRange(
             start: startIndex,
             end: PrepaintStateIndex(
+                dispatchIndex: state.dispatchNodes.count,
                 interactionIndex: state.interactions.count,
                 focusOrderIndex: state.focusOrder.count,
                 deferredOverlayIndex: state.deferredOverlays.count
@@ -1352,6 +1422,7 @@ public final class ViewNode {
     }
 
     func shiftCachedPrepaintRangesRecursively(
+        dispatchDelta: Int,
         interactionDelta: Int,
         focusOrderDelta: Int,
         deferredOverlayDelta: Int
@@ -1359,11 +1430,13 @@ public final class ViewNode {
         if let existingRange = cachedPrepaintRange {
             cachedPrepaintRange = PrepaintStateRange(
                 start: PrepaintStateIndex(
+                    dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.start.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
                     deferredOverlayIndex: existingRange.start.deferredOverlayIndex + deferredOverlayDelta
                 ),
                 end: PrepaintStateIndex(
+                    dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.end.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
                     deferredOverlayIndex: existingRange.end.deferredOverlayIndex + deferredOverlayDelta
@@ -1373,6 +1446,7 @@ public final class ViewNode {
 
         for child in children {
             child.shiftCachedPrepaintRangesRecursively(
+                dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
                 deferredOverlayDelta: deferredOverlayDelta
@@ -2253,18 +2327,56 @@ public final class RetainedViewRuntime {
             .map(\.element)
     }
 
-    private func hitTest(at point: Point) -> ViewNode? {
+    private func dispatchIndex(for node: ViewNode?) -> Int? {
+        guard let node else {
+            return nil
+        }
+
+        return prepaintState.dispatchNodes.firstIndex(where: { $0.node === node })
+    }
+
+    private func node(for dispatchIndex: Int?) -> ViewNode? {
+        guard let dispatchIndex, prepaintState.dispatchNodes.indices.contains(dispatchIndex) else {
+            return nil
+        }
+
+        return prepaintState.dispatchNodes[dispatchIndex].node
+    }
+
+    private func nearestDispatchIndex(
+        from dispatchIndex: Int?,
+        where predicate: (ViewNode) -> Bool
+    ) -> Int? {
+        var currentDispatchIndex = dispatchIndex
+        while let candidateDispatchIndex = currentDispatchIndex,
+              prepaintState.dispatchNodes.indices.contains(candidateDispatchIndex) {
+            let candidate = prepaintState.dispatchNodes[candidateDispatchIndex]
+            if predicate(candidate.node) {
+                return candidateDispatchIndex
+            }
+
+            currentDispatchIndex = candidate.parentIndex
+        }
+
+        return nil
+    }
+
+    private func hitDispatchIndex(at point: Point) -> Int? {
         updateResolvedLayout()
         for interaction in prepaintState.interactions.reversed() where interaction.node.isHitTestVisible {
             if interaction.containsForHitTesting(point) {
-                return interaction.node
+                return interaction.dispatchIndex
             }
         }
 
         return nil
     }
 
-    private func scrollTarget(at point: Point, axis: ScrollAxis? = nil) -> ViewNode? {
+    private func hitTest(at point: Point) -> ViewNode? {
+        node(for: hitDispatchIndex(at: point))
+    }
+
+    private func scrollTargetDispatchIndex(at point: Point, axis: ScrollAxis? = nil) -> Int? {
         updateResolvedLayout()
         for interaction in prepaintState.interactions.reversed() {
             guard interaction.node.isScrollable else {
@@ -2276,11 +2388,15 @@ public final class RetainedViewRuntime {
             }
 
             if interaction.containsForScrollTarget(point) {
-                return interaction.node
+                return interaction.dispatchIndex
             }
         }
 
         return nil
+    }
+
+    private func scrollTarget(at point: Point, axis: ScrollAxis? = nil) -> ViewNode? {
+        node(for: scrollTargetDispatchIndex(at: point, axis: axis))
     }
 
     private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
@@ -2291,7 +2407,10 @@ public final class RetainedViewRuntime {
             }
 
             switch overlay.interaction {
-            case .scrollIndicator(let node, let track):
+            case .scrollIndicator(let dispatchIndex, let track):
+                guard let node = node(for: dispatchIndex) else {
+                    continue
+                }
                 return ScrollIndicatorHit(node: node, track: track)
             case nil:
                 continue
@@ -2303,66 +2422,53 @@ public final class RetainedViewRuntime {
 
     private func moveFocus(reverse: Bool) {
         updateResolvedLayout()
-        let focusableNodes = prepaintState.focusOrder
-        guard !focusableNodes.isEmpty else {
+        let focusableDispatchIndices = prepaintState.focusOrder
+        guard !focusableDispatchIndices.isEmpty else {
             return
         }
 
-        guard let focusedNode, let index = focusableNodes.firstIndex(where: { $0 === focusedNode }) else {
-            updateFocusTarget(to: reverse ? focusableNodes.last : focusableNodes.first)
+        guard
+            let focusedDispatchIndex = nearestDispatchIndex(
+                from: dispatchIndex(for: focusedNode),
+                where: { $0.isFocusable }
+            ),
+            let index = focusableDispatchIndices.firstIndex(of: focusedDispatchIndex)
+        else {
+            updateFocusTarget(to: node(for: reverse ? focusableDispatchIndices.last : focusableDispatchIndices.first))
             return
         }
 
         let nextIndex: Int
         if reverse {
-            nextIndex = index == 0 ? focusableNodes.count - 1 : index - 1
+            nextIndex = index == 0 ? focusableDispatchIndices.count - 1 : index - 1
         } else {
-            nextIndex = index == focusableNodes.count - 1 ? 0 : index + 1
+            nextIndex = index == focusableDispatchIndices.count - 1 ? 0 : index + 1
         }
 
-        updateFocusTarget(to: focusableNodes[nextIndex])
+        updateFocusTarget(to: node(for: focusableDispatchIndices[nextIndex]))
     }
 
     private func nearestFocusableNode(from node: ViewNode?) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isFocusable {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+        self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isFocusable }))
     }
 
     private func nearestScrollableNode(from node: ViewNode?, axis: ScrollAxis? = nil) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isScrollable, axis == nil || candidate.scrollAxis == axis {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+        self.node(
+            for: nearestDispatchIndex(
+                from: dispatchIndex(for: node),
+                where: { candidate in
+                    candidate.isScrollable && (axis == nil || candidate.scrollAxis == axis)
+                }
+            )
+        )
     }
 
     private func nearestDraggableNode(from node: ViewNode?) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isDraggable {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+        self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isDraggable }))
     }
 
     private func handleScrollKey(_ key: KeyboardKey) -> Bool {
+        updateResolvedLayout()
         let scrollableNode = nearestScrollableNode(from: focusedNode) ?? nearestScrollableNode(from: hoveredNode)
         guard let scrollableNode else {
             return false

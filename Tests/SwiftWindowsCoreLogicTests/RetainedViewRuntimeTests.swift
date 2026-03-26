@@ -929,6 +929,39 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testPointerDownFocusesFocusableAncestorOfHitChild() async {
+        await MainActor.run {
+            var focusEvents: [String] = []
+            var activations = 0
+
+            let child = ViewNode(frame: Rect(x: 20, y: 20, width: 24, height: 24))
+            let focusableParent = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                isFocusable: true,
+                isHitTestVisible: false,
+                children: [child]
+            )
+            focusableParent.onFocusEnter = { focusEvents.append("focus+") }
+            focusableParent.onFocusExit = { focusEvents.append("focus-") }
+            focusableParent.onActivate = { activations += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [focusableParent]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 35, y: 35))
+            runtime.pointerUp(at: Point(x: 35, y: 35))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            runtime.keyboardFocusDidLeaveWindow()
+
+            XCTAssertEqual(focusEvents, ["focus+", "focus-"])
+            XCTAssertEqual(activations, 1)
+        }
+    }
+
     func testNodeDragCallbacksReceivePointerDelta() async {
         await MainActor.run {
             var startPoints: [Point] = []
@@ -954,6 +987,39 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertEqual(startPoints, [Point(x: 14, y: 16)])
             XCTAssertEqual(dragDeltas.last, Point(x: 14, y: 26))
             XCTAssertEqual(endDeltas, [Point(x: 14, y: 26)])
+        }
+    }
+
+    func testDraggableAncestorHandlesDragStartedFromHitChild() async {
+        await MainActor.run {
+            var startPoints: [Point] = []
+            var dragDeltas: [Point] = []
+            var endDeltas: [Point] = []
+
+            let child = ViewNode(frame: Rect(x: 8, y: 8, width: 24, height: 24))
+            let draggableParent = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                isHitTestVisible: false,
+                children: [child]
+            )
+            draggableParent.onDragStart = { point in startPoints.append(point) }
+            draggableParent.onDragChange = { _, delta in dragDeltas.append(delta) }
+            draggableParent.onDragEnd = { _, delta in endDeltas.append(delta) }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [draggableParent]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 24, y: 26))
+            runtime.pointerMoved(to: Point(x: 46, y: 58))
+            runtime.pointerUp(at: Point(x: 46, y: 58))
+
+            XCTAssertEqual(startPoints, [Point(x: 24, y: 26)])
+            XCTAssertEqual(dragDeltas.last, Point(x: 22, y: 32))
+            XCTAssertEqual(endDeltas, [Point(x: 22, y: 32)])
         }
     }
 }

@@ -166,4 +166,19 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(idx1, 1)
         XCTAssertEqual(idx2, 2)
     }
+
+    func testAddQuadToExplicitHigherLayerExpandsScene() {
+        var scene = GPUIScene()
+
+        scene.addQuad(
+            QuadPrimitive(x: 10, y: 20, width: 100, height: 50),
+            toLayer: 2
+        )
+
+        XCTAssertEqual(scene.layers.count, 3)
+        XCTAssertTrue(scene.layers[0].isEmpty)
+        XCTAssertTrue(scene.layers[1].isEmpty)
+        XCTAssertEqual(scene.layers[2].quads.count, 1)
+        XCTAssertEqual(scene.layers[2].quads[0].x, 10)
+    }
 }

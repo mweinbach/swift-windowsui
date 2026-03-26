@@ -197,7 +197,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 switch operation.kind {
                 case .shadow:
                     try renderBatch(
-                        Array(layer.shadows[range]),
+                        layer.shadows,
+                        range: range,
                         capacity: &shadowInstanceCapacity,
                         buffer: &shadowInstanceBuffer,
                         srv: &shadowInstanceSRV,
@@ -207,7 +208,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     )
                 case .quad:
                     try renderBatch(
-                        Array(layer.quads[range]),
+                        layer.quads,
+                        range: range,
                         capacity: &quadInstanceCapacity,
                         buffer: &quadInstanceBuffer,
                         srv: &quadInstanceSRV,
@@ -217,19 +219,22 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     )
                 case .glyph:
                     try renderGlyphBatch(
-                        Array(layer.glyphs[range]),
+                        layer.glyphs,
+                        range: range,
                         atlasSRV: glyphAtlasSRV,
                         deviceContext: deviceContext
                     )
                 case .pixelGlyph:
                     try renderGlyphBatch(
-                        Array(layer.pixelGlyphs[range]),
+                        layer.pixelGlyphs,
+                        range: range,
                         atlasSRV: pixelGlyphAtlasSRV,
                         deviceContext: deviceContext
                     )
                 case .image:
                     try renderBatch(
-                        Array(layer.images[range]),
+                        layer.images,
+                        range: range,
                         capacity: &imageInstanceCapacity,
                         buffer: &imageInstanceBuffer,
                         srv: &imageInstanceSRV,
@@ -681,9 +686,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private func uploadInstances<T>(
         _ instances: [T],
+        range: Range<Int>,
         buffer: UnsafeMutablePointer<ID3D11Buffer>,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
     ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
         let resource = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: ID3D11Resource.self)
         var mapped = D3D11_MAPPED_SUBRESOURCE()
         let mapHR = deviceContext.pointee.lpVtbl.pointee.Map(
@@ -701,8 +712,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(operation: "Map returned nil", hresult: batchHresultHandle)
         }
 
-        _ = instances.withUnsafeBytes { source in
-            memcpy(pData, source.baseAddress, source.count)
+        instances.withUnsafeBytes { source in
+            guard let baseAddress = source.baseAddress else {
+                return
+            }
+
+            let byteOffset = range.lowerBound * MemoryLayout<T>.stride
+            let byteCount = instanceCount * MemoryLayout<T>.stride
+            memcpy(pData, baseAddress.advanced(by: byteOffset), byteCount)
         }
 
         deviceContext.pointee.lpVtbl.pointee.Unmap(deviceContext, resource, 0)
@@ -843,6 +860,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     /// shaders and SRV, issues a single DrawInstanced call, then unbinds.
     private func renderBatch<T>(
         _ instances: [T],
+        range: Range<Int>,
         capacity: inout Int,
         buffer: inout UnsafeMutablePointer<ID3D11Buffer>?,
         srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
@@ -852,8 +870,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
         bindSampler: Bool = false
     ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
         try ensureInstanceBufferCapacity(
-            count: instances.count,
+            count: instanceCount,
             capacity: &capacity,
             strideBytes: MemoryLayout<T>.stride,
             buffer: &buffer,
@@ -863,7 +886,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         guard let buffer, let srv else { return }
 
-        try uploadInstances(instances, buffer: buffer, deviceContext: deviceContext)
+        try uploadInstances(instances, range: range, buffer: buffer, deviceContext: deviceContext)
 
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vs, nil, 0)
         deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, ps, nil, 0)
@@ -876,7 +899,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
         }
 
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instances.count), 0, 0)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
@@ -884,11 +907,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private func renderGlyphBatch(
         _ instances: [GlyphPrimitive],
+        range: Range<Int>,
         atlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
     ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
         try ensureInstanceBufferCapacity(
-            count: instances.count,
+            count: instanceCount,
             capacity: &glyphInstanceCapacity,
             strideBytes: MemoryLayout<GlyphPrimitive>.stride,
             buffer: &glyphInstanceBuffer,
@@ -906,7 +935,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             return
         }
 
-        try uploadInstances(instances, buffer: glyphInstanceBuffer, deviceContext: deviceContext)
+        try uploadInstances(instances, range: range, buffer: glyphInstanceBuffer, deviceContext: deviceContext)
 
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, glyphVS, nil, 0)
         deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, glyphPS, nil, 0)
@@ -919,7 +948,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instances.count), 0, 0)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)

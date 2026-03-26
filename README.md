@@ -12,7 +12,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
-- An experimental batch scene path that scales primitives into device pixels, preserves intra-layer paint order through typed paint operations, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
+- An experimental batch scene path that scales primitives into device pixels, preserves intra-layer paint order through typed paint operations, allocates subtree layer ranges instead of relying on append-only layer pushes, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -71,10 +71,12 @@ swift run swift-windowsui
 
 `GPUIScene` -> `D3D11BatchRenderer` remains in the repo as the active porting
 target. It now preserves paint order inside each layer through typed paint
-operations, caches logical native text layout per runtime, and only attaches
-atlas snapshots to freshly-built scenes, but it is not the default demo
-presentation path until layering, batching, and text rendering match the
-retained/frame behavior more closely.
+operations, allocates scene layers per subtree/z-band in `ScenePainter` instead
+of relying on a global tail layer, caches logical native text layout per
+runtime, only attaches atlas snapshots to freshly-built scenes, and uploads
+typed primitive ranges without materializing per-operation slice arrays, but it
+is not the default demo presentation path until layering, batching, and text
+rendering match the retained/frame behavior more closely.
 
 ## WinSwiftUI Coverage
 

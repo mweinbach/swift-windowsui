@@ -168,6 +168,17 @@ public struct GPUIScene: Equatable, Sendable {
         return layers.count - 1
     }
 
+    /// Ensures the scene contains a layer for the given index.
+    public mutating func ensureLayer(_ layerIndex: Int) {
+        guard layerIndex >= 0 else {
+            return
+        }
+
+        while layers.count <= layerIndex {
+            layers.append(GPUILayer())
+        }
+    }
+
     // MARK: - Primitive insertion (appends to last layer)
 
     public mutating func addQuad(_ quad: QuadPrimitive) {
@@ -191,22 +202,27 @@ public struct GPUIScene: Equatable, Sendable {
     }
 
     public mutating func addQuad(_ quad: QuadPrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
         layers[layerIndex].addQuad(quad)
     }
 
     public mutating func addGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
         layers[layerIndex].addGlyph(glyph)
     }
 
     public mutating func addImage(_ image: ImagePrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
         layers[layerIndex].addImage(image)
     }
 
     public mutating func addShadow(_ shadow: ShadowPrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
         layers[layerIndex].addShadow(shadow)
     }
 
     public mutating func addPixelGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
         layers[layerIndex].addPixelGlyph(glyph)
     }
 

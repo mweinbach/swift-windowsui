@@ -105,9 +105,10 @@ Surface direction:
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The experimental scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
-- `GPUIScene` now preserves intra-layer family ordering through typed paint operations instead of forcing a new layer every time the primitive family changes.
+- `GPUIScene` now preserves intra-layer family ordering through typed paint operations, while `ScenePainter` allocates subtree layer ranges explicitly so promoted descendants and later same-z siblings keep stable order.
 - Native scene text now goes through a runtime-owned logical `WindowTextSystem` cache before scene paint, and cached scenes no longer keep re-uploading stale atlas snapshots after the first presentation.
 - Standard text on the default path still goes through native bitmap rasterization; the experimental scene path now captures DirectWrite glyph IDs/font faces for atlas-backed glyphs, while icon/private-use glyphs still fall back to the pixel atlas.
+- `D3D11BatchRenderer` now uploads typed primitive ranges directly from scene storage instead of allocating temporary arrays per paint operation.
 
 ## Observation Model
 

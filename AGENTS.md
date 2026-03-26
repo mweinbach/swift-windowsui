@@ -17,7 +17,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 
 - The default demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `RenderFrame` -> `D3D11Renderer`.
 - The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
-- `RenderFrame` is still the default renderer-neutral command list. The experimental batch path uses typed scene primitives, per-layer paint operations for intra-layer ordering, device-pixel scaling, a runtime-owned logical text layout cache, and a cached native glyph atlas with pixel-atlas fallback for icon glyphs.
+- `RenderFrame` is still the default renderer-neutral command list. The experimental batch path uses typed scene primitives, per-layer paint operations for intra-layer ordering, subtree-scoped layer allocation in `ScenePainter`, device-pixel scaling, a runtime-owned logical text layout cache, and a cached native glyph atlas with pixel-atlas fallback for icon glyphs.
 - `SwiftWindowsScene` exists, but `GPUIScene` in `SwiftWindowsGraphics` is the primary scene contract being brought up toward the batch renderer.
 - `LayoutNode` and `FixedLayoutBox` are present, but the running UI currently relies on `ViewLayoutMode` and `StackLayout`.
 - `FoundationApp` still exists, but it is no longer the main demo bootstrap path.
@@ -52,9 +52,9 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - `Sources/SwiftWindowsUI/Runtime.swift`: retained tree behavior plus frame/scene generation
 - `Sources/SwiftWindowsUI/Controls.swift`: reusable retained control builders and animation hooks
 - `Sources/SwiftWindowsUI/PixelText.swift`: bitmap text measurement and rasterization
-- `Sources/SwiftWindowsUI/ScenePainter.swift`: `ViewNode` to `GPUIScene` translation
+- `Sources/SwiftWindowsUI/ScenePainter.swift`: `ViewNode` to `GPUIScene` translation plus subtree layer-range assignment
 - `Sources/SwiftWindowsPlatform/Win32Host.swift`: native windowing and input translation
-- `Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift`: D3D11 batch pipeline, atlas upload, and scene presentation
+- `Sources/SwiftWindowsRendererD3D11/D3D11BatchRenderer.swift`: D3D11 batch pipeline, atlas upload, range-based instance uploads, and scene presentation
 - `Sources/SwiftWindowsRendererD3D11/D3D11Renderer.swift`: D3D11 pipeline, swap chain, scissor clipping, rounded rect shader
 
 ## Documentation Guidance

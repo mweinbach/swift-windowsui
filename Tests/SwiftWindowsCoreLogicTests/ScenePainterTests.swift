@@ -114,6 +114,36 @@ struct ScenePainterTests {
         #expect(scene.layers.count == 3)
     }
 
+    @Test("Same-z siblings continue from the highest layer consumed by prior subtrees")
+    func sameZSiblingReusesPriorSubtreeTopLayer() {
+        let firstChild = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 100, height: 100),
+            backgroundColor: Color(red: 1, green: 0, blue: 0, alpha: 1)
+        )
+        let promotedGrandchild = ViewNode(
+            frame: Rect(x: 12, y: 12, width: 40, height: 40),
+            backgroundColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
+            zIndex: 1
+        )
+        firstChild.addChild(promotedGrandchild)
+
+        let secondChild = ViewNode(
+            frame: Rect(x: 140, y: 0, width: 100, height: 100),
+            backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1)
+        )
+
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 280, height: 160),
+            children: [firstChild, secondChild]
+        )
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 2)
+        #expect(scene.layers[0].quads.count == 1)
+        #expect(scene.layers[1].quads.count == 2)
+    }
+
     // MARK: - Hidden node
 
     @Test("Hidden node produces no primitives")
@@ -317,6 +347,34 @@ struct ScenePainterTests {
 
         let totalQuads = scene.layers.reduce(0) { $0 + $1.quads.count }
         #expect(totalQuads >= 3)
+    }
+
+    @Test("Scroll indicators stay on the parent subtree top layer after promoted children")
+    func scrollIndicatorUsesParentSubtreeTopLayer() {
+        let baseChild = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 160, height: 160),
+            backgroundColor: .white
+        )
+        let promotedChild = ViewNode(
+            frame: Rect(x: 0, y: 32, width: 160, height: 160),
+            backgroundColor: Color(red: 0.2, green: 0.5, blue: 1.0, alpha: 1),
+            zIndex: 1
+        )
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 120, height: 80),
+            backgroundColor: Color(red: 0.1, green: 0.1, blue: 0.1, alpha: 1),
+            scrollAxis: .vertical,
+            scrollOffset: 32,
+            showsScrollIndicator: true,
+            children: [baseChild, promotedChild]
+        )
+
+        let runtime = RetainedViewRuntime(root: node)
+        let scene = runtime.renderScene()
+
+        #expect(scene.layers.count == 2)
+        #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[1].quads.count == 2)
     }
 
     // MARK: - Clear color

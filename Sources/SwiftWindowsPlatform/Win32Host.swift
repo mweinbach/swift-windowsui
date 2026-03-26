@@ -91,6 +91,7 @@ public final class Win32Window {
 
     // Size-move tracking
     private var isInSizeMove = false
+    private var isInMenuLoop = false
 
     // Window position tracking
     private var windowPosition = POINT(x: 0, y: 0)
@@ -113,6 +114,8 @@ public final class Win32Window {
     // High-resolution timer support
     public var useHighResolutionTimer: Bool = false
     private var highResTimerHandle: HANDLE?
+    private var animationTimerIntervalMilliseconds: UINT = 0
+    private var animationTimerUsesHighResolution = false
 
     public init(title: String, clientSize: IntSize) {
         self.title = title
@@ -213,20 +216,21 @@ public final class Win32Window {
     }
 
     public func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UINT = 16) {
-        guard let hwnd else {
+        guard hwnd != nil else {
             return
         }
 
         if enabled {
-            guard !isAnimationTimerRunning else {
+            let configuration = animationTimerConfiguration(requestedInterval: intervalMilliseconds)
+            if isAnimationTimerRunning,
+               animationTimerIntervalMilliseconds == configuration.intervalMilliseconds,
+               animationTimerUsesHighResolution == configuration.useHighResolution
+            {
                 return
             }
 
-            if useHighResolutionTimer {
-                startHighResolutionTimer(intervalMilliseconds: intervalMilliseconds)
-            } else {
-                SetTimer(hwnd, Self.animationTimerIdentifier, intervalMilliseconds, nil)
-            }
+            stopCurrentAnimationTimer()
+            startAnimationTimer(using: configuration)
             isAnimationTimerRunning = true
             return
         }
@@ -235,11 +239,7 @@ public final class Win32Window {
             return
         }
 
-        if useHighResolutionTimer {
-            stopHighResolutionTimer()
-        } else {
-            KillTimer(hwnd, Self.animationTimerIdentifier)
-        }
+        stopCurrentAnimationTimer()
         isAnimationTimerRunning = false
     }
 
@@ -364,6 +364,59 @@ public final class Win32Window {
         highResTimerHandle = nil
     }
 
+    private func startAnimationTimer(using configuration: AnimationTimerConfiguration) {
+        guard let hwnd else {
+            return
+        }
+
+        if configuration.useHighResolution {
+            startHighResolutionTimer(intervalMilliseconds: configuration.intervalMilliseconds)
+        } else {
+            SetTimer(hwnd, Self.animationTimerIdentifier, configuration.intervalMilliseconds, nil)
+        }
+
+        animationTimerIntervalMilliseconds = configuration.intervalMilliseconds
+        animationTimerUsesHighResolution = configuration.useHighResolution
+    }
+
+    private func stopCurrentAnimationTimer() {
+        guard let hwnd else {
+            return
+        }
+
+        if animationTimerUsesHighResolution {
+            stopHighResolutionTimer()
+        } else {
+            KillTimer(hwnd, Self.animationTimerIdentifier)
+        }
+
+        animationTimerIntervalMilliseconds = 0
+        animationTimerUsesHighResolution = false
+    }
+
+    private func refreshAnimationTimerIfNeeded() {
+        guard isAnimationTimerRunning else {
+            return
+        }
+
+        stopCurrentAnimationTimer()
+        startAnimationTimer(using: animationTimerConfiguration(requestedInterval: animationTimerIntervalMilliseconds))
+    }
+
+    private func animationTimerConfiguration(requestedInterval: UINT) -> AnimationTimerConfiguration {
+        if isInSizeMove || isInMenuLoop {
+            return AnimationTimerConfiguration(
+                intervalMilliseconds: UINT(max(1, USER_TIMER_MINIMUM)),
+                useHighResolution: false
+            )
+        }
+
+        return AnimationTimerConfiguration(
+            intervalMilliseconds: max(1, requestedInterval),
+            useHighResolution: useHighResolutionTimer
+        )
+    }
+
     // MARK: - Message handling
 
     private func handleMessage(hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT {
@@ -419,11 +472,29 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_MOUSEWHEEL):
-            delegate?.window(self, mouseWheelAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd), delta: Self.mouseWheelDelta(from: wParam))
+            let point = Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd)
+            let modifiers = Self.currentKeyboardModifiers()
+            if modifiers.contains(.shift) {
+                delegate?.window(
+                    self,
+                    horizontalScrollAt: point,
+                    delta: Self.mouseWheelDelta(from: wParam, unit: .characters)
+                )
+            } else {
+                delegate?.window(
+                    self,
+                    mouseWheelAt: point,
+                    delta: Self.mouseWheelDelta(from: wParam, unit: .lines)
+                )
+            }
             return 0
 
         case UINT(WM_MOUSEHWHEEL):
-            delegate?.window(self, horizontalScrollAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd), delta: Self.mouseWheelDelta(from: wParam))
+            delegate?.window(
+                self,
+                horizontalScrollAt: Self.clientPoint(fromScreenLParam: lParam, hwnd: hwnd),
+                delta: Self.mouseWheelDelta(from: wParam, unit: .characters)
+            )
             return 0
 
         case UINT(WM_LBUTTONDOWN):
@@ -481,12 +552,24 @@ public final class Win32Window {
 
         case UINT(WM_ENTERSIZEMOVE):
             isInSizeMove = true
+            refreshAnimationTimerIfNeeded()
             return 0
 
         case UINT(WM_EXITSIZEMOVE):
             isInSizeMove = false
+            refreshAnimationTimerIfNeeded()
             updateCachedClientSize()
             delegate?.window(self, didResizeTo: clientSize)
+            return 0
+
+        case UINT(WM_ENTERMENULOOP):
+            isInMenuLoop = true
+            refreshAnimationTimerIfNeeded()
+            return 0
+
+        case UINT(WM_EXITMENULOOP):
+            isInMenuLoop = false
+            refreshAnimationTimerIfNeeded()
             return 0
 
         case UINT(WM_MOVE):
@@ -709,10 +792,33 @@ public final class Win32Window {
         return Point(x: Double(point.x), y: Double(point.y))
     }
 
-    private static func mouseWheelDelta(from wParam: WPARAM) -> Double {
+    private static func mouseWheelDelta(from wParam: WPARAM, unit: MouseWheelUnit) -> Double {
         let highWord = UInt16((UInt(truncatingIfNeeded: wParam) >> 16) & 0xFFFF)
         let signedDelta = Int16(bitPattern: highWord)
-        return Double(signedDelta) / Double(WHEEL_DELTA)
+        return (Double(signedDelta) / Double(WHEEL_DELTA)) * Double(systemWheelUnitCount(for: unit))
+    }
+
+    private static func systemWheelUnitCount(for unit: MouseWheelUnit) -> UINT {
+        var value: UINT = unit.defaultCount
+        let action: UINT = {
+            switch unit {
+            case .lines:
+                return UINT(SPI_GETWHEELSCROLLLINES)
+            case .characters:
+                return UINT(SPI_GETWHEELSCROLLCHARS)
+            }
+        }()
+
+        let succeeded = SystemParametersInfoW(action, 0, &value, 0)
+        guard succeeded else {
+            return unit.defaultCount
+        }
+
+        if value == Self.wheelPageScrollValue {
+            return unit.defaultCount
+        }
+
+        return max(1, value)
     }
 
     public static func currentTimestampSeconds() -> Double {
@@ -752,6 +858,26 @@ public final class Win32Window {
     private static let className = "SwiftWindowsUI.MainWindow"
     private static var didRegisterClass = false
     private static let animationTimerIdentifier: UINT_PTR = 1
+    private static let wheelPageScrollValue = UINT.max
+
+    private struct AnimationTimerConfiguration {
+        var intervalMilliseconds: UINT
+        var useHighResolution: Bool
+    }
+
+    private enum MouseWheelUnit {
+        case lines
+        case characters
+
+        var defaultCount: UINT {
+            switch self {
+            case .lines:
+                return 3
+            case .characters:
+                return 3
+            }
+        }
+    }
 
     private static let windowProc: WNDPROC = { (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
         if message == UINT(WM_NCCREATE) {

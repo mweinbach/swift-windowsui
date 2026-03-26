@@ -346,7 +346,7 @@ private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle,
 
 extension PixelTextStyle {
     var nativeFontPixelSize: Double {
-        max(12, scale * 6 + 8)
+        nativeFontSize ?? max(12, scale * 6 + 8)
     }
 }
 

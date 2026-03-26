@@ -6,13 +6,20 @@ Its job is not to imitate SwiftUI internally. Its job is to let app code use a f
 
 - `RetainedViewRuntime`
 - `ViewNode`
-- `GPUIScene`
+- `RenderFrame`
 - `Win32Window`
-- `D3D11BatchRenderer`
+- `D3D11Renderer`
 
-The active demo path now prefers `GPUIScene` -> `D3D11BatchRenderer`. The
-older `RenderFrame` -> `D3D11Renderer` route remains available as a fallback
-for explicit opt-out, startup recovery, and frame-graph compatibility.
+The default demo path now stays on `RenderFrame` -> `D3D11Renderer` so layering,
+text, and sizing remain correct while the `GPUIScene` -> `D3D11BatchRenderer`
+path continues behind an explicit experimental opt-in.
+
+To force the scene/batch path locally:
+
+```powershell
+$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH = "1"
+swift run swift-windowsui
+```
 
 The host also keeps a coalesced frame pump alive during resize, scroll, and
 other high-rate input instead of forcing synchronous redraws directly from each
@@ -88,7 +95,7 @@ Surface direction:
 
 ## Mapping Notes
 
-- `Text` maps into retained label nodes and the current scene/text renderer path.
+- `Text` maps into retained label nodes and the current runtime text renderer path.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
@@ -96,8 +103,8 @@ Surface direction:
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
-- The scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
-- Standard text now prefers a cached native glyph atlas; icon/private-use glyphs still fall back to the pixel atlas.
+- The experimental scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
+- Standard text on the default path still goes through native bitmap rasterization; the experimental scene path has a partial native glyph-atlas port, while icon/private-use glyphs still fall back to the pixel atlas.
 
 ## Observation Model
 
@@ -131,6 +138,6 @@ Avoid:
 
 - This is not full SwiftUI parity.
 - The repository is still Windows-only because the platform and renderer targets are Win32/D3D11-specific.
-- Text behavior now uses a cached native glyph atlas for standard text plus pixel-atlas fallback for icon glyphs, but it still stops short of GPUI-style shaped text runs.
-- `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` is the richer active presentation path.
+- Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port that still stops short of GPUI-style shaped text runs.
+- `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` remains the richer but still experimental presentation path.
 - API coverage should be extended from real demo/app needs, not by cloning SwiftUI surface area speculatively.

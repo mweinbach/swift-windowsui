@@ -393,8 +393,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private func syncAnimationDriver(for window: Win32Window) {
         let refreshRate = max(Int(window.monitorRefreshRate), 1)
         runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
-        window.useHighResolutionTimer = refreshRate > 60
-        let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded(.down))))
+        window.useHighResolutionTimer = true
+        let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
         let shouldDriveFrames = runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
         window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)
     }

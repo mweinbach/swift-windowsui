@@ -17,10 +17,25 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.text, "HELLO")
             XCTAssertEqual(node.textStyle.scale, 2.4)
+            XCTAssertEqual(node.textStyle.nativeFontSize, 22.4)
             XCTAssertEqual(node.textStyle.weight, .bold)
             XCTAssertEqual(node.textStyle.color, Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
             XCTAssertEqual(node.textStyle.alignment, .leading)
             XCTAssertEqual(node.textStyle.maximumNumberOfLines, 1)
+        }
+    }
+
+    func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("HELLO")
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+            )
+
+            XCTAssertEqual(node.textStyle.scale, 1.8)
+            XCTAssertEqual(node.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(node.textStyle.weight, .semibold)
+            XCTAssertEqual(node.textStyle.fontFamily, "Segoe UI")
         }
     }
 

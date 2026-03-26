@@ -10,9 +10,9 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A retained `ViewNode` runtime with mutable state, layout, hit testing, focus, clipping, and animation
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
-- An active demo path that prefers `GPUIScene` -> `D3D11BatchRenderer` and automatically falls back to `RenderFrame` -> `D3D11Renderer` if batch startup/rendering fails
+- An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
 - A `WinSwiftUI` host loop that coalesces rebuilds and keeps the frame pump alive during resize, scroll, and other high-rate interaction
-- A batch scene path that now scales primitives into device pixels and uses a cached native glyph atlas for standard text, with pixel-atlas fallback for icon glyphs
+- An experimental batch scene path that scales primitives into device pixels and is still being brought up toward Zed-style paint ordering and shaped text
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -50,20 +50,28 @@ Targets:
 
 ## Active Demo Path
 
-The running demo now goes through:
+The default running demo now goes through:
 
 1. [`Sources/swift-windowsui/AppEntry.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/AppEntry.swift)
 2. `WinSwiftUI.App` / `WindowGroup`
 3. `WinSwiftUIWindowHost`
 4. `Win32Window` delegate callbacks
 5. `RetainedViewRuntime`
-6. `GPUIScene`
-7. `D3D11BatchRenderer`
+6. `RenderFrame`
+7. `D3D11Renderer`
+
+The experimental scene path is still in the repo and can be forced with:
+
+```powershell
+$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH = "1"
+swift run swift-windowsui
+```
 
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
 
-`RenderFrame` -> `D3D11Renderer` remains in the repo as the fallback path and
-still covers the legacy bitmap/frame command route.
+`GPUIScene` -> `D3D11BatchRenderer` remains in the repo as the active porting
+target, but it is not the default demo presentation path until paint ordering
+and native text shaping match the retained/frame behavior.
 
 ## WinSwiftUI Coverage
 
@@ -84,8 +92,8 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text now prefers cached native glyph bitmaps in the scene path and uses the pixel atlas for icon/private-use glyph fallback; there is still no full shaping/run segmentation yet
-- `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the active scene path currently covers shadows, quads, and atlas-backed glyphs
+- Text on the default path still uses native bitmap draws; the experimental scene path has a partial native-glyph-atlas port but still lacks GPUI-style shaped runs
+- `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility
 

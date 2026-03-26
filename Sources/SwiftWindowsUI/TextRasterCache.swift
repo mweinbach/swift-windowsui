@@ -6,6 +6,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var text: String
     var fontFamily: String
     var scale: Double
+    var nativeFontSize: Double?
     var weight: TextWeight
     var alignment: TextHorizontalAlignment
     var verticalAlignment: TextVerticalAlignment
@@ -31,6 +32,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.text = text
         self.fontFamily = style.fontFamily
         self.scale = style.scale
+        self.nativeFontSize = style.nativeFontSize
         self.weight = style.weight
         self.alignment = style.alignment
         self.verticalAlignment = style.verticalAlignment

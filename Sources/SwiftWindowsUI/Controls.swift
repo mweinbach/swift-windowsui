@@ -723,6 +723,7 @@ public enum Controls {
         scale: Double = 2,
         weight: TextWeight = .regular,
         fontFamily: String = "Segoe UI",
+        nativeFontSize: Double? = nil,
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero,
         lineBreakMode: TextLineBreakMode = .truncateTail,
@@ -740,6 +741,7 @@ public enum Controls {
                 alignment: alignment,
                 insets: insets,
                 fontFamily: fontFamily,
+                nativeFontSize: nativeFontSize,
                 weight: weight,
                 lineBreakMode: lineBreakMode,
                 maximumNumberOfLines: maximumNumberOfLines

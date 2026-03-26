@@ -754,6 +754,10 @@ extension Font {
         size >= 8 ? size / 10.0 : size
     }
 
+    var resolvedNativeTextSize: Double {
+        size >= 8 ? size : max(12, size * 6 + 8)
+    }
+
     var resolvedFamily: String {
         if let family {
             return family

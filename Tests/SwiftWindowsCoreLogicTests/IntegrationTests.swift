@@ -229,9 +229,15 @@ final class IntegrationTests: XCTestCase {
 
     func testBatchRenderBackendProtocolCanBeReferenced() async {
         await MainActor.run {
-            let backend: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend()
-            XCTAssertNotNil(backend)
-            XCTAssertEqual(backend?.backendDisplayName, "D3D11 BATCH")
+            let backend: any BatchRenderBackend = D3D11BatchRenderer()
+            XCTAssertEqual(backend.backendDisplayName, "D3D11 BATCH")
+        }
+    }
+
+    func testBatchBackendFactoryDefaultsToNilUntilOptedIn() async {
+        await MainActor.run {
+            let backend = DefaultRenderBackendFactory.makeBatchBackend()
+            XCTAssertNil(backend)
         }
     }
 

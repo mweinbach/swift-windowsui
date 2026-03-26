@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsGraphics
 
 @MainActor
@@ -8,10 +9,15 @@ public enum DefaultRenderBackendFactory {
 
     /// Create a batch-capable renderer, if one is available.
     ///
-    /// The active WinSwiftUI host prefers this scene/batch renderer when it is
-    /// available. Callers can still pass `nil` to stay on the `RenderFrame`
-    /// fallback path explicitly.
+    /// The scene/batch renderer remains opt-in until paint ordering and
+    /// shaped native text are ported all the way over. Set
+    /// `SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH=1` to force the demo onto the
+    /// experimental scene path.
     public static func makeBatchBackend() -> (any BatchRenderBackend)? {
-        D3D11BatchRenderer()
+        guard ProcessInfo.processInfo.environment["SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH"] == "1" else {
+            return nil
+        }
+
+        return D3D11BatchRenderer()
     }
 }

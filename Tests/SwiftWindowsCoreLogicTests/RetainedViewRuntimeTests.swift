@@ -716,6 +716,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             rightContent.backgroundColor = Color(red: 0.1, green: 0.4, blue: 0.9, alpha: 1)
             _ = runtime.renderFrame()
 
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
             XCTAssertEqual(runtime.lastDeferredOverlayReplayCount, 1)
         }
     }
@@ -753,6 +754,60 @@ final class RetainedViewRuntimeTests: XCTestCase {
             _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
 
             XCTAssertEqual(scrollPanel.scrollIndicatorColor, hoverColor)
+        }
+    }
+
+    func testPrepaintHitTestingKeepsPaintOrderedZIndexPriority() async {
+        await MainActor.run {
+            var backPresses = 0
+            var frontPresses = 0
+
+            let back = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 60, height: 60),
+                backgroundColor: .white
+            )
+            back.onPointerDown = { backPresses += 1 }
+
+            let front = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 60, height: 60),
+                backgroundColor: .black,
+                zIndex: 1
+            )
+            front.onPointerDown = { frontPresses += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                children: [back, front]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 30, y: 30))
+
+            XCTAssertEqual(frontPresses, 1)
+            XCTAssertEqual(backPresses, 0)
+        }
+    }
+
+    func testPrepaintHitTestingPreservesTransforms() async {
+        await MainActor.run {
+            var presses = 0
+
+            let rotated = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 40, height: 40),
+                backgroundColor: .white,
+                transform: Transform2D(rotation: .pi / 4)
+            )
+            rotated.onPointerDown = { presses += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                children: [rotated]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 15, y: 40))
+
+            XCTAssertEqual(presses, 1)
         }
     }
 

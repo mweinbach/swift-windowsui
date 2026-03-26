@@ -1,6 +1,15 @@
 import SwiftWindowsCore
 import WinSDK
 
+private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?, _: UInt8) {
+    guard let param else {
+        return
+    }
+
+    let hwndValue = HWND(bitPattern: Int(bitPattern: param))
+    PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0)
+}
+
 @MainActor
 public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
@@ -339,11 +348,7 @@ public final class Win32Window {
         let created = CreateTimerQueueTimer(
             &timerHandle,
             nil,
-            { param, _ in
-                guard let param else { return }
-                let hwndValue = HWND(bitPattern: Int(bitPattern: param))
-                PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0)
-            },
+            win32HighResolutionTimerCallback,
             UnsafeMutableRawPointer(bitPattern: windowValue),
             DWORD(intervalMilliseconds),
             DWORD(intervalMilliseconds),

@@ -50,6 +50,70 @@ enum DeferredOverlayInteraction {
     case scrollIndicator(node: ViewNode, track: ScrollIndicatorTrack)
 }
 
+struct PrepaintStateIndex: Equatable, Sendable {
+    var interactionIndex: Int
+    var focusOrderIndex: Int
+    var deferredOverlayIndex: Int
+}
+
+struct PrepaintStateRange: Equatable, Sendable {
+    var start: PrepaintStateIndex
+    var end: PrepaintStateIndex
+}
+
+@MainActor
+struct PrepaintInteractionState {
+    var node: ViewNode
+    var frame: Rect
+    var clipRect: Rect?
+    var clipInverseTransform: Transform2D?
+    var hitTestInverseTransform: Transform2D?
+
+    func containsForHitTesting(_ point: Point) -> Bool {
+        let clippedPoint: Point
+        if let clipInverseTransform {
+            clippedPoint = clipInverseTransform.applying(to: point)
+        } else {
+            clippedPoint = point
+        }
+
+        if let clipRect, !clipRect.contains(clippedPoint) {
+            return false
+        }
+
+        let hitTestPoint: Point
+        if let hitTestInverseTransform {
+            hitTestPoint = hitTestInverseTransform.applying(to: point)
+        } else {
+            hitTestPoint = clippedPoint
+        }
+
+        return frame.contains(hitTestPoint)
+    }
+
+    func containsForScrollTarget(_ point: Point) -> Bool {
+        let transformedPoint: Point
+        if let clipInverseTransform {
+            transformedPoint = clipInverseTransform.applying(to: point)
+        } else {
+            transformedPoint = point
+        }
+
+        if let clipRect, !clipRect.contains(transformedPoint) {
+            return false
+        }
+
+        return frame.contains(transformedPoint)
+    }
+}
+
+@MainActor
+struct RuntimePrepaintState {
+    var interactions: [PrepaintInteractionState] = []
+    var focusOrder: [ViewNode] = []
+    var deferredOverlays: [DeferredOverlayState] = []
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
@@ -258,10 +322,10 @@ public final class ViewNode {
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
     internal var cachedLayoutKey: ViewLayoutCacheKey?
+    internal var cachedPrepaintKey: ViewPaintCacheKey?
+    internal var cachedPrepaintRange: PrepaintStateRange?
     internal var cachedFrameKey: ViewPaintCacheKey?
     internal var cachedFrameCommandRange: Range<Int>?
-    internal var cachedDeferredPaintKey: ViewPaintCacheKey?
-    internal var cachedDeferredPaintRange: Range<Int>?
     internal var cachedSceneKey: ViewPaintCacheKey?
     internal var cachedScenePaintRange: Range<Int>?
 
@@ -709,6 +773,194 @@ public final class ViewNode {
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
     }
 
+    fileprivate func orderedChildrenForPaint() -> [ViewNode] {
+        if children.contains(where: { $0.zIndex != 0 }) {
+            return children.enumerated()
+                .sorted { a, b in
+                    if a.element.zIndex != b.element.zIndex {
+                        return a.element.zIndex < b.element.zIndex
+                    }
+                    return a.offset < b.offset
+                }
+                .map(\.element)
+        }
+
+        return children
+    }
+
+    fileprivate func appendPrepaintState(
+        into state: inout RuntimePrepaintState,
+        parentOrigin: Point,
+        inheritedClip: Rect?,
+        inheritedOpacity: Float = 1,
+        inheritedInverseTransform: Transform2D? = nil,
+        previousState: RuntimePrepaintState? = nil,
+        displayScale: Double = 1,
+        replayCount: inout Int
+    ) {
+        let startIndex = PrepaintStateIndex(
+            interactionIndex: state.interactions.count,
+            focusOrderIndex: state.focusOrder.count,
+            deferredOverlayIndex: state.deferredOverlays.count
+        )
+
+        if isHidden {
+            cachedPrepaintKey = nil
+            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+            return
+        }
+
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
+        )
+
+        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+            cachedPrepaintKey = nil
+            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+            return
+        }
+
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    cachedPrepaintKey = nil
+                    cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                    return
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let cacheKey = ViewPaintCacheKey(
+            bounds: absoluteFrame,
+            contentMask: effectiveClip,
+            opacity: effectiveOpacity,
+            displayScale: displayScale
+        )
+
+        if
+            let previousState,
+            !hasDirtySubtree,
+            cachedPrepaintKey == cacheKey,
+            let previousRange = cachedPrepaintRange
+        {
+            state.interactions.append(contentsOf: previousState.interactions[previousRange.start.interactionIndex..<previousRange.end.interactionIndex])
+            state.focusOrder.append(contentsOf: previousState.focusOrder[previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex])
+            state.deferredOverlays.append(contentsOf: previousState.deferredOverlays[previousRange.start.deferredOverlayIndex..<previousRange.end.deferredOverlayIndex])
+            shiftCachedPrepaintRangesRecursively(
+                interactionDelta: startIndex.interactionIndex - previousRange.start.interactionIndex,
+                focusOrderDelta: startIndex.focusOrderIndex - previousRange.start.focusOrderIndex,
+                deferredOverlayDelta: startIndex.deferredOverlayIndex - previousRange.start.deferredOverlayIndex
+            )
+            cachedPrepaintKey = cacheKey
+            cachedPrepaintRange = PrepaintStateRange(
+                start: startIndex,
+                end: PrepaintStateIndex(
+                    interactionIndex: state.interactions.count,
+                    focusOrderIndex: state.focusOrder.count,
+                    deferredOverlayIndex: state.deferredOverlays.count
+                )
+            )
+            replayCount += 1
+            return
+        }
+
+        let nodeInverseTransform: Transform2D?
+        if transform.isIdentity {
+            nodeInverseTransform = inheritedInverseTransform
+        } else {
+            let center = Point(
+                x: absoluteFrame.origin.x + absoluteFrame.size.width * 0.5,
+                y: absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
+            )
+            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+            if let inverseTransform = centeredTransform.inverseOrNil() {
+                if let inheritedInverseTransform {
+                    nodeInverseTransform = inheritedInverseTransform.concatenating(inverseTransform)
+                } else {
+                    nodeInverseTransform = inverseTransform
+                }
+            } else {
+                nodeInverseTransform = inheritedInverseTransform
+            }
+        }
+
+        if isHitTestVisible || isScrollable {
+            state.interactions.append(
+                PrepaintInteractionState(
+                    node: self,
+                    frame: absoluteFrame,
+                    clipRect: effectiveClip,
+                    clipInverseTransform: inheritedInverseTransform,
+                    hitTestInverseTransform: nodeInverseTransform
+                )
+            )
+        }
+
+        if isFocusable {
+            state.focusOrder.append(self)
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
+        )
+
+        for child in orderedChildrenForPaint() {
+            child.appendPrepaintState(
+                into: &state,
+                parentOrigin: childOrigin,
+                inheritedClip: effectiveClip,
+                inheritedOpacity: effectiveOpacity,
+                inheritedInverseTransform: nodeInverseTransform,
+                previousState: previousState,
+                displayScale: displayScale,
+                replayCount: &replayCount
+            )
+        }
+
+        if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: absoluteFrame) {
+            let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
+            state.deferredOverlays.append(
+                DeferredOverlayState(
+                    priority: state.deferredOverlays.count,
+                    command: FillRectCommand(
+                        rect: track.indicatorRect,
+                        color: effectiveScrollIndicatorColor,
+                        cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
+                        clipRect: effectiveClip
+                    ),
+                    interaction: .scrollIndicator(node: self, track: track)
+                )
+            )
+        }
+
+        cachedPrepaintKey = cacheKey
+        cachedPrepaintRange = PrepaintStateRange(
+            start: startIndex,
+            end: PrepaintStateIndex(
+                interactionIndex: state.interactions.count,
+                focusOrderIndex: state.focusOrder.count,
+                deferredOverlayIndex: state.deferredOverlays.count
+            )
+        )
+    }
+
     fileprivate func appendCommands(
         into commands: inout [RenderCommand],
         parentOrigin: Point,
@@ -924,21 +1176,7 @@ public final class ViewNode {
         // views should be added at the root level or to a dedicated
         // overlay container rather than relying on zIndex across
         // different subtrees.
-        let sortedChildren: [ViewNode]
-        if children.contains(where: { $0.zIndex != 0 }) {
-            sortedChildren = children.enumerated()
-                .sorted { a, b in
-                    if a.element.zIndex != b.element.zIndex {
-                        return a.element.zIndex < b.element.zIndex
-                    }
-                    return a.offset < b.offset
-                }
-                .map(\.element)
-        } else {
-            sortedChildren = children
-        }
-
-        for child in sortedChildren {
+        for child in orderedChildrenForPaint() {
             child.appendCommands(
                 into: &commands,
                 parentOrigin: childOrigin,
@@ -953,136 +1191,6 @@ public final class ViewNode {
         cachedFrameKey = cacheKey
         cachedFrameCommandRange = startIndex..<commands.count
         markSubtreeRendered()
-    }
-
-    fileprivate func appendDeferredOverlays(
-        into overlays: inout [DeferredOverlayState],
-        parentOrigin: Point,
-        inheritedClip: Rect?,
-        inheritedOpacity: Float = 1,
-        previousOverlays: [DeferredOverlayState]? = nil,
-        displayScale: Double = 1,
-        replayCount: inout Int
-    ) {
-        let startIndex = overlays.count
-
-        if isHidden {
-            cachedDeferredPaintKey = nil
-            cachedDeferredPaintRange = startIndex..<startIndex
-            return
-        }
-
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
-
-        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
-            cachedDeferredPaintKey = nil
-            cachedDeferredPaintRange = startIndex..<startIndex
-            return
-        }
-
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    cachedDeferredPaintKey = nil
-                    cachedDeferredPaintRange = startIndex..<startIndex
-                    return
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
-            }
-        }
-
-        let effectiveOpacity = inheritedOpacity * Float(opacity)
-        let cacheKey = ViewPaintCacheKey(
-            bounds: absoluteFrame,
-            contentMask: effectiveClip,
-            opacity: effectiveOpacity,
-            displayScale: displayScale
-        )
-
-        guard effectiveOpacity > 0 else {
-            cachedDeferredPaintKey = cacheKey
-            cachedDeferredPaintRange = startIndex..<startIndex
-            return
-        }
-
-        if
-            let previousOverlays,
-            !hasDirtySubtree,
-            cachedDeferredPaintKey == cacheKey,
-            let previousRange = cachedDeferredPaintRange
-        {
-            overlays.append(contentsOf: previousOverlays[previousRange])
-            let delta = startIndex - previousRange.lowerBound
-            shiftCachedDeferredRangesRecursively(by: delta)
-            cachedDeferredPaintKey = cacheKey
-            cachedDeferredPaintRange = startIndex..<overlays.count
-            replayCount += 1
-            return
-        }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
-
-        let sortedChildren: [ViewNode]
-        if children.contains(where: { $0.zIndex != 0 }) {
-            sortedChildren = children.enumerated()
-                .sorted { a, b in
-                    if a.element.zIndex != b.element.zIndex {
-                        return a.element.zIndex < b.element.zIndex
-                    }
-                    return a.offset < b.offset
-                }
-                .map(\.element)
-        } else {
-            sortedChildren = children
-        }
-
-        for child in sortedChildren {
-            child.appendDeferredOverlays(
-                into: &overlays,
-                parentOrigin: childOrigin,
-                inheritedClip: effectiveClip,
-                inheritedOpacity: effectiveOpacity,
-                previousOverlays: previousOverlays,
-                displayScale: displayScale,
-                replayCount: &replayCount
-            )
-        }
-
-        if let track = scrollIndicatorTrack(in: absoluteFrame) {
-            let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
-            overlays.append(
-                DeferredOverlayState(
-                    priority: overlays.count,
-                    command: FillRectCommand(
-                        rect: track.indicatorRect,
-                        color: effectiveScrollIndicatorColor,
-                        cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5,
-                        clipRect: effectiveClip
-                    ),
-                    interaction: .scrollIndicator(node: self, track: track)
-                )
-            )
-        }
-
-        cachedDeferredPaintKey = cacheKey
-        cachedDeferredPaintRange = startIndex..<overlays.count
     }
 
     fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
@@ -1122,9 +1230,9 @@ public final class ViewNode {
         if !transform.isIdentity {
             let cx = absoluteFrame.origin.x + absoluteFrame.size.width * 0.5
             let cy = absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
-            let centeredTransform = Transform2D.translation(x: cx, y: cy)
+            let centeredTransform = Transform2D.translation(x: -cx, y: -cy)
                 .concatenating(transform)
-                .concatenating(.translation(x: -cx, y: -cy))
+                .concatenating(.translation(x: cx, y: cy))
             if let inverseTransform = centeredTransform.inverseOrNil() {
                 testPoint = inverseTransform.applying(to: point)
             } else {
@@ -1243,13 +1351,32 @@ public final class ViewNode {
         }
     }
 
-    func shiftCachedDeferredRangesRecursively(by delta: Int) {
-        if let existingRange = cachedDeferredPaintRange {
-            cachedDeferredPaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+    func shiftCachedPrepaintRangesRecursively(
+        interactionDelta: Int,
+        focusOrderDelta: Int,
+        deferredOverlayDelta: Int
+    ) {
+        if let existingRange = cachedPrepaintRange {
+            cachedPrepaintRange = PrepaintStateRange(
+                start: PrepaintStateIndex(
+                    interactionIndex: existingRange.start.interactionIndex + interactionDelta,
+                    focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
+                    deferredOverlayIndex: existingRange.start.deferredOverlayIndex + deferredOverlayDelta
+                ),
+                end: PrepaintStateIndex(
+                    interactionIndex: existingRange.end.interactionIndex + interactionDelta,
+                    focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
+                    deferredOverlayIndex: existingRange.end.deferredOverlayIndex + deferredOverlayDelta
+                )
+            )
         }
 
         for child in children {
-            child.shiftCachedDeferredRangesRecursively(by: delta)
+            child.shiftCachedPrepaintRangesRecursively(
+                interactionDelta: interactionDelta,
+                focusOrderDelta: focusOrderDelta,
+                deferredOverlayDelta: deferredOverlayDelta
+            )
         }
     }
 
@@ -1763,11 +1890,12 @@ public final class RetainedViewRuntime {
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
-    private var prepaintedDeferredOverlays: [DeferredOverlayState] = []
+    private var prepaintState = RuntimePrepaintState()
     internal private(set) var lastFrameReplayCount = 0
     internal private(set) var lastSceneReplayCount = 0
     internal private(set) var lastLayoutReuseCount = 0
     internal private(set) var lastMeasureReuseCount = 0
+    internal private(set) var lastPrepaintReplayCount = 0
     internal private(set) var lastDeferredOverlayReplayCount = 0
     let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
@@ -1806,6 +1934,7 @@ public final class RetainedViewRuntime {
             lastFrameReplayCount = 0
             lastLayoutReuseCount = 0
             lastMeasureReuseCount = 0
+            lastPrepaintReplayCount = 0
             lastDeferredOverlayReplayCount = 0
             return cachedFrame
         }
@@ -1818,6 +1947,7 @@ public final class RetainedViewRuntime {
                 lastFrameReplayCount = 0
                 lastLayoutReuseCount = 0
                 lastMeasureReuseCount = 0
+                lastPrepaintReplayCount = 0
                 lastDeferredOverlayReplayCount = 0
                 return cachedFrame
             }
@@ -1836,7 +1966,7 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &replayCount
         )
-        appendDeferredPaints(prepaintedDeferredOverlays, into: &commands)
+        appendDeferredPaints(prepaintState.deferredOverlays, into: &commands)
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         lastFrameReplayCount = replayCount
@@ -1855,6 +1985,7 @@ public final class RetainedViewRuntime {
             lastSceneReplayCount = 0
             lastLayoutReuseCount = 0
             lastMeasureReuseCount = 0
+            lastPrepaintReplayCount = 0
             lastDeferredOverlayReplayCount = 0
             return cachedScene
         }
@@ -1865,6 +1996,7 @@ public final class RetainedViewRuntime {
                 lastSceneReplayCount = 0
                 lastLayoutReuseCount = 0
                 lastMeasureReuseCount = 0
+                lastPrepaintReplayCount = 0
                 lastDeferredOverlayReplayCount = 0
                 return cachedScene
             }
@@ -1880,7 +2012,7 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             textSystem: textSystem,
             previousScene: previousScene,
-            deferredOverlays: prepaintedDeferredOverlays,
+            deferredOverlays: prepaintState.deferredOverlays,
             replayCount: &replayCount
         )
 
@@ -2123,17 +2255,37 @@ public final class RetainedViewRuntime {
 
     private func hitTest(at point: Point) -> ViewNode? {
         updateResolvedLayout()
-        return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
+        for interaction in prepaintState.interactions.reversed() where interaction.node.isHitTestVisible {
+            if interaction.containsForHitTesting(point) {
+                return interaction.node
+            }
+        }
+
+        return nil
     }
 
     private func scrollTarget(at point: Point, axis: ScrollAxis? = nil) -> ViewNode? {
         updateResolvedLayout()
-        return root.scrollTarget(at: point, axis: axis, parentOrigin: .zero, inheritedClip: nil)
+        for interaction in prepaintState.interactions.reversed() {
+            guard interaction.node.isScrollable else {
+                continue
+            }
+
+            if let axis, interaction.node.scrollAxis != axis {
+                continue
+            }
+
+            if interaction.containsForScrollTarget(point) {
+                return interaction.node
+            }
+        }
+
+        return nil
     }
 
     private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
         updateResolvedLayout()
-        for overlay in orderedDeferredPaints(prepaintedDeferredOverlays).reversed() {
+        for overlay in orderedDeferredPaints(prepaintState.deferredOverlays).reversed() {
             guard overlay.command.rect.contains(point) else {
                 continue
             }
@@ -2150,7 +2302,8 @@ public final class RetainedViewRuntime {
     }
 
     private func moveFocus(reverse: Bool) {
-        let focusableNodes = focusableNodes(in: root)
+        updateResolvedLayout()
+        let focusableNodes = prepaintState.focusOrder
         guard !focusableNodes.isEmpty else {
             return
         }
@@ -2168,23 +2321,6 @@ public final class RetainedViewRuntime {
         }
 
         updateFocusTarget(to: focusableNodes[nextIndex])
-    }
-
-    private func focusableNodes(in node: ViewNode) -> [ViewNode] {
-        if node.isHidden {
-            return []
-        }
-
-        var result: [ViewNode] = []
-        if node.isFocusable {
-            result.append(node)
-        }
-
-        for child in node.children {
-            result.append(contentsOf: focusableNodes(in: child))
-        }
-
-        return result
     }
 
     private func nearestFocusableNode(from node: ViewNode?) -> ViewNode? {
@@ -2238,25 +2374,27 @@ public final class RetainedViewRuntime {
     private func updateResolvedLayout() {
         lastLayoutReuseCount = 0
         lastMeasureReuseCount = 0
+        lastPrepaintReplayCount = 0
         lastDeferredOverlayReplayCount = 0
         root.resolvedFrame = root.frame
         root.layoutSubtree(displayScale: displayScale)
-        updateDeferredOverlays()
+        updatePrepaintState()
     }
 
-    private func updateDeferredOverlays() {
-        let previousOverlays = prepaintedDeferredOverlays
-        var nextOverlays: [DeferredOverlayState] = []
+    private func updatePrepaintState() {
+        let previousState = prepaintState
+        var nextState = RuntimePrepaintState()
         var replayCount = 0
-        root.appendDeferredOverlays(
-            into: &nextOverlays,
+        root.appendPrepaintState(
+            into: &nextState,
             parentOrigin: .zero,
             inheritedClip: nil,
-            previousOverlays: previousOverlays,
+            previousState: previousState,
             displayScale: displayScale,
             replayCount: &replayCount
         )
-        prepaintedDeferredOverlays = nextOverlays
+        prepaintState = nextState
+        lastPrepaintReplayCount = replayCount
         lastDeferredOverlayReplayCount = replayCount
     }
 

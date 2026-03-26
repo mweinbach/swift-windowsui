@@ -21,6 +21,14 @@ public struct GPUILayer: Equatable, Sendable {
         self.glyphs = glyphs
         self.images = images
     }
+
+    public var primitiveCount: Int {
+        shadows.count + quads.count + glyphs.count + images.count
+    }
+
+    public var isEmpty: Bool {
+        primitiveCount == 0
+    }
 }
 
 // MARK: - GPUIScene
@@ -62,5 +70,13 @@ public struct GPUIScene: Equatable, Sendable {
 
     public mutating func addShadow(_ shadow: ShadowPrimitive) {
         layers[layers.count - 1].shadows.append(shadow)
+    }
+
+    public var primitiveCount: Int {
+        layers.reduce(0) { $0 + $1.primitiveCount }
+    }
+
+    public var totalPrimitiveCount: Int {
+        primitiveCount
     }
 }

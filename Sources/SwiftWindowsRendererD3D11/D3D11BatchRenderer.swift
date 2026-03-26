@@ -4,16 +4,6 @@ import SwiftWindowsGraphics
 import WinSDK
 import WinSDK.DirectX
 
-// MARK: - BatchRenderBackend Protocol
-
-@MainActor
-public protocol BatchRenderBackend: AnyObject {
-    var backendDisplayName: String { get }
-    func attach(to surface: SurfaceDescriptor) throws
-    func resize(to size: IntSize) throws
-    func render(scene: GPUIScene) throws
-}
-
 // MARK: - D3D11BatchRenderer
 
 /// Instanced batch renderer using StructuredBuffer-based instanced draw calls.
@@ -76,7 +66,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     public func attach(to surface: SurfaceDescriptor) throws {
         guard let hwnd = unsafeBitCast(surface.windowHandle.rawPointer, to: HWND?.self) else {
-            throw BatchRendererError(operation: "Resolve HWND", hresult: hresultHandle)
+            throw BatchRendererError(operation: "Resolve HWND", hresult: batchHresultHandle)
         }
 
         self.surface = surface
@@ -264,7 +254,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             )
         }
 
-        if hr == hresultInvalidArgument {
+        if hr == batchHresultInvalidArgument {
             featureLevels.removeFirst()
             let fallbackHR = featureLevels.withUnsafeBufferPointer { buffer in
                 D3D11CreateDevice(
@@ -344,7 +334,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         try throwIfFailed(bufferHR, operation: "IDXGISwapChain1.GetBuffer")
 
         guard let texture = backBufferRaw?.assumingMemoryBound(to: ID3D11Texture2D.self) else {
-            throw BatchRendererError(operation: "IDXGISwapChain1.GetBuffer", hresult: hresultHandle)
+            throw BatchRendererError(operation: "IDXGISwapChain1.GetBuffer", hresult: batchHresultHandle)
         }
 
         let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
@@ -362,7 +352,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         guard let device else {
-            throw BatchRendererError(operation: "Create batch pipeline", hresult: hresultHandle)
+            throw BatchRendererError(operation: "Create batch pipeline", hresult: batchHresultHandle)
         }
 
         try createShaderPair(
@@ -473,7 +463,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         defer { releaseCOMPointer(&psBlob) }
 
         guard let vsBlob, let psBlob else {
-            throw BatchRendererError(operation: "Compile \(label) shaders", hresult: hresultHandle)
+            throw BatchRendererError(operation: "Compile \(label) shaders", hresult: batchHresultHandle)
         }
 
         let vsHR = device.pointee.lpVtbl.pointee.CreateVertexShader(
@@ -533,7 +523,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         releaseCOMPointer(&errorBlob)
 
         guard let shaderBlob else {
-            throw BatchRendererError(operation: "D3DCompile(\(entryPoint))", hresult: hresultHandle)
+            throw BatchRendererError(operation: "D3DCompile(\(entryPoint))", hresult: batchHresultHandle)
         }
 
         return shaderBlob
@@ -575,13 +565,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         try throwIfFailed(bufHR, operation: "ID3D11Device.CreateBuffer(\(label) instances)")
 
         guard let buffer else {
-            throw BatchRendererError(operation: "CreateBuffer(\(label))", hresult: hresultHandle)
+            throw BatchRendererError(operation: "CreateBuffer(\(label))", hresult: batchHresultHandle)
         }
 
         var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
         srvDesc.Format = DXGI_FORMAT_UNKNOWN
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER
-        withUnsafeMutablePointer(to: &srvDesc.Anonymous.Buffer) { bufferView in
+        withUnsafeMutablePointer(to: &srvDesc.Buffer) { bufferView in
             bufferView.pointee.FirstElement = 0
             bufferView.pointee.NumElements = UINT(capacity)
         }
@@ -604,7 +594,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         guard let device else {
-            throw BatchRendererError(operation: "Grow \(label) buffer", hresult: hresultHandle)
+            throw BatchRendererError(operation: "Grow \(label) buffer", hresult: batchHresultHandle)
         }
 
         while capacity < count {
@@ -640,7 +630,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         guard let pData = mapped.pData else {
             deviceContext.pointee.lpVtbl.pointee.Unmap(deviceContext, resource, 0)
-            throw BatchRendererError(operation: "Map returned nil", hresult: hresultHandle)
+            throw BatchRendererError(operation: "Map returned nil", hresult: batchHresultHandle)
         }
 
         instances.withUnsafeBytes { source in
@@ -774,5 +764,5 @@ private func releaseCOMPointer<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     pointer = nil
 }
 
-private let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
-private let hresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)
+private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)
+private let batchHresultInvalidArgument: HRESULT = HRESULT(bitPattern: 0x80070057)

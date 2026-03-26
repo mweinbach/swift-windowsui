@@ -82,16 +82,6 @@ public enum ShadowPipeline {
     }
 }
 
-private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
-    guard let rawPointer = pointer else {
-        return
-    }
-
-    let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
-    _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
-    pointer = nil
-}
-
 private let shadowShaderSource = #"""
 struct ShadowInstance {
     float x, y, width, height;

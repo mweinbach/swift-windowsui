@@ -109,6 +109,8 @@ public final class ComponentHost {
             case .horizontal:
                 return "stack.h"
             }
+        case .flex:
+            return "flex"
         }
     }
 
@@ -131,16 +133,48 @@ public final class ComponentHost {
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
+        if target.opacity != source.opacity { target.opacity = source.opacity }
+        if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
+        if target.transform != source.transform { target.transform = source.transform }
+        if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
+        if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
+        if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
+        if target.scrollOffset != source.scrollOffset { target.scrollOffset = source.scrollOffset }
+        if target.scrollStep != source.scrollStep { target.scrollStep = source.scrollStep }
+        if target.showsScrollIndicator != source.showsScrollIndicator { target.showsScrollIndicator = source.showsScrollIndicator }
+        if target.scrollIndicatorColor != source.scrollIndicatorColor { target.scrollIndicatorColor = source.scrollIndicatorColor }
+        if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor { target.scrollIndicatorIdleColor = source.scrollIndicatorIdleColor }
+        if target.scrollIndicatorHoverColor != source.scrollIndicatorHoverColor { target.scrollIndicatorHoverColor = source.scrollIndicatorHoverColor }
+        if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor { target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor }
+        if target.scrollIndicatorThickness != source.scrollIndicatorThickness { target.scrollIndicatorThickness = source.scrollIndicatorThickness }
+        if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
-
-        // Transfer layout mode -- compare via the tag helper since ViewLayoutMode
-        // doesn't conform to Equatable.
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
         if targetLayoutTag != sourceLayoutTag {
             target.layoutMode = source.layoutMode
         }
+        target.previousPropertyValues = source.previousPropertyValues
+        target.animationStates = source.animationStates
+
+        target.onPointerEnter = source.onPointerEnter
+        target.onPointerExit = source.onPointerExit
+        target.onPointerDown = source.onPointerDown
+        target.onPointerUpInside = source.onPointerUpInside
+        target.onPointerUpOutside = source.onPointerUpOutside
+        target.onFocusEnter = source.onFocusEnter
+        target.onFocusExit = source.onFocusExit
+        target.onKeyDown = source.onKeyDown
+        target.onActivate = source.onActivate
+        target.onDragStart = source.onDragStart
+        target.onDragChange = source.onDragChange
+        target.onDragEnd = source.onDragEnd
+        target.onLayout = source.onLayout
+        target.onAppear = source.onAppear
+        target.onDisappear = source.onDisappear
+        target.onSizeChange = source.onSizeChange
     }
 }

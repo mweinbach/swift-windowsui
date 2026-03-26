@@ -44,11 +44,11 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(first.y, 20)
         XCTAssertEqual(first.width, 100)
         XCTAssertEqual(first.height, 50)
-        XCTAssertEqual(first.red, 1)
+        XCTAssertEqual(first.startR, 1)
 
         let second = scene.layers[0].quads[1]
         XCTAssertEqual(second.cornerRadius, 8)
-        XCTAssertEqual(second.green, 1)
+        XCTAssertEqual(second.startG, 1)
     }
 
     func testBridgePushesLayerOnPrimitiveTypeChange() {
@@ -102,13 +102,10 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(scene.layers[0].quads.count, 1)
         // The quad should carry the clip rect from the pushClip command.
         let quad = scene.layers[0].quads[0]
-        XCTAssertNotNil(quad.clipRect)
-        if let clip = quad.clipRect {
-            XCTAssertEqual(clip.0, 10) // x
-            XCTAssertEqual(clip.1, 10) // y
-            XCTAssertEqual(clip.2, 80) // width
-            XCTAssertEqual(clip.3, 80) // height
-        }
+        XCTAssertEqual(quad.clipX, 10)
+        XCTAssertEqual(quad.clipY, 10)
+        XCTAssertEqual(quad.clipWidth, 80)
+        XCTAssertEqual(quad.clipHeight, 80)
     }
 
     // MARK: - renderScene() Tests
@@ -171,16 +168,18 @@ final class IntegrationTests: XCTestCase {
         var scene = GPUIScene(clearColor: .black)
         scene.layers[0].quads.append(QuadPrimitive(
             x: 0, y: 0, width: 10, height: 10,
-            red: 1, green: 1, blue: 1, alpha: 1
+            startR: 1, startG: 1, startB: 1, startA: 1,
+            endR: 1, endG: 1, endB: 1, endA: 1
         ))
         scene.pushLayer()
         scene.layers[1].shadows.append(ShadowPrimitive(
             x: 0, y: 0, width: 10, height: 10,
-            red: 0, green: 0, blue: 0, alpha: 0.5
+            colorR: 0, colorG: 0, colorB: 0, colorA: 0.5
         ))
         scene.layers[1].quads.append(QuadPrimitive(
             x: 0, y: 0, width: 20, height: 20,
-            red: 0, green: 0, blue: 1, alpha: 1
+            startR: 0, startG: 0, startB: 1, startA: 1,
+            endR: 0, endG: 0, endB: 1, endA: 1
         ))
 
         XCTAssertEqual(scene.primitiveCount, 3)

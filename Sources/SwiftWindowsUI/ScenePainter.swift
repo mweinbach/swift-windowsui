@@ -29,7 +29,7 @@ public enum ScenePainter {
             into: &scene,
             parentOrigin: .zero,
             inheritedClip: fullClip,
-            baseLayer: 0,
+            layerIndex: 0,
             surfaceSize: deviceSurfaceSize,
             displayScale: max(displayScale, 1.0),
             textSystem: textSystem,
@@ -48,25 +48,25 @@ public enum ScenePainter {
                 dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
             )
         }
+        scene.finish()
         return scene
     }
 
     // MARK: - Private
 
-    @discardableResult
     private static func paintNode(
         _ node: ViewNode,
         into scene: inout GPUIScene,
         parentOrigin: Point,
         inheritedClip: Rect?,
-        baseLayer: Int,
+        layerIndex: Int,
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
         usedNativeGlyphs: inout Bool,
         usedPixelGlyphs: inout Bool
-    ) -> Int {
-        guard !node.isHidden else { return baseLayer }
+    ) {
+        guard !node.isHidden else { return }
 
         let absoluteFrame = Rect(
             x: parentOrigin.x + node.resolvedFrame.origin.x,
@@ -75,19 +75,19 @@ public enum ScenePainter {
             height: node.resolvedFrame.size.height
         )
 
-        guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else { return baseLayer }
-        guard node.opacity > 0 else { return baseLayer }
+        guard absoluteFrame.size.width > 0, absoluteFrame.size.height > 0 else { return }
+        guard node.opacity > 0 else { return }
 
         // Occlusion culling against inherited clip.
         if !clipAllowsDrawing(clip: inheritedClip, rect: absoluteFrame) {
-            return baseLayer
+            return
         }
 
         var effectiveClip = inheritedClip
         if node.clipsToBounds {
             if let inherited = inheritedClip {
                 guard let clipped = inherited.intersected(with: absoluteFrame) else {
-                    return baseLayer
+                    return
                 }
                 effectiveClip = clipped
             } else {
@@ -95,9 +95,6 @@ public enum ScenePainter {
             }
         }
 
-        let layerIndex = baseLayer
-        var highestLayerUsed = baseLayer
-        var baseLayerOccupied = false
         let opacity = Float(node.opacity)
 
         // Shadow
@@ -122,7 +119,6 @@ public enum ScenePainter {
                     offsetX: Float(node.shadowOffset.x * displayScale),
                     offsetY: Float(node.shadowOffset.y * displayScale)
                 ), toLayer: layerIndex)
-                baseLayerOccupied = true
             }
         }
 
@@ -139,7 +135,6 @@ public enum ScenePainter {
                 surfaceSize: surfaceSize,
                 displayScale: displayScale
             ), toLayer: layerIndex)
-                baseLayerOccupied = true
             }
         }
 
@@ -156,7 +151,6 @@ public enum ScenePainter {
                 surfaceSize: surfaceSize,
                 displayScale: displayScale
             ), toLayer: layerIndex)
-            baseLayerOccupied = true
         }
 
         // Background fill (inset by border width)
@@ -190,7 +184,6 @@ public enum ScenePainter {
                 clipX: clipR.0, clipY: clipR.1,
                 clipWidth: clipR.2, clipHeight: clipR.3
             ), toLayer: layerIndex)
-            baseLayerOccupied = true
         }
 
         if let text = node.text, !text.isEmpty,
@@ -219,11 +212,10 @@ public enum ScenePainter {
             }
             usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
             usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
-            baseLayerOccupied = baseLayerOccupied || !nativeGlyphs.isEmpty || !pixelGlyphs.isEmpty
         }
 
-        // Children -- sort by zIndex (stable) and allocate subtree layer ranges
-        // so promoted descendants and later same-z siblings preserve source order.
+        // Children -- sort by zIndex (stable) and rely on scene draw orders
+        // rather than allocating paint-order layers.
         let childOrigin = Point(
             x: absoluteFrame.origin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
             y: absoluteFrame.origin.y - (node.scrollAxis == .vertical ? node.resolvedScrollOffset : 0)
@@ -243,35 +235,20 @@ public enum ScenePainter {
             sortedChildren = node.children
         }
 
-        var currentBandBaseLayer = baseLayer
-        var currentBandTopLayer = baseLayer
-        var currentZIndex = sortedChildren.first?.zIndex ?? 0
-        if currentZIndex > 0, baseLayerOccupied {
-            currentBandBaseLayer = highestLayerUsed + 1
-            currentBandTopLayer = currentBandBaseLayer
-        }
         for child in sortedChildren {
-            if child.zIndex != currentZIndex {
-                highestLayerUsed = max(highestLayerUsed, currentBandTopLayer)
-                currentBandBaseLayer = highestLayerUsed + 1
-                currentBandTopLayer = currentBandBaseLayer
-                currentZIndex = child.zIndex
-            }
-            let childTopLayer = paintNode(
+            paintNode(
                 child,
                 into: &scene,
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
-                baseLayer: currentBandTopLayer,
+                layerIndex: layerIndex,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
                 textSystem: textSystem,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs
             )
-            currentBandTopLayer = max(currentBandTopLayer, childTopLayer)
         }
-        highestLayerUsed = max(highestLayerUsed, currentBandTopLayer)
 
         if let scrollIndicator = node.scrollIndicatorRect(in: absoluteFrame) {
             scene.addQuad(
@@ -284,11 +261,9 @@ public enum ScenePainter {
                     surfaceSize: surfaceSize,
                     displayScale: displayScale
                 ),
-                toLayer: highestLayerUsed
+                toLayer: layerIndex
             )
         }
-
-        return highestLayerUsed
     }
 
     // MARK: - Helpers

@@ -82,7 +82,7 @@ struct ScenePainterTests {
 
     // MARK: - Z-index layering
 
-    @Test("Children with different zIndex values produce multiple layers")
+    @Test("Children with different zIndex values stay in one layer and sort by z order")
     func differentZIndexProducesLayers() {
         let parent = ViewNode(
             frame: Rect(x: 0, y: 0, width: 400, height: 300)
@@ -110,11 +110,14 @@ struct ScenePainterTests {
 
         let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
 
-        // Layer 0 contains childA (zIndex 0), then new layers pushed for zIndex 1 and 2.
-        #expect(scene.layers.count == 3)
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].quads.count == 3)
+        #expect(scene.layers[0].quads[0].startR == 1)
+        #expect(scene.layers[0].quads[1].startG == 1)
+        #expect(scene.layers[0].quads[2].startB == 1)
     }
 
-    @Test("Same-z siblings continue from the highest layer consumed by prior subtrees")
+    @Test("Promoted overlapping descendants still sort ahead of later same-z siblings")
     func sameZSiblingReusesPriorSubtreeTopLayer() {
         let firstChild = ViewNode(
             frame: Rect(x: 0, y: 0, width: 100, height: 100),
@@ -128,20 +131,22 @@ struct ScenePainterTests {
         firstChild.addChild(promotedGrandchild)
 
         let secondChild = ViewNode(
-            frame: Rect(x: 140, y: 0, width: 100, height: 100),
+            frame: Rect(x: 20, y: 20, width: 100, height: 100),
             backgroundColor: Color(red: 0, green: 0, blue: 1, alpha: 1)
         )
 
         let parent = ViewNode(
-            frame: Rect(x: 0, y: 0, width: 280, height: 160),
+            frame: Rect(x: 0, y: 0, width: 180, height: 160),
             children: [firstChild, secondChild]
         )
 
         let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
 
-        #expect(scene.layers.count == 2)
-        #expect(scene.layers[0].quads.count == 1)
-        #expect(scene.layers[1].quads.count == 2)
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].quads.count == 3)
+        #expect(scene.layers[0].quads[0].startR == 1)
+        #expect(scene.layers[0].quads[1].startG == 1)
+        #expect(scene.layers[0].quads[2].startB == 1)
     }
 
     // MARK: - Hidden node
@@ -349,7 +354,7 @@ struct ScenePainterTests {
         #expect(totalQuads >= 3)
     }
 
-    @Test("Scroll indicators stay on the parent subtree top layer after promoted children")
+    @Test("Scroll indicators stay last in draw order after promoted children")
     func scrollIndicatorUsesParentSubtreeTopLayer() {
         let baseChild = ViewNode(
             frame: Rect(x: 0, y: 0, width: 160, height: 160),
@@ -372,9 +377,12 @@ struct ScenePainterTests {
         let runtime = RetainedViewRuntime(root: node)
         let scene = runtime.renderScene()
 
-        #expect(scene.layers.count == 2)
-        #expect(scene.layers[0].quads.count == 2)
-        #expect(scene.layers[1].quads.count == 2)
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].quads.count == 4)
+        let indicatorQuad = scene.layers[0].quads.last!
+        #expect(indicatorQuad.startR == node.scrollIndicatorColor.red)
+        #expect(indicatorQuad.startG == node.scrollIndicatorColor.green)
+        #expect(indicatorQuad.startB == node.scrollIndicatorColor.blue)
     }
 
     // MARK: - Clear color

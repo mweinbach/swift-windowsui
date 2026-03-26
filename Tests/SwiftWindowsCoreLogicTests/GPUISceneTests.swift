@@ -181,4 +181,48 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(scene.layers[2].quads.count, 1)
         XCTAssertEqual(scene.layers[2].quads[0].x, 10)
     }
+
+    func testFinishProducesOrderedBatchesForOverlappingPrimitives() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 120, height: 120))
+        scene.addGlyph(GlyphPrimitive(screenX: 12, screenY: 12, screenW: 24, screenH: 24))
+        scene.addQuad(QuadPrimitive(x: 8, y: 8, width: 80, height: 80))
+
+        scene.finish()
+
+        var iterator = scene.layers[0].orderedBatches()
+        XCTAssertEqual(iterator.next(), .quads(0..<1))
+        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
+        XCTAssertEqual(iterator.next(), .quads(1..<2))
+        XCTAssertNil(iterator.next())
+    }
+
+    func testFinishCoalescesNonOverlappingFamilyRanges() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 20, height: 20))
+        scene.addGlyph(GlyphPrimitive(screenX: 100, screenY: 0, screenW: 12, screenH: 12))
+        scene.addQuad(QuadPrimitive(x: 200, y: 0, width: 20, height: 20))
+
+        scene.finish()
+
+        var iterator = scene.layers[0].orderedBatches()
+        XCTAssertEqual(iterator.next(), .quads(0..<2))
+        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
+        XCTAssertNil(iterator.next())
+    }
+
+    func testScopedLayerKeepsPrimitivesOnTheSameDrawOrder() {
+        var scene = GPUIScene()
+        scene.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
+        scene.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 20, screenH: 20))
+        scene.popScopedLayer(fromLayer: 0)
+
+        scene.finish()
+
+        var iterator = scene.layers[0].orderedBatches()
+        XCTAssertEqual(iterator.next(), .quads(0..<1))
+        XCTAssertEqual(iterator.next(), .glyphs(0..<1))
+        XCTAssertNil(iterator.next())
+    }
 }

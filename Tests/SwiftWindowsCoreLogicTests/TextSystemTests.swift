@@ -146,6 +146,45 @@ final class TextSystemTests: XCTestCase {
         XCTAssertEqual(snapped.height, 9.333333333333334, accuracy: 0.0001)
     }
 
+    func testCapturedGlyphRasterMetricsRejectNonFiniteInputs() {
+        let glyph = NativeTextGlyphLayout(
+            character: "A",
+            origin: Point(x: 0, y: .nan),
+            advance: .nan,
+            glyphID: 12,
+            fontFace: nil,
+            fontFamily: "Segoe UI",
+            weight: .regular,
+            fontSize: .nan
+        )
+
+        XCTAssertNil(makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: 1.0))
+    }
+
+    func testCapturedGlyphRasterMetricsProduceFiniteTargetSize() {
+        let glyph = NativeTextGlyphLayout(
+            character: "A",
+            origin: Point(x: 0, y: 14),
+            advance: 11,
+            glyphID: 12,
+            fontFace: nil,
+            fontFamily: "Segoe UI",
+            weight: .regular,
+            fontSize: 18
+        )
+
+        let metrics = makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: 1.5)
+
+        guard let metrics else {
+            return XCTFail("Expected finite raster metrics")
+        }
+
+        XCTAssertEqual(metrics.renderScale, 1.5, accuracy: 0.0001)
+        XCTAssertGreaterThan(metrics.targetWidth, 0)
+        XCTAssertGreaterThan(metrics.targetHeight, 0)
+        XCTAssertGreaterThan(metrics.advance, 0)
+    }
+
     func testResolveTextLayoutTruncatesSingleLineToFit() {
         let style = PixelTextStyle(color: .white, lineBreakMode: .truncateTail)
 

@@ -53,7 +53,7 @@ public struct GlyphAtlasSnapshot: Equatable, Sendable {
 
 /// A rendering layer containing typed, contiguous primitive arrays.
 /// `paintOperations` preserves the source paint order across primitive families
-/// without forcing each family transition into its own layer.
+/// while sidecar draw-order metadata enables Zed-style sorted batching.
 public struct GPUILayer: Equatable, Sendable {
     public var shadows: [ShadowPrimitive]
     public var quads: [QuadPrimitive]
@@ -61,6 +61,16 @@ public struct GPUILayer: Equatable, Sendable {
     public var pixelGlyphs: [GlyphPrimitive]
     public var images: [ImagePrimitive]
     public var paintOperations: [GPUIPaintOperation]
+
+    private var shadowOrderings: [GPUIPrimitiveOrdering]
+    private var quadOrderings: [GPUIPrimitiveOrdering]
+    private var glyphOrderings: [GPUIPrimitiveOrdering]
+    private var pixelGlyphOrderings: [GPUIPrimitiveOrdering]
+    private var imageOrderings: [GPUIPrimitiveOrdering]
+    private var primitiveBounds = GPUIBoundsTree()
+    private var layerStack: [GPUIDrawOrder] = []
+    private var nextPaintIndex: UInt32 = 0
+    private var maxAssignedOrder: GPUIDrawOrder = 0
 
     public init(
         shadows: [ShadowPrimitive] = [],
@@ -76,6 +86,12 @@ public struct GPUILayer: Equatable, Sendable {
         self.pixelGlyphs = pixelGlyphs
         self.images = images
         self.paintOperations = paintOperations
+        self.shadowOrderings = shadows.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.quadOrderings = quads.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.glyphOrderings = glyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.pixelGlyphOrderings = pixelGlyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.imageOrderings = images.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.nextPaintIndex = UInt32(shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count)
     }
 
     public var primitiveCount: Int {
@@ -90,34 +106,71 @@ public struct GPUILayer: Equatable, Sendable {
         paintOperations.count
     }
 
+    public mutating func pushScopedLayer(_ bounds: Rect) {
+        guard !bounds.isEmpty else {
+            return
+        }
+
+        let order = primitiveBounds.insert(bounds)
+        maxAssignedOrder = max(maxAssignedOrder, order)
+        layerStack.append(order)
+    }
+
+    public mutating func popScopedLayer() {
+        _ = layerStack.popLast()
+    }
+
     mutating func addShadow(_ shadow: ShadowPrimitive) {
         let startIndex = shadows.count
         shadows.append(shadow)
+        shadowOrderings.append(reserveOrdering(for: shadow.effectiveBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .shadow, startIndex: startIndex)
     }
 
     mutating func addQuad(_ quad: QuadPrimitive) {
         let startIndex = quads.count
         quads.append(quad)
+        quadOrderings.append(reserveOrdering(for: quad.effectiveBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .quad, startIndex: startIndex)
     }
 
     mutating func addGlyph(_ glyph: GlyphPrimitive) {
         let startIndex = glyphs.count
         glyphs.append(glyph)
+        glyphOrderings.append(reserveOrdering(for: glyph.effectiveBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .glyph, startIndex: startIndex)
     }
 
     mutating func addPixelGlyph(_ glyph: GlyphPrimitive) {
         let startIndex = pixelGlyphs.count
         pixelGlyphs.append(glyph)
+        pixelGlyphOrderings.append(reserveOrdering(for: glyph.effectiveBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .pixelGlyph, startIndex: startIndex)
     }
 
     mutating func addImage(_ image: ImagePrimitive) {
         let startIndex = images.count
         images.append(image)
+        imageOrderings.append(reserveOrdering(for: image.effectiveBounds, primitiveIndex: startIndex))
         appendPaintOperation(kind: .image, startIndex: startIndex)
+    }
+
+    public mutating func finish() {
+        Self.sortFamily(&shadows, orderings: &shadowOrderings)
+        Self.sortFamily(&quads, orderings: &quadOrderings)
+        Self.sortFamily(&glyphs, orderings: &glyphOrderings)
+        Self.sortFamily(&pixelGlyphs, orderings: &pixelGlyphOrderings)
+        Self.sortFamily(&images, orderings: &imageOrderings)
+    }
+
+    public func orderedBatches() -> GPUILayerBatchIterator {
+        GPUILayerBatchIterator(
+            shadowOrderings: shadowOrderings,
+            quadOrderings: quadOrderings,
+            glyphOrderings: glyphOrderings,
+            pixelGlyphOrderings: pixelGlyphOrderings,
+            imageOrderings: imageOrderings
+        )
     }
 
     private mutating func appendPaintOperation(kind: GPUIPaintPrimitiveKind, startIndex: Int) {
@@ -135,6 +188,71 @@ public struct GPUILayer: Equatable, Sendable {
 
         paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
     }
+
+    private mutating func reserveOrdering(for bounds: Rect?, primitiveIndex: Int) -> GPUIPrimitiveOrdering {
+        let order: GPUIDrawOrder
+        if let scopedOrder = layerStack.last {
+            order = scopedOrder
+        } else if let bounds, !bounds.isEmpty {
+            order = primitiveBounds.insert(bounds)
+        } else {
+            order = maxAssignedOrder &+ 1
+        }
+
+        maxAssignedOrder = max(maxAssignedOrder, order)
+        let ordering = GPUIPrimitiveOrdering(
+            primitiveIndex: primitiveIndex,
+            order: order,
+            paintIndex: nextPaintIndex
+        )
+        nextPaintIndex &+= 1
+        return ordering
+    }
+
+    private static func sortFamily<T>(_ primitives: inout [T], orderings: inout [GPUIPrimitiveOrdering]) {
+        guard primitives.count == orderings.count, primitives.count > 1 else {
+            for index in orderings.indices {
+                orderings[index].primitiveIndex = index
+            }
+            return
+        }
+
+        let sortedEntries = orderings.enumerated().sorted { lhs, rhs in
+            let lhsOrdering = lhs.element
+            let rhsOrdering = rhs.element
+            if lhsOrdering.order != rhsOrdering.order {
+                return lhsOrdering.order < rhsOrdering.order
+            }
+            if lhsOrdering.paintIndex != rhsOrdering.paintIndex {
+                return lhsOrdering.paintIndex < rhsOrdering.paintIndex
+            }
+            return lhs.offset < rhs.offset
+        }
+
+        var sortedPrimitives: [T] = []
+        sortedPrimitives.reserveCapacity(primitives.count)
+        var sortedOrderings: [GPUIPrimitiveOrdering] = []
+        sortedOrderings.reserveCapacity(orderings.count)
+
+        for (newIndex, entry) in sortedEntries.enumerated() {
+            sortedPrimitives.append(primitives[entry.offset])
+            var ordering = entry.element
+            ordering.primitiveIndex = newIndex
+            sortedOrderings.append(ordering)
+        }
+
+        primitives = sortedPrimitives
+        orderings = sortedOrderings
+    }
+
+    public static func == (lhs: GPUILayer, rhs: GPUILayer) -> Bool {
+        lhs.shadows == rhs.shadows &&
+        lhs.quads == rhs.quads &&
+        lhs.glyphs == rhs.glyphs &&
+        lhs.pixelGlyphs == rhs.pixelGlyphs &&
+        lhs.images == rhs.images &&
+        lhs.paintOperations == rhs.paintOperations
+    }
 }
 
 // MARK: - GPUIScene
@@ -147,6 +265,7 @@ public struct GPUIScene: Equatable, Sendable {
     public var layers: [GPUILayer]
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
+    private var isFinished = false
 
     public init(
         clearColor: Color = .black,
@@ -165,6 +284,7 @@ public struct GPUIScene: Equatable, Sendable {
     @discardableResult
     public mutating func pushLayer() -> Int {
         layers.append(GPUILayer())
+        isFinished = false
         return layers.count - 1
     }
 
@@ -177,6 +297,19 @@ public struct GPUIScene: Equatable, Sendable {
         while layers.count <= layerIndex {
             layers.append(GPUILayer())
         }
+        isFinished = false
+    }
+
+    public mutating func pushScopedLayer(_ bounds: Rect, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
+        layers[layerIndex].pushScopedLayer(bounds)
+        isFinished = false
+    }
+
+    public mutating func popScopedLayer(fromLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
+        layers[layerIndex].popScopedLayer()
+        isFinished = false
     }
 
     // MARK: - Primitive insertion (appends to last layer)
@@ -204,26 +337,42 @@ public struct GPUIScene: Equatable, Sendable {
     public mutating func addQuad(_ quad: QuadPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
         layers[layerIndex].addQuad(quad)
+        isFinished = false
     }
 
     public mutating func addGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
         layers[layerIndex].addGlyph(glyph)
+        isFinished = false
     }
 
     public mutating func addImage(_ image: ImagePrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
         layers[layerIndex].addImage(image)
+        isFinished = false
     }
 
     public mutating func addShadow(_ shadow: ShadowPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
         layers[layerIndex].addShadow(shadow)
+        isFinished = false
     }
 
     public mutating func addPixelGlyph(_ glyph: GlyphPrimitive, toLayer layerIndex: Int) {
         ensureLayer(layerIndex)
         layers[layerIndex].addPixelGlyph(glyph)
+        isFinished = false
+    }
+
+    public mutating func finish() {
+        guard !isFinished else {
+            return
+        }
+
+        for index in layers.indices {
+            layers[index].finish()
+        }
+        isFinished = true
     }
 
     public var primitiveCount: Int {
@@ -232,5 +381,52 @@ public struct GPUIScene: Equatable, Sendable {
 
     public var totalPrimitiveCount: Int {
         primitiveCount
+    }
+
+    public static func == (lhs: GPUIScene, rhs: GPUIScene) -> Bool {
+        lhs.clearColor == rhs.clearColor &&
+        lhs.layers == rhs.layers &&
+        lhs.glyphAtlas == rhs.glyphAtlas &&
+        lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas
+    }
+}
+
+private extension QuadPrimitive {
+    var effectiveBounds: Rect? {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+    }
+}
+
+private extension GlyphPrimitive {
+    var effectiveBounds: Rect? {
+        guard screenW > 0, screenH > 0 else {
+            return nil
+        }
+
+        return Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+    }
+}
+
+private extension ImagePrimitive {
+    var effectiveBounds: Rect? {
+        guard screenW > 0, screenH > 0 else {
+            return nil
+        }
+
+        return Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+    }
+}
+
+private extension ShadowPrimitive {
+    var effectiveBounds: Rect? {
+        guard width > 0, height > 0 else {
+            return nil
+        }
+
+        return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
     }
 }

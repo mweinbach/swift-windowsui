@@ -72,6 +72,73 @@ enum DirectWriteTextRenderer {
     }
 }
 
+struct CapturedGlyphRasterMetrics: Equatable, Sendable {
+    var renderScale: Double
+    var fontSize: Double
+    var baselineYOffset: Double
+    var paddingPixels: Int32
+    var targetWidth: Int32
+    var targetHeight: Int32
+    var advance: Double
+}
+
+func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFactor: Double) -> CapturedGlyphRasterMetrics? {
+    guard scaleFactor.isFinite else {
+        return nil
+    }
+
+    let renderScale = max(scaleFactor, 1.0)
+    guard glyph.fontSize.isFinite, glyph.origin.y.isFinite, glyph.advance.isFinite else {
+        return nil
+    }
+
+    let fontSize = max(glyph.fontSize, 1)
+    let baselineYOffset = max(glyph.origin.y, fontSize * 0.8)
+    let paddingValue = (fontSize * renderScale * 0.75).rounded(.up)
+    guard let paddingPixels = roundedUpInt32(paddingValue, minimum: 2) else {
+        return nil
+    }
+
+    let advance = max(glyph.advance, fontSize * 0.5)
+    let logicalWidth = max(advance * 2.0, fontSize * 2.5)
+    let logicalHeight = max((baselineYOffset + fontSize) * 1.5, fontSize * 2.5)
+
+    guard let contentWidth = roundedUpInt32(logicalWidth * renderScale, minimum: 8),
+          let contentHeight = roundedUpInt32(logicalHeight * renderScale, minimum: 8)
+    else {
+        return nil
+    }
+
+    let paddedWidth = Int64(contentWidth) + Int64(paddingPixels) * 2
+    let paddedHeight = Int64(contentHeight) + Int64(paddingPixels) * 2
+    guard paddedWidth <= Int64(Int32.max), paddedHeight <= Int64(Int32.max) else {
+        return nil
+    }
+
+    return CapturedGlyphRasterMetrics(
+        renderScale: renderScale,
+        fontSize: fontSize,
+        baselineYOffset: baselineYOffset,
+        paddingPixels: paddingPixels,
+        targetWidth: Int32(paddedWidth),
+        targetHeight: Int32(paddedHeight),
+        advance: advance
+    )
+}
+
+private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
+    guard value.isFinite else {
+        return nil
+    }
+
+    let rounded = value.rounded(.up)
+    guard rounded <= Double(Int32.max), rounded >= Double(Int32.min) else {
+        return nil
+    }
+
+    return max(minimum, Int32(rounded))
+}
+
 @MainActor
 private final class DirectWriteSystem {
     static let shared: DirectWriteSystem? = try? DirectWriteSystem()
@@ -448,16 +515,15 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        let renderScale = max(scaleFactor, 1.0)
-        let fontSize = max(glyph.fontSize, 1)
-        let baselineYOffset = max(glyph.origin.y, fontSize * 0.8)
-        let paddingPixels = max(2, Int32((fontSize * renderScale * 0.75).rounded(.up)))
-        let logicalWidth = max(glyph.advance * 2.0, fontSize * 2.5)
-        let logicalHeight = max((baselineYOffset + fontSize) * 1.5, fontSize * 2.5)
-        let targetWidth = max(8, Int32((logicalWidth * renderScale).rounded(.up)) + paddingPixels * 2)
-        let targetHeight = max(8, Int32((logicalHeight * renderScale).rounded(.up)) + paddingPixels * 2)
+        guard let metrics = makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: scaleFactor) else {
+            return nil
+        }
 
-        guard let bitmapTarget = createBitmapRenderTarget(width: targetWidth, height: targetHeight, scaleFactor: renderScale) else {
+        guard let bitmapTarget = createBitmapRenderTarget(
+            width: metrics.targetWidth,
+            height: metrics.targetHeight,
+            scaleFactor: metrics.renderScale
+        ) else {
             return nil
         }
         defer {
@@ -472,23 +538,23 @@ private final class DirectWriteSystem {
         var drawingContext = DirectWriteDrawingContext(
             bitmapRenderTarget: bitmapTarget,
             renderingParams: renderingParams,
-            pixelsPerDip: FLOAT(renderScale),
+            pixelsPerDip: FLOAT(metrics.renderScale),
             textColor: COLORREF(0x00FFFFFF)
         )
 
         let glyphIndices: [UINT16] = [UINT16(truncatingIfNeeded: glyphID)]
-        let glyphAdvances: [FLOAT] = [FLOAT(max(glyph.advance, fontSize * 0.5))]
+        let glyphAdvances: [FLOAT] = [FLOAT(metrics.advance)]
         let glyphOffsets: [DWRITE_GLYPH_OFFSET] = [DWRITE_GLYPH_OFFSET()]
 
-        let baselineX = FLOAT(Double(paddingPixels) / renderScale)
-        let baselineY = FLOAT(Double(paddingPixels) / renderScale + baselineYOffset)
+        let baselineX = FLOAT(Double(metrics.paddingPixels) / metrics.renderScale)
+        let baselineY = FLOAT(Double(metrics.paddingPixels) / metrics.renderScale + metrics.baselineYOffset)
 
         let drawHR = glyphIndices.withUnsafeBufferPointer { indices in
             glyphAdvances.withUnsafeBufferPointer { advances in
                 glyphOffsets.withUnsafeBufferPointer { offsets in
                     var glyphRun = DWRITE_GLYPH_RUN(
                         fontFace: fontFace,
-                        fontEmSize: FLOAT(fontSize),
+                        fontEmSize: FLOAT(metrics.fontSize),
                         glyphCount: 1,
                         glyphIndices: indices.baseAddress,
                         glyphAdvances: advances.baseAddress,
@@ -511,7 +577,7 @@ private final class DirectWriteSystem {
 
         guard isSuccess(drawHR),
               let surface = extractBitmapSurface(from: bitmapTarget),
-              var cropped = cropGlyphSurface(surface, paddingPixels: paddingPixels)
+              var cropped = cropGlyphSurface(surface, paddingPixels: metrics.paddingPixels)
         else {
             return nil
         }
@@ -523,8 +589,8 @@ private final class DirectWriteSystem {
         return NativeGlyphBitmap(
             surface: cropped.surface,
             bearingX: cropped.bearingX,
-            bearingY: cropped.bearingY - Float(baselineYOffset * renderScale),
-            advance: Float(max(glyph.advance, fontSize * 0.5) * renderScale)
+            bearingY: cropped.bearingY - Float(metrics.baselineYOffset * metrics.renderScale),
+            advance: Float(metrics.advance * metrics.renderScale)
         )
     }
 

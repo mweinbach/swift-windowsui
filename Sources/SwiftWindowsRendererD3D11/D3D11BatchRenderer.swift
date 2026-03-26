@@ -160,14 +160,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
         }
 
-        let cc = scene.clearColor
+        var finishedScene = scene
+        finishedScene.finish()
+
+        let cc = finishedScene.clearColor
         let clearValues: [FLOAT] = [cc.red, cc.green, cc.blue, cc.alpha]
         clearValues.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
         try updateFrameUniforms(surfaceSize: surface.pixelSize)
-        if let glyphAtlas = scene.glyphAtlas {
+        if let glyphAtlas = finishedScene.glyphAtlas {
             try updateGlyphAtlasTexture(
                 glyphAtlas,
                 texture: &glyphAtlasTexture,
@@ -175,7 +178,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 size: &glyphAtlasSize
             )
         }
-        if let pixelGlyphAtlas = scene.pixelGlyphAtlas {
+        if let pixelGlyphAtlas = finishedScene.pixelGlyphAtlas {
             try updateGlyphAtlasTexture(
                 pixelGlyphAtlas,
                 texture: &pixelGlyphAtlasTexture,
@@ -187,15 +190,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
-        for layer in scene.layers {
-            let paintOperations = layer.paintOperations.isEmpty
-                ? Self.synthesizedPaintOperations(for: layer)
-                : layer.paintOperations
-
-            for operation in paintOperations {
-                let range = operation.startIndex..<(operation.startIndex + operation.count)
-                switch operation.kind {
-                case .shadow:
+        for layer in finishedScene.layers {
+            var batches = layer.orderedBatches()
+            while let batch = batches.next() {
+                switch batch {
+                case .shadows(let range):
                     try renderBatch(
                         layer.shadows,
                         range: range,
@@ -206,7 +205,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         label: "shadow",
                         deviceContext: deviceContext
                     )
-                case .quad:
+                case .quads(let range):
                     try renderBatch(
                         layer.quads,
                         range: range,
@@ -217,21 +216,21 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         label: "quad",
                         deviceContext: deviceContext
                     )
-                case .glyph:
+                case .glyphs(let range):
                     try renderGlyphBatch(
                         layer.glyphs,
                         range: range,
                         atlasSRV: glyphAtlasSRV,
                         deviceContext: deviceContext
                     )
-                case .pixelGlyph:
+                case .pixelGlyphs(let range):
                     try renderGlyphBatch(
                         layer.pixelGlyphs,
                         range: range,
                         atlasSRV: pixelGlyphAtlasSRV,
                         deviceContext: deviceContext
                     )
-                case .image:
+                case .images(let range):
                     try renderBatch(
                         layer.images,
                         range: range,
@@ -963,25 +962,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
-    private static func synthesizedPaintOperations(for layer: GPUILayer) -> [GPUIPaintOperation] {
-        var operations: [GPUIPaintOperation] = []
-        if !layer.shadows.isEmpty {
-            operations.append(GPUIPaintOperation(kind: .shadow, startIndex: 0, count: layer.shadows.count))
-        }
-        if !layer.quads.isEmpty {
-            operations.append(GPUIPaintOperation(kind: .quad, startIndex: 0, count: layer.quads.count))
-        }
-        if !layer.glyphs.isEmpty {
-            operations.append(GPUIPaintOperation(kind: .glyph, startIndex: 0, count: layer.glyphs.count))
-        }
-        if !layer.pixelGlyphs.isEmpty {
-            operations.append(GPUIPaintOperation(kind: .pixelGlyph, startIndex: 0, count: layer.pixelGlyphs.count))
-        }
-        if !layer.images.isEmpty {
-            operations.append(GPUIPaintOperation(kind: .image, startIndex: 0, count: layer.images.count))
-        }
-        return operations
-    }
 }
 
 // MARK: - Error Type

@@ -1,15 +1,29 @@
 import Foundation
+import SwiftWindowsGraphics
 
 // MARK: - GlyphKey
 
 public struct GlyphKey: Hashable, Sendable {
-    public var character: Character
+    public var character: Character?
+    public var glyphID: UInt32?
+    public var fontFaceID: UInt64?
     public var fontFamily: String
     public var fontSize: Float
     public var weight: GlyphWeight
 
     public init(character: Character, fontFamily: String, fontSize: Float, weight: GlyphWeight) {
         self.character = character
+        self.glyphID = nil
+        self.fontFaceID = nil
+        self.fontFamily = fontFamily
+        self.fontSize = fontSize
+        self.weight = weight
+    }
+
+    public init(glyphID: UInt32, fontFaceID: UInt64?, fontFamily: String, fontSize: Float, weight: GlyphWeight) {
+        self.character = nil
+        self.glyphID = glyphID
+        self.fontFaceID = fontFaceID
         self.fontFamily = fontFamily
         self.fontSize = fontSize
         self.weight = weight
@@ -69,6 +83,7 @@ public final class GlyphAtlas {
     public let height: Int32
     public private(set) var pixels: Data
     public private(set) var isDirty: Bool
+    public private(set) var dirtyRegion: GlyphAtlasRegion?
 
     private var shelves: [Shelf] = []
 
@@ -83,6 +98,7 @@ public final class GlyphAtlas {
         self.height = height
         self.pixels = Data(count: Int(width) * Int(height) * 4)
         self.isDirty = false
+        self.dirtyRegion = nil
     }
 
     public func allocate(width glyphWidth: Int32, height glyphHeight: Int32) -> (x: Int32, y: Int32)? {
@@ -139,15 +155,30 @@ public final class GlyphAtlas {
         }
 
         isDirty = true
+        let nextRegion = GlyphAtlasRegion(x: x, y: y, width: glyphWidth, height: glyphHeight)
+        dirtyRegion = dirtyRegion.map { existing in
+            let minX = min(existing.x, nextRegion.x)
+            let minY = min(existing.y, nextRegion.y)
+            let maxX = max(existing.x + existing.width, nextRegion.x + nextRegion.width)
+            let maxY = max(existing.y + existing.height, nextRegion.y + nextRegion.height)
+            return GlyphAtlasRegion(
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            )
+        } ?? nextRegion
     }
 
     public func clear() {
         pixels = Data(count: Int(width) * Int(height) * 4)
         shelves.removeAll()
         isDirty = true
+        dirtyRegion = GlyphAtlasRegion(x: 0, y: 0, width: width, height: height)
     }
 
     public func markClean() {
         isDirty = false
+        dirtyRegion = nil
     }
 }

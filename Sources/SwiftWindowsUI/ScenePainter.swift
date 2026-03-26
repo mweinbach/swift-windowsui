@@ -8,8 +8,20 @@ import SwiftWindowsGraphics
 public enum ScenePainter {
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
+        paint(root: root, clearColor: clearColor, surfaceSize: surfaceSize, displayScale: displayScale, textSystem: WindowTextSystem())
+    }
+
+    static func paint(
+        root: ViewNode,
+        clearColor: Color,
+        surfaceSize: Size,
+        displayScale: Double = 1.0,
+        textSystem: WindowTextSystem
+    ) -> GPUIScene {
         var scene = GPUIScene(clearColor: clearColor)
         NativeGlyphAtlas.shared.beginFrame()
+        var usedNativeGlyphs = false
+        var usedPixelGlyphs = false
         let fullClip = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
         paintNode(
@@ -18,15 +30,22 @@ public enum ScenePainter {
             parentOrigin: .zero,
             inheritedClip: fullClip,
             surfaceSize: deviceSurfaceSize,
-            displayScale: max(displayScale, 1.0)
+            displayScale: max(displayScale, 1.0),
+            textSystem: textSystem,
+            usedNativeGlyphs: &usedNativeGlyphs,
+            usedPixelGlyphs: &usedPixelGlyphs
         )
-        if scene.layers.contains(where: { !$0.glyphs.isEmpty }) {
-            if let atlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame() {
-                scene.glyphAtlas = atlas
-            } else {
-                let atlas = PixelFontAtlas.shared.surface
-                scene.glyphAtlas = GlyphAtlasSnapshot(width: atlas.width, height: atlas.height, pixels: atlas.pixels)
-            }
+        if usedNativeGlyphs {
+            scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
+        }
+        if usedPixelGlyphs {
+            let atlas = PixelFontAtlas.shared.surface
+            scene.pixelGlyphAtlas = GlyphAtlasSnapshot(
+                width: atlas.width,
+                height: atlas.height,
+                pixels: atlas.pixels,
+                dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
+            )
         }
         return scene
     }
@@ -39,7 +58,10 @@ public enum ScenePainter {
         parentOrigin: Point,
         inheritedClip: Rect?,
         surfaceSize: Size,
-        displayScale: Double
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
     ) {
         guard !node.isHidden else { return }
 
@@ -166,7 +188,8 @@ public enum ScenePainter {
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
-            var glyphs: [GlyphPrimitive] = []
+            var nativeGlyphs: [GlyphPrimitive] = []
+            var pixelGlyphs: [GlyphPrimitive] = []
             appendTextGlyphs(
                 for: text,
                 style: node.textStyle,
@@ -175,11 +198,18 @@ public enum ScenePainter {
                 clip: effectiveClip,
                 surfaceSize: surfaceSize,
                 displayScale: displayScale,
-                into: &glyphs
+                textSystem: textSystem,
+                into: &nativeGlyphs,
+                pixelGlyphs: &pixelGlyphs
             )
-            for glyph in glyphs {
+            for glyph in nativeGlyphs {
                 scene.addGlyph(glyph, toLayer: layerIndex)
             }
+            for glyph in pixelGlyphs {
+                scene.addPixelGlyph(glyph, toLayer: layerIndex)
+            }
+            usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
+            usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
         }
 
         // Children -- sort by zIndex (stable), push new layers when zIndex changes.
@@ -214,7 +244,25 @@ public enum ScenePainter {
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
                 surfaceSize: surfaceSize,
-                displayScale: displayScale
+                displayScale: displayScale,
+                textSystem: textSystem,
+                usedNativeGlyphs: &usedNativeGlyphs,
+                usedPixelGlyphs: &usedPixelGlyphs
+            )
+        }
+
+        if let scrollIndicator = node.scrollIndicatorRect(in: absoluteFrame) {
+            scene.addQuad(
+                solidQuad(
+                    rect: scrollIndicator,
+                    cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
+                    color: node.scrollIndicatorColor,
+                    opacity: opacity,
+                    clip: effectiveClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale
+                ),
+                toLayer: scene.layers.count - 1
             )
         }
     }
@@ -274,7 +322,9 @@ public enum ScenePainter {
         clip: Rect?,
         surfaceSize: Size,
         displayScale: Double,
-        into glyphs: inout [GlyphPrimitive]
+        textSystem: WindowTextSystem,
+        into glyphs: inout [GlyphPrimitive],
+        pixelGlyphs: inout [GlyphPrimitive]
     ) {
         guard !text.isEmpty, style.color.alpha > 0 else {
             return
@@ -288,6 +338,7 @@ public enum ScenePainter {
             clip: clip,
             surfaceSize: surfaceSize,
             displayScale: displayScale,
+            textSystem: textSystem,
             into: &glyphs
         ) {
             return
@@ -348,7 +399,7 @@ public enum ScenePainter {
                 let atlas = PixelFontAtlas.shared
                 let entry = PixelFontAtlas.glyph(for: character)
                 let uv = entry.uvRect(atlasWidth: atlas.surface.width, atlasHeight: atlas.surface.height)
-                glyphs.append(
+                pixelGlyphs.append(
                     GlyphPrimitive(
                         screenX: Float(cursorX),
                         screenY: Float(cursorY),
@@ -382,92 +433,60 @@ public enum ScenePainter {
         clip: Rect?,
         surfaceSize: Size,
         displayScale: Double,
+        textSystem: WindowTextSystem,
         into glyphs: inout [GlyphPrimitive]
     ) -> Bool {
         guard !text.unicodeScalars.contains(where: isPrivateUseScalar) else {
             return false
         }
 
-        var glyphStyle = style
-        glyphStyle.insets = .zero
-        glyphStyle.maximumNumberOfLines = 1
-
         let contentRect = rect.inset(by: style.insets)
-        let measureLine: (String) -> Double = { line in
-            NativeTextRenderer.measure(line, style: glyphStyle, scaleFactor: displayScale, maxWidth: nil)?.width ?? 0
+        guard let layout = textSystem.layout(text, style: style, maxWidth: contentRect.size.width, scaleFactor: displayScale) else {
+            return false
         }
-        let layout = resolveTextLayout(
-            for: text,
-            style: style,
-            maxContentWidth: max(0, contentRect.size.width),
-            measureLine: measureLine
-        )
 
-        let lineHeight = NativeTextRenderer.measure("Ag", style: glyphStyle, scaleFactor: displayScale, maxWidth: nil)?.height
-            ?? max(1, style.nativeFontPixelSize / max(displayScale, 1))
-        let totalTextHeight = lineHeight * Double(max(layout.lines.count, 1))
-            + style.lineSpacing * Double(max(layout.lines.count - 1, 0))
-
-        let startY: Double
+        let totalTextHeight = layout.contentSize.height
+        let baseY: Double
         switch style.verticalAlignment {
         case .top:
-            startY = contentRect.origin.y
+            baseY = contentRect.origin.y
         case .center:
-            startY = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
+            baseY = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
         case .bottom:
-            startY = contentRect.maxY - totalTextHeight
+            baseY = contentRect.maxY - totalTextHeight
         }
-
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
         var appendedAnyGlyph = false
-        var cursorY = startY
+        var lineOriginY = baseY
 
         for line in layout.lines {
-            let lineWidth = measureLine(line)
             let startX: Double
             switch style.alignment {
             case .leading:
                 startX = contentRect.origin.x
             case .center:
-                startX = contentRect.origin.x + max(0, (contentRect.size.width - lineWidth) * 0.5)
+                startX = contentRect.origin.x + max(0, (contentRect.size.width - line.width) * 0.5)
             case .trailing:
-                startX = contentRect.maxX - lineWidth
+                startX = contentRect.maxX - line.width
             }
 
-            var previousAdvance = 0.0
-            var prefix = ""
-
-            for character in line {
-                let nextPrefix = prefix + String(character)
-                let totalAdvance = measureLine(nextPrefix)
-                defer {
-                    prefix = nextPrefix
-                    previousAdvance = totalAdvance
-                }
-
-                guard character != " " else {
+            for glyph in line.glyphs where glyph.character != " " {
+                guard let entry = NativeGlyphAtlas.shared.glyph(for: glyph, style: style, scaleFactor: displayScale) else {
                     continue
                 }
 
-                guard let entry = NativeGlyphAtlas.shared.glyph(for: character, style: glyphStyle, scaleFactor: displayScale) else {
-                    continue
-                }
-
-                let destinationRect = Rect(
-                    x: (startX + previousAdvance) * displayScale,
-                    y: cursorY * displayScale,
-                    width: Double(entry.width),
-                    height: Double(entry.height)
+                let destinationOrigin = Point(
+                    x: (startX + glyph.origin.x) * displayScale + Double(entry.bearingX),
+                    y: (lineOriginY + glyph.origin.y) * displayScale + Double(entry.bearingY)
                 )
-
                 let atlasSize = NativeGlyphAtlas.shared.size
                 let uv = entry.uvRect(atlasWidth: atlasSize.width, atlasHeight: atlasSize.height)
                 glyphs.append(
                     GlyphPrimitive(
-                        screenX: Float(destinationRect.origin.x),
-                        screenY: Float(destinationRect.origin.y),
-                        screenW: Float(destinationRect.size.width),
-                        screenH: Float(destinationRect.size.height),
+                        screenX: Float(destinationOrigin.x),
+                        screenY: Float(destinationOrigin.y),
+                        screenW: Float(entry.width),
+                        screenH: Float(entry.height),
                         atlasU0: uv.u0,
                         atlasV0: uv.v0,
                         atlasU1: uv.u1,
@@ -485,7 +504,7 @@ public enum ScenePainter {
                 appendedAnyGlyph = true
             }
 
-            cursorY += lineHeight + style.lineSpacing
+            lineOriginY += line.height + style.lineSpacing
         }
 
         return appendedAnyGlyph

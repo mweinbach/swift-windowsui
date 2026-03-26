@@ -23,7 +23,8 @@ swift run swift-windowsui
 
 The host also keeps a coalesced frame pump alive during resize, scroll, and
 other high-rate input instead of forcing synchronous redraws directly from each
-event callback.
+event callback. Duplicate invalidates are coalesced, and high-rate input only
+extends the timer when an interaction actually dirtied presentation state.
 
 ## Goal
 
@@ -104,7 +105,9 @@ Surface direction:
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The experimental scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
-- Standard text on the default path still goes through native bitmap rasterization; the experimental scene path has a partial native glyph-atlas port, while icon/private-use glyphs still fall back to the pixel atlas.
+- `GPUIScene` now preserves intra-layer family ordering through typed paint operations instead of forcing a new layer every time the primitive family changes.
+- Native scene text now goes through a runtime-owned logical `WindowTextSystem` cache before scene paint, and cached scenes no longer keep re-uploading stale atlas snapshots after the first presentation.
+- Standard text on the default path still goes through native bitmap rasterization; the experimental scene path now captures DirectWrite glyph IDs/font faces for atlas-backed glyphs, while icon/private-use glyphs still fall back to the pixel atlas.
 
 ## Observation Model
 
@@ -138,6 +141,6 @@ Avoid:
 
 - This is not full SwiftUI parity.
 - The repository is still Windows-only because the platform and renderer targets are Win32/D3D11-specific.
-- Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port that still stops short of GPUI-style shaped text runs.
+- Text behavior on the default path is still bitmap-based, while the experimental scene path has a partial native glyph-atlas port with cached logical layout and glyph-run capture that still stops short of GPUI-style shaped text runs and sprite families.
 - `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` remains the richer but still experimental presentation path.
 - API coverage should be extended from real demo/app needs, not by cloning SwiftUI surface area speculatively.

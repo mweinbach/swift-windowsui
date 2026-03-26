@@ -6,8 +6,16 @@ import WinSDK
 @MainActor
 enum NativeTextRenderer {
     static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
-        DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+        if let layout = layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth) {
+            return layout.measuredSize
+        }
+
+        return DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
             ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+    }
+
+    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
+        DirectWriteTextRenderer.layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
     }
 
     static func appendCommands(
@@ -38,6 +46,15 @@ enum NativeTextRenderer {
     static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
         DirectWriteTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
             ?? GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        DirectWriteTextRenderer.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        DirectWriteTextRenderer.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
+            ?? DirectWriteTextRenderer.rasterizeGlyph(glyph.character, style: style, scaleFactor: scaleFactor)
     }
 }
 

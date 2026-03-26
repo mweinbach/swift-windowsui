@@ -266,9 +266,57 @@ struct ScenePainterTests {
 
         #expect(PixelFontAtlas.supports(symbol))
         #expect(symbolGlyph != fallback)
-        #expect(scene.layers[0].glyphs.count == 1)
-        #expect(scene.layers[0].glyphs[0].atlasU0 == uv.u0)
-        #expect(scene.layers[0].glyphs[0].atlasV0 == uv.v0)
+        #expect(scene.layers[0].pixelGlyphs.count == 1)
+        #expect(scene.pixelGlyphAtlas != nil)
+        #expect(scene.layers[0].pixelGlyphs[0].atlasU0 == uv.u0)
+        #expect(scene.layers[0].pixelGlyphs[0].atlasV0 == uv.v0)
+    }
+
+    @Test("Mixed native text and icon glyphs keep separate atlases")
+    func mixedTextAndIconGlyphsUseSeparateAtlases() {
+        let textNode = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 120, height: 32),
+            text: "HELLO",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+        )
+        let iconNode = ViewNode(
+            frame: Rect(x: 10, y: 60, width: 32, height: 32),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 180, height: 120),
+            children: [textNode, iconNode]
+        )
+
+        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].glyphs.count > 0)
+        #expect(scene.layers[0].pixelGlyphs.count == 1)
+        #expect(scene.glyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame)
+        #expect(scene.pixelGlyphAtlas != nil)
+    }
+
+    @Test("Scrollable nodes emit indicator quads after children")
+    func scrollableNodeEmitsIndicatorOverlay() {
+        let child = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 160, height: 240),
+            backgroundColor: .white
+        )
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 120, height: 80),
+            backgroundColor: Color(red: 0.1, green: 0.1, blue: 0.1, alpha: 1),
+            scrollAxis: .vertical,
+            scrollOffset: 32,
+            showsScrollIndicator: true,
+            children: [child]
+        )
+
+        let runtime = RetainedViewRuntime(root: node)
+        let scene = runtime.renderScene()
+
+        let totalQuads = scene.layers.reduce(0) { $0 + $1.quads.count }
+        #expect(totalQuads >= 3)
     }
 
     // MARK: - Clear color

@@ -160,7 +160,24 @@ final class IntegrationTests: XCTestCase {
 
             XCTAssertEqual(scene.layers.count, 1)
             XCTAssertGreaterThan(scene.layers[0].glyphs.count, 0)
-            XCTAssertNotNil(scene.glyphAtlas)
+            XCTAssertTrue(scene.glyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame)
+        }
+    }
+
+    func testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild() async {
+        await MainActor.run {
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 80),
+                text: "HELLO",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let firstScene = runtime.renderScene()
+            let cachedScene = runtime.renderScene()
+
+            XCTAssertNotNil(firstScene.glyphAtlas)
+            XCTAssertNil(cachedScene.glyphAtlas)
         }
     }
 

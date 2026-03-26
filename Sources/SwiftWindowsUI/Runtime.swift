@@ -1104,7 +1104,8 @@ public final class ViewNode {
 
         let displayScale = runtime?.displayScale ?? 1.0
         let maxWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : nil
-        return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
+        return runtime?.textSystem.measure(text, style: textStyle, maxWidth: maxWidth, scaleFactor: displayScale)
+            ?? NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
             ?? PixelFont.measure(text, style: textStyle, maxWidth: maxWidth)
     }
 
@@ -1288,7 +1289,7 @@ public final class ViewNode {
         return setScrollOffset(translatedOffset)
     }
 
-    fileprivate func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
+    func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
         guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
             return nil
         }
@@ -1514,6 +1515,7 @@ public final class RetainedViewRuntime {
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
+    let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
     private weak var focusedNode: ViewNode?
@@ -1534,6 +1536,7 @@ public final class RetainedViewRuntime {
         self.clearColor = clearColor
         self.root = root
         self.displayScale = displayScale
+        self.textSystem = WindowTextSystem()
         self.root.setRuntime(self)
     }
 
@@ -1591,10 +1594,14 @@ public final class RetainedViewRuntime {
             root: root,
             clearColor: clearColor,
             surfaceSize: root.frame.size,
-            displayScale: displayScale
+            displayScale: displayScale,
+            textSystem: textSystem
         )
 
-        cachedScene = scene
+        var cachedSceneCopy = scene
+        cachedSceneCopy.glyphAtlas = nil
+        cachedSceneCopy.pixelGlyphAtlas = nil
+        cachedScene = cachedSceneCopy
         cachedFrame = nil
         dirtyFlags = []
         if timestamp > 0 {

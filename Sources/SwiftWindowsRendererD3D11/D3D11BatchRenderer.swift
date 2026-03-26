@@ -62,6 +62,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var glyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
     private var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var glyphAtlasSize = IntSize.zero
+    private var pixelGlyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+    private var pixelGlyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var pixelGlyphAtlasSize = IntSize.zero
 
     // MARK: - Surface State
 
@@ -165,7 +168,20 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         try updateFrameUniforms(surfaceSize: surface.pixelSize)
         if let glyphAtlas = scene.glyphAtlas {
-            try updateGlyphAtlasTexture(glyphAtlas)
+            try updateGlyphAtlasTexture(
+                glyphAtlas,
+                texture: &glyphAtlasTexture,
+                srv: &glyphAtlasSRV,
+                size: &glyphAtlasSize
+            )
+        }
+        if let pixelGlyphAtlas = scene.pixelGlyphAtlas {
+            try updateGlyphAtlasTexture(
+                pixelGlyphAtlas,
+                texture: &pixelGlyphAtlasTexture,
+                srv: &pixelGlyphAtlasSRV,
+                size: &pixelGlyphAtlasSize
+            )
         }
 
         var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
@@ -200,7 +216,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         deviceContext: deviceContext
                     )
                 case .glyph:
-                    try renderGlyphBatch(Array(layer.glyphs[range]), deviceContext: deviceContext)
+                    try renderGlyphBatch(
+                        Array(layer.glyphs[range]),
+                        atlasSRV: glyphAtlasSRV,
+                        deviceContext: deviceContext
+                    )
+                case .pixelGlyph:
+                    try renderGlyphBatch(
+                        Array(layer.pixelGlyphs[range]),
+                        atlasSRV: pixelGlyphAtlasSRV,
+                        deviceContext: deviceContext
+                    )
                 case .image:
                     try renderBatch(
                         Array(layer.images[range]),
@@ -717,14 +743,19 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
     }
 
-    private func updateGlyphAtlasTexture(_ snapshot: GlyphAtlasSnapshot) throws {
+    private func updateGlyphAtlasTexture(
+        _ snapshot: GlyphAtlasSnapshot,
+        texture: inout UnsafeMutablePointer<ID3D11Texture2D>?,
+        srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
+        size: inout IntSize
+    ) throws {
         guard let device, let deviceContext else {
             return
         }
 
-        if glyphAtlasTexture == nil || glyphAtlasSize.width != snapshot.width || glyphAtlasSize.height != snapshot.height {
-            releaseCOMPointer(&glyphAtlasSRV)
-            releaseCOMPointer(&glyphAtlasTexture)
+        if texture == nil || size.width != snapshot.width || size.height != snapshot.height {
+            releaseCOMPointer(&srv)
+            releaseCOMPointer(&texture)
 
             var textureDesc = D3D11_TEXTURE2D_DESC()
             textureDesc.Width = UINT(snapshot.width)
@@ -736,10 +767,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             textureDesc.Usage = D3D11_USAGE_DEFAULT
             textureDesc.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
 
-            let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &glyphAtlasTexture)
+            let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &texture)
             try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)")
 
-            guard let glyphAtlasTexture else {
+            guard let texture else {
                 throw BatchRendererError(operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle)
             }
 
@@ -751,27 +782,58 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 textureView.pointee.MipLevels = 1
             }
 
-            let resource = UnsafeMutableRawPointer(glyphAtlasTexture).assumingMemoryBound(to: ID3D11Resource.self)
-            let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &glyphAtlasSRV)
+            let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+            let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
             try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(glyph atlas)")
-            glyphAtlasSize = IntSize(width: snapshot.width, height: snapshot.height)
+            size = IntSize(width: snapshot.width, height: snapshot.height)
         }
 
-        guard let glyphAtlasTexture else {
+        guard let texture else {
             return
         }
 
-        let resource = UnsafeMutableRawPointer(glyphAtlasTexture).assumingMemoryBound(to: ID3D11Resource.self)
+        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        let rowPitch = UINT(snapshot.width * 4)
         snapshot.pixels.withUnsafeBytes { pixels in
-            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
-                deviceContext,
-                resource,
-                0,
-                nil,
-                pixels.baseAddress,
-                UINT(snapshot.width * 4),
-                0
-            )
+            guard let baseAddress = pixels.baseAddress else {
+                return
+            }
+
+            if let dirtyRegion = snapshot.dirtyRegion,
+               dirtyRegion.width > 0,
+               dirtyRegion.height > 0,
+               size.width == snapshot.width,
+               size.height == snapshot.height {
+                let bytesOffset = Int((dirtyRegion.y * snapshot.width + dirtyRegion.x) * 4)
+                var updateBox = D3D11_BOX(
+                    left: UINT(dirtyRegion.x),
+                    top: UINT(dirtyRegion.y),
+                    front: 0,
+                    right: UINT(dirtyRegion.x + dirtyRegion.width),
+                    bottom: UINT(dirtyRegion.y + dirtyRegion.height),
+                    back: 1
+                )
+                let regionPointer = UnsafeRawPointer(baseAddress.advanced(by: bytesOffset))
+                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                    deviceContext,
+                    resource,
+                    0,
+                    &updateBox,
+                    regionPointer,
+                    rowPitch,
+                    0
+                )
+            } else {
+                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                    deviceContext,
+                    resource,
+                    0,
+                    nil,
+                    baseAddress,
+                    rowPitch,
+                    0
+                )
+            }
         }
     }
 
@@ -822,6 +884,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private func renderGlyphBatch(
         _ instances: [GlyphPrimitive],
+        atlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
     ) throws {
         try ensureInstanceBufferCapacity(
@@ -836,7 +899,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         guard
             let glyphInstanceBuffer,
             let glyphInstanceSRV,
-            let glyphAtlasSRV,
+            let atlasSRV,
             let glyphVS,
             let glyphPS
         else {
@@ -851,8 +914,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = glyphInstanceSRV
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
 
-        var atlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = glyphAtlasSRV
-        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &atlasSRV)
+        var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = atlasSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &glyphAtlasSRV)
 
         var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
         deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
@@ -881,6 +944,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
         if !layer.glyphs.isEmpty {
             operations.append(GPUIPaintOperation(kind: .glyph, startIndex: 0, count: layer.glyphs.count))
+        }
+        if !layer.pixelGlyphs.isEmpty {
+            operations.append(GPUIPaintOperation(kind: .pixelGlyph, startIndex: 0, count: layer.pixelGlyphs.count))
         }
         if !layer.images.isEmpty {
             operations.append(GPUIPaintOperation(kind: .image, startIndex: 0, count: layer.images.count))

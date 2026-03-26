@@ -345,11 +345,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func commitRuntimeState(in window: Win32Window, interactive: Bool = false) {
-        if interactive {
+        let needsPresentation = runtime.isDirty || pendingPresentation
+
+        if interactive && needsPresentation {
             inputRateTracker.recordInput()
         }
 
-        guard runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate else {
+        guard needsPresentation || inputRateTracker.isHighRate else {
             syncAnimationDriver(for: window)
             return
         }
@@ -358,9 +360,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func requestFrame(in window: Win32Window) {
+        let wasPending = pendingPresentation
         pendingPresentation = true
         syncAnimationDriver(for: window)
-        window.invalidate()
+        if !wasPending {
+            window.invalidate()
+        }
     }
 
     private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) {
@@ -368,6 +373,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             if runtime.isDirty || pendingPresentation {
                 window.invalidate()
             }
+            return
+        }
+
+        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate else {
+            syncAnimationDriver(for: window)
             return
         }
 
@@ -404,9 +414,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func logicalSize(for pixelSize: IntSize, scaleFactor: Double) -> IntSize {
-        IntSize(
-            width: Int32((Double(pixelSize.width) / max(scaleFactor, 1.0)).rounded(.down)),
-            height: Int32((Double(pixelSize.height) / max(scaleFactor, 1.0)).rounded(.down))
+        let logicalScale = max(scaleFactor, 1.0)
+        return IntSize(
+            width: Int32((Double(pixelSize.width) / logicalScale).rounded(.toNearestOrAwayFromZero)),
+            height: Int32((Double(pixelSize.height) / logicalScale).rounded(.toNearestOrAwayFromZero))
         )
     }
 

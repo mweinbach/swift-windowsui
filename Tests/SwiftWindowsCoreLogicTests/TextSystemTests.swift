@@ -86,6 +86,59 @@ final class TextSystemTests: XCTestCase {
         XCTAssertTrue(result.1)
     }
 
+    func testDirectWriteLayoutProducesGlyphPlacementsWhenAvailable() async throws {
+        let capabilities = await MainActor.run {
+            TextSystem.capabilities()
+        }
+
+        guard capabilities.dwriteFactoryCreationSucceeded else {
+            throw XCTSkip("DirectWrite is not available on this environment")
+        }
+
+        let result = await MainActor.run { () -> NativeTextLayoutResult? in
+            let style = PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 18
+            )
+            return NativeTextRenderer.layout("Hello", style: style, scaleFactor: 1.0, maxWidth: 200)
+        }
+
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.lines.count, 1)
+        XCTAssertEqual(result?.lines.first?.glyphs.count, 5)
+        XCTAssertGreaterThan(result?.lines.first?.glyphs.last?.origin.x ?? 0, result?.lines.first?.glyphs.first?.origin.x ?? 0)
+        XCTAssertNotNil(result?.lines.first?.glyphs.first?.glyphID)
+        XCTAssertNotNil(result?.lines.first?.glyphs.first?.fontFace)
+    }
+
+    func testWindowTextSystemReusesLogicalLayoutAcrossScaleChanges() async throws {
+        let capabilities = await MainActor.run {
+            TextSystem.capabilities()
+        }
+
+        guard capabilities.dwriteFactoryCreationSucceeded else {
+            throw XCTSkip("DirectWrite is not available on this environment")
+        }
+
+        let result = await MainActor.run { () -> (NativeTextLayoutResult?, NativeTextLayoutResult?, Int) in
+            let system = WindowTextSystem()
+            let style = PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 18
+            )
+            let first = system.layout("Cache me", style: style, maxWidth: 240, scaleFactor: 1.0)
+            let second = system.layout("Cache me", style: style, maxWidth: 240, scaleFactor: 2.0)
+            return (first, second, system.cachedLayoutCount)
+        }
+
+        XCTAssertEqual(result.2, 1)
+        XCTAssertEqual(result.0?.lines.first?.glyphs.map(\.origin.x), result.1?.lines.first?.glyphs.map(\.origin.x))
+    }
+
     func testSnapLogicalTextSizeRoundsUpToWholePixels() {
         let snapped = snapLogicalTextSize(Size(width: 18.2, height: 9.1), scaleFactor: 1.5)
 

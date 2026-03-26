@@ -11,8 +11,8 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
-- A `WinSwiftUI` host loop that coalesces rebuilds and keeps the frame pump alive during resize, scroll, and other high-rate interaction
-- An experimental batch scene path that scales primitives into device pixels and is still being brought up toward Zed-style paint ordering and shaped text
+- A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
+- An experimental batch scene path that scales primitives into device pixels, preserves intra-layer paint order through typed paint operations, uses a runtime-owned logical text layout cache plus a native glyph atlas, and is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -70,8 +70,11 @@ swift run swift-windowsui
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
 
 `GPUIScene` -> `D3D11BatchRenderer` remains in the repo as the active porting
-target, but it is not the default demo presentation path until paint ordering
-and native text shaping match the retained/frame behavior.
+target. It now preserves paint order inside each layer through typed paint
+operations, caches logical native text layout per runtime, and only attaches
+atlas snapshots to freshly-built scenes, but it is not the default demo
+presentation path until layering, batching, and text rendering match the
+retained/frame behavior more closely.
 
 ## WinSwiftUI Coverage
 
@@ -92,7 +95,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path has a partial native-glyph-atlas port but still lacks GPUI-style shaped runs
+- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, subpixel sprite families, and text-system-owned line layout
 - `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility

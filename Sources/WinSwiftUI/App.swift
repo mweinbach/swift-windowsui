@@ -95,6 +95,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let configuration: WindowGroupConfiguration
     private let window: Win32Window
     private let renderer: any RenderBackend
+    private let batchRenderer: (any BatchRenderBackend)?
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
@@ -119,11 +120,13 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     init(
         configuration: WindowGroupConfiguration,
         renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
+        batchRenderer: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend(),
         surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost.defaultSurfaceDescriptor
     ) {
         self.configuration = configuration
         self.window = Win32Window(title: configuration.title, clientSize: configuration.size)
         self.renderer = renderer
+        self.batchRenderer = batchRenderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
         self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
         self.componentHost = ComponentHost(runtime: runtime)
@@ -144,7 +147,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 return
             }
 
-            try renderer.attach(to: surface)
+            if let batchRenderer {
+                try batchRenderer.attach(to: surface)
+            } else {
+                try renderer.attach(to: surface)
+            }
             isRendererReady = true
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
@@ -161,7 +168,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             runtime.displayScale = window.scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
             componentHost.reload()
-            try renderer.resize(to: size)
+            if let batchRenderer {
+                try batchRenderer.resize(to: size)
+            } else {
+                try renderer.resize(to: size)
+            }
             renderCurrentFrame(in: window)
         } catch {
             report(error)
@@ -326,7 +337,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         do {
-            try renderer.render(frame: runtime.renderFrame())
+            if let batchRenderer {
+                try batchRenderer.render(scene: runtime.renderScene())
+            } else {
+                try renderer.render(frame: runtime.renderFrame())
+            }
         } catch {
             report(error)
         }

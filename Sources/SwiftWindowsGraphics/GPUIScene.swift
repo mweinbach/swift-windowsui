@@ -1,6 +1,19 @@
+import Foundation
 import SwiftWindowsCore
 
 // MARK: - GPUILayer
+
+public struct GlyphAtlasSnapshot: Equatable, Sendable {
+    public var width: Int32
+    public var height: Int32
+    public var pixels: Data
+
+    public init(width: Int32, height: Int32, pixels: Data) {
+        self.width = width
+        self.height = height
+        self.pixels = pixels
+    }
+}
 
 /// A rendering layer containing typed, contiguous primitive arrays.
 /// Draw order within a layer: shadows, quads, glyphs, images.
@@ -39,10 +52,12 @@ public struct GPUILayer: Equatable, Sendable {
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
+    public var glyphAtlas: GlyphAtlasSnapshot?
 
-    public init(clearColor: Color = .black) {
+    public init(clearColor: Color = .black, glyphAtlas: GlyphAtlasSnapshot? = nil) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
+        self.glyphAtlas = glyphAtlas
     }
 
     // MARK: - Layer management

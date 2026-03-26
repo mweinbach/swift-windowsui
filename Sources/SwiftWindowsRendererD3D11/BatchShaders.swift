@@ -33,6 +33,7 @@ struct VSOutput
     float4 startColor : COLOR0;
     float4 endColor : COLOR1;
     float4 clipRect : TEXCOORD4;
+    float2 pixelPosition : TEXCOORD5;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -65,6 +66,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.startColor = float4(inst.startR, inst.startG, inst.startB, inst.startA);
     output.endColor = float4(inst.endR, inst.endG, inst.endB, inst.endA);
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
+    output.pixelPosition = pixelPosition;
     return output;
 }
 
@@ -83,10 +85,9 @@ float4 psMain(VSOutput input) : SV_Target
     // Per-pixel clip check: if clip rect has positive dimensions, discard outside it
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.position.xy;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -135,6 +136,7 @@ struct VSOutput
     float2 uv : TEXCOORD0;
     float opacity : TEXCOORD1;
     float4 clipRect : TEXCOORD2;
+    float2 pixelPosition : TEXCOORD3;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -166,6 +168,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.uv = uvOrigin + unit * uvSize;
     output.opacity = inst.opacity;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
+    output.pixelPosition = pixelPosition;
     return output;
 }
 
@@ -174,10 +177,9 @@ float4 psMain(VSOutput input) : SV_Target
     // Per-pixel clip check
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.position.xy;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }

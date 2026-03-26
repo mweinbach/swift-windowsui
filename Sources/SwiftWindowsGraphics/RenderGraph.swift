@@ -35,23 +35,24 @@ public struct RenderFrame: Equatable, Sendable {
 /// Backend-neutral drawing commands. Future backends should interpret this
 /// list rather than requiring shared UI code to branch on renderer type.
 ///
-/// Gap 1 (fixed): Only fillRect and drawBitmap existed; no path, text, clip,
-/// or blur commands. Fix: added fillPath, strokePath, drawText, pushClip,
-/// popClip, and applyBlur cases.
+/// The active demo path currently renders `fillRect` and `drawBitmap`.
+/// Additional cases exist so the shared contract can grow toward the typed
+/// scene/batch pipeline, but renderers must opt into them explicitly instead
+/// of silently dropping them.
 public enum RenderCommand: Equatable, Sendable {
     case fillRect(FillRectCommand)
     case drawBitmap(DrawBitmapCommand)
-    /// Gap 1 fix: fill an arbitrary path with a solid color or gradient.
+    /// Reserved for backends that support vector path fills.
     case fillPath(FillPathCommand)
-    /// Gap 1 fix: stroke an arbitrary path with configurable style.
+    /// Reserved for backends that support stroked vector paths.
     case strokePath(StrokePathCommand)
-    /// Gap 6 fix: apply a Gaussian blur to a region of the current surface.
+    /// Reserved for backends that support post-process blur.
     case applyBlur(BlurCommand)
-    /// Gap 7 fix: first-class text draw command for future GPU text path.
+    /// Reserved for first-class text rendering paths.
     case drawText(DrawTextCommand)
-    /// Gap 5 fix: push an arbitrary clip shape onto the clip stack.
+    /// Reserved for backends with clip-stack support.
     case pushClip(ClipCommand)
-    /// Gap 5 fix: pop the most recent clip shape from the clip stack.
+    /// Reserved for backends with clip-stack support.
     case popClip
 }
 
@@ -452,9 +453,8 @@ public struct BlurCommand: Equatable, Sendable {
     }
 }
 
-/// Gap 7 fix: first-class text drawing command. Even though the current
-/// pipeline rasterizes text to bitmaps, a dedicated command enables future
-/// GPU-accelerated text rendering without changing the command list shape.
+/// First-class text drawing command reserved for renderer paths that can own
+/// text shaping/rasterization directly instead of relying on pre-baked bitmaps.
 public struct DrawTextCommand: Equatable, Sendable {
     public var text: String
     public var position: Point

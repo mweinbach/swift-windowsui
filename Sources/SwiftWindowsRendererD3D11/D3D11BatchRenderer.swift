@@ -29,6 +29,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var quadPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var glyphVS: UnsafeMutablePointer<ID3D11VertexShader>?
+    private var glyphPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var shadowVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var shadowPS: UnsafeMutablePointer<ID3D11PixelShader>?
 
@@ -49,9 +51,17 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
     private var imageInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var imageInstanceCapacity: Int = 256
 
+    private var glyphInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var glyphInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var glyphInstanceCapacity: Int = 512
+
     private var shadowInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var shadowInstanceCapacity: Int = 256
+
+    private var glyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+    private var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var glyphAtlasSize = IntSize.zero
 
     // MARK: - Surface State
 
@@ -154,6 +164,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         try updateFrameUniforms(surfaceSize: surface.pixelSize)
+        if let glyphAtlas = scene.glyphAtlas {
+            try updateGlyphAtlasTexture(glyphAtlas)
+        }
 
         var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
@@ -180,6 +193,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                     label: "quad",
                     deviceContext: deviceContext
                 )
+            }
+            if !layer.glyphs.isEmpty {
+                try renderGlyphBatch(layer.glyphs, deviceContext: deviceContext)
             }
             if !layer.images.isEmpty {
                 try renderBatch(
@@ -216,6 +232,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             source: batchShadowShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var shadowPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchShadowShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        var glyphVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.vertexShaderEntryPoint, profile: "vs_5_0")
+        var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.pixelShaderEntryPoint, profile: "ps_5_0")
+        releaseCOMPointer(&glyphPSBlob)
+        releaseCOMPointer(&glyphVSBlob)
         releaseCOMPointer(&shadowPSBlob)
         releaseCOMPointer(&shadowVSBlob)
         releaseCOMPointer(&imagePSBlob)
@@ -371,6 +393,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         )
         try createShaderPair(
             device: device,
+            source: GlyphPipelineResources.vertexShaderSource,
+            vs: &glyphVS,
+            ps: &glyphPS,
+            label: "glyph"
+        )
+        try createShaderPair(
+            device: device,
             source: batchShadowShaderSource,
             vs: &shadowVS,
             ps: &shadowPS,
@@ -434,6 +463,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             buffer: &imageInstanceBuffer,
             srv: &imageInstanceSRV,
             label: "image"
+        )
+        try createInstanceBuffer(
+            device: device,
+            capacity: glyphInstanceCapacity,
+            strideBytes: MemoryLayout<GlyphPrimitive>.stride,
+            buffer: &glyphInstanceBuffer,
+            srv: &glyphInstanceSRV,
+            label: "glyph"
         )
         try createInstanceBuffer(
             device: device,
@@ -633,7 +670,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(operation: "Map returned nil", hresult: batchHresultHandle)
         }
 
-        instances.withUnsafeBytes { source in
+        _ = instances.withUnsafeBytes { source in
             memcpy(pData, source.baseAddress, source.count)
         }
 
@@ -670,6 +707,64 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 nil,
                 UnsafeRawPointer(ptr),
                 0,
+                0
+            )
+        }
+    }
+
+    private func updateGlyphAtlasTexture(_ snapshot: GlyphAtlasSnapshot) throws {
+        guard let device, let deviceContext else {
+            return
+        }
+
+        if glyphAtlasTexture == nil || glyphAtlasSize.width != snapshot.width || glyphAtlasSize.height != snapshot.height {
+            releaseCOMPointer(&glyphAtlasSRV)
+            releaseCOMPointer(&glyphAtlasTexture)
+
+            var textureDesc = D3D11_TEXTURE2D_DESC()
+            textureDesc.Width = UINT(snapshot.width)
+            textureDesc.Height = UINT(snapshot.height)
+            textureDesc.MipLevels = 1
+            textureDesc.ArraySize = 1
+            textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM
+            textureDesc.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+            textureDesc.Usage = D3D11_USAGE_DEFAULT
+            textureDesc.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
+
+            let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &glyphAtlasTexture)
+            try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)")
+
+            guard let glyphAtlasTexture else {
+                throw BatchRendererError(operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle)
+            }
+
+            var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
+            srvDesc.Format = textureDesc.Format
+            srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D
+            withUnsafeMutablePointer(to: &srvDesc.Texture2D) { textureView in
+                textureView.pointee.MostDetailedMip = 0
+                textureView.pointee.MipLevels = 1
+            }
+
+            let resource = UnsafeMutableRawPointer(glyphAtlasTexture).assumingMemoryBound(to: ID3D11Resource.self)
+            let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &glyphAtlasSRV)
+            try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(glyph atlas)")
+            glyphAtlasSize = IntSize(width: snapshot.width, height: snapshot.height)
+        }
+
+        guard let glyphAtlasTexture else {
+            return
+        }
+
+        let resource = UnsafeMutableRawPointer(glyphAtlasTexture).assumingMemoryBound(to: ID3D11Resource.self)
+        snapshot.pixels.withUnsafeBytes { pixels in
+            deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                deviceContext,
+                resource,
+                0,
+                nil,
+                pixels.baseAddress,
+                UINT(snapshot.width * 4),
                 0
             )
         }
@@ -718,6 +813,49 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+    }
+
+    private func renderGlyphBatch(
+        _ instances: [GlyphPrimitive],
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws {
+        try ensureInstanceBufferCapacity(
+            count: instances.count,
+            capacity: &glyphInstanceCapacity,
+            strideBytes: MemoryLayout<GlyphPrimitive>.stride,
+            buffer: &glyphInstanceBuffer,
+            srv: &glyphInstanceSRV,
+            label: "glyph"
+        )
+
+        guard
+            let glyphInstanceBuffer,
+            let glyphInstanceSRV,
+            let glyphAtlasSRV,
+            let glyphVS,
+            let glyphPS
+        else {
+            return
+        }
+
+        try uploadInstances(instances, buffer: glyphInstanceBuffer, deviceContext: deviceContext)
+
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, glyphVS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, glyphPS, nil, 0)
+
+        var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = glyphInstanceSRV
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
+
+        var atlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = glyphAtlasSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &atlasSRV)
+
+        var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
+        deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instances.count), 0, 0)
+
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
     }
 
     // MARK: - Helpers

@@ -145,6 +145,22 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testRenderSceneEmitsGlyphsAndAtlasSnapshotForText() async {
+        await MainActor.run {
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 80),
+                text: "HELLO",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+            )
+            let runtime = RetainedViewRuntime(root: root)
+            let scene = runtime.renderScene()
+
+            XCTAssertEqual(scene.layers.count, 1)
+            XCTAssertGreaterThan(scene.layers[0].glyphs.count, 0)
+            XCTAssertNotNil(scene.glyphAtlas)
+        }
+    }
+
     // MARK: - GPUIScene Layer Management Tests
 
     func testPushLayerIncreasesCount() {
@@ -188,12 +204,10 @@ final class IntegrationTests: XCTestCase {
     // MARK: - BatchRenderBackend Protocol Tests
 
     func testBatchRenderBackendProtocolCanBeReferenced() async {
-        // Verify the protocol exists and can be used as a type constraint.
-        // We cannot instantiate it (no concrete implementation yet), but we
-        // can confirm the factory returns the expected nil stub.
         await MainActor.run {
             let backend: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend()
-            XCTAssertNil(backend, "makeBatchBackend() should return nil until a concrete implementation is merged")
+            XCTAssertNotNil(backend)
+            XCTAssertEqual(backend?.backendDisplayName, "D3D11 BATCH")
         }
     }
 

@@ -230,6 +230,47 @@ struct ScenePainterTests {
         #expect(quad.endA == 0.5)
     }
 
+    // MARK: - Text
+
+    @Test("Text nodes emit typed glyph primitives and atlas data")
+    func textNodeProducesGlyphs() {
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 140, height: 40),
+            text: "HI",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].glyphs.count == 2)
+        #expect(scene.glyphAtlas != nil)
+        #expect(scene.layers[0].glyphs[0].screenX >= 10)
+        #expect(scene.layers[0].glyphs[0].screenY >= 20)
+    }
+
+    @Test("Symbol icons resolve to dedicated atlas glyphs")
+    func symbolIconsUseDedicatedAtlasEntries() {
+        let symbol = Character(SymbolIcon.search.rawValue)
+        let fallback = PixelFontAtlas.glyph(for: "?")
+        let symbolGlyph = PixelFontAtlas.glyph(for: symbol)
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 40, height: 40),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let atlas = PixelFontAtlas.shared.surface
+        let uv = symbolGlyph.uvRect(atlasWidth: atlas.width, atlasHeight: atlas.height)
+
+        #expect(PixelFontAtlas.supports(symbol))
+        #expect(symbolGlyph != fallback)
+        #expect(scene.layers[0].glyphs.count == 1)
+        #expect(scene.layers[0].glyphs[0].atlasU0 == uv.u0)
+        #expect(scene.layers[0].glyphs[0].atlasV0 == uv.v0)
+    }
+
     // MARK: - Clear color
 
     @Test("Scene preserves the clear color")

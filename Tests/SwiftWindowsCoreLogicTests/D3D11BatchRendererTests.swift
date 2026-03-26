@@ -105,8 +105,8 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testGlyphPrimitiveStride() {
-        // GlyphPrimitive should be 48 bytes (12 floats * 4 bytes)
-        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 48)
+        // GlyphPrimitive should be 64 bytes (16 floats * 4 bytes)
+        XCTAssertEqual(MemoryLayout<GlyphPrimitive>.stride, 64)
     }
 
     func testShadowPrimitiveStride() {

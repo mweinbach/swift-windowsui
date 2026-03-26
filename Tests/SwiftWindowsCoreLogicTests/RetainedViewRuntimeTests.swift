@@ -466,6 +466,28 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testBlurRadiusDoesNotEmitUnsupportedBlurCommand() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .white,
+                blurRadius: 12
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            let frame = runtime.renderFrame()
+            let hasBlurCommand = frame.commands.contains { command in
+                if case .applyBlur = command {
+                    return true
+                }
+                return false
+            }
+
+            XCTAssertFalse(hasBlurCommand)
+            XCTAssertEqual(fillRectCommands(in: frame).count, 1)
+        }
+    }
+
     func testSplitViewLaysOutAndDragsDivider() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -574,9 +596,7 @@ private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
             return fillRect.rect
         case .drawBitmap(let drawBitmap):
             return drawBitmap.rect
-        case .applyBlur(let blur):
-            return blur.region
-        case .fillPath, .strokePath, .drawText, .pushClip, .popClip:
+        case .applyBlur, .fillPath, .strokePath, .drawText, .pushClip, .popClip:
             return nil
         }
     }

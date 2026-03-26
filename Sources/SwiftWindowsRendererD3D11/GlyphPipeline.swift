@@ -6,6 +6,7 @@ struct GlyphInstance {
     float screenX, screenY, screenW, screenH;
     float atlasU0, atlasV0, atlasU1, atlasV1;
     float colorR, colorG, colorB, colorA;
+    float clipX, clipY, clipWidth, clipHeight;
 };
 
 StructuredBuffer<GlyphInstance> instances : register(t0);
@@ -19,7 +20,11 @@ cbuffer FrameUniforms : register(b0) {
 
 struct VSOutput {
     float4 position : SV_Position;
-    float2 uv : TEXCOORD0;
+    float2 screenPosition : TEXCOORD0;
+    float2 screenSize : TEXCOORD1;
+    float2 unit : TEXCOORD2;
+    float4 clipRect : TEXCOORD3;
+    float2 uv : TEXCOORD4;
     float4 color : COLOR0;
 };
 
@@ -46,12 +51,27 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
 
     VSOutput output;
     output.position = float4(clipPos, 0.0, 1.0);
+    output.screenPosition = origin;
+    output.screenSize = size;
+    output.unit = unit;
+    output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.uv = uv;
     output.color = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
     return output;
 }
 
 float4 psMain(VSOutput input) : SV_Target {
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        float2 pixelPos = input.screenPosition + input.unit * input.screenSize;
+        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
+            pixelPos.x > input.clipRect.x + input.clipRect.z ||
+            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+    }
+
     float glyphAlpha = glyphAtlas.Sample(glyphSampler, input.uv).a;
     return float4(input.color.rgb * input.color.a * glyphAlpha, input.color.a * glyphAlpha);
 }

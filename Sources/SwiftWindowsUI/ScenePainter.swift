@@ -11,6 +11,10 @@ public enum ScenePainter {
         var scene = GPUIScene(clearColor: clearColor)
         let fullClip = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
         paintNode(root, into: &scene, parentOrigin: .zero, inheritedClip: fullClip, surfaceSize: surfaceSize)
+        if scene.layers.contains(where: { !$0.glyphs.isEmpty }) {
+            let atlas = PixelFontAtlas.shared.surface
+            scene.glyphAtlas = GlyphAtlasSnapshot(width: atlas.width, height: atlas.height, pixels: atlas.pixels)
+        }
         return scene
     }
 
@@ -140,6 +144,21 @@ public enum ScenePainter {
             ))
         }
 
+        if let text = node.text, !text.isEmpty,
+           fillRect.size.width > 0, fillRect.size.height > 0,
+           clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+        {
+            appendTextGlyphs(
+                for: text,
+                style: node.textStyle,
+                in: fillRect,
+                opacity: opacity,
+                clip: effectiveClip,
+                surfaceSize: surfaceSize,
+                into: &scene.layers[layerIndex].glyphs
+            )
+        }
+
         // Children -- sort by zIndex (stable), push new layers when zIndex changes.
         let childOrigin = Point(
             x: absoluteFrame.origin.x - (node.scrollAxis == .horizontal ? node.resolvedScrollOffset : 0),
@@ -207,5 +226,97 @@ public enum ScenePainter {
             return (Float(c.origin.x), Float(c.origin.y), Float(c.size.width), Float(c.size.height))
         }
         return (0, 0, Float(surfaceSize.width), Float(surfaceSize.height))
+    }
+
+    private static func appendTextGlyphs(
+        for text: String,
+        style: PixelTextStyle,
+        in rect: Rect,
+        opacity: Float,
+        clip: Rect?,
+        surfaceSize: Size,
+        into glyphs: inout [GlyphPrimitive]
+    ) {
+        guard !text.isEmpty, style.color.alpha > 0 else {
+            return
+        }
+
+        let contentRect = rect.inset(by: style.insets)
+        let scale = max(style.scale, 1)
+        let layout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: max(0, contentRect.size.width),
+            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * scale }
+        )
+        let totalTextHeight = (
+            Double(max(layout.lines.count, 1) * PixelFontAtlas.glyphHeight) +
+            Double(max(layout.lines.count - 1, 0)) * style.lineSpacing
+        ) * scale
+
+        let startY: Double
+        switch style.verticalAlignment {
+        case .top:
+            startY = contentRect.origin.y
+        case .center:
+            startY = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
+        case .bottom:
+            startY = contentRect.maxY - totalTextHeight
+        }
+
+        let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize)
+        let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale
+        let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale
+        var cursorY = startY
+
+        for line in layout.lines {
+            let lineWidth = PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * scale
+            let startX: Double
+            switch style.alignment {
+            case .leading:
+                startX = contentRect.origin.x
+            case .center:
+                startX = contentRect.origin.x + max(0, (contentRect.size.width - lineWidth) * 0.5)
+            case .trailing:
+                startX = contentRect.maxX - lineWidth
+            }
+
+            var cursorX = startX
+            for character in line.uppercased() {
+                defer {
+                    cursorX += (Double(PixelFontAtlas.glyphWidth) + style.letterSpacing) * scale
+                }
+
+                guard character != " " else {
+                    continue
+                }
+
+                let atlas = PixelFontAtlas.shared
+                let entry = PixelFontAtlas.glyph(for: character)
+                let uv = entry.uvRect(atlasWidth: atlas.surface.width, atlasHeight: atlas.surface.height)
+                glyphs.append(
+                    GlyphPrimitive(
+                        screenX: Float(cursorX),
+                        screenY: Float(cursorY),
+                        screenW: Float(glyphWidth),
+                        screenH: Float(glyphHeight),
+                        atlasU0: uv.u0,
+                        atlasV0: uv.v0,
+                        atlasU1: uv.u1,
+                        atlasV1: uv.v1,
+                        colorR: style.color.red,
+                        colorG: style.color.green,
+                        colorB: style.color.blue,
+                        colorA: style.color.alpha * opacity,
+                        clipX: clipRect.0,
+                        clipY: clipRect.1,
+                        clipWidth: clipRect.2,
+                        clipHeight: clipRect.3
+                    )
+                )
+            }
+
+            cursorY += Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale
+        }
     }
 }

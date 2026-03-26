@@ -34,6 +34,15 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
     }
 }
 
+private struct UnsupportedRenderCommandError: Error, CustomStringConvertible, Sendable {
+    let backend: String
+    let commandName: String
+
+    var description: String {
+        "\(backend) does not support RenderCommand.\(commandName)."
+    }
+}
+
 /// Blend modes supported by the D3D11 fallback renderer.
 public enum D3D11BlendMode: Hashable, Sendable {
     case normal
@@ -740,8 +749,7 @@ public final class D3D11Renderer: RenderBackend {
             case .drawBitmap(let drawBitmapCommand):
                 try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
             case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
-                // TODO: implement Direct2D path for new render commands
-                break
+                throw unsupportedRenderCommand(command, backend: "Direct2D")
             }
         }
 
@@ -883,8 +891,7 @@ public final class D3D11Renderer: RenderBackend {
                 samplerState: bitmapSamplerState
             )
         case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
-            // TODO: implement D3D11 path for new render commands
-            break
+            throw unsupportedRenderCommand(command, backend: "D3D11 fallback")
         }
     }
 
@@ -1335,6 +1342,31 @@ func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
     _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
     pointer = nil
+}
+
+private func unsupportedRenderCommand(_ command: RenderCommand, backend: String) -> UnsupportedRenderCommandError {
+    UnsupportedRenderCommandError(backend: backend, commandName: renderCommandName(command))
+}
+
+private func renderCommandName(_ command: RenderCommand) -> String {
+    switch command {
+    case .fillRect:
+        return "fillRect"
+    case .drawBitmap:
+        return "drawBitmap"
+    case .fillPath:
+        return "fillPath"
+    case .strokePath:
+        return "strokePath"
+    case .applyBlur:
+        return "applyBlur"
+    case .drawText:
+        return "drawText"
+    case .pushClip:
+        return "pushClip"
+    case .popClip:
+        return "popClip"
+    }
 }
 
 let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)

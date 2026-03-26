@@ -800,16 +800,9 @@ public final class ViewNode {
 
         // Gap/Fix: Emit blur render command — apply Gaussian blur over
         // the view's content region when blurRadius is set.
-        if blurRadius > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
-            commands.append(
-                .applyBlur(
-                    BlurCommand(
-                        region: absoluteFrame,
-                        radius: blurRadius
-                    )
-                )
-            )
-        }
+        // The active demo renderer does not implement post-process blur yet.
+        // Keep the property on ViewNode so the API surface can evolve, but do
+        // not emit a command that the current backend would silently drop.
 
         // Gap/Fix: Z-index sibling sort — children are drawn in zIndex
         // order (stable sort preserves original order for equal zIndex).
@@ -1517,6 +1510,7 @@ public final class RetainedViewRuntime {
     public private(set) var dirtyFlags: DirtyFlags = .all
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
+    private var cachedScene: GPUIScene?
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
     private weak var focusedNode: ViewNode?
@@ -1568,6 +1562,7 @@ public final class RetainedViewRuntime {
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         cachedFrame = frame
+        cachedScene = nil
         dirtyFlags = []
         if timestamp > 0 {
             lastRenderTime = timestamp
@@ -1577,8 +1572,31 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
-        let frame = renderFrame(at: timestamp)
-        return GPUIScene(from: frame, surfaceSize: root.frame.size)
+        if let cachedScene, !isDirty {
+            return cachedScene
+        }
+
+        if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
+            let elapsed = timestamp - lastRenderTime
+            if elapsed < interval, let cachedScene {
+                return cachedScene
+            }
+        }
+
+        updateResolvedLayout()
+        let scene = ScenePainter.paint(
+            root: root,
+            clearColor: clearColor,
+            surfaceSize: root.frame.size
+        )
+
+        cachedScene = scene
+        cachedFrame = nil
+        dirtyFlags = []
+        if timestamp > 0 {
+            lastRenderTime = timestamp
+        }
+        return scene
     }
 
     public func pointerMoved(to point: Point) {

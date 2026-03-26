@@ -1,6 +1,6 @@
 # swift-windowsui
 
-`swift-windowsui` is a custom-rendered Windows UI toolkit prototype with a retained runtime, a renderer-neutral frame graph, a Win32 host, and a Direct3D 11 presentation backend.
+`swift-windowsui` is a custom-rendered Windows UI toolkit prototype with a retained runtime, renderer-neutral frame and scene contracts, a Win32 host, and Direct3D 11 presentation backends.
 
 The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer for the retained runtime. The demo app is written against that layer so the same demo source can be used in a macOS SwiftUI app by changing the import from `WinSwiftUI` to `SwiftUI`.
 
@@ -8,7 +8,9 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 
 - A custom-rendered UI stack, not a wrapper around native Win32 widgets
 - A retained `ViewNode` runtime with mutable state, layout, hit testing, focus, clipping, and animation
-- A backend-neutral render path that mostly reduces visible UI to `FillRectCommand`
+- Renderer-neutral `RenderFrame` and `GPUIScene` contracts
+- A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
+- An active demo path that prefers `GPUIScene` -> `D3D11BatchRenderer` and falls back to `RenderFrame` -> `D3D11Renderer`
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -35,7 +37,7 @@ Products:
 Targets:
 
 - `SwiftWindowsCore`: geometry, color, input, surface, and shared utility types
-- `SwiftWindowsGraphics`: `RenderBackend`, `RenderFrame`, gradients, and render commands
+- `SwiftWindowsGraphics`: `RenderBackend`, `RenderFrame`, `GPUIScene`, gradients, and render commands
 - `SwiftWindowsScene`: alternate scene abstraction
 - `SwiftWindowsLayout`: stack layout primitives and experimental generic layout helpers
 - `SwiftWindowsPlatform`: Win32 windowing, input, timers, and delegate bridge
@@ -53,10 +55,13 @@ The running demo now goes through:
 3. `WinSwiftUIWindowHost`
 4. `Win32Window` delegate callbacks
 5. `RetainedViewRuntime`
-6. `RenderFrame`
-7. `D3D11Renderer`
+6. `GPUIScene`
+7. `D3D11BatchRenderer`
 
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
+
+`RenderFrame` -> `D3D11Renderer` remains in the repo as the fallback path and
+still covers the legacy bitmap/frame command route.
 
 ## WinSwiftUI Coverage
 
@@ -77,7 +82,8 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text is still limited by the current runtime text system; bitmap text remains the baseline path
+- Text is still limited by the current pixel-font atlas/native bitmap pipeline; there is no full font shaping yet
+- `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the active scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility
 

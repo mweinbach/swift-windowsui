@@ -6,9 +6,13 @@ Its job is not to imitate SwiftUI internally. Its job is to let app code use a f
 
 - `RetainedViewRuntime`
 - `ViewNode`
-- `RenderFrame`
+- `GPUIScene`
 - `Win32Window`
-- `D3D11Renderer`
+- `D3D11BatchRenderer`
+
+The active demo path now prefers `GPUIScene` -> `D3D11BatchRenderer`. The
+older `RenderFrame` -> `D3D11Renderer` route remains available as a fallback
+for explicit opt-out and frame-graph compatibility.
 
 ## Goal
 
@@ -82,6 +86,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current text renderer path.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
+- `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
@@ -120,5 +125,6 @@ Avoid:
 
 - This is not full SwiftUI parity.
 - The repository is still Windows-only because the platform and renderer targets are Win32/D3D11-specific.
-- Text behavior still reflects the current runtime text system rather than native Apple text rendering.
+- Text behavior still reflects the current runtime pixel-font/native bitmap system rather than shaped text rendering.
+- `D3D11Renderer` still only executes `fillRect` and `drawBitmap`; `GPUIScene` is the richer active presentation path.
 - API coverage should be extended from real demo/app needs, not by cloning SwiftUI surface area speculatively.

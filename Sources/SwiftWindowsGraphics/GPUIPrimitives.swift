@@ -71,7 +71,7 @@ public struct QuadPrimitive: Equatable, Sendable {
 // MARK: - Glyph Primitive
 
 /// A single glyph from a font atlas, designed for direct upload to a D3D11
-/// structured buffer. Total: 12 floats = 48 bytes (divisible by 16).
+/// structured buffer. Total: 16 floats = 64 bytes (divisible by 16).
 @frozen
 public struct GlyphPrimitive: Equatable, Sendable {
     // Screen destination
@@ -89,11 +89,17 @@ public struct GlyphPrimitive: Equatable, Sendable {
     public var colorG: Float
     public var colorB: Float
     public var colorA: Float
+    // Clip bounds
+    public var clipX: Float
+    public var clipY: Float
+    public var clipWidth: Float
+    public var clipHeight: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
         atlasU0: Float = 0, atlasV0: Float = 0, atlasU1: Float = 0, atlasV1: Float = 0,
-        colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1
+        colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -107,6 +113,10 @@ public struct GlyphPrimitive: Equatable, Sendable {
         self.colorG = colorG
         self.colorB = colorB
         self.colorA = colorA
+        self.clipX = clipX
+        self.clipY = clipY
+        self.clipWidth = clipWidth
+        self.clipHeight = clipHeight
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }

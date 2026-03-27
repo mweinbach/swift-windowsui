@@ -56,13 +56,40 @@ struct ScrollIndicatorDeferredDrawPayload {
 }
 
 @MainActor
+struct DeferredSubtreePayload {
+    weak var node: ViewNode?
+    var parentOrigin: Point
+    var inheritedClip: Rect?
+    var inheritedOpacity: Float
+    var inheritedInverseTransform: Transform2D?
+}
+
+@MainActor
+struct DeferredSubtreeState {
+    var priority: Int
+    var parentDispatchIndex: Int
+    var payload: DeferredSubtreePayload
+}
+
+@MainActor
 enum DeferredDrawPayload {
     case scrollIndicator(ScrollIndicatorDeferredDrawPayload)
+    case subtree(DeferredSubtreePayload)
 
     var rect: Rect {
         switch self {
         case .scrollIndicator(let payload):
             return payload.track.indicatorRect
+        case .subtree(let payload):
+            guard let node = payload.node else {
+                return .zero
+            }
+            return Rect(
+                x: payload.parentOrigin.x + node.resolvedFrame.origin.x,
+                y: payload.parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height
+            )
         }
     }
 
@@ -70,6 +97,8 @@ enum DeferredDrawPayload {
         switch self {
         case .scrollIndicator(let payload):
             return .scrollIndicator(dispatchIndex: payload.dispatchIndex, track: payload.track)
+        case .subtree:
+            return nil
         }
     }
 
@@ -77,6 +106,8 @@ enum DeferredDrawPayload {
         switch self {
         case .scrollIndicator(let payload):
             return payload.fillRectCommand(contentMask: contentMask)
+        case .subtree:
+            return FillRectCommand(rect: .zero, color: .clear)
         }
     }
 
@@ -85,6 +116,8 @@ enum DeferredDrawPayload {
         case .scrollIndicator(var payload):
             payload.dispatchIndex += delta
             return .scrollIndicator(payload)
+        case .subtree(let payload):
+            return .subtree(payload)
         }
     }
 }
@@ -116,7 +149,9 @@ struct PrepaintStateIndex: Equatable, Sendable {
     var dispatchIndex: Int
     var interactionIndex: Int
     var focusOrderIndex: Int
+    var deferredSubtreeIndex: Int
     var deferredDrawIndex: Int
+    var deferredPriority: Int
 }
 
 struct PrepaintStateRange: Equatable, Sendable {
@@ -182,7 +217,9 @@ struct RuntimePrepaintState {
     var dispatchNodes: [PrepaintDispatchState] = []
     var interactions: [PrepaintInteractionState] = []
     var focusOrder: [Int] = []
+    var deferredSubtrees: [DeferredSubtreeState] = []
     var deferredDraws: [DeferredDrawState] = []
+    var nextDeferredPriority: Int = 0
 }
 
 public enum ViewLayoutMode: Sendable {
@@ -345,6 +382,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var paintsInDeferredPhase: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -436,6 +477,7 @@ public final class ViewNode {
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
+        paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -473,6 +515,7 @@ public final class ViewNode {
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
+        self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil
@@ -874,7 +917,9 @@ public final class ViewNode {
             dispatchIndex: state.dispatchNodes.count,
             interactionIndex: state.interactions.count,
             focusOrderIndex: state.focusOrder.count,
-            deferredDrawIndex: state.deferredDraws.count
+            deferredSubtreeIndex: state.deferredSubtrees.count,
+            deferredDrawIndex: state.deferredDraws.count,
+            deferredPriority: state.nextDeferredPriority
         )
 
         if isHidden {
@@ -928,7 +973,9 @@ public final class ViewNode {
             let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
             let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
             let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
+            let deferredSubtreeDelta = startIndex.deferredSubtreeIndex - previousRange.start.deferredSubtreeIndex
             let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
+            let deferredPriorityDelta = startIndex.deferredPriority - previousRange.start.deferredPriority
 
             let copiedDispatchNodes = previousState.dispatchNodes[previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex]
                 .enumerated()
@@ -959,9 +1006,23 @@ public final class ViewNode {
                 .map { $0 + dispatchDelta }
             state.focusOrder.append(contentsOf: copiedFocusOrder)
 
+            let copiedDeferredSubtrees = previousState.deferredSubtrees[previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex]
+                .map { deferredSubtree in
+                    var nextDeferredSubtree = deferredSubtree
+                    nextDeferredSubtree.priority += deferredPriorityDelta
+                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredSubtree.parentDispatchIndex {
+                        nextDeferredSubtree.parentDispatchIndex += dispatchDelta
+                    } else if let parentDispatchIndex {
+                        nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
+                    }
+                    return nextDeferredSubtree
+                }
+            state.deferredSubtrees.append(contentsOf: copiedDeferredSubtrees)
+
             let copiedDeferredDraws = previousState.deferredDraws[previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex]
                 .map { deferredDraw in
                     var nextDeferredDraw = deferredDraw
+                    nextDeferredDraw.priority += deferredPriorityDelta
                     if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredDraw.parentDispatchIndex {
                         nextDeferredDraw.parentDispatchIndex += dispatchDelta
                     } else if let parentDispatchIndex {
@@ -971,12 +1032,18 @@ public final class ViewNode {
                     return nextDeferredDraw
                 }
             state.deferredDraws.append(contentsOf: copiedDeferredDraws)
+            state.nextDeferredPriority = max(
+                state.nextDeferredPriority,
+                startIndex.deferredPriority + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
+            )
 
             shiftCachedPrepaintRangesRecursively(
                 dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
-                deferredDrawDelta: deferredDrawDelta
+                deferredSubtreeDelta: deferredSubtreeDelta,
+                deferredDrawDelta: deferredDrawDelta,
+                deferredPriorityDelta: deferredPriorityDelta
             )
             cachedPrepaintKey = cacheKey
             cachedPrepaintRange = PrepaintStateRange(
@@ -985,7 +1052,9 @@ public final class ViewNode {
                     dispatchIndex: state.dispatchNodes.count,
                     interactionIndex: state.interactions.count,
                     focusOrderIndex: state.focusOrder.count,
-                    deferredDrawIndex: state.deferredDraws.count
+                    deferredSubtreeIndex: state.deferredSubtrees.count,
+                    deferredDrawIndex: state.deferredDraws.count,
+                    deferredPriority: state.nextDeferredPriority
                 )
             )
             replayCount += 1
@@ -1050,6 +1119,24 @@ public final class ViewNode {
         )
 
         for child in orderedChildrenForPaint() {
+            if child.paintsInDeferredPhase {
+                state.deferredSubtrees.append(
+                    DeferredSubtreeState(
+                        priority: state.nextDeferredPriority,
+                        parentDispatchIndex: dispatchIndex,
+                        payload: DeferredSubtreePayload(
+                            node: child,
+                            parentOrigin: childOrigin,
+                            inheritedClip: effectiveClip,
+                            inheritedOpacity: effectiveOpacity,
+                            inheritedInverseTransform: nodeInverseTransform
+                        )
+                    )
+                )
+                state.nextDeferredPriority += 1
+                continue
+            }
+
             child.appendPrepaintState(
                 into: &state,
                 parentOrigin: childOrigin,
@@ -1067,7 +1154,7 @@ public final class ViewNode {
             let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
             state.deferredDraws.append(
                 DeferredDrawState(
-                    priority: state.deferredDraws.count,
+                    priority: state.nextDeferredPriority,
                     parentDispatchIndex: dispatchIndex,
                     contentMask: effectiveClip,
                     payload: .scrollIndicator(
@@ -1080,6 +1167,7 @@ public final class ViewNode {
                     ),
                 )
             )
+            state.nextDeferredPriority += 1
         }
 
         cachedPrepaintKey = cacheKey
@@ -1089,7 +1177,9 @@ public final class ViewNode {
                 dispatchIndex: state.dispatchNodes.count,
                 interactionIndex: state.interactions.count,
                 focusOrderIndex: state.focusOrder.count,
-                deferredDrawIndex: state.deferredDraws.count
+                deferredSubtreeIndex: state.deferredSubtrees.count,
+                deferredDrawIndex: state.deferredDraws.count,
+                deferredPriority: state.nextDeferredPriority
             )
         )
     }
@@ -1310,6 +1400,9 @@ public final class ViewNode {
         // overlay container rather than relying on zIndex across
         // different subtrees.
         for child in orderedChildrenForPaint() {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
             child.appendCommands(
                 into: &commands,
                 parentOrigin: childOrigin,
@@ -1480,6 +1573,9 @@ public final class ViewNode {
         }
 
         for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
             child.shiftCachedFrameRangesRecursively(by: delta)
         }
     }
@@ -1488,7 +1584,9 @@ public final class ViewNode {
         dispatchDelta: Int,
         interactionDelta: Int,
         focusOrderDelta: Int,
-        deferredDrawDelta: Int
+        deferredSubtreeDelta: Int,
+        deferredDrawDelta: Int,
+        deferredPriorityDelta: Int
     ) {
         if let existingRange = cachedPrepaintRange {
             cachedPrepaintRange = PrepaintStateRange(
@@ -1496,23 +1594,32 @@ public final class ViewNode {
                     dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.start.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
-                    deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta
+                    deferredSubtreeIndex: existingRange.start.deferredSubtreeIndex + deferredSubtreeDelta,
+                    deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta,
+                    deferredPriority: existingRange.start.deferredPriority + deferredPriorityDelta
                 ),
                 end: PrepaintStateIndex(
                     dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
                     interactionIndex: existingRange.end.interactionIndex + interactionDelta,
                     focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
-                    deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta
+                    deferredSubtreeIndex: existingRange.end.deferredSubtreeIndex + deferredSubtreeDelta,
+                    deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta,
+                    deferredPriority: existingRange.end.deferredPriority + deferredPriorityDelta
                 )
             )
         }
 
         for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
             child.shiftCachedPrepaintRangesRecursively(
                 dispatchDelta: dispatchDelta,
                 interactionDelta: interactionDelta,
                 focusOrderDelta: focusOrderDelta,
-                deferredDrawDelta: deferredDrawDelta
+                deferredSubtreeDelta: deferredSubtreeDelta,
+                deferredDrawDelta: deferredDrawDelta,
+                deferredPriorityDelta: deferredPriorityDelta
             )
         }
     }
@@ -1523,6 +1630,9 @@ public final class ViewNode {
         }
 
         for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
             child.shiftCachedSceneRangesRecursively(by: delta)
         }
     }
@@ -2110,7 +2220,12 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &replayCount
         )
-        appendDeferredDraws(into: &commands, previousFrame: previousFrame, replayCount: &deferredDrawReplayCount)
+        appendDeferredDraws(
+            into: &commands,
+            previousFrame: previousFrame,
+            displayScale: displayScale,
+            replayCount: &deferredDrawReplayCount
+        )
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         lastFrameReplayCount = replayCount
@@ -2395,6 +2510,7 @@ public final class RetainedViewRuntime {
     private func appendDeferredDraws(
         into commands: inout [RenderCommand],
         previousFrame: RenderFrame?,
+        displayScale: Double,
         replayCount: inout Int
     ) {
         for deferredDrawIndex in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
@@ -2406,10 +2522,27 @@ public final class RetainedViewRuntime {
                 continue
             }
 
-            let fillRect = prepaintState.deferredDraws[deferredDrawIndex].payload.fillRectCommand(
-                contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask
-            )
-            commands.append(.fillRect(fillRect))
+            switch prepaintState.deferredDraws[deferredDrawIndex].payload {
+            case .scrollIndicator:
+                let fillRect = prepaintState.deferredDraws[deferredDrawIndex].payload.fillRectCommand(
+                    contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask
+                )
+                commands.append(.fillRect(fillRect))
+            case .subtree(let payload):
+                guard let node = payload.node else {
+                    prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<startCommandIndex
+                    continue
+                }
+                node.appendCommands(
+                    into: &commands,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: payload.inheritedClip,
+                    inheritedOpacity: payload.inheritedOpacity,
+                    previousRenderedFrame: previousFrame,
+                    displayScale: displayScale,
+                    replayCount: &replayCount
+                )
+            }
 
             prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
         }
@@ -2419,6 +2552,19 @@ public final class RetainedViewRuntime {
         deferredDraws.indices.sorted { lhs, rhs in
             let left = deferredDraws[lhs]
             let right = deferredDraws[rhs]
+            if left.priority != right.priority {
+                return left.priority < right.priority
+            }
+            return lhs < rhs
+        }
+    }
+
+    fileprivate func orderedDeferredSubtreeIndices(
+        _ deferredSubtrees: ArraySlice<DeferredSubtreeState>
+    ) -> [Int] {
+        deferredSubtrees.indices.sorted { lhs, rhs in
+            let left = deferredSubtrees[lhs]
+            let right = deferredSubtrees[rhs]
             if left.priority != right.priority {
                 return left.priority < right.priority
             }
@@ -2621,9 +2767,56 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &replayCount
         )
+        processDeferredPrepaintDraws(
+            into: &nextState,
+            previousState: previousState,
+            displayScale: displayScale,
+            replayCount: &replayCount
+        )
         prepaintState = nextState
         lastPrepaintReplayCount = replayCount
         lastDeferredOverlayReplayCount = replayCount
+    }
+
+    private func processDeferredPrepaintDraws(
+        into state: inout RuntimePrepaintState,
+        previousState: RuntimePrepaintState?,
+        displayScale: Double,
+        replayCount: inout Int
+    ) {
+        var cursor = 0
+        while cursor < state.deferredSubtrees.count {
+            let roundEnd = state.deferredSubtrees.count
+            for deferredSubtreeIndex in orderedDeferredSubtreeIndices(state.deferredSubtrees[cursor..<roundEnd]) {
+                let deferredSubtree = state.deferredSubtrees[deferredSubtreeIndex]
+                let payload = deferredSubtree.payload
+                guard let node = payload.node else {
+                    continue
+                }
+
+                state.deferredDraws.append(
+                    DeferredDrawState(
+                        priority: deferredSubtree.priority,
+                        parentDispatchIndex: deferredSubtree.parentDispatchIndex,
+                        contentMask: payload.inheritedClip,
+                        payload: .subtree(payload)
+                    )
+                )
+
+                node.appendPrepaintState(
+                    into: &state,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: payload.inheritedClip,
+                    inheritedOpacity: payload.inheritedOpacity,
+                    parentDispatchIndex: deferredSubtree.parentDispatchIndex,
+                    inheritedInverseTransform: payload.inheritedInverseTransform,
+                    previousState: previousState,
+                    displayScale: displayScale,
+                    replayCount: &replayCount
+                )
+            }
+            cursor = roundEnd
+        }
     }
 
     private func updateHoverTarget(to nextHoveredNode: ViewNode?) {

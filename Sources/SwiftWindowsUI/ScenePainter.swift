@@ -44,6 +44,7 @@ public enum ScenePainter {
         paintNode(
             root,
             into: &scene,
+            deferredDraws: &deferredDraws,
             parentOrigin: .zero,
             inheritedClip: fullClip,
             layerIndex: 0,
@@ -61,6 +62,9 @@ public enum ScenePainter {
             previousScene: previousScene,
             surfaceSize: deviceSurfaceSize,
             displayScale: max(displayScale, 1.0),
+            textSystem: textSystem,
+            usedNativeGlyphs: &usedNativeGlyphs,
+            usedPixelGlyphs: &usedPixelGlyphs,
             replayCount: &deferredReplayCount
         )
         if usedNativeGlyphs {
@@ -84,6 +88,7 @@ public enum ScenePainter {
     private static func paintNode(
         _ node: ViewNode,
         into scene: inout GPUIScene,
+        deferredDraws: inout [DeferredDrawState],
         parentOrigin: Point,
         inheritedClip: Rect?,
         layerIndex: Int,
@@ -318,9 +323,13 @@ public enum ScenePainter {
         }
 
         for child in sortedChildren {
+            if child.paintsInDeferredPhase {
+                continue
+            }
             paintNode(
                 child,
                 into: &scene,
+                deferredDraws: &deferredDraws,
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
                 layerIndex: layerIndex,
@@ -393,6 +402,9 @@ public enum ScenePainter {
         previousScene: GPUIScene?,
         surfaceSize: Size,
         displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool,
         replayCount: inout Int
     ) {
         for deferredDrawIndex in deferredDraws.indices.sorted(by: { lhs, rhs in
@@ -411,13 +423,37 @@ public enum ScenePainter {
                 continue
             }
 
-            let fillRect = deferredDraws[deferredDrawIndex].payload.fillRectCommand(
-                contentMask: deferredDraws[deferredDrawIndex].contentMask
-            )
-            scene.addQuad(
-                quad(for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale),
-                toLayer: 0
-            )
+            switch deferredDraws[deferredDrawIndex].payload {
+            case .scrollIndicator:
+                let fillRect = deferredDraws[deferredDrawIndex].payload.fillRectCommand(
+                    contentMask: deferredDraws[deferredDrawIndex].contentMask
+                )
+                scene.addQuad(
+                    quad(for: fillRect, surfaceSize: surfaceSize, displayScale: displayScale),
+                    toLayer: 0
+                )
+            case .subtree(let payload):
+                guard let node = payload.node else {
+                    deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<startPaintRecord
+                    continue
+                }
+                paintNode(
+                    node,
+                    into: &scene,
+                    deferredDraws: &deferredDraws,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: payload.inheritedClip,
+                    layerIndex: 0,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    previousScene: previousScene,
+                    primitiveOpacity: payload.inheritedOpacity,
+                    usedNativeGlyphs: &usedNativeGlyphs,
+                    usedPixelGlyphs: &usedPixelGlyphs,
+                    replayCount: &replayCount
+                )
+            }
 
             deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
         }

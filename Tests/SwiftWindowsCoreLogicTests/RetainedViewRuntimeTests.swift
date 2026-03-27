@@ -815,6 +815,130 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDeferredPhaseChildPaintsAfterBaseSiblings() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white
+            )
+            let deferred = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferred]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let commands = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(commands.map(\.rect), [base.frame, deferred.frame])
+        }
+    }
+
+    func testDeferredPhaseChildParticipatesInPointerHitTesting() async {
+        await MainActor.run {
+            var pointerDowns = 0
+
+            let deferred = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .white,
+                paintsInDeferredPhase: true
+            )
+            deferred.onPointerDown = { pointerDowns += 1 }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [deferred]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerDown(at: Point(x: 15, y: 15))
+
+            XCTAssertEqual(pointerDowns, 1)
+        }
+    }
+
+    func testNestedDeferredPhaseSubtreesPaintInDeferredOrder() async {
+        await MainActor.run {
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 5, y: 5, width: 10, height: 10),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .white,
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 50, height: 50),
+                isHitTestVisible: false,
+                children: [deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let commands = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(
+                commands.map(\.rect),
+                [
+                    Rect(x: 10, y: 10, width: 20, height: 20),
+                    Rect(x: 15, y: 15, width: 10, height: 10),
+                ]
+            )
+        }
+    }
+
+    func testDeferredPhaseReplayKeepsNestedDeferredSubtreeOrdering() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 12, height: 12),
+                backgroundColor: .white
+            )
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 8, height: 8),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 20, height: 20),
+                backgroundColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+
+            base.backgroundColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 1)
+            let frame = runtime.renderFrame()
+
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 2)
+            XCTAssertEqual(
+                fillRectCommands(in: frame).map(\.rect),
+                [
+                    base.frame,
+                    Rect(x: 20, y: 20, width: 20, height: 20),
+                    Rect(x: 24, y: 24, width: 8, height: 8),
+                ]
+            )
+        }
+    }
+
     func testScrollIndicatorHitUsesUpdatedPrepaintedOverlayGeometryWithoutRender() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

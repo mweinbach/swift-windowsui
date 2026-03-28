@@ -39,8 +39,9 @@ extension GPUIScene {
     /// - `applyBlur`: Skipped (blur effects not yet supported)
     ///
     /// Unsupported style features degrade to explicit fallbacks:
-    /// - Non-rect clips (ellipse, path): Fallback to bounding rect of clip shape
-    /// - Radial/conic gradients: Fallback to solid color (start color)
+    /// - Ellipse clips: Fallback to bounding rect of the ellipse
+    /// - Path clips: Fallback to full surface (no-op)
+    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
     /// - Per-command blend modes: Ignored (uses default compositing; blend modes
     ///   like .multiply, .screen, .overlay, .additive fall back to normal blending)
     ///
@@ -179,7 +180,7 @@ extension GPUIScene {
     /// 
     /// Gradient handling (VAL-SCENE-011):
     /// - Linear gradients: Mapped to quad gradient fields
-    /// - Radial/conic gradients: Fallback to solid color (start color)
+    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
     private static func makeQuad(
         from cmd: FillRectCommand,
         effectiveClip: Rect
@@ -207,7 +208,7 @@ extension GPUIScene {
                 endA = lg.endColor.alpha
                 axis = lg.axis == .horizontal ? 1 : 0
             case .radial, .conic:
-                // VAL-SCENE-011: Radial/conic gradients fallback to solid color
+                // VAL-SCENE-011: Radial/conic gradients fallback to base color (cmd.color)
                 // (keep the base color values already set)
                 break
             }

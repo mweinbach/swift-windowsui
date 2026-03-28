@@ -417,7 +417,7 @@ struct GPUISceneBridgeTests {
 
     // MARK: - VAL-SCENE-011: Unsupported style features degrade to explicit fallbacks
 
-    @Test("Radial gradient degrades to solid color fallback")
+    @Test("Radial gradient degrades to base color fallback")
     func radialGradientFallback() {
         let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
         let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
@@ -440,14 +440,14 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // Radial gradient should fallback to solid color (base color, not gradient)
+        // Radial gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
         #expect(quad.startR == 1.0)  // white fallback (base color)
         #expect(quad.endR == 1.0)    // same as start (no gradient)
         #expect(quad.gradientAxis == 0)
     }
 
-    @Test("Conic gradient degrades to solid color fallback")
+    @Test("Conic gradient degrades to base color fallback")
     func conicGradientFallback() {
         let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
         let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
@@ -470,9 +470,9 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // Conic gradient should fallback to solid color
+        // Conic gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
-        #expect(quad.startR == 1.0)  // white fallback
+        #expect(quad.startR == 1.0)  // white fallback (base color)
         #expect(quad.endR == 1.0)    // same as start
         #expect(quad.gradientAxis == 0)
     }
@@ -499,7 +499,7 @@ struct GPUISceneBridgeTests {
         #expect(quad.clipHeight == Float(radiusY * 2))  // 60
     }
 
-    @Test("Path clip degrades to full surface fallback (no-op)")
+    @Test("Path clip degrades to full surface fallback (no-op clip)")
     func pathClipFallback() {
         var path = RenderPath()
         path.move(to: Point(x: 0, y: 0))
@@ -516,7 +516,7 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // Path clip should fallback to full surface (effectively a no-op clip)
+        // Path clips fallback to full surface (no-op clip) - VAL-SCENE-011
         let quad = scene.layers[0].quads[0]
         #expect(quad.clipX == 0)
         #expect(quad.clipY == 0)

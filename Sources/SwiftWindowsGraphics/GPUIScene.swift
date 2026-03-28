@@ -486,7 +486,14 @@ private extension QuadPrimitive {
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
-        return bounds.intersected(with: maskBounds)
+        guard let masked = bounds.intersected(with: maskBounds) else {
+            return nil
+        }
+        // Reject if masked bounds are empty (zero width or height)
+        guard masked.size.width > 0, masked.size.height > 0 else {
+            return nil
+        }
+        return masked
     }
 }
 
@@ -500,7 +507,14 @@ private extension GlyphPrimitive {
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
-        return bounds.intersected(with: maskBounds)
+        guard let masked = bounds.intersected(with: maskBounds) else {
+            return nil
+        }
+        // Reject if masked bounds are empty (zero width or height)
+        guard masked.size.width > 0, masked.size.height > 0 else {
+            return nil
+        }
+        return masked
     }
 }
 
@@ -514,7 +528,14 @@ private extension ImagePrimitive {
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
-        return bounds.intersected(with: maskBounds)
+        guard let masked = bounds.intersected(with: maskBounds) else {
+            return nil
+        }
+        // Reject if masked bounds are empty (zero width or height)
+        guard masked.size.width > 0, masked.size.height > 0 else {
+            return nil
+        }
+        return masked
     }
 }
 
@@ -528,6 +549,13 @@ private extension ShadowPrimitive {
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
-        return bounds.intersected(with: maskBounds)
+        guard let masked = bounds.intersected(with: maskBounds) else {
+            return nil
+        }
+        // Reject if masked bounds are empty (zero width or height)
+        guard masked.size.width > 0, masked.size.height > 0 else {
+            return nil
+        }
+        return masked
     }
 }

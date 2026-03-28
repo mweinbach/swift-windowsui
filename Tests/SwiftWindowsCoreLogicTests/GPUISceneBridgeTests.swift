@@ -7,7 +7,7 @@ import Testing
 struct GPUISceneBridgeTests {
     let surfaceSize = Size(width: 1920, height: 1080)
 
-    // MARK: - Basic Conversion
+    // MARK: - VAL-SCENE-008: Frame-to-scene bridging preserves supported command mappings
 
     @Test("Empty frame produces scene with 1 empty layer")
     func emptyFrame() {
@@ -30,7 +30,7 @@ struct GPUISceneBridgeTests {
         #expect(scene.clearColor == color)
     }
 
-    // MARK: - Quad Conversion
+    // MARK: - VAL-SCENE-008: fillRect to quad mapping
 
     @Test("Three consecutive fillRect commands produce 1 layer with 3 quads")
     func consecutiveFillRects() {
@@ -89,7 +89,7 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].quads[0].cornerRadius == 12.5)
     }
 
-    // MARK: - Gradient Conversion
+    // MARK: - VAL-SCENE-008: Linear gradient mapping
 
     @Test("Linear gradient sets start and end colors with correct axis")
     func linearGradientConversion() {
@@ -133,47 +133,53 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].quads[0].gradientAxis == 0)
     }
 
-    // MARK: - Layer Splitting
+    // MARK: - VAL-SCENE-008: drawBitmap to image mapping
 
-    @Test("fillRect, drawBitmap, fillRect preserves paint order through operations")
-    func layerSplitOnTypeChange() {
-        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 0, 0, 255]))
+    @Test("drawBitmap produces ImagePrimitive with correct fields")
+    func drawBitmapConversion() {
+        let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
+        let commands: [RenderCommand] = [
+            .drawBitmap(DrawBitmapCommand(
+                rect: Rect(x: 10, y: 20, width: 64, height: 64),
+                bitmap: bitmap,
+                opacity: 0.8
+            )),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].images.count == 1)
+        let img = scene.layers[0].images[0]
+        #expect(img.screenX == 10)
+        #expect(img.screenY == 20)
+        #expect(img.screenW == 64)
+        #expect(img.screenH == 64)
+        #expect(img.uvX == 0)
+        #expect(img.uvY == 0)
+        #expect(img.uvW == 1)
+        #expect(img.uvH == 1)
+        #expect(img.opacity == 0.8)
+        #expect(img.textureID == -1)
+    }
+
+    // MARK: - VAL-SCENE-008: Default clip when no clip is active
+
+    @Test("No clip uses full surface size as clip rect")
+    func noClipUsesFullSurface() {
         let commands: [RenderCommand] = [
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
-            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 50, y: 50, width: 64, height: 64), bitmap: bitmap)),
-            .fillRect(FillRectCommand(rect: Rect(x: 200, y: 0, width: 100, height: 100), color: .black)),
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        #expect(scene.layers.count == 1)
-        #expect(scene.layers[0].quads.count == 2)
-        #expect(scene.layers[0].images.count == 1)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.clipX == 0)
+        #expect(quad.clipY == 0)
+        #expect(quad.clipWidth == Float(surfaceSize.width))
+        #expect(quad.clipHeight == Float(surfaceSize.height))
     }
 
-    @Test("Consecutive same-type commands stay in one paint operation")
-    func noSplitForSameType() {
-        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 0, 255]))
-        let commands: [RenderCommand] = [
-            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 0, y: 0, width: 32, height: 32), bitmap: bitmap)),
-            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 40, y: 0, width: 32, height: 32), bitmap: bitmap)),
-        ]
-        let frame = RenderFrame(clearColor: .black, commands: commands)
-        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
-
-        #expect(scene.layers.count == 1)
-        #expect(scene.layers[0].images.count == 2)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
-        ])
-    }
-
-    // MARK: - Clip Stack
+    // MARK: - VAL-SCENE-009: Clip-stack semantics - intersect (default)
 
     @Test("pushClip then fillRect applies correct clip bounds")
     func clipStackBasic() {
@@ -193,21 +199,6 @@ struct GPUISceneBridgeTests {
         #expect(quad.clipHeight == Float(clipRect.size.height))
     }
 
-    @Test("No clip uses full surface size as clip rect")
-    func noClipUsesFullSurface() {
-        let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
-        ]
-        let frame = RenderFrame(clearColor: .black, commands: commands)
-        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
-
-        let quad = scene.layers[0].quads[0]
-        #expect(quad.clipX == 0)
-        #expect(quad.clipY == 0)
-        #expect(quad.clipWidth == Float(surfaceSize.width))
-        #expect(quad.clipHeight == Float(surfaceSize.height))
-    }
-
     @Test("popClip restores previous clip")
     func clipStackPopRestore() {
         let outerClip = Rect(x: 0, y: 0, width: 500, height: 500)
@@ -223,7 +214,7 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // First quad should have inner clip
+        // First quad should have inner clip (intersection of both clips)
         let q0 = scene.layers[0].quads[0]
         #expect(q0.clipX == Float(innerClip.origin.x))
         #expect(q0.clipY == Float(innerClip.origin.y))
@@ -262,36 +253,91 @@ struct GPUISceneBridgeTests {
         #expect(quad.clipHeight == 150)
     }
 
-    // MARK: - Image Conversion
+    // MARK: - VAL-SCENE-009: Replace clip operation
 
-    @Test("drawBitmap produces ImagePrimitive with correct fields")
-    func drawBitmapConversion() {
-        let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
+    @Test("Replace clip operation discards prior clip state")
+    func replaceClipOperation() {
+        let firstClip = Rect(x: 0, y: 0, width: 100, height: 100)
+        let replaceClip = Rect(x: 50, y: 50, width: 200, height: 200)
+        
         let commands: [RenderCommand] = [
-            .drawBitmap(DrawBitmapCommand(
-                rect: Rect(x: 10, y: 20, width: 64, height: 64),
-                bitmap: bitmap,
-                opacity: 0.8
-            )),
+            .pushClip(ClipCommand(shape: .rect(firstClip, cornerRadius: 0), operation: .intersect)),
+            .pushClip(ClipCommand(shape: .rect(replaceClip, cornerRadius: 0), operation: .replace)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 400, height: 400), color: .white)),
+            .popClip,
+            .popClip,
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        #expect(scene.layers[0].images.count == 1)
-        let img = scene.layers[0].images[0]
-        #expect(img.screenX == 10)
-        #expect(img.screenY == 20)
-        #expect(img.screenW == 64)
-        #expect(img.screenH == 64)
-        #expect(img.uvX == 0)
-        #expect(img.uvY == 0)
-        #expect(img.uvW == 1)
-        #expect(img.uvH == 1)
-        #expect(img.opacity == 0.8)
-        #expect(img.textureID == -1)
+        // The replace clip should be used exactly, not intersected with firstClip
+        let q0 = scene.layers[0].quads[0]
+        #expect(q0.clipX == Float(replaceClip.origin.x))
+        #expect(q0.clipY == Float(replaceClip.origin.y))
+        #expect(q0.clipWidth == Float(replaceClip.size.width))
+        #expect(q0.clipHeight == Float(replaceClip.size.height))
     }
 
-    // MARK: - Skipped Commands
+    // MARK: - VAL-SCENE-009: Safe empty-pop behavior
+
+    @Test("popClip on empty stack is a safe no-op")
+    func emptyPopClipIsNoOp() {
+        let commands: [RenderCommand] = [
+            .popClip,  // No matching pushClip
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // Should not crash and should produce the quad with full surface clip
+        #expect(scene.layers[0].quads.count == 1)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.clipWidth == Float(surfaceSize.width))
+        #expect(quad.clipHeight == Float(surfaceSize.height))
+    }
+
+    // MARK: - VAL-SCENE-009: Empty effective clip suppresses command
+
+    @Test("Empty resulting clip suppresses fillRect command")
+    func emptyClipSuppressesFillRect() {
+        let nonOverlappingClip = Rect(x: 200, y: 200, width: 50, height: 50)
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .rect(nonOverlappingClip, cornerRadius: 0))),
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 100, height: 100),  // No overlap with clip at (200,200)
+                color: .white
+            )),
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // The rect at (0,0,100,100) has no overlap with clip at (200,200,50,50)
+        // so the effective clip is empty and the command should be suppressed
+        #expect(scene.layers[0].quads.isEmpty)
+    }
+
+    @Test("Empty resulting clip suppresses drawBitmap command")
+    func emptyClipSuppressesDrawBitmap() {
+        let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
+        let nonOverlappingClip = Rect(x: 200, y: 200, width: 50, height: 50)
+        
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .rect(nonOverlappingClip, cornerRadius: 0))),
+            .drawBitmap(DrawBitmapCommand(
+                rect: Rect(x: 0, y: 0, width: 64, height: 64),  // No overlap with clip
+                bitmap: bitmap
+            )),
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // The bitmap rect has no overlap with clip, so command should be suppressed
+        #expect(scene.layers[0].images.isEmpty)
+    }
+
+    // MARK: - VAL-SCENE-010: Unsupported draw commands skipped safely
 
     @Test("drawText commands are skipped without crashing")
     func drawTextSkipped() {
@@ -308,6 +354,213 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].glyphs.isEmpty)
         #expect(scene.layers[0].paintOperations == [
             GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+        ])
+    }
+
+    @Test("fillPath commands are skipped without crashing")
+    func fillPathSkipped() {
+        var path = RenderPath()
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: 100, y: 0))
+        path.addLine(to: Point(x: 50, y: 100))
+        path.close()
+        
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .fillPath(FillPathCommand(path: path, color: Color(red: 1, green: 0, blue: 0, alpha: 1))),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 100, width: 100, height: 100), color: .black)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // fillPath is skipped without placeholder primitives
+        #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+        ])
+    }
+
+    @Test("strokePath commands are skipped without crashing")
+    func strokePathSkipped() {
+        var path = RenderPath()
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: 100, y: 100))
+        
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .strokePath(StrokePathCommand(path: path, color: Color(red: 0, green: 0, blue: 1, alpha: 1))),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 100, width: 100, height: 100), color: .black)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // strokePath is skipped without affecting neighbors
+        #expect(scene.layers[0].quads.count == 2)
+    }
+
+    @Test("applyBlur commands are skipped without crashing")
+    func applyBlurSkipped() {
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .applyBlur(BlurCommand(region: Rect(x: 10, y: 10, width: 80, height: 80), radius: 5)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 100, width: 100, height: 100), color: .black)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // applyBlur is skipped without reordering neighbors
+        #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+        ])
+    }
+
+    // MARK: - VAL-SCENE-011: Unsupported style features degrade to explicit fallbacks
+
+    @Test("Radial gradient degrades to solid color fallback")
+    func radialGradientFallback() {
+        let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let radialGradient = RadialGradient(
+            center: Point(x: 50, y: 50),
+            radius: 50,
+            stops: [
+                GradientStop(color: startColor, position: 0),
+                GradientStop(color: endColor, position: 1)
+            ]
+        )
+        
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                color: .white,
+                gradient: .radial(radialGradient)
+            )),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // Radial gradient should fallback to solid color (base color, not gradient)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.startR == 1.0)  // white fallback (base color)
+        #expect(quad.endR == 1.0)    // same as start (no gradient)
+        #expect(quad.gradientAxis == 0)
+    }
+
+    @Test("Conic gradient degrades to solid color fallback")
+    func conicGradientFallback() {
+        let startColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+        let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+        let conicGradient = ConicGradient(
+            center: Point(x: 50, y: 50),
+            angle: 0,
+            stops: [
+                GradientStop(color: startColor, position: 0),
+                GradientStop(color: endColor, position: 1)
+            ]
+        )
+        
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                color: .white,
+                gradient: .conic(conicGradient)
+            )),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // Conic gradient should fallback to solid color
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.startR == 1.0)  // white fallback
+        #expect(quad.endR == 1.0)    // same as start
+        #expect(quad.gradientAxis == 0)
+    }
+
+    @Test("Ellipse clip degrades to bounding rect fallback")
+    func ellipseClipFallback() {
+        let ellipseCenter = Point(x: 100, y: 100)
+        let radiusX: Double = 50
+        let radiusY: Double = 30
+        
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .ellipse(center: ellipseCenter, radiusX: radiusX, radiusY: radiusY))),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 200, height: 200), color: .white)),
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // Ellipse clip should fallback to bounding rect (center - radius to center + radius)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.clipX == Float(ellipseCenter.x - radiusX))  // 50
+        #expect(quad.clipY == Float(ellipseCenter.y - radiusY))  // 70
+        #expect(quad.clipWidth == Float(radiusX * 2))  // 100
+        #expect(quad.clipHeight == Float(radiusY * 2))  // 60
+    }
+
+    @Test("Path clip degrades to full surface fallback (no-op)")
+    func pathClipFallback() {
+        var path = RenderPath()
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: 100, y: 0))
+        path.addLine(to: Point(x: 100, y: 100))
+        path.addLine(to: Point(x: 0, y: 100))
+        path.close()
+        
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .path(path))),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // Path clip should fallback to full surface (effectively a no-op clip)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.clipX == 0)
+        #expect(quad.clipY == 0)
+        #expect(quad.clipWidth == Float(surfaceSize.width))
+        #expect(quad.clipHeight == Float(surfaceSize.height))
+    }
+
+    // MARK: - Layer Splitting
+
+    @Test("fillRect, drawBitmap, fillRect preserves paint order through operations")
+    func layerSplitOnTypeChange() {
+        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 0, 0, 255]))
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 50, y: 50, width: 64, height: 64), bitmap: bitmap)),
+            .fillRect(FillRectCommand(rect: Rect(x: 200, y: 0, width: 100, height: 100), color: .black)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].images.count == 1)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+        ])
+    }
+
+    @Test("Consecutive same-type commands stay in one paint operation")
+    func noSplitForSameType() {
+        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([0, 0, 0, 255]))
+        let commands: [RenderCommand] = [
+            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 0, y: 0, width: 32, height: 32), bitmap: bitmap)),
+            .drawBitmap(DrawBitmapCommand(rect: Rect(x: 40, y: 0, width: 32, height: 32), bitmap: bitmap)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].images.count == 2)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
         ])
     }
 

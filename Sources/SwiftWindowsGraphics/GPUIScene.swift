@@ -420,7 +420,36 @@ public struct GPUIScene: Equatable, Sendable {
         }
     }
 
-    public mutating func replay(_ range: Range<Int>, from previousScene: GPUIScene) {
+/// Represents the result of a replay operation.
+public enum GPUISceneReplayResult: Equatable, Sendable {
+    /// Replay succeeded and reconstructed equivalent scene content.
+    case success
+    /// Replay was rejected because the range is structurally unbalanced.
+    /// Contains details about the validation failure.
+    case unbalanced(layerIndex: Int?, depth: Int, reason: UnbalancedReason)
+    
+    /// Reason why a range is unbalanced.
+    public enum UnbalancedReason: Equatable, Sendable {
+        /// Range starts inside a scoped layer without the matching startLayer marker.
+        case startsInsideScope
+        /// Range ends inside a scoped layer without the matching endLayer marker.
+        case endsInsideScope
+        /// Layer stack depth mismatch at end of replay.
+        case depthMismatch
+    }
+}
+
+    public mutating func replay(_ range: Range<Int>, from previousScene: GPUIScene) -> GPUISceneReplayResult {
+        // Validate that the range is structurally balanced
+        let validation = validateReplayRange(range, in: previousScene)
+        guard validation.isBalanced else {
+            return .unbalanced(
+                layerIndex: validation.layerIndex,
+                depth: validation.depth,
+                reason: validation.reason!
+            )
+        }
+        
         for record in previousScene.paintRecords[range] {
             switch record {
             case .primitive(let layerIndex, let primitive):
@@ -442,6 +471,51 @@ public struct GPUIScene: Equatable, Sendable {
                 popScopedLayer(fromLayer: layerIndex)
             }
         }
+        
+        return .success
+    }
+    
+    /// Validates that a replay range is structurally balanced.
+    /// A balanced range has matching startLayer/endLayer markers for each layer.
+    private func validateReplayRange(_ range: Range<Int>, in scene: GPUIScene) -> (
+        isBalanced: Bool,
+        layerIndex: Int?,
+        depth: Int,
+        reason: GPUISceneReplayResult.UnbalancedReason?
+    ) {
+        // Track per-layer scope depth
+        var layerDepths: [Int: Int] = [:]
+        var maxLayerIndex = -1
+        
+        // First pass: check for starting inside a scope and track depths
+        for record in scene.paintRecords[range] {
+            switch record {
+            case .startLayer(let layerIndex, _):
+                layerDepths[layerIndex, default: 0] += 1
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+            case .endLayer(let layerIndex):
+                layerDepths[layerIndex, default: 0] -= 1
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+                // If we pop below zero, we started inside a scope
+                if layerDepths[layerIndex]! < 0 {
+                    return (false, layerIndex, -1, .startsInsideScope)
+                }
+            case .primitive(let layerIndex, _):
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+            }
+        }
+        
+        // Check that all layers end at depth 0
+        for (layerIndex, depth) in layerDepths {
+            if depth != 0 {
+                let reason: GPUISceneReplayResult.UnbalancedReason = depth > 0
+                    ? .endsInsideScope
+                    : .depthMismatch
+                return (false, layerIndex, depth, reason)
+            }
+        }
+        
+        return (true, nil, 0, nil)
     }
 
     public var paintRecordCount: Int {
@@ -483,6 +557,14 @@ private extension QuadPrimitive {
         }
 
         let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        
+        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
+        // If both are 0, it means "no clip" (unclipped). If both are > 0, it's a normal clip.
+        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
+        guard !hasExplicitZeroDimensionClip else {
+            return nil
+        }
+        
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -504,6 +586,13 @@ private extension GlyphPrimitive {
         }
 
         let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        
+        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
+        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
+        guard !hasExplicitZeroDimensionClip else {
+            return nil
+        }
+        
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -525,6 +614,13 @@ private extension ImagePrimitive {
         }
 
         let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
+        
+        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
+        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
+        guard !hasExplicitZeroDimensionClip else {
+            return nil
+        }
+        
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -546,6 +642,13 @@ private extension ShadowPrimitive {
         }
 
         let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
+        
+        // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
+        let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
+        guard !hasExplicitZeroDimensionClip else {
+            return nil
+        }
+        
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }

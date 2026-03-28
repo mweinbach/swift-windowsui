@@ -643,8 +643,9 @@ final class GPUISceneTests: XCTestCase {
         original.popScopedLayer(fromLayer: 0)
 
         var replayed = GPUIScene(clearColor: .white)
-        replayed.replay(0..<original.paintRecordCount, from: original)
+        let result = replayed.replay(0..<original.paintRecordCount, from: original)
 
+        XCTAssertEqual(result, .success)
         XCTAssertEqual(replayed, original)
     }
 
@@ -746,6 +747,7 @@ final class GPUISceneTests: XCTestCase {
         // Without scoped layer, overlapping primitives get different draw orders
         var scene1 = GPUIScene()
         scene1.addQuad(QuadPrimitive(x: 0, y: 0, width: 100, height: 100))
+        // Glyph overlaps the quad, so it gets a higher draw order
         scene1.addGlyph(GlyphPrimitive(screenX: 50, screenY: 50, screenW: 30, screenH: 30))
         scene1.finish()
 
@@ -760,9 +762,22 @@ final class GPUISceneTests: XCTestCase {
         var iter1 = scene1.layers[0].orderedBatches()
         var iter2 = scene2.layers[0].orderedBatches()
 
-        // Both should exhaust their iterators without error
-        XCTAssertNil(iter1.next())
-        XCTAssertNil(iter2.next())
+        // scene1: quad and glyph have different draw orders due to overlap
+        // They should be in separate batches
+        let batch1_quad = iter1.next()
+        let batch1_glyph = iter1.next()
+        XCTAssertNotNil(batch1_quad)
+        XCTAssertNotNil(batch1_glyph)
+        XCTAssertNil(iter1.next()) // Iterator should be exhausted after 2 batches
+
+        // scene2: quad and glyph share the same draw order from scoped layer
+        // Family precedence (quad before glyph) applies, but within same order they coalesce by family
+        // So we expect one quad batch and one glyph batch (both at same draw order value)
+        let batch2_quad = iter2.next()
+        let batch2_glyph = iter2.next()
+        XCTAssertNotNil(batch2_quad)
+        XCTAssertNotNil(batch2_glyph)
+        XCTAssertNil(iter2.next()) // Iterator should be exhausted after 2 batches
     }
 
     // MARK: - VAL-SCENE-006: Balanced replay ranges reconstruct equivalent scene
@@ -775,9 +790,10 @@ final class GPUISceneTests: XCTestCase {
         original.popScopedLayer(fromLayer: 0)
 
         var replayed = GPUIScene(clearColor: .white)
-        replayed.replay(0..<original.paintRecordCount, from: original)
+        let result = replayed.replay(0..<original.paintRecordCount, from: original)
 
-        // Replayed scene should match original
+        // Should succeed and reconstruct equivalent scene
+        XCTAssertEqual(result, .success)
         XCTAssertEqual(replayed.layers[0].quads.count, original.layers[0].quads.count)
         XCTAssertEqual(replayed.layers[0].glyphs.count, original.layers[0].glyphs.count)
         XCTAssertEqual(replayed.paintRecords.count, original.paintRecords.count)
@@ -791,8 +807,9 @@ final class GPUISceneTests: XCTestCase {
 
         // Replay just the first two records (quad and glyph)
         var replayed = GPUIScene(clearColor: .white)
-        replayed.replay(0..<2, from: original)
+        let result = replayed.replay(0..<2, from: original)
 
+        XCTAssertEqual(result, .success)
         XCTAssertEqual(replayed.layers[0].quads.count, 1)
         XCTAssertEqual(replayed.layers[0].glyphs.count, 1)
         XCTAssertEqual(replayed.layers[0].images.count, 0)
@@ -806,28 +823,101 @@ final class GPUISceneTests: XCTestCase {
         original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
         original.popScopedLayer(fromLayer: 0)
 
-        // Try to replay starting AFTER the startLayer marker but missing it
-        // This creates an unbalanced state where we end a layer we never started
-        var replayed = GPUIScene(clearColor: .white)
-
         // Skip the first record (startLayer), only replay the quad and endLayer
-        replayed.replay(1..<original.paintRecordCount, from: original)
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(1..<original.paintRecordCount, from: original)
 
-        // The replay should not crash - documenting current behavior
-        // The scene will have unbalanced layer markers but won't crash
+        // Should reject the unbalanced range - starts inside a scope
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: -1, reason: .startsInsideScope))
+        
+        // Scene should remain empty since replay was rejected
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
     }
 
     func testUnbalancedReplayEndingInsideScopedLayer() {
         var original = GPUIScene(clearColor: .white)
         original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
         original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 12, screenH: 12))
         // Note: missing popScopedLayer - incomplete in original
 
+        // Replay the range which ends inside the scoped layer
         var replayed = GPUIScene(clearColor: .white)
-        replayed.replay(0..<original.paintRecordCount, from: original)
+        let result = replayed.replay(0..<original.paintRecordCount, from: original)
 
-        // Current implementation replays without structural validation
-        // Documenting current behavior
+        // Should reject the unbalanced range - ends inside a scope
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .endsInsideScope))
+        
+        // Scene should remain empty since replay was rejected
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
+    }
+
+    func testUnbalancedReplayWithExplicitStartLayerButMissingEndLayer() {
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.popScopedLayer(fromLayer: 0)
+        original.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 12, screenH: 12))
+
+        // Replay only from startLayer through the quad (missing endLayer)
+        var replayed = GPUIScene(clearColor: .white)
+        // Record 0: startLayer, Record 1: quad, Record 2: endLayer, Record 3: glyph
+        // Replay just 0..<2 (startLayer and quad, but not the matching endLayer)
+        let result = replayed.replay(0..<2, from: original)
+
+        // Should reject - ends inside scope
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .endsInsideScope))
+    }
+
+    func testNestedScopedLayerReplay() {
+        // Test balanced nested scopes
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.pushScopedLayer(Rect(x: 50, y: 50, width: 100, height: 100), toLayer: 0)
+        original.addGlyph(GlyphPrimitive(screenX: 60, screenY: 60, screenW: 20, screenH: 20))
+        original.popScopedLayer(fromLayer: 0)
+        original.addShadow(ShadowPrimitive(x: 10, y: 10, width: 30, height: 30))
+        original.popScopedLayer(fromLayer: 0)
+
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(0..<original.paintRecordCount, from: original)
+
+        XCTAssertEqual(result, .success)
+        XCTAssertEqual(replayed.layers[0].quads.count, 1)
+        XCTAssertEqual(replayed.layers[0].glyphs.count, 1)
+        XCTAssertEqual(replayed.layers[0].shadows.count, 1)
+    }
+
+    func testNestedScopedLayerReplayPartialUnbalanced() {
+        // Test partial replay that starts inside a nested scope
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0) // record 0
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))                // record 1
+        original.pushScopedLayer(Rect(x: 50, y: 50, width: 100, height: 100), toLayer: 0) // record 2
+        original.addGlyph(GlyphPrimitive(screenX: 60, screenY: 60, screenW: 20, screenH: 20)) // record 3
+        original.popScopedLayer(fromLayer: 0)                                            // record 4
+        original.popScopedLayer(fromLayer: 0)                                            // record 5
+
+        // Start replay from record 2 (inside both scopes) - should reject
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(2..<original.paintRecordCount, from: original)
+
+        // At record 2, we have depth 1 (from record 0). Popping record 4 drops depth to 1,
+        // then popping record 5 drops to 0. But starting at depth 1 with an endLayer causes
+        // immediate underflow.
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: -1, reason: .startsInsideScope))
+    }
+
+    func testEmptyReplayRangeIsBalanced() {
+        var original = GPUIScene(clearColor: .white)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(0..<0, from: original)
+
+        XCTAssertEqual(result, .success)
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
     }
 
     func testReplayPreservesPrimitiveValues() {
@@ -841,8 +931,9 @@ final class GPUISceneTests: XCTestCase {
         original.addGlyph(glyph)
 
         var replayed = GPUIScene(clearColor: .white)
-        replayed.replay(0..<original.paintRecordCount, from: original)
+        let result = replayed.replay(0..<original.paintRecordCount, from: original)
 
+        XCTAssertEqual(result, .success)
         XCTAssertEqual(replayed.layers[0].quads.first, quad)
         XCTAssertEqual(replayed.layers[0].glyphs.first, glyph)
     }

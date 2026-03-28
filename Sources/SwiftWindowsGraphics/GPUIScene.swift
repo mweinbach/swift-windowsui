@@ -476,16 +476,43 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
     }
     
     /// Validates that a replay range is structurally balanced.
-    /// A balanced range has matching startLayer/endLayer markers for each layer.
+    /// A balanced range has matching startLayer/endLayer markers for each layer,
+    /// AND the range must start at depth 0 (no unclosed scoped layers before the range).
     private func validateReplayRange(_ range: Range<Int>, in scene: GPUIScene) -> (
         isBalanced: Bool,
         layerIndex: Int?,
         depth: Int,
         reason: GPUISceneReplayResult.UnbalancedReason?
     ) {
-        // Track per-layer scope depth
-        var layerDepths: [Int: Int] = [:]
+        // Calculate the scoped-layer depth at the start of the range
+        // by scanning records before range.lowerBound
+        var initialLayerDepths: [Int: Int] = [:]
         var maxLayerIndex = -1
+        
+        for recordIndex in 0..<range.lowerBound {
+            let record = scene.paintRecords[recordIndex]
+            switch record {
+            case .startLayer(let layerIndex, _):
+                initialLayerDepths[layerIndex, default: 0] += 1
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+            case .endLayer(let layerIndex):
+                initialLayerDepths[layerIndex, default: 0] -= 1
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+            case .primitive(let layerIndex, _):
+                maxLayerIndex = max(maxLayerIndex, layerIndex)
+            }
+        }
+        
+        // Check if any layer has non-zero depth at the range boundary
+        // This means the range starts inside a scoped layer without its marker
+        for (layerIndex, depth) in initialLayerDepths {
+            if depth != 0 {
+                return (false, layerIndex, depth, .startsInsideScope)
+            }
+        }
+        
+        // Track per-layer scope depth within the range
+        var layerDepths: [Int: Int] = [:]
         
         // First pass: check for starting inside a scope and track depths
         for record in scene.paintRecords[range] {

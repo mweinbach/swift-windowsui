@@ -815,7 +815,137 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(replayed.layers[0].images.count, 0)
     }
 
-    // MARK: - VAL-SCENE-007: Unbalanced replay ranges fail safely
+    // MARK: - VAL-SCENE-007: Boundary-depth validation for interior subranges
+
+    func testInteriorPrimitiveSubrangeWithoutMarkersReplaysSafelyWhenAtRootDepth() {
+        // Scenario: primitive between markers at indices 0..<3
+        // startLayer(0), primitive(1), endLayer(2)
+        // Replaying 1..<2 (just the primitive) should succeed if primitive was at root depth
+        // This test verifies primitives at depth 0 can be replayed without markers
+        var original = GPUIScene(clearColor: .white)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.addGlyph(GlyphPrimitive(screenX: 10, screenY: 10, screenW: 12, screenH: 12))
+
+        // Replay just the glyph (which was at root depth)
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(1..<2, from: original)
+
+        // Should succeed - primitive was at depth 0
+        XCTAssertEqual(result, .success)
+        XCTAssertEqual(replayed.layers[0].glyphs.count, 1)
+    }
+
+    func testInteriorSubrangeInsideScopedLayerFailsWithoutEnclosingMarkers() {
+        // Scenario: startLayer(0), primitive(1), endLayer(2)
+        // Replaying 1..<2 (just the primitive) should fail because
+        // the primitive at index 1 was emitted at depth 1, but the range
+        // doesn't include the enclosing startLayer marker
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.popScopedLayer(fromLayer: 0)
+
+        // Record indices: 0=startLayer, 1=quad, 2=endLayer
+        // Try to replay just the quad (1..<2) without its enclosing markers
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(1..<2, from: original)
+
+        // Should fail - the primitive at index 1 requires depth 1 but
+        // the range doesn't include the startLayer marker
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
+    }
+
+    func testInteriorSubrangeInsideNestedScopedLayerFailsWithoutEnclosingMarkers() {
+        // Scenario: startLayer(0), startLayer(1), primitive(2), endLayer(3), endLayer(4)
+        // Replaying 2..<3 should fail - primitive was at depth 2
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)
+        original.pushScopedLayer(Rect(x: 50, y: 50, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 60, y: 60, width: 40, height: 40))
+        original.popScopedLayer(fromLayer: 0)
+        original.popScopedLayer(fromLayer: 0)
+
+        // Record indices: 0=outer startLayer, 1=inner startLayer, 2=quad, 3=inner endLayer, 4=outer endLayer
+        // Try to replay just the quad (2..<3)
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(2..<3, from: original)
+
+        // Should fail - the primitive at index 2 requires depth 2
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 2, reason: .startsInsideScope))
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
+    }
+
+    func testInteriorSubrangeWithPartialMarkersStillFails() {
+        // Scenario: startLayer(0), primitive(1), endLayer(2)
+        // Replaying 0..<2 includes startLayer but not endLayer - should fail
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.popScopedLayer(fromLayer: 0)
+
+        // Try to replay 0..<2 (startLayer + quad, missing endLayer)
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(0..<2, from: original)
+
+        // Should fail - ends inside scope
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .endsInsideScope))
+        XCTAssertTrue(replayed.layers[0].quads.isEmpty)
+    }
+
+    func testBalancedReplayOfCompleteScopedLayerContentSucceeds() {
+        // Scenario: startLayer(0), primitive(1), endLayer(2)
+        // Replaying 0..<3 (complete with markers) should succeed
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))
+        original.popScopedLayer(fromLayer: 0)
+
+        // Replay the complete scoped layer content
+        var replayed = GPUIScene(clearColor: .white)
+        let result = replayed.replay(0..<3, from: original)
+
+        XCTAssertEqual(result, .success)
+        XCTAssertEqual(replayed.layers[0].quads.count, 1)
+        
+        // Verify scoped layer markers were replayed
+        XCTAssertEqual(replayed.paintRecords.count, 3)
+        if case .startLayer = replayed.paintRecords[0] {
+            // expected
+        } else {
+            XCTFail("Expected startLayer record")
+        }
+        if case .endLayer = replayed.paintRecords[2] {
+            // expected
+        } else {
+            XCTFail("Expected endLayer record")
+        }
+    }
+
+    func testMultipleInteriorSubrangesFailWithCorrectDepthReporting() {
+        // Scenario with multiple scoped layers:
+        // 0: startLayer(0), 1: quad1, 2: endLayer(0)
+        // 3: startLayer(0), 4: quad2, 5: endLayer(0)
+        var original = GPUIScene(clearColor: .white)
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50)) // index 1
+        original.popScopedLayer(fromLayer: 0)
+        original.pushScopedLayer(Rect(x: 200, y: 200, width: 100, height: 100), toLayer: 0)
+        original.addQuad(QuadPrimitive(x: 210, y: 210, width: 40, height: 40)) // index 4
+        original.popScopedLayer(fromLayer: 0)
+
+        // Try to replay just the first quad (1..<2) - should fail with depth 1
+        var replayed1 = GPUIScene(clearColor: .white)
+        let result1 = replayed1.replay(1..<2, from: original)
+        XCTAssertEqual(result1, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
+
+        // Try to replay just the second quad (4..<5) - should fail with depth 1
+        var replayed2 = GPUIScene(clearColor: .white)
+        let result2 = replayed2.replay(4..<5, from: original)
+        XCTAssertEqual(result2, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
+    }
+
+    // MARK: - VAL-SCENE-007 (original): Unbalanced replay ranges fail safely
 
     func testUnbalancedReplayStartingInsideScopedLayer() {
         var original = GPUIScene(clearColor: .white)
@@ -827,8 +957,9 @@ final class GPUISceneTests: XCTestCase {
         var replayed = GPUIScene(clearColor: .white)
         let result = replayed.replay(1..<original.paintRecordCount, from: original)
 
-        // Should reject the unbalanced range - starts inside a scope
-        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: -1, reason: .startsInsideScope))
+        // Should reject the unbalanced range - starts inside a scope at depth 1
+        // (depth 1 represents the scoped layer that was opened at record 0)
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
         
         // Scene should remain empty since replay was rejected
         XCTAssertTrue(replayed.layers[0].quads.isEmpty)
@@ -903,10 +1034,10 @@ final class GPUISceneTests: XCTestCase {
         var replayed = GPUIScene(clearColor: .white)
         let result = replayed.replay(2..<original.paintRecordCount, from: original)
 
-        // At record 2, we have depth 1 (from record 0). Popping record 4 drops depth to 1,
-        // then popping record 5 drops to 0. But starting at depth 1 with an endLayer causes
-        // immediate underflow.
-        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: -1, reason: .startsInsideScope))
+        // At record 2, we have depth 1 from the outer scope at record 0.
+        // The inner scope starts at record 2 but the outer scope from record 0
+        // is unmatched in this range, so depth is 1.
+        XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
     }
 
     func testEmptyReplayRangeIsBalanced() {

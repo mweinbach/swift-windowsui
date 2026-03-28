@@ -1,33 +1,33 @@
 {
   "featureId": "scene-replay-range-safety",
-  "reviewedAt": "2026-03-28T23:06:54.085519+00:00",
-  "commitId": "ac169e1",
+  "reviewedAt": "2026-03-28T23:21:00.226827+00:00",
+  "commitId": "0362f71",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The replay API now returns explicit success/unbalanced results, but the range validator still misses an important class of structurally unbalanced subranges, so the feature does not fully satisfy VAL-SCENE-007.",
+    "summary": "The current replay-range validator still only balances markers inside the selected paint-record slice, so it does not satisfy VAL-SCENE-007's requirement to reject ranges that begin or end inside an already-open scoped layer.",
     "issues": [
       {
         "file": "Sources/SwiftWindowsGraphics/GPUIScene.swift",
         "line": 480,
         "severity": "blocking",
-        "description": "validateReplayRange() only scans scene.paintRecords[range], so it never accounts for scopes that were already open before range.lowerBound or still open after range.upperBound. A slice that lies entirely inside an outer scoped layer, or one that only balances an inner nested scope, is incorrectly reported as .success, and replay() then re-emits the enclosed primitives without their required startLayer/endLayer markers. That violates VAL-SCENE-007's requirement to reject ranges that begin or end inside unmatched markers and can also break VAL-SCENE-006's promise that balanced replay preserves scoped-layer structure. The current tests cover underflow/missing-marker cases, but not marker-free interior subranges inside an active scope."
+        "description": "validateReplayRange() only iterates scene.paintRecords[range] and never accounts for scopes that were already open before range.lowerBound or still open after range.upperBound. That means a marker-free interior subrange inside an outer scoped layer, or a subrange that contains a balanced nested scope but omits the surrounding outer markers, is incorrectly accepted as .success. replay() then re-emits primitives without the required enclosing scoped-layer markers, which violates VAL-SCENE-007 and undermines VAL-SCENE-006's guarantee that balanced replay reconstructs equivalent scoped-layer structure."
       }
     ]
   },
   "sharedStateObservations": [
     {
       "area": "skills",
-      "observation": "The session handoff is stale relative to the transcript, so scrutiny consumers cannot reliably tell which commit and evidence set belongs to this feature.",
-      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-28T22-50-32-392Z__scene-replay-range-safety__d8adf037-b1cc-4d65-bedb-c0f1f3f9be09.json reports commitId ac169e1 and only focused GPUISceneTests/build evidence, while the transcript skeleton for worker session d8adf037-b1cc-4d65-bedb-c0f1f3f9be09 ends with EndFeatureRun commitId ddddac2772eb4ff44d849a229e811a7746f3eef9 plus additional GPUISceneBridgeTests/full-test evidence."
+      "observation": "The rerun handoff points to commit 0362f71 even though that commit only changes skill docs and does not contain scene-replay code or test changes, so the evidence trail for this feature rerun is misleading.",
+      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-28T23-14-26-009Z__scene-replay-range-safety__4eed1003-8d36-4436-a380-ca38e046b3bf.json records commitId 0362f71, but git show --stat 0362f71 shows only .factory/skills/graphics-scene-worker/SKILL.md and .factory/skills/runtime-host-worker/SKILL.md changed."
     },
     {
-      "area": "conventions",
-      "observation": "The commit referenced by the handoff is not feature-isolated and includes an extern/zed submodule change even though mission guidance says extern/zed must stay read-only.",
-      "evidence": "Mission AGENTS.md says 'Keep extern/zed read-only; port mechanics, not Rust API shapes.' `git show --stat ac169e1` includes `extern/zed` in the reviewed commit diff."
+      "area": "skills",
+      "observation": "The graphics-scene-worker procedure does not explicitly require rerun workers to reproduce previously reported blocking findings with a targeted adversarial case before declaring success, which let this session rely on existing passing tests and miss the still-open interior-subrange bug.",
+      "evidence": "The prior review at .factory/validation/scene-contract-foundation/scrutiny/reviews/scene-replay-range-safety.json flagged marker-free interior subranges inside an already-open scoped layer. The 4eed1003-8d36-4436-a380-ca38e046b3bf transcript only rereads the existing implementation, reruns GPUISceneTests/full test/build, and then reports success; it adds no new targeted test or direct probe for that prior failure mode."
     }
   ],
-  "addressesFailureFrom": null,
-  "summary": "Fail: replay-range validation still accepts some subranges that start or end inside an already-open scoped layer, so scene replay safety is incomplete."
+  "addressesFailureFrom": ".factory/validation/scene-contract-foundation/scrutiny/reviews/scene-replay-range-safety.json",
+  "summary": "Fail: the prior blocking issue remains unresolved because replay-range validation still ignores scope depth outside the selected slice and can accept interior scoped-layer subranges without their enclosing markers."
 }

@@ -1,28 +1,28 @@
 {
   "featureId": "scene-family-ordering-and-batching",
-  "reviewedAt": "2026-03-28T23:20:00Z",
+  "reviewedAt": "2026-03-28T23:59:00Z",
   "commitId": "ddddac2772eb4ff44d849a229e811a7746f3eef9",
   "transcriptSkeletonReviewed": true,
   "diffReviewed": true,
   "status": "fail",
   "codeReview": {
-    "summary": "The ordering and clip work appears aligned with VAL-SCENE-001 through VAL-SCENE-005, but the submitted commit also changes replay validation and that new logic still accepts some unbalanced scoped-layer subranges, so the feature bundle is not safe to accept as-is.",
+    "summary": "The current branch still has the replay-range safety bug from the prior review. The scene-family ordering, clip omission, and batching work appears aligned with VAL-SCENE-001 through VAL-SCENE-005, but primitive-only subranges that start and end inside a scoped layer are still accepted as balanced.",
     "issues": [
       {
         "file": "Sources/SwiftWindowsGraphics/GPUIScene.swift",
         "line": 491,
         "severity": "blocking",
-        "description": "`validateReplayRange` only inspects the selected `paintRecords[range]` slice and never computes the scoped-layer depth at the range boundaries. For a range like `1..<2` over `startLayer, primitive, endLayer`, the loop sees only `.primitive`, returns balanced, and `replay` succeeds even though the range begins and ends inside an unmatched scoped layer. That violates the safe-failure requirement for ranges that start or end inside unmatched markers."
+        "description": "`validateReplayRange` only scans `scene.paintRecords[range]` and never accounts for scoped-layer depth that already existed at `range.lowerBound`. For a record sequence like `startLayer, primitive, endLayer`, replaying `1..<2` visits only the `.primitive` record, leaves `layerDepths` empty, returns balanced, and `replay` succeeds even though the selected range begins and ends inside an unmatched scoped layer. That still violates VAL-SCENE-007's safe-failure requirement for ranges that start or end inside unmatched markers."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/GPUISceneTests.swift",
+        "line": 820,
+        "severity": "non_blocking",
+        "description": "The unbalanced replay coverage never exercises the primitive-only middle slice between matching scoped-layer markers (for example `1..<2` over `startLayer, primitive, endLayer`). The existing tests only cover ranges that still include an `endLayer` marker or ranges missing a trailing `endLayer`, which is why the current unsafe acceptance path remains untested."
       }
     ]
   },
-  "sharedStateObservations": [
-    {
-      "area": "conventions",
-      "observation": "The feature metadata and handoff scope this work to VAL-SCENE-001 through VAL-SCENE-005, but the shipped commit also includes bridge/replay files outside that feature surface. The mission guidance documents validation and architecture, but it does not explicitly require workers to isolate unrelated working-tree changes before committing feature work.",
-      "evidence": "Feature metadata for `scene-family-ordering-and-batching` fulfills only VAL-SCENE-001..005; the handoff summary only describes `GPUIScene.swift` and `GPUISceneTests.swift`; `git show --stat ddddac2772eb4ff44d849a229e811a7746f3eef9` also includes `Sources/SwiftWindowsGraphics/GPUISceneBridge.swift` and `Tests/SwiftWindowsCoreLogicTests/GPUISceneBridgeTests.swift`."
-    }
-  ],
-  "addressesFailureFrom": null,
-  "summary": "Fail: the bundled replay-validation change still accepts primitive-only subranges that start/end inside a scoped layer, and the commit scope also pulled in unrelated bridge/replay files."
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/scene-contract-foundation/scrutiny/reviews/scene-family-ordering-and-batching.json",
+  "summary": "Fail: the prior blocking replay-range issue remains unresolved in the current branch state because `validateReplayRange` still treats primitive-only subranges inside a scoped layer as balanced."
 }

@@ -524,7 +524,140 @@ struct GPUISceneBridgeTests {
         #expect(quad.clipHeight == Float(surfaceSize.height))
     }
 
-    // MARK: - Layer Splitting
+    // MARK: - VAL-SCENE-011: Unsupported blend modes degrade to explicit fallback (ignored)
+
+    @Test("Non-normal blend mode on fillRect is ignored (fallback to default compositing)")
+    func fillRectBlendModeFallback() {
+        let normalRect = FillRectCommand(
+            rect: Rect(x: 0, y: 0, width: 100, height: 100),
+            color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
+            blendMode: .normal
+        )
+        let multiplyRect = FillRectCommand(
+            rect: Rect(x: 0, y: 0, width: 100, height: 100),
+            color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
+            blendMode: .multiply
+        )
+        let screenRect = FillRectCommand(
+            rect: Rect(x: 0, y: 0, width: 100, height: 100),
+            color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
+            blendMode: .screen
+        )
+        let additiveRect = FillRectCommand(
+            rect: Rect(x: 0, y: 0, width: 100, height: 100),
+            color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
+            blendMode: .additive
+        )
+        let overlayRect = FillRectCommand(
+            rect: Rect(x: 0, y: 0, width: 100, height: 100),
+            color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
+            blendMode: .overlay
+        )
+        
+        let commands: [RenderCommand] = [
+            .fillRect(normalRect),
+            .fillRect(multiplyRect),
+            .fillRect(screenRect),
+            .fillRect(additiveRect),
+            .fillRect(overlayRect),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // All 5 fillRects should be converted to quads regardless of blend mode
+        #expect(scene.layers[0].quads.count == 5)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 5)
+        ])
+        
+        // Verify all quads have the same color (blend mode doesn't affect color mapping)
+        for i in 0..<5 {
+            let quad = scene.layers[0].quads[i]
+            #expect(quad.startR == 1.0)
+            #expect(quad.startG == 0.0)
+            #expect(quad.startB == 0.0)
+            #expect(quad.startA == 0.5)
+        }
+    }
+
+    @Test("Non-normal blend mode on drawBitmap is ignored (fallback to default compositing)")
+    func drawBitmapBlendModeFallback() {
+        let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
+        let normalBitmap = DrawBitmapCommand(
+            rect: Rect(x: 0, y: 0, width: 64, height: 64),
+            bitmap: bitmap,
+            opacity: 0.8,
+            blendMode: .normal
+        )
+        let multiplyBitmap = DrawBitmapCommand(
+            rect: Rect(x: 64, y: 0, width: 64, height: 64),
+            bitmap: bitmap,
+            opacity: 0.8,
+            blendMode: .multiply
+        )
+        let screenBitmap = DrawBitmapCommand(
+            rect: Rect(x: 128, y: 0, width: 64, height: 64),
+            bitmap: bitmap,
+            opacity: 0.8,
+            blendMode: .screen
+        )
+        let additiveBitmap = DrawBitmapCommand(
+            rect: Rect(x: 192, y: 0, width: 64, height: 64),
+            bitmap: bitmap,
+            opacity: 0.8,
+            blendMode: .additive
+        )
+        
+        let commands: [RenderCommand] = [
+            .drawBitmap(normalBitmap),
+            .drawBitmap(multiplyBitmap),
+            .drawBitmap(screenBitmap),
+            .drawBitmap(additiveBitmap),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // All 4 drawBitmaps should be converted to images regardless of blend mode
+        #expect(scene.layers[0].images.count == 4)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .image, startIndex: 0, count: 4)
+        ])
+        
+        // Verify all images have the same opacity (blend mode doesn't affect opacity mapping)
+        for i in 0..<4 {
+            let img = scene.layers[0].images[i]
+            #expect(img.opacity == 0.8)
+        }
+    }
+
+    @Test("Mixed blend modes with supported commands preserve paint order")
+    func mixedBlendModesPreserveOrder() {
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 50, height: 50), color: .white, blendMode: .normal)),
+            .fillRect(FillRectCommand(rect: Rect(x: 50, y: 0, width: 50, height: 50), color: .black, blendMode: .multiply)),
+            .fillRect(FillRectCommand(rect: Rect(x: 100, y: 0, width: 50, height: 50), color: .white, blendMode: .screen)),
+            .fillRect(FillRectCommand(rect: Rect(x: 150, y: 0, width: 50, height: 50), color: .black, blendMode: .additive)),
+            .fillRect(FillRectCommand(rect: Rect(x: 200, y: 0, width: 50, height: 50), color: .white, blendMode: .overlay)),
+            .fillRect(FillRectCommand(rect: Rect(x: 250, y: 0, width: 50, height: 50), color: .black, blendMode: .normal)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        // All 6 fillRects should be converted to quads in order
+        #expect(scene.layers[0].quads.count == 6)
+        #expect(scene.layers[0].paintOperations == [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 6)
+        ])
+        
+        // Verify positions are preserved in order
+        #expect(scene.layers[0].quads[0].x == 0)
+        #expect(scene.layers[0].quads[1].x == 50)
+        #expect(scene.layers[0].quads[2].x == 100)
+        #expect(scene.layers[0].quads[3].x == 150)
+        #expect(scene.layers[0].quads[4].x == 200)
+        #expect(scene.layers[0].quads[5].x == 250)
+    }
+
 
     @Test("fillRect, drawBitmap, fillRect preserves paint order through operations")
     func layerSplitOnTypeChange() {

@@ -41,7 +41,8 @@ extension GPUIScene {
     /// Unsupported style features degrade to explicit fallbacks:
     /// - Non-rect clips (ellipse, path): Fallback to bounding rect of clip shape
     /// - Radial/conic gradients: Fallback to solid color (start color)
-    /// - Per-command blend modes: Ignored (uses default compositing)
+    /// - Per-command blend modes: Ignored (uses default compositing; blend modes
+    ///   like .multiply, .screen, .overlay, .additive fall back to normal blending)
     ///
     /// - Parameters:
     ///   - frame: The backend-neutral render frame to convert.

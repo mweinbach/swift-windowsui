@@ -1,0 +1,28 @@
+{
+  "featureId": "scene-family-ordering-and-batching",
+  "reviewedAt": "2026-03-28T23:20:00Z",
+  "commitId": "ddddac2772eb4ff44d849a229e811a7746f3eef9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The ordering and clip work appears aligned with VAL-SCENE-001 through VAL-SCENE-005, but the submitted commit also changes replay validation and that new logic still accepts some unbalanced scoped-layer subranges, so the feature bundle is not safe to accept as-is.",
+    "issues": [
+      {
+        "file": "Sources/SwiftWindowsGraphics/GPUIScene.swift",
+        "line": 491,
+        "severity": "blocking",
+        "description": "`validateReplayRange` only inspects the selected `paintRecords[range]` slice and never computes the scoped-layer depth at the range boundaries. For a range like `1..<2` over `startLayer, primitive, endLayer`, the loop sees only `.primitive`, returns balanced, and `replay` succeeds even though the range begins and ends inside an unmatched scoped layer. That violates the safe-failure requirement for ranges that start or end inside unmatched markers."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The feature metadata and handoff scope this work to VAL-SCENE-001 through VAL-SCENE-005, but the shipped commit also includes bridge/replay files outside that feature surface. The mission guidance documents validation and architecture, but it does not explicitly require workers to isolate unrelated working-tree changes before committing feature work.",
+      "evidence": "Feature metadata for `scene-family-ordering-and-batching` fulfills only VAL-SCENE-001..005; the handoff summary only describes `GPUIScene.swift` and `GPUISceneTests.swift`; `git show --stat ddddac2772eb4ff44d849a229e811a7746f3eef9` also includes `Sources/SwiftWindowsGraphics/GPUISceneBridge.swift` and `Tests/SwiftWindowsCoreLogicTests/GPUISceneBridgeTests.swift`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: the bundled replay-validation change still accepts primitive-only subranges that start/end inside a scoped layer, and the commit scope also pulled in unrelated bridge/replay files."
+}

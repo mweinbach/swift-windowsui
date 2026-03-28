@@ -1,0 +1,33 @@
+{
+  "featureId": "scene-replay-range-safety",
+  "reviewedAt": "2026-03-28T23:06:54.085519+00:00",
+  "commitId": "ac169e1",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The replay API now returns explicit success/unbalanced results, but the range validator still misses an important class of structurally unbalanced subranges, so the feature does not fully satisfy VAL-SCENE-007.",
+    "issues": [
+      {
+        "file": "Sources/SwiftWindowsGraphics/GPUIScene.swift",
+        "line": 480,
+        "severity": "blocking",
+        "description": "validateReplayRange() only scans scene.paintRecords[range], so it never accounts for scopes that were already open before range.lowerBound or still open after range.upperBound. A slice that lies entirely inside an outer scoped layer, or one that only balances an inner nested scope, is incorrectly reported as .success, and replay() then re-emits the enclosed primitives without their required startLayer/endLayer markers. That violates VAL-SCENE-007's requirement to reject ranges that begin or end inside unmatched markers and can also break VAL-SCENE-006's promise that balanced replay preserves scoped-layer structure. The current tests cover underflow/missing-marker cases, but not marker-free interior subranges inside an active scope."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The session handoff is stale relative to the transcript, so scrutiny consumers cannot reliably tell which commit and evidence set belongs to this feature.",
+      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-28T22-50-32-392Z__scene-replay-range-safety__d8adf037-b1cc-4d65-bedb-c0f1f3f9be09.json reports commitId ac169e1 and only focused GPUISceneTests/build evidence, while the transcript skeleton for worker session d8adf037-b1cc-4d65-bedb-c0f1f3f9be09 ends with EndFeatureRun commitId ddddac2772eb4ff44d849a229e811a7746f3eef9 plus additional GPUISceneBridgeTests/full-test evidence."
+    },
+    {
+      "area": "conventions",
+      "observation": "The commit referenced by the handoff is not feature-isolated and includes an extern/zed submodule change even though mission guidance says extern/zed must stay read-only.",
+      "evidence": "Mission AGENTS.md says 'Keep extern/zed read-only; port mechanics, not Rust API shapes.' `git show --stat ac169e1` includes `extern/zed` in the reviewed commit diff."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Fail: replay-range validation still accepts some subranges that start or end inside an already-open scoped layer, so scene replay safety is incomplete."
+}

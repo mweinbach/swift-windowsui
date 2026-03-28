@@ -56,3 +56,17 @@ Manual interaction probes are allowed when a feature changes presenter selection
 - Prefer focused suites first, then run full `test` and `build` before concluding a feature.
 - If a contract assertion references a test suite that does not exist yet, that feature is expected to create the focused suite or equivalent coverage.
 - Treat batch-image and renderer-atlas assertions as end-to-end gates; do not mark them passed from runtime-only evidence.
+
+## Flow Validator Guidance: Swift test suites
+
+- Isolation boundary:
+  - Run from the repository at `C:\Users\maxw6\Projects\swift-windowsui`.
+  - Use `.factory/windows-swift-env.ps1` or the equivalent command from `.factory/services.yaml` for every Swift command.
+  - Write only the assigned flow report under `.factory/validation/<milestone>/user-testing/flows/` and evidence under the assigned mission evidence directory.
+- Concurrency:
+  - Treat Swift validation as single-lane for this mission; do not overlap Swift test invocations with other validators.
+  - Keep each flow scoped to its assigned assertion IDs and focused suite/tool.
+- Safety and evidence:
+  - Do not edit source files during validation.
+  - Capture the exact command run, exit code, relevant suite names, and a concise assertion-to-evidence mapping in the flow report.
+  - If a focused suite fails, stop that flow after collecting enough output to explain the failure instead of running broader validators.

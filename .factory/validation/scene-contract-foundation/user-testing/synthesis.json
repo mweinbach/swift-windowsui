@@ -1,0 +1,34 @@
+{
+  "milestone": "scene-contract-foundation",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-SCENE-001",
+    "VAL-SCENE-002",
+    "VAL-SCENE-003",
+    "VAL-SCENE-004",
+    "VAL-SCENE-005",
+    "VAL-SCENE-006",
+    "VAL-SCENE-007",
+    "VAL-SCENE-008",
+    "VAL-SCENE-009",
+    "VAL-SCENE-010",
+    "VAL-SCENE-011"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added flow-validator isolation and evidence guidance for the Swift test suite surface used by scene-contract-foundation user testing.",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null
+}

@@ -31,13 +31,15 @@ None.
    - backend-neutral scene semantics,
    - frame-path fallback safety.
 5. If the feature changes presenter selection, downgrade logic, refresh pacing, or observed-object batching, add explicit observable evidence for those behaviors.
-6. Run the smallest relevant focused suites during iteration.
-7. Before finishing, run:
+6. Keep the edit set inside the feature's declared scope. Do not bundle unrelated graphics cleanup, and do not touch `extern/zed`.
+7. Run the smallest relevant focused suites during iteration.
+8. Before finishing, verify `extern/zed` is untouched and review the changed files to confirm they all belong to the feature scope.
+9. Before finishing, run:
    - the focused suites for the assigned assertions,
    - `commands.test`,
    - `commands.build`.
-8. If the feature changes startup or presenter selection behavior, run the appropriate demo probe from `.factory/services.yaml` and capture the backend-selection or downgrade evidence.
-9. In the handoff, explicitly list which fulfilled assertions were proven by tests vs demo probes.
+10. If the feature changes startup or presenter selection behavior, run the appropriate demo probe from `.factory/services.yaml` and capture the backend-selection or downgrade evidence.
+11. In the handoff, explicitly list which fulfilled assertions were proven by tests vs demo probes.
 
 ## Example Handoff
 

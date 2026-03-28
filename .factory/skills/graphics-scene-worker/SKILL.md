@@ -28,13 +28,15 @@ None.
 3. Add or update focused tests first so the missing behavior fails visibly before implementation.
 4. Implement the smallest graphics/text/renderer changes that satisfy the feature while preserving backend-neutral semantics above the renderer layer.
 5. If the feature touches batch presentation, verify unsupported or incomplete capabilities still fail softly or downgrade cleanly.
-6. Run the smallest relevant focused suites during iteration.
-7. Before finishing, run:
+6. Keep the edit set inside the feature's declared scope. Do not bundle unrelated graphics/runtime cleanup, and do not touch `extern/zed`.
+7. Run the smallest relevant focused suites during iteration.
+8. Before finishing, verify `extern/zed` is untouched and review the changed files to confirm they all belong to the feature scope.
+9. Before finishing, run:
    - the focused suites for the assigned assertions,
    - `commands.test`,
    - `commands.build`.
-8. If the feature changes presenter behavior, atlas upload behavior, or demo launch behavior, run the appropriate demo probe from `.factory/services.yaml`.
-9. In the handoff, map every fulfilled assertion to the test/probe evidence that proves it.
+10. If the feature changes presenter behavior, atlas upload behavior, or demo launch behavior, run the appropriate demo probe from `.factory/services.yaml`.
+11. In the handoff, map every fulfilled assertion to the test/probe evidence that proves it.
 
 ## Example Handoff
 

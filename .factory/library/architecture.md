@@ -62,6 +62,7 @@ The target architecture is:
   - prepaint interaction metadata,
   - deferred subtree replay bookkeeping,
   - frame/scene cache invalidation boundaries.
+- Deferred subtree scene semantics depend on runtime-owned prepaint state; raw `ScenePainter.paint()` is useful for typed scene emission checks, but it is not a complete standalone harness for deferred-subtree replay/ancestor-routing behavior.
 
 ### Graphics Contract Layer
 

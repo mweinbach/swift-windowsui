@@ -1,0 +1,34 @@
+{
+  "featureId": "deferred-replay-and-backend-switch-parity",
+  "reviewedAt": "2026-03-29T01:57:27.585958Z",
+  "commitId": "d0bf0e640b2eab172e07e0c863ab445cc0251a3d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The runtime code already has separate frame and scene deferred replay caches, but this feature only added RetainedViewRuntime coverage and did not fully satisfy the parity-harness contract for focused scene-path evidence. Scene-path ordering for replayed deferred overlays and nested deferred subtrees is still missing from ScenePainterTests, and the backend-switch tests only cover scroll-indicator deferred draws rather than both deferred payload kinds.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/ScenePainterTests.swift",
+        "line": 435,
+        "severity": "blocking",
+        "description": "The only deferred scene-path test here checks initial scroll-indicator flush order. There is still no focused ScenePainter coverage for replayed deferred overlays or nested deferred subtree ordering, even though validation-contract.md requires ScenePainterTests evidence for VAL-PARITY-004 and VAL-PARITY-005. The feature therefore does not actually prove the claimed 'both paths' behavior on the focused suite named by the contract."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1701,
+        "severity": "non_blocking",
+        "description": "The scene-to-frame and frame-to-scene switch tests only construct scroll-indicator deferred draws via showsScrollIndicator. They never exercise deferred subtree payloads, even though the runtime handles two incompatible deferred payload kinds (.scrollIndicator and .subtree in Sources/SwiftWindowsUI/Runtime.swift). That leaves backend-switch rerun safety for deferred subtree payloads unproven."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-host-worker skill does not explain that deferred subtree scene semantics depend on runtime-owned prepaint state, so raw ScenePainter.paint() is not a reliable harness for those cases. That gap led this worker to add ScenePainter tests, discover they could not exercise the behavior, and then delete them.",
+      "evidence": "worker-transcripts.jsonl entry for session d74e4ead-d110-44c2-b88e-84974b0f0894 says: \"the ScenePainter standalone paint() function doesn't process deferred subtrees the same way as the runtime-integrated path... Let me remove those specific ScenePainter tests\"; .factory/skills/runtime-host-worker/SKILL.md does not mention this constraint."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed. Commit d0bf0e6 adds useful RetainedViewRuntime parity tests, but it does not complete the focused scene-path proof required for VAL-PARITY-004/005, and backend-switch coverage still does not exercise deferred subtree payload reruns."
+}

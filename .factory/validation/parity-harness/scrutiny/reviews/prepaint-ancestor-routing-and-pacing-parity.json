@@ -1,0 +1,33 @@
+{
+  "featureId": "prepaint-ancestor-routing-and-pacing-parity",
+  "reviewedAt": "2026-03-29T02:03:37.3027707Z",
+  "commitId": "fa01c1cb91126a9faa42d05fda9f4cc42c4dbcb0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Re-review failed. The duplicate parity-test block noted in the earlier review is no longer present in the current working tree, but the feature still does not fully satisfy the VAL-PARITY-009 coverage contract.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1834,
+        "severity": "blocking",
+        "description": "The current VAL-PARITY-009 additions only prove focus/keyboard activation routing through a focusable ancestor (`testDescendantHitRoutesCorrectAncestor` and `testDeferredHitRoutesCorrectAncestor`). The file still has no deferred-phase coverage for draggable or scrollable ancestor routing, even though the contract explicitly requires descendant and deferred hits to resolve the correct focusable, activatable, draggable, and scrollable retained ancestors. There are separate non-deferred descendant tests for scroll and drag earlier in the file (`testMouseWheelScrollsNearestScrollableAncestorAndClampsOffset` around line 288 and `testDraggableAncestorHandlesDragStartedFromHitChild` around line 1212), but a regression in deferred scroll/drag ancestor lookup would currently go uncaught."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "conventions",
+      "observation": "The feature handoff recorded a non-resolving full commit SHA, which forces reviewers to manually re-resolve the real commit before diff review.",
+      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-29T01-51-27-760Z__prepaint-ancestor-routing-and-pacing-parity__8969d03f-5b8e-4810-b194-da7b6a47deb6.json stores `commitId` = `fa01c1c74e08f04a7795e647ee23b9820b1f2521`, while `git rev-parse fa01c1c` resolves to `fa01c1cb91126a9faa42d05fda9f4cc42c4dbcb0`."
+    },
+    {
+      "area": "skills",
+      "observation": "The runtime-host-worker skill still requires reading `.factory/library/user-testing.md` even for runtime-only parity-coverage work, and the worker transcript shows that step being skipped.",
+      "evidence": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\skills\\runtime-host-worker\\SKILL.md step 1 requires `.factory/library/user-testing.md`; the transcript skeleton entry for session `8969d03f-5b8e-4810-b194-da7b6a47deb6` in C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\worker-transcripts.jsonl includes reads for mission/contract/features/services/validation-state/architecture, but no read of `user-testing.md`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Re-review failed. The duplicate test block has been removed from the working tree, but VAL-PARITY-009 coverage still stops at focus/activation ancestor routing and does not prove deferred draggable/scrollable ancestor routing. Shared-state observations: the handoff commit SHA is malformed, and the runtime-host-worker skill includes a user-testing read requirement that workers are skipping for runtime-only tasks."
+}

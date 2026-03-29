@@ -1,0 +1,88 @@
+{
+  "milestone": "parity-harness",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 0,
+    "failed": 3,
+    "failedFeatures": [
+      "normalized-frame-scene-output-and-scroll-parity",
+      "deferred-replay-and-backend-switch-parity",
+      "prepaint-ancestor-routing-and-pacing-parity"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "normalized-frame-scene-output-and-scroll-parity",
+      "severity": "blocking",
+      "description": "VAL-PARITY-001 coverage does not compare normalized pre- vs post-mutation frame/scene output for the unchanged sibling, so a regression that changes unchanged sibling geometry or color in both paths could still pass."
+    },
+    {
+      "featureId": "normalized-frame-scene-output-and-scroll-parity",
+      "severity": "blocking",
+      "description": "VAL-PARITY-003 coverage does not compare exact frame-vs-scene scroll delta or indicator geometry, so scene-path scroll-distance or indicator-placement regressions could still pass."
+    },
+    {
+      "featureId": "deferred-replay-and-backend-switch-parity",
+      "severity": "blocking",
+      "description": "Focused ScenePainter evidence required for VAL-PARITY-004 and VAL-PARITY-005 is still missing for replayed deferred overlays and nested deferred subtree ordering on the scene path."
+    },
+    {
+      "featureId": "prepaint-ancestor-routing-and-pacing-parity",
+      "severity": "blocking",
+      "description": "VAL-PARITY-009 coverage still stops at focus/activation routing and does not prove deferred draggable and scrollable ancestor routing."
+    }
+  ],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added an architecture note that deferred-subtree scene semantics depend on runtime-owned prepaint state, so raw ScenePainter.paint() is not a complete standalone harness for deferred-subtree replay and ancestor-routing assertions.",
+      "sourceFeature": "deferred-replay-and-backend-switch-parity"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "runtime-host-worker skill",
+      "suggestion": "Make the `.factory/library/user-testing.md` startup read conditional instead of mandatory for pure runtime/parity harness work, or document why it is still required.",
+      "evidence": "Review reports for normalized-frame-scene-output-and-scroll-parity and prepaint-ancestor-routing-and-pacing-parity both observed that workers completed runtime-only parity-test work without using user-testing context and skipped that step in their transcripts.",
+      "isSystemic": true
+    },
+    {
+      "target": "runtime-host-worker skill",
+      "suggestion": "Document that deferred-subtree scene behavior depends on runtime-owned prepaint state, so raw `ScenePainter.paint()` is insufficient for deferred-subtree replay or ancestor-routing assertions without runtime integration.",
+      "evidence": "The deferred-replay-and-backend-switch-parity review found the worker added and removed ScenePainter tests after discovering standalone ScenePainter.paint() could not exercise deferred subtree behavior that the contract expected to validate.",
+      "isSystemic": false
+    },
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "Require workers to source commit IDs for handoffs from `git rev-parse HEAD` (or equivalent) instead of manually copied hashes before calling EndFeatureRun.",
+      "evidence": "The prepaint-ancestor-routing-and-pacing-parity review found the handoff stored a non-resolving full commit SHA and the reviewer had to re-resolve the actual commit from git history.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "The earlier duplicate parity-test block in prepaint-ancestor-routing-and-pacing-parity should remain a blocking review finding.",
+      "reason": "rejected because scrutiny validation removed the duplicate block from the current working tree and the re-review no longer found it."
+    }
+  ],
+  "previousRound": null
+}

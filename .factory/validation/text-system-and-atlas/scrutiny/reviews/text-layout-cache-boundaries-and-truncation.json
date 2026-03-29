@@ -1,0 +1,24 @@
+{
+    "featureId":  "text-layout-cache-boundaries-and-truncation",
+    "reviewedAt":  "2026-03-29T18:28:00Z",
+    "commitId":  "a5e04b04452117b47cac6a3ff8928b11ed46c50f",
+    "transcriptSkeletonReviewed":  true,
+    "diffReviewed":  true,
+    "status":  "pass",
+    "codeReview":  {
+                       "summary":  "The feature is narrowly scoped and mostly correct: the cache key now tracks resolved native font size so display-scale-only changes reuse logical layouts while derived font-size changes invalidate reuse, and the added TextSystemTests cover the required width/line-break/truncation cases. I found one non-blocking correctness risk in the span cache-boundary implementation.",
+                       "issues":  [
+                                      {
+                                          "file":  "Sources/SwiftWindowsUI/WindowTextSystem.swift",
+                                          "line":  45,
+                                          "severity":  "non_blocking",
+                                          "description":  "The cache key reduces span layout inputs to a single Int fingerprint via makeSpansFingerprint(). Because that digest is lossy, two distinct span configurations can alias and incorrectly reuse the same cached logical layout. For a feature whose contract is real cache boundaries, the key should keep exact span-boundary data (or a structurally equatable span key) instead of treating a hash digest as semantic identity."
+                                      }
+                                  ]
+                   },
+    "sharedStateObservations":  [
+
+                                ],
+    "addressesFailureFrom":  null,
+    "summary":  "Reviewed the feature record, worker transcript skeleton, handoff, graphics-scene skill, shared-state docs, and commit a5e04b0. The resolved-font-size cache fix and focused tests match the feature contract overall, but there is a non-blocking follow-up: span cache boundaries are still represented by a lossy fingerprint rather than exact span identity."
+}

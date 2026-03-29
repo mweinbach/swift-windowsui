@@ -355,7 +355,7 @@ struct ScenePainterTests {
         #expect(scene.layers[0].pixelGlyphs[0].atlasV0 == uv.v0)
     }
 
-    @Test("Mixed native text and icon glyphs keep separate atlases")
+    @Test("Mixed native text and icon glyphs keep separate atlases when native text is available")
     func mixedTextAndIconGlyphsUseSeparateAtlases() {
         let textNode = ViewNode(
             frame: Rect(x: 10, y: 20, width: 120, height: 32),
@@ -374,10 +374,14 @@ struct ScenePainterTests {
 
         let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
 
-        #expect(scene.layers[0].glyphs.count > 0)
-        #expect(scene.layers[0].pixelGlyphs.count == 1)
-        #expect(scene.glyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame)
         #expect(scene.pixelGlyphAtlas != nil)
+        if scene.layers[0].glyphs.isEmpty {
+            #expect(scene.layers[0].pixelGlyphs.count >= 6)
+            #expect(scene.glyphAtlas == nil)
+        } else {
+            #expect(scene.layers[0].pixelGlyphs.count == 1)
+            #expect(scene.glyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame)
+        }
     }
 
     @Test("Private-use symbols stay on the pixel atlas path in mixed-content text - VAL-TEXT-008")

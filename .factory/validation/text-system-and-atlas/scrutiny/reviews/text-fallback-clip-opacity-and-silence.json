@@ -1,0 +1,28 @@
+{
+  "featureId": "text-fallback-clip-opacity-and-silence",
+  "reviewedAt": "2026-03-29T18:17:45.754830Z",
+  "commitId": "ec24cb24589426a8742c24b45d291703562fbb6c",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature closes several text fallback gaps, but it still misses a contract-critical native-path clipping case: fully clipped native text can allocate atlas entries before the clip test rejects the glyphs. That means VAL-TEXT-010 is not fully satisfied for non-private-use text on the native glyph path.",
+    "issues": [
+      {
+        "file": "Sources/SwiftWindowsUI/ScenePainter.swift",
+        "line": 709,
+        "severity": "blocking",
+        "description": "In `appendNativeTextGlyphs`, `NativeGlyphAtlas.shared.glyph(...)` runs before the glyph's clipped bounds are checked. For fully off-clip native text, this still rasterizes/inserts glyphs into the native atlas, marks the atlas dirty, and can attach `scene.glyphAtlas` even though no glyph primitive is emitted. That violates VAL-TEXT-010's requirement that fully clipped text stay atlas-silent for the pass."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker followed the graphics-scene procedure except for environment init because the documented bash-first path does not match this Windows host. The transcript/handoff show `.factory/init.sh` failing due to missing WSL, after which the worker correctly used `.factory/windows-swift-env.ps1` directly.",
+      "evidence": "C:/Users/maxw6/.factory/missions/5d62c514-a5fc-4389-9107-8af5d18bcb58/handoffs/2026-03-29T18-11-29-657Z__text-fallback-clip-opacity-and-silence__c790e1a0-2b61-40cd-a223-6734143320de.json:51-61 (`skillFeedback.followedProcedure: false`, deviation from `.factory/init.sh`, suggested change to mention direct `windows-swift-env.ps1` use on Windows-without-WSL hosts)"
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the worker transcript skeleton, handoff, skill, shared-state docs, and commit `ec24cb2`. The feature should not be accepted yet because the native scene path still dirties the atlas for fully clipped text, which leaves VAL-TEXT-010 incomplete."
+}

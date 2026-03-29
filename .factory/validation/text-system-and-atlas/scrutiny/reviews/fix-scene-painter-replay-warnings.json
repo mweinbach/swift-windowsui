@@ -1,0 +1,15 @@
+{
+  "featureId": "fix-scene-painter-replay-warnings",
+  "reviewedAt": "2026-03-29T18:16:29.844719+00:00",
+  "commitId": "9421711170de8d2e9073972bcbcfe3259c256a52",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The commit is narrowly scoped and correctly silences the two ScenePainter unused-result warnings by explicitly discarding the GPUIScene replay result at both replay call sites, without changing replay control flow or cached-range bookkeeping.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": null,
+  "summary": "Reviewed the worker transcript skeleton, handoff, and commit 9421711170de8d2e9073972bcbcfe3259c256a52. The change fully matches the feature contract: both warning-producing ScenePainter replay calls now use `_ = scene.replay(...)`, and I found no blocking or non-blocking correctness issues in this scoped fix."
+}

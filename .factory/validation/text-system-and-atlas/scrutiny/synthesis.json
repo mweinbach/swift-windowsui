@@ -1,0 +1,59 @@
+{
+  "milestone": "text-system-and-atlas",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 4,
+    "passed": 2,
+    "failed": 2,
+    "failedFeatures": [
+      "atlas-lifecycle-identity-and-exhaustion",
+      "text-fallback-clip-opacity-and-silence"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "atlas-lifecycle-identity-and-exhaustion",
+      "severity": "blocking",
+      "description": "After atlas exhaustion clears native atlas contents, ScenePainter's retry path still reuses cached replay ranges from the previous scene. Unchanged text can therefore replay stale atlas UVs against wiped atlas contents, producing blank or corrupted glyphs in mixed replay-plus-new-text frames."
+    },
+    {
+      "featureId": "text-fallback-clip-opacity-and-silence",
+      "severity": "blocking",
+      "description": "appendNativeTextGlyphs resolves/inserts native glyph atlas entries before checking whether the glyph is fully clipped. Fully off-clip native text can dirty and attach the atlas even when no glyph primitive is emitted, leaving VAL-TEXT-010 incomplete."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "On native Windows missions, startup guidance should treat `.factory/windows-swift-env.ps1` / `.factory/services.yaml` as the first-class environment setup path when `.factory/init.sh` cannot run without bash/WSL.",
+      "evidence": "Both failed-feature reviews (`atlas-lifecycle-identity-and-exhaustion` and `text-fallback-clip-opacity-and-silence`) reported worker startup deviating from the bash-first procedure because this Windows host lacks WSL/bash, while mission AGENTS.md and `.factory/library/environment.md` already document `.factory/windows-swift-env.ps1` and `.factory/services.yaml` as the source of truth.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Add a new library note telling workers to use `.factory/windows-swift-env.ps1` for Swift commands on this repo.",
+      "reason": "already-documented in `.factory/library/environment.md`"
+    }
+  ],
+  "previousRound": null
+}

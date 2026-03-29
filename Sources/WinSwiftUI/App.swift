@@ -127,6 +127,34 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// least one of them.
     private var pendingChangedObjects: Set<ObjectIdentifier> = []
 
+    /// Counter for reload tasks actually scheduled (not coalesced).
+    /// Used for testing same-turn coalescing behavior.
+    private(set) var scheduledReloadCount = 0
+
+    /// Counter for reloads actually executed (after dependency filtering).
+    /// Used for testing dependency filtering behavior.
+    private(set) var executedReloadCount = 0
+
+    /// Counter for observed object registrations.
+    /// Used for testing dependency registration tracking.
+    private(set) var observedObjectRegistrationCount = 0
+
+    /// Set of object IDs that triggered reloads (for dependency verification).
+    /// Used for testing that only relevant objects trigger reloads.
+    private(set) var reloadTriggeringObjectIDs: Set<ObjectIdentifier> = []
+
+    /// Optional callback invoked when an observed object reload is scheduled.
+    /// Used for testing coalescing behavior.
+    var onObservedObjectReloadScheduled: ((_ changedObjectID: ObjectIdentifier, _ coalesced: Bool) -> Void)?
+
+    /// Optional callback invoked when an observed object is registered.
+    /// Used for testing dependency registration tracking.
+    var onObservedObjectRegistered: ((_ objectID: ObjectIdentifier) -> Void)?
+
+    /// Optional callback invoked when reloadContent completes.
+    /// Used for testing rebuild/presentation counts.
+    var onReloadContentCompleted: (() -> Void)?
+
     /// Optional callback for recording timer state changes, used for testing.
     /// Called whenever `syncAnimationDriver` updates timer configuration.
     var onTimerStateChanged: ((TimerState) -> Void)?
@@ -275,7 +303,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 self?.reloadContent()
             },
             observedObjectHandler: { [weak self] object in
-                self?.observe(object)
+                self?.observeObject(object)
             }
         )
     }
@@ -285,6 +313,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func reloadContent() {
+        executedReloadCount += 1
+
         // Record the objects the ComponentHost accesses during this rebuild
         // so future notifications can be dependency-checked.
         componentHost.observedObjects.removeAll()
@@ -296,14 +326,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             componentHost.observedObjects.insert(identifier)
         }
 
+        onReloadContentCompleted?()
         commitRuntimeState(in: window)
     }
 
-    private func observe(_ object: any ObservableObject) {
+    /// Manually observe an object for testing purposes.
+    /// This allows tests to register observed objects without needing a view hierarchy.
+    func observe(_ object: any ObservableObject) {
+        observeObject(object)
+    }
+
+    private func observeObject(_ object: any ObservableObject) {
         let identifier = ObjectIdentifier(object)
         guard observedObjectTokens[identifier] == nil else {
             return
         }
+
+        observedObjectRegistrationCount += 1
+        onObservedObjectRegistered?(identifier)
 
         observedObjectTokens[identifier] = ObservableObjectCenter.shared.addObserver(for: object) { [weak self] in
             self?.scheduleObservedObjectReload(for: identifier)
@@ -318,6 +358,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
+    /// Reset all observability counters. Used by tests to establish baseline.
+    func resetObservabilityCounters() {
+        scheduledReloadCount = 0
+        executedReloadCount = 0
+        observedObjectRegistrationCount = 0
+        reloadTriggeringObjectIDs.removeAll()
+    }
+
     /// Schedule a batched reload.  Multiple rapid @Published changes within
     /// the same run-loop turn are coalesced into a single rebuild.
     ///
@@ -327,12 +375,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// rebuild is skipped entirely.
     private func scheduleObservedObjectReload(for changedObjectID: ObjectIdentifier) {
         pendingChangedObjects.insert(changedObjectID)
+        reloadTriggeringObjectIDs.insert(changedObjectID)
 
         guard !reloadScheduled else {
+            // Same-turn coalescing: reload already scheduled, just accumulate the change
+            onObservedObjectReloadScheduled?(changedObjectID, true)
             return
         }
 
+        // New reload task being scheduled (not coalesced)
         reloadScheduled = true
+        scheduledReloadCount += 1
+        onObservedObjectReloadScheduled?(changedObjectID, false)
+
         Task { @MainActor [weak self] in
             guard let self else {
                 return
@@ -349,6 +404,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 || !relevantChanges.isDisjoint(with: self.componentHost.observedObjects)
 
             guard dependsOnChangedObject else {
+                // Dependency filtering: none of the changed objects are in our dependency set
+                // Skip the reload entirely
                 return
             }
 

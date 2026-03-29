@@ -220,10 +220,11 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 scaleFactor: 1.0
             )
 
+            let expectedColor = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1.0)
             let config = WindowGroupConfiguration(
                 title: "Test",
                 size: IntSize(width: 320, height: 200),
-                clearColor: .black,
+                clearColor: expectedColor,
                 content: []
             )
 
@@ -252,7 +253,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.windowNeedsDisplay(fakeWindow)
 
             // After render failure and downgrade, frame renderer should be attached
-            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1) // Frame renderer was attached
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1, "Frame renderer should be attached after batch failure")
+            
+            // CRITICAL: Verify the frame was actually rendered/presented through the frame path
+            // This proves VAL-RENDER-004: the triggering frame renders through frame path after batch failure
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Frame should be rendered through frame path after batch failure")
+            XCTAssertEqual(frameRenderer.renderedFrames.first?.clearColor, expectedColor, "Frame should contain the expected clear color")
         }
     }
 

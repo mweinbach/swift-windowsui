@@ -1,7 +1,7 @@
 {
   "milestone": "text-system-and-atlas",
-  "round": 2,
-  "status": "fail",
+  "round": 3,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,27 +20,14 @@
     }
   },
   "reviewsSummary": {
-    "total": 2,
+    "total": 1,
     "passed": 1,
-    "failed": 1,
-    "failedFeatures": [
-      "fix-native-text-clip-rejection-atlas-dirtying"
-    ]
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "fix-native-text-clip-rejection-atlas-dirtying",
-      "severity": "blocking",
-      "description": "The new native clip preflight still checks the padded raster-target bounds instead of the final cropped glyph bounds, so a clip can intersect only blank padding while excluding the real glyph and still trigger native atlas rasterization/insertion before later emission is rejected."
-    }
-  ],
+  "blockingIssues": [],
   "appliedUpdates": [],
   "suggestedGuidanceUpdates": [],
-  "rejectedObservations": [
-    {
-      "observation": "Recommend again that Windows worker startup should prefer `.factory/windows-swift-env.ps1` / `.factory/services.yaml` over `bash .factory/init.sh` on this repo.",
-      "reason": "duplicate of the round 1 scrutiny recommendation already captured in `.factory/validation/text-system-and-atlas/scrutiny/synthesis.round1.json`"
-    }
-  ],
-  "previousRound": ".factory/validation/text-system-and-atlas/scrutiny/synthesis.round1.json"
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/text-system-and-atlas/scrutiny/synthesis.round2.json"
 }

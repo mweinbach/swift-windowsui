@@ -86,6 +86,38 @@ final class TextSystemTests: XCTestCase {
         XCTAssertTrue(result.1)
     }
 
+    func testFrameRenderingFallsBackToPixelCommandsWhenNativeAppendFails() async {
+        let result = await MainActor.run { () -> (Int, Int, Bool) in
+            defer { NativeTextRenderer.resetTestingOverrides() }
+            NativeTextRenderer.testingOverrides.appendCommands = { _, _, _, _, _, _ in false }
+
+            let runtime = RetainedViewRuntime(
+                root: ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 160, height: 40),
+                    text: "Fallback",
+                    textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+                )
+            )
+            let frame = runtime.renderFrame()
+            let fillRectCount = frame.commands.reduce(into: 0) { count, command in
+                if case .fillRect = command {
+                    count += 1
+                }
+            }
+            let hasBitmapCommand = frame.commands.contains { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+            return (frame.commands.count, fillRectCount, hasBitmapCommand)
+        }
+
+        XCTAssertGreaterThan(result.0, 0, "Frame fallback should still emit commands when native text append fails")
+        XCTAssertGreaterThan(result.1, 0, "Pixel fallback should emit fillRect commands for text")
+        XCTAssertFalse(result.2, "Native bitmap text commands should not appear when the native path is forced to fail")
+    }
+
     func testDirectWriteLayoutProducesGlyphPlacementsWhenAvailable() async throws {
         let capabilities = await MainActor.run {
             TextSystem.capabilities()

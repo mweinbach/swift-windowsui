@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SwiftWindowsCore
 @testable import SwiftWindowsGraphics
@@ -379,6 +380,205 @@ struct ScenePainterTests {
         #expect(scene.pixelGlyphAtlas != nil)
     }
 
+    @Test("Private-use symbols stay on the pixel atlas path in mixed-content text - VAL-TEXT-008")
+    func mixedContentPrivateUseSymbolsStayOnPixelPath() {
+        let symbol = Character(SymbolIcon.search.rawValue)
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 180, height: 40),
+            text: "A\(SymbolIcon.search.rawValue)B",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let atlas = PixelFontAtlas.shared.surface
+        let uv = PixelFontAtlas.glyph(for: symbol).uvRect(atlasWidth: atlas.width, atlasHeight: atlas.height)
+
+        #expect(scene.pixelGlyphAtlas != nil)
+        #expect(scene.layers[0].glyphs.count + scene.layers[0].pixelGlyphs.count >= 3)
+        #expect(scene.layers[0].pixelGlyphs.contains(where: {
+            $0.atlasU0 == uv.u0 && $0.atlasV0 == uv.v0 && $0.atlasU1 == uv.u1 && $0.atlasV1 == uv.v1
+        }))
+    }
+
+    @Test("Native text layout failure falls back to pixel glyphs without dropping scene text - VAL-TEXT-009")
+    func nativeTextLayoutFailureFallsBackToPixelGlyphs() {
+        defer { NativeTextRenderer.resetTestingOverrides() }
+        NativeTextRenderer.testingOverrides.layout = { _, _, _, _ in nil }
+
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 160, height: 40),
+            text: "Fallback",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].glyphs.isEmpty)
+        #expect(scene.layers[0].pixelGlyphs.count > 0)
+        #expect(scene.glyphAtlas == nil)
+        #expect(scene.pixelGlyphAtlas != nil)
+    }
+
+    @Test("Effective clipping suppresses fully off-clip text and leaves the pass atlas-silent - VAL-TEXT-010")
+    func fullyClippedTextEmitsNothingAndStaysAtlasSilent() {
+        let textNode = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 160, height: 32),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(color: .white, alignment: .trailing, verticalAlignment: .top)
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 32),
+            clipsToBounds: true,
+            children: [textNode]
+        )
+
+        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+
+        expectAtlasSilent(scene)
+    }
+
+    @Test("Visible clipped text carries the active clip metadata - VAL-TEXT-010")
+    func visibleClippedTextCarriesEffectiveClipMetadata() {
+        let textNode = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 160, height: 32),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 32),
+            clipsToBounds: true,
+            children: [textNode]
+        )
+
+        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+        let glyph = scene.layers[0].pixelGlyphs.first
+
+        #expect(glyph != nil)
+        if let glyph {
+            #expect(glyph.clipX == 0)
+            #expect(glyph.clipY == 0)
+            #expect(glyph.clipWidth == 20)
+            #expect(glyph.clipHeight == 32)
+        }
+    }
+
+    @Test("Ancestor opacity multiplies native glyph alpha exactly once - VAL-TEXT-011")
+    func ancestorOpacityMultipliesNativeGlyphAlphaExactlyOnce() {
+        defer { NativeTextRenderer.resetTestingOverrides() }
+        NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+            syntheticNativeLayout(for: text, style: style)
+        }
+        NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { _, _, _ in
+            stubNativeGlyphBitmap()
+        }
+
+        let child = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 40, height: 24),
+            text: "A",
+            textStyle: PixelTextStyle(
+                color: Color(red: 1, green: 1, blue: 1, alpha: 0.8),
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 18
+            )
+        )
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 40),
+            opacity: 0.5,
+            children: [child]
+        )
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+        let glyph = scene.layers[0].glyphs.first
+
+        #expect(scene.layers[0].pixelGlyphs.isEmpty)
+        #expect(glyph != nil)
+        if let glyph {
+            #expect(glyph.colorA == 0.4)
+        }
+    }
+
+    @Test("Ancestor opacity multiplies pixel glyph alpha exactly once - VAL-TEXT-011")
+    func ancestorOpacityMultipliesPixelGlyphAlphaExactlyOnce() {
+        let child = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 40, height: 24),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(
+                color: Color(red: 1, green: 1, blue: 1, alpha: 0.8),
+                alignment: .leading,
+                verticalAlignment: .top
+            )
+        )
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 40),
+            opacity: 0.5,
+            children: [child]
+        )
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+        let glyph = scene.layers[0].pixelGlyphs.first
+
+        #expect(glyph != nil)
+        if let glyph {
+            #expect(glyph.colorA == 0.4)
+        }
+    }
+
+    @Test("Hidden and degenerate text nodes stay atlas-silent - VAL-TEXT-013")
+    func hiddenAndDegenerateTextNodesStayAtlasSilent() {
+        let hidden = ScenePainter.paint(
+            root: ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 24),
+                text: "Hidden",
+                textStyle: PixelTextStyle(color: .white),
+                isHidden: true
+            ),
+            clearColor: .black,
+            surfaceSize: surfaceSize
+        )
+        let zeroSize = ScenePainter.paint(
+            root: ViewNode(
+                frame: Rect(x: 0, y: 0, width: 0, height: 24),
+                text: "Zero",
+                textStyle: PixelTextStyle(color: .white)
+            ),
+            clearColor: .black,
+            surfaceSize: surfaceSize
+        )
+        let zeroVisibleArea = ScenePainter.paint(
+            root: ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 20),
+                text: "Inset",
+                textStyle: PixelTextStyle(
+                    color: .white,
+                    insets: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+                )
+            ),
+            clearColor: .black,
+            surfaceSize: surfaceSize
+        )
+        let zeroEffectiveOpacity = ScenePainter.paint(
+            root: ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 24),
+                opacity: 0,
+                children: [
+                    ViewNode(
+                        frame: Rect(x: 0, y: 0, width: 80, height: 24),
+                        text: "Gone",
+                        textStyle: PixelTextStyle(color: .white)
+                    )
+                ]
+            ),
+            clearColor: .black,
+            surfaceSize: surfaceSize
+        )
+
+        expectAtlasSilent(hidden)
+        expectAtlasSilent(zeroSize)
+        expectAtlasSilent(zeroVisibleArea)
+        expectAtlasSilent(zeroEffectiveOpacity)
+    }
+
     @Test("Scrollable nodes emit indicator quads after children")
     func scrollableNodeEmitsIndicatorOverlay() {
         let child = ViewNode(
@@ -660,5 +860,55 @@ struct ScenePainterTests {
                 Color(red: quad.startR, green: quad.startG, blue: quad.startB, alpha: quad.startA)
             }
         }
+    }
+
+    private func expectAtlasSilent(_ scene: GPUIScene) {
+        #expect(scene.layers.allSatisfy { $0.glyphs.isEmpty && $0.pixelGlyphs.isEmpty })
+        #expect(scene.glyphAtlas == nil)
+        #expect(scene.pixelGlyphAtlas == nil)
+    }
+
+    private func syntheticNativeLayout(for text: String, style: PixelTextStyle) -> NativeTextLayoutResult {
+        let characters = Array(text)
+        let glyphs = characters.enumerated().map { index, character in
+            NativeTextGlyphLayout(
+                character: character,
+                origin: Point(x: Double(index) * 9, y: 0),
+                advance: 9,
+                glyphID: UInt32(index + 1),
+                fontFamily: style.fontFamily,
+                weight: style.weight,
+                fontSize: style.nativeFontPixelSize,
+                sourceIndex: index
+            )
+        }
+        let width = Double(max(characters.count, 1)) * 9
+        let height = max(style.nativeFontPixelSize, 1)
+        return NativeTextLayoutResult(
+            lines: [
+                NativeTextLineLayout(
+                    text: text,
+                    width: width,
+                    height: height,
+                    glyphs: glyphs
+                )
+            ],
+            contentSize: Size(width: width, height: height),
+            measuredSize: Size(width: width, height: height)
+        )
+    }
+
+    private func stubNativeGlyphBitmap() -> NativeGlyphBitmap {
+        NativeGlyphBitmap(
+            surface: BitmapSurface(
+                width: 1,
+                height: 1,
+                bytesPerRow: 4,
+                pixels: Data([255, 255, 255, 255])
+            ),
+            bearingX: 0,
+            bearingY: 0,
+            advance: 1
+        )
     }
 }

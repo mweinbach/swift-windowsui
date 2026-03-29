@@ -546,6 +546,11 @@ public enum ScenePainter {
             return
         }
 
+        let contentRect = rect.inset(by: style.insets)
+        guard contentRect.size.width > 0, contentRect.size.height > 0 else {
+            return
+        }
+
         if appendNativeTextGlyphs(
             for: text,
             style: style,
@@ -560,7 +565,6 @@ public enum ScenePainter {
             return
         }
 
-        let contentRect = rect.inset(by: style.insets)
         let scale = max(style.scale, 1)
         let layout = resolveTextLayout(
             for: text,
@@ -584,6 +588,7 @@ public enum ScenePainter {
         }
 
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
+        let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
         let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale * displayScale
         let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale * displayScale
         let horizontalAdvance = (Double(PixelFontAtlas.glyphWidth) + style.letterSpacing) * scale * displayScale
@@ -609,6 +614,16 @@ public enum ScenePainter {
                 }
 
                 guard character != " " else {
+                    continue
+                }
+
+                let glyphRect = Rect(
+                    x: cursorX,
+                    y: cursorY,
+                    width: glyphWidth,
+                    height: glyphHeight
+                )
+                if let scaledVisibleClip, scaledVisibleClip.intersected(with: glyphRect) == nil {
                     continue
                 }
 
@@ -657,6 +672,9 @@ public enum ScenePainter {
         }
 
         let contentRect = rect.inset(by: style.insets)
+        guard contentRect.size.width > 0, contentRect.size.height > 0 else {
+            return false
+        }
         guard let layout = textSystem.layout(text, style: style, maxWidth: contentRect.size.width, scaleFactor: displayScale) else {
             return false
         }

@@ -6,7 +6,7 @@ final class WindowTextSystem {
     private struct LayoutKey: Hashable {
         var text: String
         var fontFamily: String
-        var nativeFontSize: Double?
+        var resolvedNativeFontSize: Double
         var weight: TextWeight
         var letterSpacing: Double
         var lineSpacing: Double
@@ -25,7 +25,7 @@ final class WindowTextSystem {
         init(text: String, style: PixelTextStyle, maxWidth: Double?) {
             self.text = text
             self.fontFamily = style.fontFamily
-            self.nativeFontSize = style.nativeFontSize
+            self.resolvedNativeFontSize = style.nativeFontPixelSize
             self.weight = style.weight
             self.letterSpacing = style.letterSpacing
             self.lineSpacing = style.lineSpacing
@@ -67,7 +67,7 @@ final class WindowTextSystem {
 
         private static func combineLayoutStyle(_ style: PixelTextStyle, into hasher: inout Hasher) {
             hasher.combine(style.fontFamily)
-            hasher.combine(style.nativeFontSize)
+            hasher.combine(style.nativeFontPixelSize)
             hasher.combine(style.weight)
             hasher.combine(style.letterSpacing)
             hasher.combine(style.lineSpacing)

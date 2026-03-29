@@ -38,6 +38,7 @@ public enum ScenePainter {
         let fullClip = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
         let originalDeferredDraws = deferredDraws
+        var bypassReplayAfterAtlasRecovery = false
 
         for attempt in 0..<2 {
             var scene = GPUIScene(clearColor: clearColor)
@@ -46,6 +47,7 @@ public enum ScenePainter {
             var attemptDeferredReplayCount = 0
             var usedNativeGlyphs = false
             var usedPixelGlyphs = false
+            let replaySource = bypassReplayAfterAtlasRecovery ? nil : previousScene
 
             NativeGlyphAtlas.shared.beginFrame()
             paintNode(
@@ -58,7 +60,7 @@ public enum ScenePainter {
                 surfaceSize: deviceSurfaceSize,
                 displayScale: max(displayScale, 1.0),
                 textSystem: textSystem,
-                previousScene: previousScene,
+                previousScene: replaySource,
                 usedNativeGlyphs: &usedNativeGlyphs,
                 usedPixelGlyphs: &usedPixelGlyphs,
                 replayCount: &attemptReplayCount
@@ -66,7 +68,7 @@ public enum ScenePainter {
             appendDeferredDraws(
                 &attemptDeferredDraws,
                 into: &scene,
-                previousScene: previousScene,
+                previousScene: replaySource,
                 surfaceSize: deviceSurfaceSize,
                 displayScale: max(displayScale, 1.0),
                 textSystem: textSystem,
@@ -78,6 +80,10 @@ public enum ScenePainter {
             if usedNativeGlyphs,
                NativeGlyphAtlas.shared.consumeRecoveryRequest(),
                attempt == 0 {
+                // Atlas recovery invalidates every native glyph UV captured earlier in the pass,
+                // including replayed text ranges. Rebuild once without replay so text rerasterizes
+                // against the recovered atlas before we return the scene.
+                bypassReplayAfterAtlasRecovery = true
                 continue
             }
 

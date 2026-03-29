@@ -243,6 +243,60 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testAtlasRecoveryBypassesCachedTextSceneReplayAndRerasterizesGlyphUVs() async {
+        await MainActor.run {
+            defer {
+                NativeTextRenderer.resetTestingOverrides()
+                NativeGlyphAtlas.shared.resetForTesting()
+            }
+
+            NativeGlyphAtlas.shared.resetForTesting()
+            NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+                Self.syntheticNativeLayout(for: text, style: style)
+            }
+            NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { glyph, _, _ in
+                Self.stubNativeGlyphBitmap(fill: UInt8(glyph.character.unicodeScalars.first?.value ?? 255))
+            }
+
+            let unchangedNode = ViewNode(
+                frame: Rect(x: 60, y: 0, width: 40, height: 32),
+                text: "A",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+            )
+            let mutableNode = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 32),
+                text: "X",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 160, height: 40),
+                children: [unchangedNode, mutableNode]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let initialScene = runtime.renderScene()
+            let initialUnchangedGlyph = Self.findGlyph(in: initialScene, screenX: 60)
+
+            XCTAssertEqual(initialUnchangedGlyph?.atlasU0, 0)
+            XCTAssertEqual(initialUnchangedGlyph?.atlasU1, 0.5)
+
+            mutableNode.text = "B"
+            root.removeChild(unchangedNode)
+            root.addChild(unchangedNode)
+
+            let rebuiltScene = runtime.renderScene()
+            let rebuiltMutableGlyph = Self.findGlyph(in: rebuiltScene, screenX: 0)
+            let rebuiltUnchangedGlyph = Self.findGlyph(in: rebuiltScene, screenX: 60)
+
+            XCTAssertEqual(runtime.lastSceneReplayCount, 0, "Atlas recovery should invalidate cached scene replay for text-bearing ranges")
+            XCTAssertNotNil(rebuiltScene.glyphAtlas, "Recovered scene should reattach the rebuilt native glyph atlas")
+            XCTAssertEqual(rebuiltMutableGlyph?.atlasU0, 0)
+            XCTAssertEqual(rebuiltMutableGlyph?.atlasU1, 0.5)
+            XCTAssertEqual(rebuiltUnchangedGlyph?.atlasU0, 0.5, "Unchanged text should be rerasterized into the rebuilt atlas instead of replaying stale UVs")
+            XCTAssertEqual(rebuiltUnchangedGlyph?.atlasU1, 1.0)
+        }
+    }
+
     func testRenderSceneScalesPrimitivesIntoDevicePixels() async {
         await MainActor.run {
             let child = ViewNode(
@@ -265,6 +319,56 @@ final class IntegrationTests: XCTestCase {
             XCTAssertEqual(scene.layers[0].quads[0].clipWidth, 120)
             XCTAssertEqual(scene.layers[0].quads[0].clipHeight, 96)
         }
+    }
+
+    private static func findGlyph(in scene: GPUIScene, screenX: Float) -> GlyphPrimitive? {
+        flattenedGlyphs(in: scene).native.first { $0.screenX == screenX }
+    }
+
+    private static func syntheticNativeLayout(for text: String, style: PixelTextStyle) -> NativeTextLayoutResult {
+        let characters = Array(text)
+        let glyphs = characters.enumerated().map { index, character in
+            NativeTextGlyphLayout(
+                character: character,
+                origin: Point(x: Double(index) * 9, y: 0),
+                advance: 9,
+                glyphID: UInt32(character.unicodeScalars.first?.value ?? UInt32(index + 1)),
+                fontFamily: style.fontFamily,
+                weight: style.weight,
+                fontSize: style.nativeFontPixelSize,
+                sourceIndex: index
+            )
+        }
+        let width = Double(max(characters.count, 1)) * 9
+        let height = max(style.nativeFontPixelSize, 1)
+        return NativeTextLayoutResult(
+            lines: [
+                NativeTextLineLayout(
+                    text: text,
+                    width: width,
+                    height: height,
+                    glyphs: glyphs
+                )
+            ],
+            contentSize: Size(width: width, height: height),
+            measuredSize: Size(width: width, height: height)
+        )
+    }
+
+    private static func stubNativeGlyphBitmap(fill: UInt8) -> NativeGlyphBitmap {
+        let width = 1024
+        let height = 2048
+        return NativeGlyphBitmap(
+            surface: BitmapSurface(
+                width: Int32(width),
+                height: Int32(height),
+                bytesPerRow: Int32(width * 4),
+                pixels: Data(repeating: fill, count: width * height * 4)
+            ),
+            bearingX: 0,
+            bearingY: 0,
+            advance: 1
+        )
     }
 
     // MARK: - GPUIScene Layer Management Tests

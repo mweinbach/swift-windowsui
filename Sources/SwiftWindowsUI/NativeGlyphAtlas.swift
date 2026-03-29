@@ -49,6 +49,14 @@ final class NativeGlyphAtlas {
         return didRecover
     }
 
+    /// Test-only helper for forcing the shared atlas back to a clean empty state.
+    func resetForTesting() {
+        cache.clear()
+        atlas.markClean()
+        usedInCurrentFrame = false
+        didRecoverFromExhaustionInCurrentFrame = false
+    }
+
     func glyph(for character: Character, style: PixelTextStyle, scaleFactor: Double) -> GlyphEntry? {
         let key = GlyphKey(
             character: character,

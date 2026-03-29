@@ -441,6 +441,37 @@ struct ScenePainterTests {
         expectAtlasSilent(scene)
     }
 
+    @Test("Fully clipped native text does not dirty or attach the native atlas - VAL-TEXT-010")
+    func fullyClippedNativeTextStaysAtlasSilent() {
+        defer {
+            NativeTextRenderer.resetTestingOverrides()
+            NativeGlyphAtlas.shared.resetForTesting()
+        }
+        NativeGlyphAtlas.shared.resetForTesting()
+        NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+            syntheticNativeLayout(for: text, style: style)
+        }
+        NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { _, _, _ in
+            stubNativeGlyphBitmap()
+        }
+
+        let textNode = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 160, height: 32),
+            text: "CLIPPED",
+            textStyle: PixelTextStyle(color: .white, alignment: .trailing, verticalAlignment: .top, nativeFontSize: 18)
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 32),
+            clipsToBounds: true,
+            children: [textNode]
+        )
+
+        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+
+        expectAtlasSilent(scene)
+        #expect(NativeGlyphAtlas.shared.wasUsedInCurrentFrame == false)
+    }
+
     @Test("Visible clipped text carries the active clip metadata - VAL-TEXT-010")
     func visibleClippedTextCarriesEffectiveClipMetadata() {
         let textNode = ViewNode(

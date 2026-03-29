@@ -712,6 +712,20 @@ public enum ScenePainter {
             }
 
             for glyph in line.glyphs where glyph.character != " " {
+                let glyphLayoutOrigin = Point(
+                    x: (startX + glyph.origin.x) * displayScale,
+                    y: (lineOriginY + glyph.origin.y) * displayScale
+                )
+                if let scaledVisibleClip,
+                   let preflightRect = nativeGlyphPreflightRect(
+                    for: glyph,
+                    origin: glyphLayoutOrigin,
+                    scaleFactor: displayScale
+                   ),
+                   scaledVisibleClip.intersected(with: preflightRect) == nil {
+                    continue
+                }
+
                 guard let entry = NativeGlyphAtlas.shared.glyph(for: glyph, style: style, scaleFactor: displayScale) else {
                     continue
                 }
@@ -720,8 +734,8 @@ public enum ScenePainter {
                 }
 
                 let destinationOrigin = Point(
-                    x: (startX + glyph.origin.x) * displayScale + Double(entry.bearingX),
-                    y: (lineOriginY + glyph.origin.y) * displayScale + Double(entry.bearingY)
+                    x: glyphLayoutOrigin.x + Double(entry.bearingX),
+                    y: glyphLayoutOrigin.y + Double(entry.bearingY)
                 )
                 guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
                     continue
@@ -764,6 +778,23 @@ public enum ScenePainter {
 
         glyphs.append(contentsOf: appendedGlyphs)
         return !appendedGlyphs.isEmpty
+    }
+
+    private static func nativeGlyphPreflightRect(
+        for glyph: NativeTextGlyphLayout,
+        origin: Point,
+        scaleFactor: Double
+    ) -> Rect? {
+        guard let metrics = makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: scaleFactor) else {
+            return nil
+        }
+
+        return Rect(
+            x: origin.x - Double(metrics.paddingPixels),
+            y: origin.y - Double(metrics.paddingPixels) - metrics.baselineYOffset * metrics.renderScale,
+            width: Double(metrics.targetWidth),
+            height: Double(metrics.targetHeight)
+        )
     }
 
     private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {

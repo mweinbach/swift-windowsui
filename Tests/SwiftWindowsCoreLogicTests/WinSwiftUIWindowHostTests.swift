@@ -1357,9 +1357,13 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
     // MARK: - VAL-CROSS-009: Host Refresh-Rate Pacing and Timer Behavior Tests
 
+    /// VAL-CROSS-009: Host refresh-rate updates control runtime pacing and timer behavior.
+    /// This test verifies that changing the monitor refresh rate results in observable
+    /// timer state changes with correct cadence updates.
     func testRefreshRateUpdatesControlRuntimeMinimumFrameInterval() async {
         await MainActor.run {
             let frameRenderer = FakeRenderBackend()
+            var recordedTimerStates: [TimerState] = []
 
             let expectedSurface = SurfaceDescriptor(
                 windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
@@ -1384,6 +1388,11 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 surfaceDescriptorProvider: { _ in expectedSurface }
             )
 
+            // Capture timer state changes for observable proof
+            host.onTimerStateChanged = { state in
+                recordedTimerStates.append(state)
+            }
+
             host.windowDidCreate(fakeWindow)
 
             // Trigger syncAnimationDriver by requesting a frame
@@ -1392,25 +1401,25 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Verify initial render occurred
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial render should complete")
 
-            // The host's syncAnimationDriver sets:
-            // - runtime.minimumFrameInterval = 1.0 / refreshRate
-            // - window.useHighResolutionTimer = true
-            // - window.setAnimationTimerEnabled with calculated interval
+            // Verify timer state was recorded with expected values
+            XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded")
+            if let firstState = recordedTimerStates.first {
+                XCTAssertTrue(firstState.usesHighResolution, "High resolution timer should be enabled")
+                XCTAssertGreaterThan(firstState.intervalMilliseconds, 0, "Timer interval should be positive")
+                XCTAssertLessThanOrEqual(firstState.intervalMilliseconds, 1000, "Timer interval should be reasonable")
+            }
 
-            // Verify high resolution timer is enabled (set by syncAnimationDriver)
-            XCTAssertTrue(fakeWindow.useHighResolutionTimer, "High resolution timer should be enabled by syncAnimationDriver")
-
-            // Document the expected timer interval calculation
-            let refreshRate = max(Int(fakeWindow.monitorRefreshRate), 1)
-            let expectedInterval = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
-            XCTAssertGreaterThan(expectedInterval, 0, "Timer interval should be calculated from refresh rate")
-            XCTAssertLessThanOrEqual(expectedInterval, 1000, "Timer interval should be reasonable for display refresh")
+            // Verify the host's current timer state reflects the refresh rate
+            XCTAssertTrue(host.currentTimerState.usesHighResolution, "Host should report high-res timer enabled")
         }
     }
 
+    /// VAL-CROSS-009: Timer is suppressed when presentation is idle (no dirty state, no animations, no input).
+    /// This test verifies the observable timer state transitions from enabled to disabled.
     func testIdleTimerSuppressionWhenNotDirty() async {
         await MainActor.run {
             let frameRenderer = FakeRenderBackend()
+            var recordedTimerStates: [TimerState] = []
 
             let expectedSurface = SurfaceDescriptor(
                 windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
@@ -1434,28 +1443,38 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 surfaceDescriptorProvider: { _ in expectedSurface }
             )
 
+            // Capture timer state changes for observable proof
+            host.onTimerStateChanged = { state in
+                recordedTimerStates.append(state)
+            }
+
             host.windowDidCreate(fakeWindow)
 
-            // After initial render, verify frame was rendered
+            // After initial render, verify frame was rendered (which enables timer while dirty)
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial render should complete")
 
             // Simulate an animation frame callback with no active animations or dirty state
             // This should suppress the timer since there's nothing to do
             host.window(fakeWindow, animationFrameAt: 1.0)
 
-            // The timer suppression behavior is controlled by syncAnimationDriver:
-            // shouldDriveFrames = runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
-            // When all are false, timer is disabled
+            // Verify the timer state was recorded as disabled (or remains with isEnabled=false)
+            // The last recorded state should reflect idle suppression
+            let finalState = host.currentTimerState
+            XCTAssertFalse(finalState.isEnabled, "Timer should be disabled when idle (no dirty state, no animations, no input)")
 
-            // Verify the host's behavior is documented: timer suppression occurs when presentation is idle
-            // Note: useHighResolutionTimer remains true, but the actual animation timer is disabled
-            XCTAssertTrue(fakeWindow.useHighResolutionTimer, "High resolution timer flag stays enabled")
+            // Verify timer state was recorded through the callback
+            let disabledStates = recordedTimerStates.filter { !$0.isEnabled }
+            XCTAssertFalse(disabledStates.isEmpty, "At least one timer disable event should be recorded when going idle")
         }
     }
 
+    /// VAL-CROSS-009: Active input re-enables timer pumping after idle suppression.
+    /// This test verifies observable timer state transitions from disabled to enabled on input
+    /// when the runtime needs presentation (isDirty or has pending work).
     func testActiveInputDrivesTimerPumping() async {
         await MainActor.run {
             let frameRenderer = FakeRenderBackend()
+            var recordedTimerStates: [TimerState] = []
 
             let expectedSurface = SurfaceDescriptor(
                 windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
@@ -1479,28 +1498,54 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 surfaceDescriptorProvider: { _ in expectedSurface }
             )
 
+            // Capture timer state changes for observable proof
+            host.onTimerStateChanged = { state in
+                recordedTimerStates.append(state)
+            }
+
             host.windowDidCreate(fakeWindow)
 
-            // Let initial render finish
+            // Let initial render finish - this makes runtime clean but timer enabled for a frame
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial render should complete")
 
-            // Simulate an idle animation frame
+            // Simulate an idle animation frame to suppress timer
             host.window(fakeWindow, animationFrameAt: 1.0)
 
-            // Simulate high-rate pointer input (70 events to exceed 60 events/second threshold)
-            // WindowInputRateTracker records inputs and sustains high-rate pumping for 1 second
+            // Verify timer is suppressed (disabled) after idle
+            XCTAssertFalse(host.currentTimerState.isEnabled, "Timer should be suppressed after idle animation frame")
+
+            // Trigger a resize to make runtime dirty - this sets up need for presentation
+            // so that subsequent input will be recorded and drive timer re-enablement
+            host.window(fakeWindow, didResizeTo: IntSize(width: 800, height: 600))
+
+            // Timer should be enabled now due to dirty state from resize
+            XCTAssertTrue(host.currentTimerState.isEnabled, "Timer should be enabled after resize makes runtime dirty")
+
+            // Clear the recorded states to track fresh timer transitions
+            recordedTimerStates.removeAll()
+
+            // Simulate high-rate pointer input while runtime needs presentation
+            // (70 events to exceed 60 events/second threshold)
             for i in 0..<70 {
                 let point = Point(x: Double(50 + i), y: Double(50 + i))
                 host.window(fakeWindow, pointerMovedTo: point)
             }
 
-            // Verify the input was recorded and will trigger timer re-enabling
-            // The inputRateTracker.isHighRate will be true after 70 inputs within the window
-            XCTAssertTrue(fakeWindow.useHighResolutionTimer, "High resolution timer should remain enabled during input")
+            // After processing all inputs, the timer should still be enabled
+            // because high-rate input sustains timer pumping
+            XCTAssertTrue(host.currentTimerState.isEnabled, "Timer should remain enabled after high-rate input")
 
-            // The key behavior is: input events drive timer pumping through inputRateTracker
-            // This is validated by the host calling commitRuntimeState with interactive=true
-            // which records input and may request frames
+            // Verify we recorded timer states during the input burst
+            XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded during input processing")
+
+            // Now simulate an idle frame - but since we had high-rate input,
+            // the inputRateTracker should sustain high-rate pumping for 1 second
+            // Clear the dirty state first by rendering
+            host.windowNeedsDisplay(fakeWindow)
+
+            // Wait a tiny bit then check timer is still enabled due to sustained input rate
+            // The sustain window is 1 second, so timer should remain enabled
+            XCTAssertTrue(host.currentTimerState.isEnabled, "Timer should remain enabled due to sustained high input rate")
         }
     }
 

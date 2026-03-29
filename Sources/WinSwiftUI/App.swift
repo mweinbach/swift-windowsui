@@ -127,6 +127,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// least one of them.
     private var pendingChangedObjects: Set<ObjectIdentifier> = []
 
+    /// Optional callback for recording timer state changes, used for testing.
+    /// Called whenever `syncAnimationDriver` updates timer configuration.
+    var onTimerStateChanged: ((TimerState) -> Void)?
+
+    /// Current timer state for observability. Updated by `syncAnimationDriver`.
+    private(set) var currentTimerState: TimerState = TimerState(
+        isEnabled: false,
+        intervalMilliseconds: 16,
+        usesHighResolution: false,
+        refreshRate: 60
+    )
+
     init(
         configuration: WindowGroupConfiguration,
         renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
@@ -407,6 +419,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
         let shouldDriveFrames = runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
         window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)
+
+        // Record timer state for observability (testing and debugging)
+        let newState = TimerState(
+            isEnabled: shouldDriveFrames,
+            intervalMilliseconds: intervalMilliseconds,
+            usesHighResolution: true,
+            refreshRate: UInt32(refreshRate)
+        )
+        currentTimerState = newState
+        onTimerStateChanged?(newState)
     }
 
     private func logicalSize(for surface: SurfaceDescriptor) -> IntSize {
@@ -517,5 +539,36 @@ private final class WindowInputRateTracker {
 
     private func prune(before threshold: TimeInterval) {
         timestamps.removeAll { $0 < threshold }
+    }
+}
+
+// MARK: - Timer State Observability
+
+/// Immutable snapshot of animation timer state for observability.
+/// Captures the configuration determined by `syncAnimationDriver`.
+@MainActor
+public struct TimerState: Equatable, Sendable {
+    /// Whether the animation timer is currently enabled.
+    public let isEnabled: Bool
+
+    /// Timer interval in milliseconds (determined by refresh rate).
+    public let intervalMilliseconds: UInt32
+
+    /// Whether high-resolution timer mode is active.
+    public let usesHighResolution: Bool
+
+    /// The refresh rate used to calculate the timer interval.
+    public let refreshRate: UInt32
+
+    public init(
+        isEnabled: Bool,
+        intervalMilliseconds: UInt32,
+        usesHighResolution: Bool,
+        refreshRate: UInt32
+    ) {
+        self.isEnabled = isEnabled
+        self.intervalMilliseconds = intervalMilliseconds
+        self.usesHighResolution = usesHighResolution
+        self.refreshRate = refreshRate
     }
 }

@@ -167,7 +167,7 @@ public enum ScenePainter {
             node.cachedSceneKey == cacheKey,
             let cachedScenePaintRange = node.cachedScenePaintRange
         {
-            scene.replay(cachedScenePaintRange, from: previousScene)
+            _ = scene.replay(cachedScenePaintRange, from: previousScene)
             let delta = startPaintRecord - cachedScenePaintRange.lowerBound
             node.shiftCachedSceneRangesRecursively(by: delta)
             node.cachedSceneKey = cacheKey
@@ -417,7 +417,7 @@ public enum ScenePainter {
         }) {
             let startPaintRecord = scene.paintRecordCount
             if let previousScene, let cachedScenePaintRange = deferredDraws[deferredDrawIndex].cachedScenePaintRange {
-                scene.replay(cachedScenePaintRange, from: previousScene)
+                _ = scene.replay(cachedScenePaintRange, from: previousScene)
                 deferredDraws[deferredDrawIndex].cachedScenePaintRange = startPaintRecord..<scene.paintRecordCount
                 replayCount += 1
                 continue

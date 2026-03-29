@@ -741,6 +741,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Create host with standard window
             let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            fakeWindow.testMonitorRefreshRateOverride = 60
 
             let host = WinSwiftUIWindowHost(
                 configuration: config,
@@ -761,17 +762,31 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Verify initial render occurred
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial render should complete")
+            XCTAssertEqual(host.currentTimerState.refreshRate, 60, "Initial timer cadence should use the initial monitor refresh rate")
+            XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 60))
+            XCTAssertNotNil(host.currentRuntimeMinimumFrameInterval)
+            XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 60.0, accuracy: 0.000_001)
 
             // Verify timer state was recorded with expected values
             XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded")
             if let firstState = recordedTimerStates.first {
                 XCTAssertTrue(firstState.usesHighResolution, "High resolution timer should be enabled")
+                XCTAssertEqual(firstState.refreshRate, 60, "Initial timer state should record the initial monitor refresh rate")
+                XCTAssertEqual(firstState.intervalMilliseconds, expectedTimerInterval(for: 60))
                 XCTAssertGreaterThan(firstState.intervalMilliseconds, 0, "Timer interval should be positive")
                 XCTAssertLessThanOrEqual(firstState.intervalMilliseconds, 1000, "Timer interval should be reasonable")
             }
 
-            // Verify the host's current timer state reflects the refresh rate
+            fakeWindow.testMonitorRefreshRateOverride = 144
+            host.windowDidChangeDisplay(fakeWindow)
+
             XCTAssertTrue(host.currentTimerState.usesHighResolution, "Host should report high-res timer enabled")
+            XCTAssertEqual(host.currentTimerState.refreshRate, 144, "Display-change handling should resample the window monitor refresh rate")
+            XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 144))
+            XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 144.0, accuracy: 0.000_001)
+            XCTAssertTrue(recordedTimerStates.contains(where: { $0.refreshRate == 60 }))
+            XCTAssertTrue(recordedTimerStates.contains(where: { $0.refreshRate == 144 }),
+                "Timer observability should record the updated monitor refresh rate after the real host display-change seam runs")
         }
     }
 

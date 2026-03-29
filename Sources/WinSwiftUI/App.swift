@@ -413,6 +413,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         runtime.displayScale
     }
 
+    /// Current runtime pacing interval exposed for host-focused tests.
+    var currentRuntimeMinimumFrameInterval: Double? {
+        runtime.minimumFrameInterval
+    }
+
     /// Current presenter selection exposed for host-focused tests.
     var isUsingBatchPresentationBackend: Bool {
         activeBackend == .batch

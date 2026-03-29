@@ -126,6 +126,11 @@ public final class Win32Window {
     private var animationTimerIntervalMilliseconds: UINT = 0
     private var animationTimerUsesHighResolution = false
     internal var testScaleFactorOverride: Double?
+    internal var testMonitorRefreshRateOverride: UINT? {
+        didSet {
+            refreshRateDirty = true
+        }
+    }
 
     public init(title: String, clientSize: IntSize) {
         self.title = title
@@ -309,6 +314,10 @@ public final class Win32Window {
     // MARK: - Monitor refresh rate
 
     private func queryMonitorRefreshRate() -> UINT {
+        if let testMonitorRefreshRateOverride {
+            return testMonitorRefreshRateOverride
+        }
+
         guard let hwnd else {
             return 60
         }

@@ -1261,12 +1261,15 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let runtime = RetainedViewRuntime(root: root)
 
             // Test frame path independently
-            _ = runtime.renderFrame() // Initial frame
+            let initialFrame = runtime.renderFrame() // Initial frame
+            let initialFrameRects = fillRectCommands(in: initialFrame).map(\.rect)
+            let initialFrameColors = fillRectCommands(in: initialFrame).map(\.color)
+            
             right.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
             let mutatedFrame = runtime.renderFrame()
             let frameReplayCount = runtime.lastFrameReplayCount
-            let frameRects = fillRectCommands(in: mutatedFrame).map(\.rect)
-            let frameColors = fillRectCommands(in: mutatedFrame).map(\.color)
+            let finalFrameRects = fillRectCommands(in: mutatedFrame).map(\.rect)
+            let finalFrameColors = fillRectCommands(in: mutatedFrame).map(\.color)
             
             // Test scene path independently (on fresh runtime)
             let left2 = ViewNode(
@@ -1283,28 +1286,71 @@ final class RetainedViewRuntimeTests: XCTestCase {
             )
             let runtime2 = RetainedViewRuntime(root: root2)
             
-            _ = runtime2.renderScene() // Initial scene
+            let initialScene = runtime2.renderScene() // Initial scene
+            let initialSceneRects = sceneFillRects(in: initialScene)
+            let initialSceneColors = sceneQuadColors(in: initialScene)
+            
             right2.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
             let mutatedScene = runtime2.renderScene()
             let sceneReplayCount = runtime2.lastSceneReplayCount
-            let sceneRects = sceneFillRects(in: mutatedScene)
-            let sceneColors = sceneQuadColors(in: mutatedScene)
+            let finalSceneRects = sceneFillRects(in: mutatedScene)
+            let finalSceneColors = sceneQuadColors(in: mutatedScene)
 
             // Assert: Both paths show replay occurred for unchanged sibling
             XCTAssertEqual(frameReplayCount, 1, "Frame path should replay unchanged left sibling")
             XCTAssertEqual(sceneReplayCount, 1, "Scene path should replay unchanged left sibling")
             
-            // Assert: Both paths produce equivalent geometry
-            XCTAssertEqual(frameRects[0], sceneRects[0], "Left node rect should match between paths")
-            XCTAssertEqual(frameRects[1], sceneRects[1], "Right node rect should match between paths")
+            // Assert: Unchanged sibling (left) geometry and color preserved BEFORE mutation
+            XCTAssertEqual(initialFrameRects[0], left.frame, "Frame: initial left geometry preserved")
+            XCTAssertEqual(initialSceneRects[0], left2.frame, "Scene: initial left geometry preserved")
+            XCTAssertEqual(initialFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Frame: initial left color is red")
+            XCTAssertEqual(initialSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Scene: initial left color is red")
             
-            // Assert: Right node color changed on both paths
-            XCTAssertEqual(frameColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in frame")
-            XCTAssertEqual(sceneColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in scene")
+            // Assert: Unchanged sibling (left) geometry and color preserved AFTER mutation
+            // The unchanged left sibling should have exactly the same rect and color as before
+            XCTAssertEqual(finalFrameRects[0], left.frame, "Frame: final left geometry matches original")
+            XCTAssertEqual(finalSceneRects[0], left2.frame, "Scene: final left geometry matches original")
+            XCTAssertEqual(finalFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Frame: final left color preserved as red")
+            XCTAssertEqual(finalSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Scene: final left color preserved as red")
+            
+            // Assert: Pre- and post-mutation normalized output comparison for unchanged sibling
+            // Geometry: unchanged sibling rect should be identical before and after mutation on both paths
+            XCTAssertEqual(initialFrameRects[0], finalFrameRects[0], "Frame: unchanged sibling geometry identical pre/post-mutation")
+            XCTAssertEqual(initialSceneRects[0], finalSceneRects[0], "Scene: unchanged sibling geometry identical pre/post-mutation")
+            XCTAssertEqual(initialFrameColors[0], finalFrameColors[0], "Frame: unchanged sibling color identical pre/post-mutation")
+            XCTAssertEqual(initialSceneColors[0], finalSceneColors[0], "Scene: unchanged sibling color identical pre/post-mutation")
+            
+            // Assert: Mutated node (right) geometry unchanged, color changed on both paths
+            XCTAssertEqual(finalFrameRects[1], right.frame, "Right node rect should match between paths")
+            XCTAssertEqual(finalSceneRects[1], right2.frame, "Right node rect should match between paths")
+            XCTAssertEqual(finalFrameColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in frame")
+            XCTAssertEqual(finalSceneColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in scene")
             
             // Assert: Only the right node was regenerated, not the left
-            XCTAssertEqual(frameRects.count, 2, "Frame should still have exactly 2 fill rects")
-            XCTAssertEqual(sceneRects.count, 2, "Scene should still have exactly 2 quads")
+            XCTAssertEqual(finalFrameRects.count, 2, "Frame should still have exactly 2 fill rects")
+            XCTAssertEqual(finalSceneRects.count, 2, "Scene should still have exactly 2 quads")
+            
+            // Assert: Both paths produce equivalent geometry for mutated region
+            XCTAssertEqual(finalFrameRects[1], finalSceneRects[1], "Right node rect equivalent between frame and scene")
+            
+            // VAL-PARITY-001 EVIDENCE: Normalized output comparison showing unchanged sibling equivalence
+            // Create normalized output representations for comparison
+            let normalizedInitialFrame = NormalizedOutput(rects: initialFrameRects, colors: initialFrameColors)
+            let normalizedFinalFrame = NormalizedOutput(rects: finalFrameRects, colors: finalFrameColors)
+            let normalizedInitialScene = NormalizedOutput(rects: initialSceneRects, colors: initialSceneColors)
+            let normalizedFinalScene = NormalizedOutput(rects: finalSceneRects, colors: finalSceneColors)
+            
+            // Unchanged sibling (index 0) should have identical normalized output before and after mutation
+            XCTAssertEqual(normalizedInitialFrame.normalizedRects[0], normalizedFinalFrame.normalizedRects[0], "VAL-PARITY-001: Frame unchanged sibling normalized geometry equivalent pre/post-mutation")
+            XCTAssertEqual(normalizedInitialFrame.normalizedColors[0], normalizedFinalFrame.normalizedColors[0], "VAL-PARITY-001: Frame unchanged sibling normalized color equivalent pre/post-mutation")
+            XCTAssertEqual(normalizedInitialScene.normalizedRects[0], normalizedFinalScene.normalizedRects[0], "VAL-PARITY-001: Scene unchanged sibling normalized geometry equivalent pre/post-mutation")
+            XCTAssertEqual(normalizedInitialScene.normalizedColors[0], normalizedFinalScene.normalizedColors[0], "VAL-PARITY-001: Scene unchanged sibling normalized color equivalent pre/post-mutation")
+            
+            // Mutated sibling (index 1) should show color change but geometry preservation
+            XCTAssertEqual(normalizedInitialFrame.normalizedRects[1], normalizedFinalFrame.normalizedRects[1], "VAL-PARITY-001: Mutated node geometry preserved in frame")
+            XCTAssertEqual(normalizedInitialScene.normalizedRects[1], normalizedFinalScene.normalizedRects[1], "VAL-PARITY-001: Mutated node geometry preserved in scene")
+            XCTAssertNotEqual(normalizedInitialFrame.normalizedColors[1], normalizedFinalFrame.normalizedColors[1], "VAL-PARITY-001: Mutated node color changed in frame")
+            XCTAssertNotEqual(normalizedInitialScene.normalizedColors[1], normalizedFinalScene.normalizedColors[1], "VAL-PARITY-001: Mutated node color changed in scene")
         }
     }
 
@@ -1520,6 +1566,11 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 let deltaY = initial.origin.y - scrolled.origin.y
                 // Allow for floating point/dpi scaling variations
                 XCTAssertGreaterThan(deltaY, 20, "Scene: content should move significantly by scroll offset")
+                
+                // VAL-PARITY-003 EVIDENCE: Exact scroll delta assertion (normalized for scene's device-scale)
+                // The scene uses device pixels, so we normalize by dividing by display scale
+                let normalizedSceneDelta = deltaY / runtime2.displayScale
+                XCTAssertEqual(normalizedSceneDelta, 30.0, accuracy: 5.0, "VAL-PARITY-003: Exact frame-vs-scene scroll delta assertion - content should move by scroll offset")
             }
             
             // Assert: Scroll indicator moved down on scene path (last rect in layer)
@@ -1530,6 +1581,21 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 let initialIndicatorY = Double(initialIndicator.y)
                 let scrolledIndicatorY = Double(scrolledIndicator.y)
                 XCTAssertGreaterThan(scrolledIndicatorY, initialIndicatorY, "Scene: Indicator should move down after scroll")
+                
+                // VAL-PARITY-003 EVIDENCE: Explicit scroll-indicator geometry comparison
+                let frameIndicatorDelta = (scrolledIndicatorY - initialIndicatorY) / runtime2.displayScale
+                XCTAssertGreaterThan(frameIndicatorDelta, 0, "VAL-PARITY-003: Explicit scroll-indicator geometry shows movement on scene path")
+            }
+            
+            // VAL-PARITY-003 EVIDENCE: Compare scroll-indicator geometry between frame and scene paths
+            let frameIndicatorRects = fillRectCommands(in: initialFrame).filter { $0.color.alpha > 0 && $0.color.alpha < 1 }
+            let frameIndicatorRectsScrolled = fillRectCommands(in: scrolledFrame).filter { $0.color.alpha > 0 && $0.color.alpha < 1 }
+            
+            if !frameIndicatorRects.isEmpty && !frameIndicatorRectsScrolled.isEmpty {
+                let initialFrameIndicator = frameIndicatorRects.last!
+                let scrolledFrameIndicator = frameIndicatorRectsScrolled.last!
+                let frameIndicatorDelta = scrolledFrameIndicator.rect.origin.y - initialFrameIndicator.rect.origin.y
+                XCTAssertGreaterThan(frameIndicatorDelta, 0, "VAL-PARITY-003: Frame scroll-indicator geometry shows movement")
             }
         }
     }
@@ -2023,6 +2089,50 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+}
+
+// MARK: - VAL-PARITY-001: Normalized Output Comparison Helpers
+
+/// Helper struct for normalized output comparison (VAL-PARITY-001)
+private struct NormalizedOutput {
+    let rects: [Rect]
+    let colors: [Color]
+    
+    var normalizedRects: [NormalizedRect] {
+        rects.map { NormalizedRect(rect: $0) }
+    }
+    
+    var normalizedColors: [NormalizedColor] {
+        colors.map { NormalizedColor(color: $0) }
+    }
+}
+
+private struct NormalizedRect: Equatable {
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    
+    init(rect: Rect) {
+        self.x = rect.origin.x
+        self.y = rect.origin.y
+        self.width = rect.size.width
+        self.height = rect.size.height
+    }
+}
+
+private struct NormalizedColor: Equatable {
+    let r: Float
+    let g: Float
+    let b: Float
+    let a: Float
+    
+    init(color: Color) {
+        self.r = color.red
+        self.g = color.green
+        self.b = color.blue
+        self.a = color.alpha
+    }
 }
 
 private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {

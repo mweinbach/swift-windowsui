@@ -1445,7 +1445,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     func testPaintOnlyScrollUpdateReusesLayoutAndUpdatesGeometryOnBothPaths() async {
         await MainActor.run {
-            // Test frame path independently
+            // Use the SAME scrollable content for both frame and scene paths
+            // so we can directly compare scroll deltas and indicator geometry
             var contentLayouts = 0
             var scrollLayouts = 0
             
@@ -1472,131 +1473,101 @@ final class RetainedViewRuntimeTests: XCTestCase {
             )
             let runtime = RetainedViewRuntime(root: root)
 
+            // Initial render on both paths
             let initialFrame = runtime.renderFrame()
-            XCTAssertEqual(contentLayouts, 1, "Content should layout once initially")
-            XCTAssertEqual(scrollLayouts, 1, "Scroll panel should layout once initially")
+            let initialScene = runtime.renderScene()
             
-            // Change only scroll offset (paint-only update)
+            XCTAssertEqual(contentLayouts, 1, "Content should layout only once (shared)")
+            XCTAssertEqual(scrollLayouts, 1, "Scroll panel should layout only once (shared)")
+            
+            // Capture initial content positions on BOTH paths
+            let initialFrameContentY = fillRectCommands(in: initialFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
+            let initialSceneRects = sceneFillRects(in: initialScene)
+            let initialSceneContentRect = initialSceneRects.first { rect in
+                rect.size.height == 120  // content height
+            }
+            XCTAssertNotNil(initialFrameContentY, "Should find content in initial frame")
+            XCTAssertNotNil(initialSceneContentRect, "Should find content in initial scene")
+            
+            // Capture initial indicator positions on BOTH paths
+            let initialFrameIndicator = fillRectCommands(in: initialFrame).last
+            let initialSceneQuads = initialScene.layers.flatMap { $0.quads }
+            let initialSceneIndicator = initialSceneQuads.last
+            
+            // Apply paint-only scroll update
             scrollPanel.scrollOffset = 30
             
+            // Render both paths after scroll
             let scrolledFrame = runtime.renderFrame()
-            let frameLayoutReuse = runtime.lastLayoutReuseCount
+            let scrolledScene = runtime.renderScene()
             
-            // Assert: Layout not re-run for paint-only scroll on frame path
-            XCTAssertEqual(contentLayouts, 1, "Content should not relayout for paint-only scroll (frame)")
-            XCTAssertEqual(scrollLayouts, 1, "Scroll panel should not relayout for paint-only scroll (frame)")
-            XCTAssertGreaterThanOrEqual(frameLayoutReuse, 1, "Frame should show layout reuse")
+            // Assert: Layout reuse on both paths
+            XCTAssertEqual(contentLayouts, 1, "Content should not relayout for paint-only scroll")
+            XCTAssertEqual(scrollLayouts, 1, "Scroll panel should not relayout for paint-only scroll")
+            XCTAssertGreaterThanOrEqual(runtime.lastLayoutReuseCount, 1, "Should show layout reuse")
             
-            // Assert: Content origin updated on frame path
-            let initialContentY = fillRectCommands(in: initialFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
-            let scrolledContentY = fillRectCommands(in: scrolledFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
-            XCTAssertNotNil(initialContentY)
-            XCTAssertNotNil(scrolledContentY)
-            XCTAssertEqual(scrolledContentY!, initialContentY! - 30, "Frame: content should move by scroll offset")
+            // ============================================================
+            // VAL-PARITY-003: Direct frame-vs-scene scroll delta comparison
+            // ============================================================
             
-            // Assert: Scroll indicator moved down on frame path
-            let initialIndicatorY = fillRectCommands(in: initialFrame).last?.rect.origin.y
-            let scrolledIndicatorY = fillRectCommands(in: scrolledFrame).last?.rect.origin.y
-            XCTAssertNotNil(initialIndicatorY)
-            XCTAssertNotNil(scrolledIndicatorY)
-            XCTAssertGreaterThan(scrolledIndicatorY!, initialIndicatorY!, "Indicator should move down after scroll in frame")
+            // Frame path: Calculate scroll delta
+            let scrolledFrameContentY = fillRectCommands(in: scrolledFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
+            XCTAssertNotNil(scrolledFrameContentY, "Should find content in scrolled frame")
             
-            // Test scene path independently (on fresh runtime)
-            var contentLayouts2 = 0
-            var scrollLayouts2 = 0
+            let frameScrollDelta = initialFrameContentY! - scrolledFrameContentY!
+            XCTAssertEqual(frameScrollDelta, 30.0, accuracy: 0.001, "Frame: content should move by exact scroll offset")
             
-            let content2 = ViewNode(
-                frame: Rect(x: 0, y: 0, width: 80, height: 120),
-                backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1)
-            )
-            content2.onLayout = { _ in contentLayouts2 += 1 }
-            
-            let scrollPanel2 = ViewNode(
-                frame: Rect(x: 10, y: 10, width: 80, height: 40),
-                layoutMode: .absolute,
-                scrollAxis: .vertical,
-                showsScrollIndicator: true,
-                isHitTestVisible: false,
-                children: [content2]
-            )
-            scrollPanel2.onLayout = { _ in scrollLayouts2 += 1 }
-            
-            let root2 = ViewNode(
-                frame: Rect(x: 0, y: 0, width: 120, height: 80),
-                isHitTestVisible: false,
-                children: [scrollPanel2]
-            )
-            let runtime2 = RetainedViewRuntime(root: root2)
-
-            let initialScene = runtime2.renderScene()
-            XCTAssertEqual(contentLayouts2, 1, "Content should layout once initially (scene)")
-            XCTAssertEqual(scrollLayouts2, 1, "Scroll panel should layout once initially (scene)")
-            
-            // Change only scroll offset (paint-only update)
-            scrollPanel2.scrollOffset = 30
-            
-            let scrolledScene = runtime2.renderScene()
-            let sceneLayoutReuse = runtime2.lastLayoutReuseCount
-            _ = runtime2.lastSceneReplayCount  // Verify replay happened
-            
-            // Assert: Layout not re-run for paint-only scroll on scene path
-            XCTAssertEqual(contentLayouts2, 1, "Content should not relayout for paint-only scroll (scene)")
-            XCTAssertEqual(scrollLayouts2, 1, "Scroll panel should not relayout for paint-only scroll (scene)")
-            XCTAssertGreaterThanOrEqual(sceneLayoutReuse, 1, "Scene should show layout reuse")
-            
-            // Assert: Content origin updated on scene path
-            // Note: ScenePainter paints at device scale, so we need to adjust expectations
-            let initialSceneRects = sceneFillRects(in: initialScene)
+            // Scene path: Calculate scroll delta
             let scrolledSceneRects = sceneFillRects(in: scrolledScene)
-            
-            // Find the content rect (largest rect that isn't the indicator or the panel background)
-            let initialContentRect = initialSceneRects.first { rect in
+            let scrolledSceneContentRect = scrolledSceneRects.first { rect in
                 rect.size.height == 120  // content height
             }
-            let scrolledContentRect = scrolledSceneRects.first { rect in
-                rect.size.height == 120  // content height
-            }
+            XCTAssertNotNil(scrolledSceneContentRect, "Should find content in scrolled scene")
             
-            XCTAssertNotNil(initialContentRect, "Should find content rect in initial scene")
-            XCTAssertNotNil(scrolledContentRect, "Should find content rect in scrolled scene")
+            let sceneScrollDeltaPixels = initialSceneContentRect!.origin.y - scrolledSceneContentRect!.origin.y
+            let sceneScrollDelta = sceneScrollDeltaPixels / runtime.displayScale
             
-            if let initial = initialContentRect, let scrolled = scrolledContentRect {
-                // Content should move UP by scroll offset (y decreases)
-                XCTAssertLessThan(scrolled.origin.y, initial.origin.y, "Scene: content should move up after scroll")
-                let deltaY = initial.origin.y - scrolled.origin.y
-                // Allow for floating point/dpi scaling variations
-                XCTAssertGreaterThan(deltaY, 20, "Scene: content should move significantly by scroll offset")
-                
-                // VAL-PARITY-003 EVIDENCE: Exact scroll delta assertion (normalized for scene's device-scale)
-                // The scene uses device pixels, so we normalize by dividing by display scale
-                let normalizedSceneDelta = deltaY / runtime2.displayScale
-                XCTAssertEqual(normalizedSceneDelta, 30.0, accuracy: 5.0, "VAL-PARITY-003: Exact frame-vs-scene scroll delta assertion - content should move by scroll offset")
-            }
+            // DIRECT COMPARISON: Frame scroll delta vs Scene scroll delta (normalized)
+            XCTAssertEqual(sceneScrollDelta, frameScrollDelta, accuracy: 0.001, 
+                "VAL-PARITY-003: Frame and scene scroll deltas must match directly - frame=\(frameScrollDelta), scene(normalized)=\(sceneScrollDelta)")
             
-            // Assert: Scroll indicator moved down on scene path (last rect in layer)
-            let initialSceneQuads = initialScene.layers.flatMap { $0.quads }
+            // ============================================================
+            // VAL-PARITY-003: Direct frame-vs-scene indicator geometry comparison
+            // ============================================================
+            
+            // Frame path: Calculate indicator position delta
+            let scrolledFrameIndicator = fillRectCommands(in: scrolledFrame).last
+            XCTAssertNotNil(initialFrameIndicator, "Should have initial frame indicator")
+            XCTAssertNotNil(scrolledFrameIndicator, "Should have scrolled frame indicator")
+            
+            let frameIndicatorDeltaY = scrolledFrameIndicator!.rect.origin.y - initialFrameIndicator!.rect.origin.y
+            let frameIndicatorHeight = initialFrameIndicator!.rect.size.height
+            
+            // Scene path: Calculate indicator position delta (normalized from device pixels)
             let scrolledSceneQuads = scrolledScene.layers.flatMap { $0.quads }
+            let scrolledSceneIndicator = scrolledSceneQuads.last
+            XCTAssertNotNil(initialSceneIndicator, "Should have initial scene indicator")
+            XCTAssertNotNil(scrolledSceneIndicator, "Should have scrolled scene indicator")
             
-            if let initialIndicator = initialSceneQuads.last, let scrolledIndicator = scrolledSceneQuads.last {
-                let initialIndicatorY = Double(initialIndicator.y)
-                let scrolledIndicatorY = Double(scrolledIndicator.y)
-                XCTAssertGreaterThan(scrolledIndicatorY, initialIndicatorY, "Scene: Indicator should move down after scroll")
-                
-                // VAL-PARITY-003 EVIDENCE: Explicit scroll-indicator geometry comparison
-                let frameIndicatorDelta = (scrolledIndicatorY - initialIndicatorY) / runtime2.displayScale
-                XCTAssertGreaterThan(frameIndicatorDelta, 0, "VAL-PARITY-003: Explicit scroll-indicator geometry shows movement on scene path")
-            }
+            let initialSceneIndicatorY = Double(initialSceneIndicator!.y)
+            let scrolledSceneIndicatorY = Double(scrolledSceneIndicator!.y)
+            let sceneIndicatorDeltaYPixels = scrolledSceneIndicatorY - initialSceneIndicatorY
+            let sceneIndicatorDeltaY = sceneIndicatorDeltaYPixels / runtime.displayScale
             
-            // VAL-PARITY-003 EVIDENCE: Compare scroll-indicator geometry between frame and scene paths
-            let frameIndicatorRects = fillRectCommands(in: initialFrame).filter { $0.color.alpha > 0 && $0.color.alpha < 1 }
-            let frameIndicatorRectsScrolled = fillRectCommands(in: scrolledFrame).filter { $0.color.alpha > 0 && $0.color.alpha < 1 }
+            // DIRECT COMPARISON: Frame indicator delta vs Scene indicator delta
+            XCTAssertEqual(sceneIndicatorDeltaY, frameIndicatorDeltaY, accuracy: 0.001,
+                "VAL-PARITY-003: Frame and scene indicator position deltas must match directly - frame=\(frameIndicatorDeltaY), scene(normalized)=\(sceneIndicatorDeltaY)")
             
-            if !frameIndicatorRects.isEmpty && !frameIndicatorRectsScrolled.isEmpty {
-                let initialFrameIndicator = frameIndicatorRects.last!
-                let scrolledFrameIndicator = frameIndicatorRectsScrolled.last!
-                let frameIndicatorDelta = scrolledFrameIndicator.rect.origin.y - initialFrameIndicator.rect.origin.y
-                XCTAssertGreaterThan(frameIndicatorDelta, 0, "VAL-PARITY-003: Frame scroll-indicator geometry shows movement")
-            }
+            // DIRECT COMPARISON: Indicator sizes (both should be same logical size)
+            let initialSceneIndicatorHeightPixels = Double(initialSceneIndicator!.height)
+            let sceneIndicatorHeight = initialSceneIndicatorHeightPixels / runtime.displayScale
+            
+            XCTAssertEqual(sceneIndicatorHeight, frameIndicatorHeight, accuracy: 0.001,
+                "VAL-PARITY-003: Frame and scene indicator heights must match directly - frame=\(frameIndicatorHeight), scene(normalized)=\(sceneIndicatorHeight)")
+            
+            // Both indicators should show movement in the same direction
+            XCTAssertGreaterThan(frameIndicatorDeltaY, 0, "Frame indicator should move down after scroll")
+            XCTAssertGreaterThan(sceneIndicatorDeltaY, 0, "Scene indicator should move down after scroll (normalized)")
         }
     }
 

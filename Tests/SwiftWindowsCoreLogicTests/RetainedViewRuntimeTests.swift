@@ -1788,6 +1788,104 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    // MARK: - Backend-switch: .subtree deferred payload reruns
+
+    func testSceneToFrameSwitchRerunsSubtreeDeferredPayload() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white
+            )
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 8, height: 8),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 20, height: 20),
+                backgroundColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Start with scene path - renders deferred subtree
+            _ = runtime.renderScene()
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 0)
+
+            // Mutate content elsewhere
+            base.backgroundColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 1)
+
+            // Switch to frame path - should rerun .subtree deferred payload
+            let frame = runtime.renderFrame()
+
+            // Assert: Prepainted data replayed, but subtree deferred payload was rerun for frame
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0)
+
+            // Verify: Frame contains all 3 quads including nested deferred subtree
+            let frameRects = fillRectCommands(in: frame).map(\.rect)
+            XCTAssertEqual(frameRects.count, 3)
+            XCTAssertEqual(frameRects[0], base.frame)
+            XCTAssertEqual(frameRects[1], deferredChild.frame)
+            XCTAssertEqual(frameRects[2], Rect(x: 24, y: 24, width: 8, height: 8))
+        }
+    }
+
+    func testFrameToSceneSwitchRerunsSubtreeDeferredPayload() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white
+            )
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 8, height: 8),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 20, height: 20),
+                backgroundColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Start with frame path - renders deferred subtree
+            _ = runtime.renderFrame()
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0)
+
+            // Mutate content elsewhere
+            base.backgroundColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 1)
+
+            // Switch to scene path - should rerun .subtree deferred payload
+            let scene = runtime.renderScene()
+
+            // Assert: Prepainted data replayed, but subtree deferred payload was rerun for scene
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2)
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 0)
+
+            // Verify: Scene contains all 3 quads including nested deferred subtree
+            let quads = sceneFillRects(in: scene)
+            XCTAssertEqual(quads.count, 3)
+            XCTAssertEqual(quads[0], base.frame)
+            XCTAssertEqual(quads[1], deferredChild.frame)
+            XCTAssertEqual(quads[2], Rect(x: 24, y: 24, width: 8, height: 8))
+        }
+    }
+
     // MARK: - VAL-PARITY-008: Replayed prepaint metadata preserves z-order and transform hit testing
 
     func testReplayedPrepaintPreservesZOrderHitTesting() async {

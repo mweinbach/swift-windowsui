@@ -467,6 +467,173 @@ struct ScenePainterTests {
         #expect(deferredColors == [leftIndicator, rightIndicator])
     }
 
+    // MARK: - VAL-PARITY-004: ScenePainter-visible proof for replayed deferred overlays
+
+    @Test("Replayed deferred overlays stay after base content on scene path - VAL-PARITY-004")
+    func replayedDeferredOverlaysStayAfterBaseContent() {
+        let base = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 40),
+            backgroundColor: .white
+        )
+        let deferredOverlay = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 20, height: 20),
+            backgroundColor: .black,
+            paintsInDeferredPhase: true
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 60),
+            isHitTestVisible: false,
+            children: [base, deferredOverlay]
+        )
+        let runtime = RetainedViewRuntime(root: root)
+
+        // Initial scene paint - verify initial ordering
+        let initialScene = runtime.renderScene()
+        let initialQuads = sceneFillRects(in: initialScene)
+        #expect(initialQuads.count == 2)
+        #expect(initialQuads[0] == base.frame)
+        #expect(initialQuads[1] == deferredOverlay.frame)
+
+        // Mutate base content elsewhere to trigger replay
+        base.backgroundColor = Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+        let replayedScene = runtime.renderScene()
+        let replayedQuads = sceneFillRects(in: replayedScene)
+
+        // VAL-PARITY-004: Deferred overlay stays after base content on replay
+        #expect(replayedQuads.count == 2)
+        #expect(replayedQuads[0] == base.frame)
+        #expect(replayedQuads[1] == deferredOverlay.frame)
+    }
+
+    @Test("Replayed deferred scroll indicators stay last after unchanged sibling subtree - VAL-PARITY-004")
+    func replayedDeferredScrollIndicatorsStayLastAfterSiblingReplay() {
+        let leftContent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 80, height: 120),
+            backgroundColor: .white
+        )
+        let rightContent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 80, height: 120),
+            backgroundColor: .black
+        )
+
+        let left = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 80, height: 50),
+            scrollAxis: .vertical,
+            scrollOffset: 20,
+            showsScrollIndicator: true,
+            children: [leftContent]
+        )
+        let right = ViewNode(
+            frame: Rect(x: 90, y: 0, width: 80, height: 50),
+            scrollAxis: .vertical,
+            scrollOffset: 20,
+            showsScrollIndicator: true,
+            children: [rightContent]
+        )
+
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 180, height: 70),
+            isHitTestVisible: false,
+            children: [left, right]
+        )
+        let runtime = RetainedViewRuntime(root: root)
+
+        // Initial render
+        let initialScene = runtime.renderScene()
+        let initialQuadRects = sceneFillRects(in: initialScene)
+        _ = sceneQuadColors(in: initialScene)
+
+        #expect(initialQuadRects.count >= 4) // left content, right content, 2 indicators
+
+        // Mutate right content to trigger replay of left subtree
+        rightContent.backgroundColor = Color(red: 0.2, green: 0.5, blue: 0.8, alpha: 1)
+        let replayedScene = runtime.renderScene()
+        let replayedQuadRects = sceneFillRects(in: replayedScene)
+        let replayedQuadColors = sceneQuadColors(in: replayedScene)
+
+        // VAL-PARITY-004: Deferred indicators remain last after replay
+        #expect(replayedQuadRects.count >= 4)
+        #expect(replayedQuadRects.count == initialQuadRects.count)
+
+        // Indicators should still be at the end
+        let lastTwoColors = Array(replayedQuadColors.suffix(2))
+        #expect(lastTwoColors[0] == left.scrollIndicatorColor)
+        #expect(lastTwoColors[1] == right.scrollIndicatorColor)
+    }
+
+    // MARK: - VAL-PARITY-005: ScenePainter-visible proof for nested deferred subtree ordering
+
+    @Test("Nested deferred subtrees keep parent-before-child ordering on scene path - VAL-PARITY-005")
+    func nestedDeferredSceneSubtreesPreserveParentBeforeChildOrdering() {
+        let deferredGrandchild = ViewNode(
+            frame: Rect(x: 5, y: 5, width: 10, height: 10),
+            backgroundColor: .black,
+            paintsInDeferredPhase: true
+        )
+        let deferredChild = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 20, height: 20),
+            backgroundColor: .white,
+            isHitTestVisible: false,
+            paintsInDeferredPhase: true,
+            children: [deferredGrandchild]
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 50, height: 50),
+            isHitTestVisible: false,
+            children: [deferredChild]
+        )
+        let runtime = RetainedViewRuntime(root: root)
+
+        // Initial scene paint
+        let initialScene = runtime.renderScene()
+        let initialQuads = sceneFillRects(in: initialScene)
+
+        // VAL-PARITY-005: Parent deferred comes before child deferred on initial paint
+        #expect(initialQuads.count == 2)
+        #expect(initialQuads[0] == deferredChild.frame)
+        #expect(initialQuads[1] == Rect(x: 15, y: 15, width: 10, height: 10))
+    }
+
+    @Test("Nested deferred scene replay preserves parent-before-child ordering - VAL-PARITY-005")
+    func nestedDeferredSceneReplayPreservesParentBeforeChildOrdering() {
+        let base = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 12, height: 12),
+            backgroundColor: .white
+        )
+        let deferredGrandchild = ViewNode(
+            frame: Rect(x: 4, y: 4, width: 8, height: 8),
+            backgroundColor: .black,
+            paintsInDeferredPhase: true
+        )
+        let deferredChild = ViewNode(
+            frame: Rect(x: 20, y: 20, width: 20, height: 20),
+            backgroundColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+            isHitTestVisible: false,
+            paintsInDeferredPhase: true,
+            children: [deferredGrandchild]
+        )
+        let root = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 60, height: 60),
+            isHitTestVisible: false,
+            children: [base, deferredChild]
+        )
+        let runtime = RetainedViewRuntime(root: root)
+
+        // Initial render
+        _ = runtime.renderScene()
+
+        // Mutate base to trigger replay of deferred subtree
+        base.backgroundColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 1)
+        let replayedScene = runtime.renderScene()
+
+        // VAL-PARITY-005: Parent-before-child ordering preserved on replay
+        let quads = sceneFillRects(in: replayedScene)
+        #expect(quads.count == 3)
+        #expect(quads[0] == base.frame)  // Base first
+        #expect(quads[1] == deferredChild.frame)  // Parent deferred before child
+        #expect(quads[2] == Rect(x: 24, y: 24, width: 8, height: 8))  // Grandchild last
+    }
+
     // MARK: - Clear color
 
     @Test("Scene preserves the clear color")
@@ -475,5 +642,23 @@ struct ScenePainterTests {
         let scene = ScenePainter.paint(root: node, clearColor: .white, surfaceSize: surfaceSize)
 
         #expect(scene.clearColor == .white)
+    }
+
+    // MARK: - Helper functions for VAL-PARITY-004 and VAL-PARITY-005
+
+    private func sceneFillRects(in scene: GPUIScene) -> [Rect] {
+        scene.layers.flatMap { layer in
+            layer.quads.map { quad in
+                Rect(x: Double(quad.x), y: Double(quad.y), width: Double(quad.width), height: Double(quad.height))
+            }
+        }
+    }
+
+    private func sceneQuadColors(in scene: GPUIScene) -> [Color] {
+        scene.layers.flatMap { layer in
+            layer.quads.map { quad in
+                Color(red: quad.startR, green: quad.startG, blue: quad.startB, alpha: quad.startA)
+            }
+        }
     }
 }

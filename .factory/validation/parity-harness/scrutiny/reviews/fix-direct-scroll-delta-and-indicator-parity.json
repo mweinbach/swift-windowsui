@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-direct-scroll-delta-and-indicator-parity",
+  "reviewedAt": "2026-03-29T02:52:02.4517658+00:00",
+  "commitId": "d6d20c7",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Pass. I reviewed the prior failed fix commit `0326de0` and the new fix commit `d6d20c7`, the prior scrutiny report, the handoffs, and the fix worker transcript skeleton. The original fix added VAL-PARITY-003 assertions, but it still used separate runtimes and compared the scene scroll delta to a literal. The new fix rewrites `testPaintOnlyScrollUpdateReusesLayoutAndUpdatesGeometryOnBothPaths` so one runtime renders both paths, then directly compares the frame content scroll delta to the normalized scene scroll delta at `Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift:1517-1532` and directly compares frame-vs-scene scroll-indicator motion and size at `Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift:1543-1565`. That closes the two prior blockers about indirect delta proof and missing frame-vs-scene indicator geometry comparison.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `runtime-host-worker` skill's 'add failing focused tests before implementation' step is a bit ambiguous for scrutiny-fix features that only strengthen an existing focused test. This worker reasonably rewrote the existing VAL-PARITY-003 test in place and then ran the focused suite, but the current skill text does not explain that tightening an existing passing test is acceptable for this kind of evidence-hardening fix.",
+      "evidence": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\skills\\runtime-host-worker\\SKILL.md says to 'Add failing focused tests before implementation.' The transcript skeleton for session `5b40d710-748a-4aff-b350-07d73a8d020d` in C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\worker-transcripts.jsonl shows the worker reading the existing test, rewriting `testPaintOnlyScrollUpdateReusesLayoutAndUpdatesGeometryOnBothPaths`, and then running `commands.test_runtime` without a separate failing-first step."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\parity-harness\\scrutiny\\reviews\\fix-normalized-output-and-scroll-geometry-parity.json",
+  "summary": "Fix review passed. The new VAL-PARITY-003 proof directly compares frame and scene scroll deltas and directly compares scroll-indicator geometry components between the two paths, so the prior scrutiny blockers are resolved."
+}

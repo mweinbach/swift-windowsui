@@ -1,0 +1,120 @@
+{
+  "milestone": "parity-harness",
+  "groupId": "prepaint-pacing",
+  "testedAt": "2026-03-29T11:58:31.1238779-04:00",
+  "surface": "Swift test suites",
+  "tool": "powershell via .factory/windows-swift-env.ps1",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "wrapper": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1",
+    "concurrency": "single-lane Swift validation only",
+    "assignedAssertions": [
+      "VAL-PARITY-008",
+      "VAL-PARITY-009",
+      "VAL-PARITY-010",
+      "VAL-PARITY-011"
+    ]
+  },
+  "toolsUsed": [
+    "powershell",
+    ".factory/windows-swift-env.ps1",
+    "swift test"
+  ],
+  "commands": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter RetainedViewRuntimeTests",
+      "capture": "stdout/stderr redirected to the mission evidence log",
+      "exitCode": 0,
+      "evidenceFiles": [
+        "parity-harness/prepaint-pacing/retained-view-runtime-tests-output.txt"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PARITY-008",
+      "title": "Replayed prepaint metadata preserves z-order and transform hit testing",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testReplayedPrepaintPreservesZOrderHitTesting' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testReplayedPrepaintPreservesTransformHitTesting' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The focused replay tests first render, mutate replay-capable content, and render again. They then prove hit testing still prefers the higher-z front node in an overlap and still recognizes a rotated node at a point that only lands inside the transformed diamond, confirming replayed prepaint metadata preserved z-order and transform-aware hit geometry.",
+        "artifacts": [
+          "parity-harness/prepaint-pacing/retained-view-runtime-tests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-009",
+      "title": "Descendant and deferred hits route the correct retained ancestors",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testDescendantHitRoutesCorrectFocusableActivatableAncestor' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testDescendantHitRoutesCorrectDraggableAncestor' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testDescendantHitRoutesCorrectScrollableAncestor' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testDeferredHitRoutesCorrectFocusableActivatableAncestor' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testDeferredHitRoutesCorrectDraggableAncestor' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testDeferredHitRoutesCorrectScrollableAncestor' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The descendant-hit cases verify child hits still focus and activate a retained ancestor, route drag start/change/end to a draggable ancestor, and send mouse-wheel input to the nearest scrollable ancestor. The deferred-hit cases repeat the same focus/activation, drag, and scroll routing through deferred-phase children, proving retained ancestor dispatch stays correct for both descendant and deferred hit origins.",
+        "artifacts": [
+          "parity-harness/prepaint-pacing/retained-view-runtime-tests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-010",
+      "title": "Updated overlay geometry is interactive before the next render",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testScrollIndicatorHitUsesUpdatedPrepaintedOverlayGeometryWithoutRender' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testUpdatedOverlayGeometryIsInteractiveBeforeRender' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The overlay-geometry tests update scroll-driven overlay bounds after an initial render and intentionally avoid a fresh present. They then hit and hover the scroll indicator at its new location and observe the expected indicator interaction state, showing prepaint overlay geometry refreshes become interactive before the next render.",
+        "artifacts": [
+          "parity-harness/prepaint-pacing/retained-view-runtime-tests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-011",
+      "title": "Minimum frame interval gates both frame and scene refresh safely",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testMinimumFrameIntervalDefersSceneRefreshUntilEnoughTimeElapses' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testMinimumFrameIntervalGatesFrameRefresh' passed (0.0 seconds)",
+          "Test Case 'RetainedViewRuntimeTests.testMinimumFrameIntervalGatesSceneRefresh' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The timing tests set minimumFrameInterval to 1/60s, mutate content after an initial render, and verify renderFrame(at:) and renderScene(at:) both return cached output when called too soon while keeping the runtime dirty. After enough simulated time elapses, both paths rebuild with the updated content and clear the dirty flag, demonstrating safe throttling for frame and scene refresh.",
+        "artifacts": [
+          "parity-harness/prepaint-pacing/retained-view-runtime-tests-output.txt"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 4 assertions with RetainedViewRuntimeTests: 4 passed, 0 failed, 0 blocked."
+}

@@ -1,0 +1,28 @@
+{
+  "milestone": "parity-harness",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 11,
+    "passed": 11,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-PARITY-001",
+    "VAL-PARITY-002",
+    "VAL-PARITY-003",
+    "VAL-PARITY-004",
+    "VAL-PARITY-005",
+    "VAL-PARITY-006",
+    "VAL-PARITY-007",
+    "VAL-PARITY-008",
+    "VAL-PARITY-009",
+    "VAL-PARITY-010",
+    "VAL-PARITY-011"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [],
+  "previousRound": null
+}

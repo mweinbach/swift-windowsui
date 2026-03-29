@@ -317,6 +317,50 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
+    func testUnresolvedImageBatchFailureDowngradesToFrameSameSession() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            batchRenderer.failureError = BatchRendererError(
+                operation: "Resolve image resources",
+                hresult: -1,
+                details: "Scene contains image primitives without valid bound resources for texture IDs: -1."
+            )
+
+            let frameRenderer = FakeRenderBackend()
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: []
+            )
+
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in expectedSurface }
+            )
+
+            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
+            batchRenderer.setRenderShouldFail(true)
+
+            host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
+            host.windowNeedsDisplay(fakeWindow)
+
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 1)
+        }
+    }
+
     func testBatchResizeFailureDowngradesToFrameRenderer() async {
         await MainActor.run {
             let batchRenderer = FakeBatchRenderBackend()

@@ -2,7 +2,7 @@ import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
-import SwiftWindowsRendererD3D11
+@testable import SwiftWindowsRendererD3D11
 
 // MARK: - Integration Tests: Batch Renderer Wiring
 
@@ -218,6 +218,40 @@ final class IntegrationTests: XCTestCase {
             XCTAssertNil(rebuiltScene.pixelGlyphAtlas)
             XCTAssertEqual(initialGlyphs.native, rebuiltGlyphs.native)
             XCTAssertEqual(initialGlyphs.pixel, rebuiltGlyphs.pixel)
+        }
+    }
+
+    func testRuntimeAtlasDisciplineStaysCompatibleWithBatchRendererReuse() async throws {
+        try await MainActor.run {
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 80),
+                text: "\u{E700}",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let freshScene = runtime.renderScene()
+            let cachedScene = runtime.renderScene()
+
+            XCTAssertTrue(freshScene.glyphAtlas != nil || freshScene.pixelGlyphAtlas != nil)
+            XCTAssertNil(cachedScene.glyphAtlas)
+            XCTAssertNil(cachedScene.pixelGlyphAtlas)
+
+            let freshPlan = try D3D11BatchRenderer.makeRenderPlan(for: freshScene)
+            let cachedPlan = try D3D11BatchRenderer.makeRenderPlan(
+                for: cachedScene,
+                cachedResources: freshPlan.resultingResources
+            )
+
+            let cachedGlyphReplaySteps = cachedPlan.steps.filter {
+                switch $0 {
+                case .glyphs(_, _, .cached), .pixelGlyphs(_, _, .cached):
+                    return true
+                default:
+                    return false
+                }
+            }
+            XCTAssertFalse(cachedGlyphReplaySteps.isEmpty)
         }
     }
 

@@ -105,7 +105,7 @@ enum WindowHostInputEvent {
 final class WinSwiftUIWindowHost: WindowDelegate {
     private enum PresentationBackend {
         case frame
-        case batch
+        case scene
     }
 
     private let configuration: WindowGroupConfiguration
@@ -116,12 +116,16 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let componentHost: ComponentHost
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
     private let sceneRenderer: @MainActor (RetainedViewRuntime, Double) -> GPUIScene
+    private let startupPresentationMode: StartupPresentationMode
+    private let startupProbeConfiguration: StartupProbeConfiguration?
     private let inputRateTracker = WindowInputRateTracker()
 
     private var isRendererReady = false
     private var activeBackend: PresentationBackend = .frame
     private var surfaceDescriptor: SurfaceDescriptor?
     private var pendingPresentation = false
+    private var startupProbeCompleted = false
+    private(set) var currentPresentationSelection: PresentationSelection?
 
     /// Batching flag: when true, a reload has already been scheduled for the
     /// next main-actor turn and additional change notifications are coalesced.
@@ -200,7 +204,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
         batchRenderer: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend(),
         surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost.defaultSurfaceDescriptor,
-        sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil
+        sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
+        startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
+        startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment()
     ) {
         self.configuration = configuration
         self.window = Win32Window(title: configuration.title, clientSize: configuration.size)
@@ -212,6 +218,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.sceneRenderer = sceneRenderer ?? { runtime, timestamp in
             runtime.renderScene(at: timestamp)
         }
+        self.startupPresentationMode = startupPresentationMode
+        self.startupProbeConfiguration = startupProbeConfiguration
 
         runtime.setRootSize(configuration.size)
         componentHost.setComponents { [weak self] in
@@ -232,6 +240,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowDidCreate(_ window: Win32Window) {
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
+                completeStartupProbeIfNeeded(in: window, success: false, errorMessage: "Missing surface descriptor.")
                 return
             }
 
@@ -241,8 +250,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
-            renderCurrentFrame(in: window)
+            let didRender = renderCurrentFrame(in: window)
+            completeStartupProbeIfNeeded(
+                in: window,
+                success: didRender,
+                errorMessage: didRender ? nil : "Initial startup render did not complete."
+            )
         } catch {
+            completeStartupProbeIfNeeded(in: window, success: false, errorMessage: String(describing: error))
             report(error)
         }
     }
@@ -263,7 +278,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func windowNeedsDisplay(_ window: Win32Window) {
-        renderCurrentFrame(in: window)
+        _ = renderCurrentFrame(in: window)
     }
 
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
@@ -327,7 +342,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func window(_ window: Win32Window, animationFrameAt timestamp: Double) {
         let didAdvanceAnimations = runtime.tickAnimations(at: timestamp)
         if didAdvanceAnimations || runtime.isDirty || pendingPresentation {
-            renderCurrentFrame(in: window, timestamp: timestamp)
+            _ = renderCurrentFrame(in: window, timestamp: timestamp)
         } else {
             syncAnimationDriver(for: window)
         }
@@ -440,7 +455,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     /// Current presenter selection exposed for host-focused tests.
     var isUsingBatchPresentationBackend: Bool {
-        activeBackend == .batch
+        activeBackend == .scene
+    }
+
+    /// Current scene/frame presenter selection exposed for host-focused tests.
+    var isUsingScenePresentationBackend: Bool {
+        activeBackend == .scene
     }
 
     /// Schedule a batched reload.  Multiple rapid @Published changes within
@@ -519,21 +539,22 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
-    private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) {
+    @discardableResult
+    private func renderCurrentFrame(in window: Win32Window, timestamp: Double? = nil) -> Bool {
         guard isRendererReady else {
             if runtime.isDirty || pendingPresentation {
                 window.invalidate()
             }
-            return
+            return false
         }
 
         guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate else {
             syncAnimationDriver(for: window)
-            return
+            return false
         }
 
         do {
-            if activeBackend == .batch, let batchRenderer {
+            if activeBackend == .scene, let batchRenderer {
                 let scene = sceneRenderer(runtime, timestamp ?? 0)
                 batchRenderer.bindResources(for: scene)
                 try batchRenderer.render(scene: scene)
@@ -541,16 +562,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                 try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
             }
         } catch {
+            guard activeBackend == .scene else {
+                report(error)
+                return false
+            }
+
             do {
-                try fallbackToFrameRenderer(becauseOf: error, in: window)
+                try fallbackToFrameRenderer(
+                    becauseOf: .batchRenderFailure(String(describing: error)),
+                    in: window
+                )
                 try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
             } catch {
                 report(error)
+                return false
             }
         }
 
         pendingPresentation = runtime.isDirty || runtime.hasActiveAnimations || inputRateTracker.isHighRate
         syncAnimationDriver(for: window)
+        return true
     }
 
     private func syncAnimationDriver(for window: Win32Window) {
@@ -605,39 +636,66 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     private func attachPreferredRenderer(to surface: SurfaceDescriptor) throws {
+        if startupPresentationMode == .frameDebug {
+            try renderer.attach(to: surface)
+            activeBackend = .frame
+            updatePresentationSelection(reason: .frameDebugOverride)
+            return
+        }
+
         if let batchRenderer {
             do {
                 try batchRenderer.attach(to: surface)
-                activeBackend = .batch
+                activeBackend = .scene
+                updatePresentationSelection(reason: .defaultScene)
                 return
             } catch {
                 report("Batch renderer attach failed; falling back to frame renderer. \(error)")
+                try renderer.attach(to: surface)
+                activeBackend = .frame
+                updatePresentationSelection(reason: .batchAttachFailure(String(describing: error)))
+                return
             }
         }
 
         try renderer.attach(to: surface)
         activeBackend = .frame
+        updatePresentationSelection(reason: .batchRendererUnavailable)
     }
 
     private func resizeActiveRenderer(to size: IntSize, in window: Win32Window) throws {
-        if activeBackend == .batch, let batchRenderer {
+        if activeBackend == .scene, let batchRenderer {
             do {
                 try batchRenderer.resize(to: size)
                 return
             } catch {
-                try fallbackToFrameRenderer(becauseOf: error, in: window)
+                try fallbackToFrameRenderer(
+                    becauseOf: .batchResizeFailure(String(describing: error)),
+                    in: window
+                )
             }
         }
 
         try renderer.resize(to: size)
     }
 
-    private func fallbackToFrameRenderer(becauseOf error: Error, in window: Win32Window) throws {
-        report("Batch renderer failed; switching to frame renderer. \(error)")
+    private func fallbackToFrameRenderer(
+        becauseOf reason: PresentationSelectionReason,
+        in window: Win32Window
+    ) throws {
+        if let detail = reason.detail {
+            report("Batch renderer failed; switching to frame renderer. \(detail)")
+        } else {
+            report("Batch renderer failed; switching to frame renderer.")
+        }
 
         let surface = surfaceDescriptor ?? surfaceDescriptorProvider(window)
         guard let surface else {
-            throw error
+            throw NSError(
+                domain: "WinSwiftUIWindowHost",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Missing surface descriptor during frame fallback."]
+            )
         }
 
         surfaceDescriptor = surface
@@ -645,6 +703,54 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         try renderer.resize(to: surface.pixelSize)
         activeBackend = .frame
         isRendererReady = true
+        updatePresentationSelection(reason: reason)
+    }
+
+    private func updatePresentationSelection(reason: PresentationSelectionReason) {
+        currentPresentationSelection = PresentationSelection(
+            presenter: activeBackend == .scene ? .scene : .frame,
+            reason: reason,
+            frameBackend: renderer.backendDisplayName,
+            sceneBackend: batchRenderer?.backendDisplayName
+        )
+    }
+
+    private func completeStartupProbeIfNeeded(
+        in window: Win32Window,
+        success: Bool,
+        errorMessage: String?
+    ) {
+        guard let startupProbeConfiguration, !startupProbeCompleted else {
+            return
+        }
+
+        startupProbeCompleted = true
+
+        let payload: String
+        if success, let selection = currentPresentationSelection {
+            payload = selection.startupProbePayload(
+                logicalRootSize: currentLogicalRootSize,
+                displayScale: currentDisplayScale
+            )
+        } else {
+            let detail = (errorMessage ?? "Startup probe failed.").replacingOccurrences(of: "\r", with: " ")
+                .replacingOccurrences(of: "\n", with: " ")
+            payload = "status=failure\nmessage=\(detail)\n"
+        }
+
+        do {
+            try payload.write(
+                to: URL(fileURLWithPath: startupProbeConfiguration.path),
+                atomically: true,
+                encoding: .utf8
+            )
+        } catch {
+            report("Failed to write startup probe. \(error)")
+        }
+
+        if startupProbeConfiguration.shouldExitAfterProbe {
+            window.requestClose()
+        }
     }
 
     private func report(_ error: Error) {

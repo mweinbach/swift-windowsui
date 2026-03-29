@@ -309,6 +309,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(batchRenderer.attachedSurfaces.count, 0)
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)
             XCTAssertEqual(frameRenderer.attachedSurfaces.first, expectedSurface)
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .batchAttachFailure(String(describing: batchRenderer.failureError)),
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 
@@ -362,6 +371,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // This proves VAL-RENDER-004: the triggering frame renders through frame path after batch failure
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Frame should be rendered through frame path after batch failure")
             XCTAssertEqual(frameRenderer.renderedFrames.first?.clearColor, expectedColor, "Frame should contain the expected clear color")
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .batchRenderFailure(String(describing: batchRenderer.failureError)),
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 
@@ -450,6 +468,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertEqual(batchRenderer.renderedScenes[0].layers[0].images[0].opacity, 0.75, accuracy: 0.001)
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 0)
             XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .scene,
+                    reason: .defaultScene,
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 
@@ -496,6 +523,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Fallback attaches frame renderer and calls resize
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1) // Frame was attached as fallback
             XCTAssertTrue(frameRenderer.resizedSizes.contains(newSize)) // Frame got the resize
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .batchResizeFailure(String(describing: batchRenderer.failureError)),
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 
@@ -1501,25 +1537,24 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
-    func testPresenterSelectionObservability() async {
+    func testDefaultStartupSelectsScenePresenterAndInitializesRuntimeGeometry() async {
         await MainActor.run {
             let batchRenderer = FakeBatchRenderBackend()
             let frameRenderer = FakeRenderBackend()
 
             let expectedSurface = SurfaceDescriptor(
                 windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
-                pixelSize: IntSize(width: 320, height: 200),
-                scaleFactor: 1.0
+                pixelSize: IntSize(width: 640, height: 480),
+                scaleFactor: 2.0
             )
 
             let config = WindowGroupConfiguration(
                 title: "Test",
-                size: IntSize(width: 320, height: 200),
+                size: IntSize(width: 320, height: 240),
                 clearColor: .black,
                 content: []
             )
 
-            // When batch renderer is available and works, it should be used
             let host = WinSwiftUIWindowHost(
                 configuration: config,
                 renderer: frameRenderer,
@@ -1528,16 +1563,83 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             )
 
             let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            fakeWindow.testScaleFactorOverride = expectedSurface.scaleFactor
             host.windowDidCreate(fakeWindow)
 
-            // Verify batch renderer was attached and used
             XCTAssertEqual(batchRenderer.attachedSurfaces.count, 1)
+            XCTAssertEqual(batchRenderer.boundScenes.count, 1)
             XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 0)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
+            XCTAssertTrue(host.isUsingScenePresentationBackend)
+            XCTAssertEqual(host.currentLogicalRootSize, IntSize(width: 320, height: 240))
+            XCTAssertEqual(host.currentDisplayScale, 2.0)
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .scene,
+                    reason: .defaultScene,
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 
-    func testDowngradeObservability() async {
+    func testFrameDebugStartupSelectsFramePresenterAndSkipsSceneRenderPath() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            let frameRenderer = FakeRenderBackend()
+            var sceneRenderCount = 0
+
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: []
+            )
+
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in expectedSurface },
+                sceneRenderer: { runtime, timestamp in
+                    sceneRenderCount += 1
+                    return runtime.renderScene(at: timestamp)
+                },
+                startupPresentationMode: .frameDebug,
+                startupProbeConfiguration: nil
+            )
+
+            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            XCTAssertEqual(batchRenderer.attachedSurfaces.count, 0)
+            XCTAssertEqual(batchRenderer.renderedScenes.count, 0)
+            XCTAssertEqual(sceneRenderCount, 0)
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 1)
+            XCTAssertFalse(host.isUsingScenePresentationBackend)
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .frameDebugOverride,
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
+        }
+    }
+
+    func testDowngradeObservabilityTracksRenderFailureReason() async {
         await MainActor.run {
             let batchRenderer = FakeBatchRenderBackend()
             let frameRenderer = FakeRenderBackend()
@@ -1565,18 +1667,22 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
             host.windowDidCreate(fakeWindow)
 
-            // Verify batch was used initially
             XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
-            XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
-
-            // Make batch fail, trigger resize (makes runtime dirty), then display (triggers render)
             batchRenderer.setRenderShouldFail(true)
-            let newSize = IntSize(width: 640, height: 480)
-            host.window(fakeWindow, didResizeTo: newSize)
+
+            host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
             host.windowNeedsDisplay(fakeWindow)
 
-            // Verify downgrade occurred - frame renderer should be attached
-            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1) // Frame was attached
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .batchRenderFailure(String(describing: batchRenderer.failureError)),
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
         }
     }
 }

@@ -234,6 +234,15 @@ public final class Win32Window {
         InvalidateRect(hwnd, nil, false)
     }
 
+    public func requestClose() {
+        guard let hwnd else {
+            PostQuitMessage(0)
+            return
+        }
+
+        PostMessageW(hwnd, UINT(WM_CLOSE), 0, 0)
+    }
+
     public func setAnimationTimerEnabled(_ enabled: Bool, intervalMilliseconds: UINT = 16) {
         guard hwnd != nil else {
             return

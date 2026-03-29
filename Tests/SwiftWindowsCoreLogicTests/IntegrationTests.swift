@@ -454,10 +454,10 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
-    func testBatchBackendFactoryDefaultsToNilUntilOptedIn() async {
+    func testBatchBackendFactoryDefaultsToPromotedScenePresenter() async {
         await MainActor.run {
             let backend = DefaultRenderBackendFactory.makeBatchBackend()
-            XCTAssertNil(backend)
+            XCTAssertEqual(backend?.backendDisplayName, "D3D11 BATCH")
         }
     }
 

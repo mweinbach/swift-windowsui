@@ -231,9 +231,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     func window(_ window: Win32Window, didResizeTo size: IntSize) {
         do {
-            runtime.displayScale = window.scaleFactor
+            let scaleFactor = window.scaleFactor
+            runtime.displayScale = scaleFactor
             surfaceDescriptor?.pixelSize = size
-            runtime.setRootSize(logicalSize(for: size, scaleFactor: window.scaleFactor))
+            surfaceDescriptor?.scaleFactor = scaleFactor
+            runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
             componentHost.reload()
             try resizeActiveRenderer(to: size, in: window)
             requestFrame(in: window)
@@ -396,6 +398,24 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         executedReloadCount = 0
         observedObjectRegistrationCount = 0
         reloadTriggeringObjectIDs.removeAll()
+    }
+
+    /// Current logical root size exposed for host-focused tests.
+    var currentLogicalRootSize: IntSize {
+        IntSize(
+            width: Int32(runtime.root.frame.size.width),
+            height: Int32(runtime.root.frame.size.height)
+        )
+    }
+
+    /// Current display scale exposed for host-focused tests.
+    var currentDisplayScale: Double {
+        runtime.displayScale
+    }
+
+    /// Current presenter selection exposed for host-focused tests.
+    var isUsingBatchPresentationBackend: Bool {
+        activeBackend == .batch
     }
 
     /// Schedule a batched reload.  Multiple rapid @Published changes within

@@ -1897,7 +1897,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     // MARK: - VAL-PARITY-009: Descendant and deferred hits route the correct retained ancestors
 
-    func testDescendantHitRoutesCorrectAncestor() async {
+    func testDescendantHitRoutesCorrectFocusableActivatableAncestor() async {
         await MainActor.run {
             var ancestorActivations = 0
             var childPresses = 0
@@ -1938,7 +1938,81 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
-    func testDeferredHitRoutesCorrectAncestor() async {
+    func testDescendantHitRoutesCorrectDraggableAncestor() async {
+        await MainActor.run {
+            var dragStarts: [Point] = []
+            var dragChanges: [Point] = []
+            var endDeltas: [Point] = []
+
+            let child = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 40, height: 40),
+                backgroundColor: .white
+            )
+
+            let draggableAncestor = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                isHitTestVisible: false,
+                children: [child]
+            )
+            draggableAncestor.onDragStart = { point in dragStarts.append(point) }
+            draggableAncestor.onDragChange = { _, delta in dragChanges.append(delta) }
+            draggableAncestor.onDragEnd = { _, delta in endDeltas.append(delta) }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [draggableAncestor]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial render
+            _ = runtime.renderFrame()
+            
+            // Hit the child and drag - should route to draggable ancestor
+            runtime.pointerDown(at: Point(x: 35, y: 35))
+            runtime.pointerMoved(to: Point(x: 45, y: 55))
+            runtime.pointerUp(at: Point(x: 45, y: 55))
+
+            // VAL-PARITY-009: Draggable ancestor receives drag events from descendant hit
+            XCTAssertEqual(dragStarts, [Point(x: 35, y: 35)], "Draggable ancestor should receive drag start from descendant hit")
+            XCTAssertEqual(dragChanges.last, Point(x: 10, y: 20), "Draggable ancestor should receive drag change from descendant hit")
+            XCTAssertEqual(endDeltas, [Point(x: 10, y: 20)], "Draggable ancestor should receive drag end from descendant hit")
+        }
+    }
+
+    func testDescendantHitRoutesCorrectScrollableAncestor() async {
+        await MainActor.run {
+            let content = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 200),
+                backgroundColor: .white
+            )
+
+            let scrollableAncestor = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                isHitTestVisible: false,
+                children: [content]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [scrollableAncestor]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial render
+            _ = runtime.renderFrame()
+            
+            // Hit the content and wheel scroll - should route to scrollable ancestor
+            runtime.mouseWheel(at: Point(x: 35, y: 35), delta: -1)
+
+            XCTAssertEqual(scrollableAncestor.scrollOffset, 20, "Scrollable ancestor should receive scroll wheel")
+        }
+    }
+
+    func testDeferredHitRoutesCorrectFocusableActivatableAncestor() async {
         await MainActor.run {
             var deferredPresses = 0
             var parentActivations = 0
@@ -1977,6 +2051,82 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             XCTAssertEqual(deferredPresses, 1, "Deferred child should receive pointer down")
             XCTAssertEqual(parentActivations, 1, "Parent should be activated via keyboard focus")
+        }
+    }
+
+    func testDeferredHitRoutesCorrectDraggableAncestor() async {
+        await MainActor.run {
+            var dragStarts: [Point] = []
+            var dragChanges: [Point] = []
+            var endDeltas: [Point] = []
+
+            let deferredChild = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .white,
+                paintsInDeferredPhase: true
+            )
+
+            let draggableParent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 50, height: 50),
+                isHitTestVisible: false,
+                children: [deferredChild]
+            )
+            draggableParent.onDragStart = { point in dragStarts.append(point) }
+            draggableParent.onDragChange = { _, delta in dragChanges.append(delta) }
+            draggableParent.onDragEnd = { _, delta in endDeltas.append(delta) }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                isHitTestVisible: false,
+                children: [draggableParent]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial render
+            _ = runtime.renderFrame()
+            
+            // Hit the deferred child and drag - should route to draggable parent
+            runtime.pointerDown(at: Point(x: 20, y: 20))
+            runtime.pointerMoved(to: Point(x: 30, y: 40))
+            runtime.pointerUp(at: Point(x: 30, y: 40))
+
+            // VAL-PARITY-009: Draggable ancestor receives drag events from deferred-phase hit
+            XCTAssertEqual(dragStarts, [Point(x: 20, y: 20)], "Draggable parent should receive drag start from deferred hit")
+            XCTAssertEqual(dragChanges.last, Point(x: 10, y: 20), "Draggable parent should receive drag changes from deferred hit")
+            XCTAssertEqual(endDeltas, [Point(x: 10, y: 20)], "Draggable parent should receive drag end from deferred hit")
+        }
+    }
+
+    func testDeferredHitRoutesCorrectScrollableAncestor() async {
+        await MainActor.run {
+            let deferredContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 200),
+                backgroundColor: .white,
+                paintsInDeferredPhase: true
+            )
+
+            let scrollableParent = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                scrollAxis: .vertical,
+                scrollStep: 25,
+                isHitTestVisible: false,
+                children: [deferredContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [scrollableParent]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial render
+            _ = runtime.renderFrame()
+            
+            // Hit the deferred content and wheel scroll - should route to scrollable parent
+            runtime.mouseWheel(at: Point(x: 35, y: 35), delta: -1)
+
+            XCTAssertEqual(scrollableParent.scrollOffset, 25, "Scrollable parent should receive scroll wheel from deferred hit")
         }
     }
 

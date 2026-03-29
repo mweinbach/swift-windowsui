@@ -8,7 +8,8 @@ commands:
   test_runtime: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter RetainedViewRuntimeTests
   test_text: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter TextSystemTests
   test_host: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter WinSwiftUIWindowHostTests
-  demo_frame: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift run --package-path "C:\Users\maxw6\Projects\swift-windowsui" swift-windowsui
+  demo_default: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/demo_default.ps1"
+  demo_frame: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/demo_frame.ps1"
   demo_batch: powershell -NoProfile -Command "$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH='1'; & 'C:\Users\maxw6\Projects\swift-windowsui\.factory\windows-swift-env.ps1' swift run --package-path 'C:\Users\maxw6\Projects\swift-windowsui' swift-windowsui"
 
 services: {}

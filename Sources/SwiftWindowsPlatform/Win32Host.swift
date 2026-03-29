@@ -702,7 +702,7 @@ public final class Win32Window {
         var buffer = [WCHAR](repeating: 0, count: charCount + 1)
         ImmGetCompositionStringW(imc, flag, &buffer, DWORD(byteCount))
 
-        return String(decodingCString: buffer, as: UTF16.self)
+        return String(decoding: buffer.prefix(charCount), as: UTF16.self)
     }
 
     // MARK: - Touch helpers

@@ -1533,6 +1533,325 @@ final class RetainedViewRuntimeTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - VAL-PARITY-004: Deferred overlays paint after base content on initial and replayed passes
+
+    func testDeferredOverlaysPaintAfterBaseContentOnScenePath() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white
+            )
+            let deferredOverlay = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredOverlay]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial scene paint
+            let initialScene = runtime.renderScene()
+            let initialQuads = sceneFillRects(in: initialScene)
+
+            // Assert: base comes first, then deferred overlay
+            XCTAssertEqual(initialQuads.count, 2)
+            XCTAssertEqual(initialQuads[0], base.frame)
+            XCTAssertEqual(initialQuads[1], deferredOverlay.frame)
+
+            // Mutation elsewhere triggers replay
+            base.backgroundColor = Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+            let replayedScene = runtime.renderScene()
+            let replayedQuads = sceneFillRects(in: replayedScene)
+
+            // Assert: ordering preserved after replay
+            XCTAssertEqual(replayedQuads.count, 2)
+            XCTAssertEqual(replayedQuads[0], base.frame)
+            XCTAssertEqual(replayedQuads[1], deferredOverlay.frame)
+        }
+    }
+
+    func testDeferredOverlaySceneReplayReusesUnchangedSiblingSubtree() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderScene()
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 0)
+
+            // Mutate right content only
+            rightContent.backgroundColor = Color(red: 0.2, green: 0.5, blue: 0.8, alpha: 1)
+            _ = runtime.renderScene()
+
+            // Assert: Left subtree (including its scroll indicator) was replayed
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 1)
+        }
+    }
+
+    // MARK: - VAL-PARITY-005: Nested deferred subtrees keep parent-before-child ordering on both paths
+
+    func testNestedDeferredSceneSubtreesPreserveParentBeforeChildOrdering() async {
+        await MainActor.run {
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 5, y: 5, width: 10, height: 10),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .white,
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 50, height: 50),
+                isHitTestVisible: false,
+                children: [deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Initial scene paint
+            let initialScene = runtime.renderScene()
+            let initialQuads = sceneFillRects(in: initialScene)
+
+            // Assert: parent comes before child
+            XCTAssertEqual(initialQuads.count, 2)
+            XCTAssertEqual(initialQuads[0], deferredChild.frame)
+            XCTAssertEqual(initialQuads[1], Rect(x: 15, y: 15, width: 10, height: 10))
+        }
+    }
+
+    func testNestedDeferredSceneReplayPreservesParentBeforeChildOrdering() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 12, height: 12),
+                backgroundColor: .white
+            )
+            let deferredGrandchild = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 8, height: 8),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let deferredChild = ViewNode(
+                frame: Rect(x: 20, y: 20, width: 20, height: 20),
+                backgroundColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1),
+                isHitTestVisible: false,
+                paintsInDeferredPhase: true,
+                children: [deferredGrandchild]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredChild]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderScene()
+
+            base.backgroundColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 1)
+            let scene = runtime.renderScene()
+
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2)
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 2)
+
+            let quads = sceneFillRects(in: scene)
+            XCTAssertEqual(quads.count, 3)
+            XCTAssertEqual(quads[0], base.frame)
+            XCTAssertEqual(quads[1], deferredChild.frame)
+            XCTAssertEqual(quads[2], Rect(x: 24, y: 24, width: 8, height: 8))
+        }
+    }
+
+    // MARK: - VAL-PARITY-006: Scene-to-frame switching reruns incompatible deferred payloads safely
+
+    func testSceneToFrameSwitchRerunsIncompatibleDeferredPayloads() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Start with scene path
+            _ = runtime.renderScene()
+
+            // Mutate content elsewhere
+            rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
+
+            // Switch to frame path
+            let frame = runtime.renderFrame()
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)) else {
+                XCTFail("expected scroll indicator")
+                return
+            }
+
+            // Assert: Prepainted data replayed, but deferred payload rerun for frame
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0)
+            XCTAssertTrue(fillRectCommands(in: frame).contains { $0.rect == expectedIndicatorRect })
+        }
+    }
+
+    // MARK: - VAL-PARITY-007: Frame-to-scene switching reruns incompatible deferred payloads safely
+
+    func testFrameToSceneSwitchRerunsIncompatibleDeferredPayloads() async {
+        await MainActor.run {
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .black
+            )
+
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+            let right = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [rightContent]
+            )
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 180, height: 70),
+                isHitTestVisible: false,
+                children: [left, right]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Start with frame path
+            _ = runtime.renderFrame()
+
+            // Mutate content elsewhere
+            rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
+
+            // Switch to scene path
+            let scene = runtime.renderScene()
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)) else {
+                XCTFail("expected scroll indicator")
+                return
+            }
+
+            // Assert: Prepainted data replayed, but deferred payload rerun for scene
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawSceneReplayCount, 0)
+
+            // Verify indicator is present in scene
+            let sceneRects = sceneFillRects(in: scene)
+            XCTAssertTrue(sceneRects.contains(expectedIndicatorRect))
+        }
+    }
+
+    func testMultipleBackendSwitchesPreserveDeferredOrdering() async {
+        await MainActor.run {
+            let base = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                backgroundColor: .white
+            )
+            let deferredOverlay = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 20, height: 20),
+                backgroundColor: .black,
+                paintsInDeferredPhase: true
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 60, height: 60),
+                isHitTestVisible: false,
+                children: [base, deferredOverlay]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            // Frame -> Scene
+            let frame1 = runtime.renderFrame()
+            base.backgroundColor = Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+            let scene1 = runtime.renderScene()
+
+            // Scene -> Frame
+            base.backgroundColor = Color(red: 0.6, green: 0.6, blue: 0.6, alpha: 1)
+            let frame2 = runtime.renderFrame()
+
+            // Frame -> Scene
+            base.backgroundColor = Color(red: 0.7, green: 0.7, blue: 0.7, alpha: 1)
+            let scene2 = runtime.renderScene()
+
+            // Verify deferred overlay is always last in ordering
+            let rects1 = fillRectCommands(in: frame1).map(\.rect)
+            let rects2 = fillRectCommands(in: frame2).map(\.rect)
+            let sceneRects1 = sceneFillRects(in: scene1)
+            let sceneRects2 = sceneFillRects(in: scene2)
+
+            XCTAssertEqual(rects1.last, deferredOverlay.frame)
+            XCTAssertEqual(rects2.last, deferredOverlay.frame)
+            XCTAssertEqual(sceneRects1.last, deferredOverlay.frame)
+            XCTAssertEqual(sceneRects2.last, deferredOverlay.frame)
+        }
+    }
 }
 
 private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {

@@ -115,8 +115,8 @@ The target architecture is:
 
 ## Presenter Policy
 
-- Frame presentation remains the default presenter until scene-path parity and downgrade safety are proven.
-- Batch presentation remains opt-in until the contract gates for ordering, text, image handling, downgrade behavior, and launch probes are green.
+- Scene presentation is now the default presenter on healthy startup whenever the batch presenter can attach successfully.
+- Frame presentation remains the explicit debug and same-session fallback path when `SWIFT_WINDOWSUI_FRAME_DEBUG` is set or when batch attach/resize/render steps fail.
 - Presenter downgrade is owned by `WinSwiftUIWindowHost` and must remain same-session. Renderer failures must not strand the window lifecycle.
 
 ## Milestone Map

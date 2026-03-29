@@ -1,0 +1,51 @@
+{
+  "milestone": "default-promotion-and-hardening",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Updated `.factory/library/architecture.md` presenter-policy guidance to reflect that scene presentation is now the default startup path, with frame presentation reserved for explicit debug mode and same-session fallback.",
+      "sourceFeature": "scene-default-promotion-and-frame-debug-override"
+    }
+  ],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "On native Windows missions, the startup procedure should treat `powershell -NoProfile -ExecutionPolicy Bypass -File .factory/windows-swift-env.ps1 -CheckOnly` as the first-class environment check when `.factory/init.sh` is a bash wrapper, instead of assuming the shell can execute bash/WSL scripts directly.",
+      "evidence": "The `fix-win32host-string-decoding-warning` review found that `.factory/init.sh` is bash-only while this mission runs on Windows, and the recorded handoff for worker session `37a1b476-5180-4f15-8c04-2999a22c8216` shows the worker had to deviate from the skill and call `windows-swift-env.ps1 -CheckOnly` directly.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Update `.factory/services.yaml` to remove the obsolete `SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH=1` gate from `commands.demo_batch`.",
+      "reason": "Rejected for this scrutiny pass because the manifest update would require mutating an existing command rather than making an additive manifest change; the current command still launches the promoted batch path successfully, so the drift is non-blocking."
+    }
+  ],
+  "previousRound": null
+}

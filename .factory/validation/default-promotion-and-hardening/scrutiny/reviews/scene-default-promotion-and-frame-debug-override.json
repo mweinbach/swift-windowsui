@@ -1,0 +1,26 @@
+{
+  "featureId": "scene-default-promotion-and-frame-debug-override",
+  "reviewedAt": "2026-03-29T22:54:03.896537Z",
+  "commitId": "9e2b1c16e72d3624ac0fdf579a0429114b2d65aa",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Pass. Commit `9e2b1c16e72d3624ac0fdf579a0429114b2d65aa` promotes the scene presenter to the default startup path by making `DefaultRenderBackendFactory.makeBatchBackend()` unconditional in `Sources/SwiftWindowsRendererD3D11/DefaultRenderBackendFactory.swift:14`, then teaching `WinSwiftUIWindowHost` to select scene by default, honor `SWIFT_WINDOWSUI_FRAME_DEBUG`, record presenter-selection state, and emit startup probe payloads in `Sources/WinSwiftUI/App.swift:119-128`, `638-663`, and `709-752` plus the new startup-selection types in `Sources/WinSwiftUI/PresentationStartup.swift:4-100`. `Sources/SwiftWindowsPlatform/Win32Host.swift:237-243` adds the close request used by one-shot startup probes, `Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1649-1778` proves default scene startup, explicit frame-debug startup, and downgrade observability through the real host seam, and `Tests/SwiftWindowsCoreLogicTests/IntegrationTests.swift:457-460` updates the factory expectation to the promoted default. I found no blocking correctness, regression, or missing-evidence issues within this feature's scope; the handoff's demo-probe evidence covers the default-scene and explicit-frame launch assertions for VAL-RENDER-005 and VAL-RENDER-006.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "knowledge",
+      "observation": "The repo-local architecture reference is now stale about presenter policy after this promotion. It still says frame presentation is the default and batch presentation is opt-in, which no longer matches the shipped host/default-backend behavior.",
+      "evidence": "`.factory/library/architecture.md:118-119` says frame remains the default presenter and batch remains opt-in, but `Sources/SwiftWindowsRendererD3D11/DefaultRenderBackendFactory.swift:14` now always returns a batch backend and `Sources/WinSwiftUI/App.swift:638-663` selects scene presentation by default unless frame-debug override or batch failure forces frame."
+    },
+    {
+      "area": "services",
+      "observation": "The `demo_batch` service command is outdated after default promotion: it still sets `SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH=1` even though that environment gate is no longer consulted by the production backend factory.",
+      "evidence": "`.factory/services.yaml:13` defines `demo_batch` by exporting `SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH='1'`, but `Sources/SwiftWindowsRendererD3D11/DefaultRenderBackendFactory.swift:14` no longer checks that variable and always constructs `D3D11BatchRenderer()`."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Pass: the feature implementation satisfies the requested default-scene promotion, explicit frame-debug override, and backend-selection observability requirements, and the reviewed tests plus recorded demo-probe evidence adequately cover VAL-RENDER-001, VAL-RENDER-005, VAL-RENDER-006, VAL-CROSS-001, and VAL-CROSS-002. I found no blocking code issues; the only follow-up items are shared-state updates for the now-promoted presenter policy and the obsolete `demo_batch` service command."
+}

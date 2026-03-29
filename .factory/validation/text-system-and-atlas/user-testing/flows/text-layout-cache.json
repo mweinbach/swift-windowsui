@@ -1,0 +1,147 @@
+{
+  "groupId": "text-layout-cache",
+  "testedAt": "2026-03-29T15:04:26Z",
+  "isolation": {
+    "surface": "Swift test suites",
+    "suiteFilter": "TextSystemTests",
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "milestone": "text-system-and-atlas"
+  },
+  "toolsUsed": [
+    "powershell",
+    "windows-swift-env.ps1",
+    "swift test"
+  ],
+  "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter TextSystemTests",
+  "exitCode": 0,
+  "suite": "TextSystemTests",
+  "assertions": [
+    {
+      "id": "VAL-TEXT-001",
+      "title": "Logical text layout remains visually stable across display-scale changes",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run TextSystemTests.testWindowTextSystemPreservesLogicalLayoutAcrossDisplayScaleChanges through the focused TextSystemTests suite",
+          "expected": "Changing display scale preserves logical lines, glyph order, glyph origins, and source indices while reusing one cached logical layout result",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:148 confirm identical line text, glyph characters, glyph origins, and source indices for scale factors 1.0 and 1.75 with cachedLayoutCount == 1"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/text-layout-cache/TextSystemTests-suite.log"
+        ],
+        "testCases": [
+          "TextSystemTests.testWindowTextSystemPreservesLogicalLayoutAcrossDisplayScaleChanges"
+        ],
+        "suiteSummary": "TextSystemTests passed; executed 18 tests with 0 failures in 0.009 seconds.",
+        "sourceRefs": [
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:148"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-002",
+      "title": "All layout-affecting inputs are real layout cache boundaries",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run TextSystemTests.testWindowTextSystemUsesLayoutInputsAsCacheBoundaries through the focused TextSystemTests suite",
+          "expected": "Repeated identical layout input reuses the cached result, while changing width, line-break mode, line limit, family, weight, explicit native font size, spacing, kerning, insets, or span styling creates distinct cached layouts",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:198 verify cache counts [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] across repeated and changed inputs, covering width, truncation mode, line limit, family, weight, native size, line spacing, letter spacing, insets, kerning, and span scale changes"
+        },
+        {
+          "action": "Review TextSystemTests.testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity for span-style boundary support",
+          "expected": "Structural span identity changes produce distinct layout keys while identical structure rebuilds the same key",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:322 show moved span ranges produce different layout keys while rebuilt equivalent spans preserve identity"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/text-layout-cache/TextSystemTests-suite.log"
+        ],
+        "testCases": [
+          "TextSystemTests.testWindowTextSystemUsesLayoutInputsAsCacheBoundaries",
+          "TextSystemTests.testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity"
+        ],
+        "suiteSummary": "TextSystemTests passed; executed 18 tests with 0 failures in 0.009 seconds.",
+        "sourceRefs": [
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:198",
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:322"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-003",
+      "title": "Derived native font size from style.scale invalidates logical layout reuse",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run TextSystemTests.testWindowTextSystemInvalidatesReuseWhenNativeFontSizeIsDerivedFromScale through the focused TextSystemTests suite",
+          "expected": "When nativeFontSize is absent, changing only style.scale creates a new cached logical layout and changes derived glyph geometry",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:370 verify cachedLayoutCount == 2 and differing content widths and glyph x-origins between scale 1 and scale 3 inputs"
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/text-layout-cache/TextSystemTests-suite.log"
+        ],
+        "testCases": [
+          "TextSystemTests.testWindowTextSystemInvalidatesReuseWhenNativeFontSizeIsDerivedFromScale"
+        ],
+        "suiteSummary": "TextSystemTests passed; executed 18 tests with 0 failures in 0.009 seconds.",
+        "sourceRefs": [
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:370"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-012",
+      "title": "Truncation and normalized line breaks are deterministic",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run TextSystemTests.testResolveTextLayoutHeadAndMiddleTruncationAreDeterministicAndWidthRespecting",
+          "expected": "Head and middle truncation produce the same width-respecting visible text on repeated runs",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:524 verify repeated head truncation yields ...WORLD, repeated middle truncation yields HE...RLD, and every emitted line stays within width 8"
+        },
+        {
+          "action": "Run TextSystemTests.testResolveTextLayoutNormalizesCRLFDeterministically",
+          "expected": "CRLF and mixed line breaks normalize deterministically across repeated runs while respecting width limits",
+          "observed": "The test passed; the source assertions at Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:566 verify repeated layout normalizes ALPHA\\nBETA\\nGAMMA\\nDELTA with stable lines and each line within width 5"
+        },
+        {
+          "action": "Run supporting width-respecting truncation tests in the same suite",
+          "expected": "Single-line truncation and wrapped line-limit behavior remain deterministic and width-aware",
+          "observed": "The suite also passed TextSystemTests.testResolveTextLayoutTruncatesSingleLineToFit and TextSystemTests.testResolveTextLayoutWrapsAndAppliesLineLimit, which verify deterministic truncation to HELLO... and line-limited wrapping to ALPHA BETA / GAMMA..."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/text-layout-cache/TextSystemTests-suite.log"
+        ],
+        "testCases": [
+          "TextSystemTests.testResolveTextLayoutHeadAndMiddleTruncationAreDeterministicAndWidthRespecting",
+          "TextSystemTests.testResolveTextLayoutNormalizesCRLFDeterministically",
+          "TextSystemTests.testResolveTextLayoutTruncatesSingleLineToFit",
+          "TextSystemTests.testResolveTextLayoutWrapsAndAppliesLineLimit"
+        ],
+        "suiteSummary": "TextSystemTests passed; executed 18 tests with 0 failures in 0.009 seconds.",
+        "sourceRefs": [
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:496",
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:510",
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:524",
+          "Tests/SwiftWindowsCoreLogicTests/TextSystemTests.swift:566"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 4 assigned assertions through the focused TextSystemTests suite. All 4 passed, backed by a passing suite run (18 tests, 0 failures) and direct mapping to the relevant TextSystemTests cases."
+}

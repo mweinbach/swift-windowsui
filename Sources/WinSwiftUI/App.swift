@@ -91,6 +91,16 @@ public struct WindowGroupConfiguration {
     }
 }
 
+enum WindowHostInputEvent {
+    case pointerMoved(point: Point, scaleFactor: Double)
+    case pointerExitedWindow
+    case mouseWheel(point: Point, delta: Double, axis: ScrollAxis?, scaleFactor: Double)
+    case pointerDown(point: Point, scaleFactor: Double)
+    case pointerUp(point: Point, scaleFactor: Double)
+    case keyDown(KeyboardEvent)
+    case keyboardFocusDidLeaveWindow
+}
+
 @MainActor
 final class WinSwiftUIWindowHost: WindowDelegate {
     private enum PresentationBackend {
@@ -158,6 +168,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Optional callback for recording timer state changes, used for testing.
     /// Called whenever `syncAnimationDriver` updates timer configuration.
     var onTimerStateChanged: ((TimerState) -> Void)?
+
+    /// Optional callback for recording input events after the runtime consumes them.
+    /// Used by host tests to prove the real WinSwiftUIWindowHost routed converted input.
+    var onInputEventRouted: ((WindowHostInputEvent) -> Void)?
 
     /// Current timer state for observability. Updated by `syncAnimationDriver`.
     private(set) var currentTimerState: TimerState = TimerState(
@@ -233,42 +247,60 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     }
 
     func window(_ window: Win32Window, pointerMovedTo point: Point) {
-        runtime.pointerMoved(to: logicalPoint(point, scaleFactor: window.scaleFactor))
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
+        runtime.pointerMoved(to: logicalPoint)
+        onInputEventRouted?(.pointerMoved(point: logicalPoint, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func windowPointerDidLeave(_ window: Win32Window) {
         runtime.pointerExitedWindow()
+        onInputEventRouted?(.pointerExitedWindow)
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {
-        runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta)
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
+        runtime.mouseWheel(at: logicalPoint, delta: delta)
+        onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: nil, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {
-        runtime.mouseWheel(at: logicalPoint(point, scaleFactor: window.scaleFactor), delta: delta, axis: .horizontal)
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
+        runtime.mouseWheel(at: logicalPoint, delta: delta, axis: .horizontal)
+        onInputEventRouted?(.mouseWheel(point: logicalPoint, delta: delta, axis: .horizontal, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {
-        runtime.pointerDown(at: logicalPoint(point, scaleFactor: window.scaleFactor))
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
+        runtime.pointerDown(at: logicalPoint)
+        onInputEventRouted?(.pointerDown(point: logicalPoint, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {
-        runtime.pointerUp(at: logicalPoint(point, scaleFactor: window.scaleFactor))
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
+        runtime.pointerUp(at: logicalPoint)
+        onInputEventRouted?(.pointerUp(point: logicalPoint, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
         runtime.keyDown(event)
+        onInputEventRouted?(.keyDown(event))
         commitRuntimeState(in: window, interactive: true)
     }
 
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
         runtime.keyboardFocusDidLeaveWindow()
+        onInputEventRouted?(.keyboardFocusDidLeaveWindow)
         commitRuntimeState(in: window, interactive: true)
     }
 

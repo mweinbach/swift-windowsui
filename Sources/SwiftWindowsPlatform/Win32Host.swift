@@ -125,6 +125,7 @@ public final class Win32Window {
     private var highResTimerHandle: HANDLE?
     private var animationTimerIntervalMilliseconds: UINT = 0
     private var animationTimerUsesHighResolution = false
+    internal var testScaleFactorOverride: Double?
 
     public init(title: String, clientSize: IntSize) {
         self.title = title
@@ -137,6 +138,10 @@ public final class Win32Window {
     }
 
     public var scaleFactor: Double {
+        if let testScaleFactorOverride {
+            return testScaleFactorOverride
+        }
+
         guard let hwnd else {
             return 1.0
         }

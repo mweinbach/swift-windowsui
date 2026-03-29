@@ -193,6 +193,15 @@ func expectedTimerInterval(for refreshRate: UInt32) -> UInt32 {
 
 @MainActor
 final class WinSwiftUIWindowHostTests: XCTestCase {
+    private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
+        frame.commands.compactMap { command in
+            guard case .fillRect(let fillRect) = command else {
+                return nil
+            }
+            return fillRect
+        }
+    }
+
     private func makeSurface(pixelSize: IntSize, scaleFactor: Double) -> SurfaceDescriptor {
         SurfaceDescriptor(
             windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
@@ -380,6 +389,106 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                     sceneBackend: batchRenderer.backendDisplayName
                 )
             )
+        }
+    }
+
+    /// VAL-CROSS-007: If the host downgrades from scene to frame after a
+    /// localized mutation, deferred ordering stays correct, the incompatible
+    /// scene-backed deferred payload reruns on the triggering fallback frame,
+    /// and later downgraded-frame renders replay the unchanged deferred subtree.
+    func testHostDrivenDowngradePreservesDeferredReplayCorrectnessAfterLocalizedMutation() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            let frameRenderer = FakeRenderBackend()
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 180, height: 70),
+                scaleFactor: 1.0
+            )
+
+            let leftContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let rightContent = ViewNode(
+                frame: Rect(x: 90, y: 0, width: 80, height: 50),
+                backgroundColor: .black
+            )
+            let left = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 20,
+                showsScrollIndicator: true,
+                children: [leftContent]
+            )
+
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 180, height: 70),
+                clearColor: .black,
+                content: []
+            )
+
+            var installedTree = false
+            weak var capturedRuntime: RetainedViewRuntime?
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in expectedSurface },
+                sceneRenderer: { runtime, timestamp in
+                    capturedRuntime = runtime
+                    if !installedTree {
+                        runtime.root.isHitTestVisible = false
+                        runtime.root.addChild(left)
+                        runtime.root.addChild(rightContent)
+                        installedTree = true
+                    }
+                    return runtime.renderScene(at: timestamp)
+                }
+            )
+
+            let window = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            host.windowDidCreate(window)
+
+            guard let runtime = capturedRuntime else {
+                XCTFail("expected scene renderer to capture the runtime")
+                return
+            }
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: left.frame) else {
+                XCTFail("expected scroll indicator rect")
+                return
+            }
+
+            XCTAssertTrue(host.isUsingScenePresentationBackend)
+            XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
+
+            batchRenderer.setRenderShouldFail(true)
+            rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
+            host.windowNeedsDisplay(window)
+
+            XCTAssertFalse(host.isUsingScenePresentationBackend)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 1)
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0, "The fallback frame must rerun the scene-incompatible deferred payload instead of replaying it")
+            XCTAssertEqual(fillRectCommands(in: frameRenderer.renderedFrames[0]).last?.rect, expectedIndicatorRect, "Deferred indicator should remain last after the downgrade-triggering fallback frame")
+            XCTAssertEqual(
+                host.currentPresentationSelection,
+                PresentationSelection(
+                    presenter: .frame,
+                    reason: .batchRenderFailure(String(describing: batchRenderer.failureError)),
+                    frameBackend: frameRenderer.backendDisplayName,
+                    sceneBackend: batchRenderer.backendDisplayName
+                )
+            )
+
+            rightContent.backgroundColor = Color(red: 0.7, green: 0.2, blue: 0.3, alpha: 1)
+            host.windowNeedsDisplay(window)
+
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 2)
+            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2, "The downgraded frame session should preserve prepaint replay eligibility, including the unchanged left subtree")
+            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 1, "The unchanged deferred indicator should replay on later downgraded-frame renders")
+            XCTAssertEqual(fillRectCommands(in: frameRenderer.renderedFrames[1]).last?.rect, expectedIndicatorRect, "Deferred indicator ordering should stay correct in the downgraded frame session")
         }
     }
 

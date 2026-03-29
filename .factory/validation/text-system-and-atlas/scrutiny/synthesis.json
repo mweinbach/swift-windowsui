@@ -1,6 +1,6 @@
 {
   "milestone": "text-system-and-atlas",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,40 +20,27 @@
     }
   },
   "reviewsSummary": {
-    "total": 4,
-    "passed": 2,
-    "failed": 2,
+    "total": 2,
+    "passed": 1,
+    "failed": 1,
     "failedFeatures": [
-      "atlas-lifecycle-identity-and-exhaustion",
-      "text-fallback-clip-opacity-and-silence"
+      "fix-native-text-clip-rejection-atlas-dirtying"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "atlas-lifecycle-identity-and-exhaustion",
+      "featureId": "fix-native-text-clip-rejection-atlas-dirtying",
       "severity": "blocking",
-      "description": "After atlas exhaustion clears native atlas contents, ScenePainter's retry path still reuses cached replay ranges from the previous scene. Unchanged text can therefore replay stale atlas UVs against wiped atlas contents, producing blank or corrupted glyphs in mixed replay-plus-new-text frames."
-    },
-    {
-      "featureId": "text-fallback-clip-opacity-and-silence",
-      "severity": "blocking",
-      "description": "appendNativeTextGlyphs resolves/inserts native glyph atlas entries before checking whether the glyph is fully clipped. Fully off-clip native text can dirty and attach the atlas even when no glyph primitive is emitted, leaving VAL-TEXT-010 incomplete."
+      "description": "The new native clip preflight still checks the padded raster-target bounds instead of the final cropped glyph bounds, so a clip can intersect only blank padding while excluding the real glyph and still trigger native atlas rasterization/insertion before later emission is rejected."
     }
   ],
   "appliedUpdates": [],
-  "suggestedGuidanceUpdates": [
-    {
-      "target": "mission-worker-base skill",
-      "suggestion": "On native Windows missions, startup guidance should treat `.factory/windows-swift-env.ps1` / `.factory/services.yaml` as the first-class environment setup path when `.factory/init.sh` cannot run without bash/WSL.",
-      "evidence": "Both failed-feature reviews (`atlas-lifecycle-identity-and-exhaustion` and `text-fallback-clip-opacity-and-silence`) reported worker startup deviating from the bash-first procedure because this Windows host lacks WSL/bash, while mission AGENTS.md and `.factory/library/environment.md` already document `.factory/windows-swift-env.ps1` and `.factory/services.yaml` as the source of truth.",
-      "isSystemic": true
-    }
-  ],
+  "suggestedGuidanceUpdates": [],
   "rejectedObservations": [
     {
-      "observation": "Add a new library note telling workers to use `.factory/windows-swift-env.ps1` for Swift commands on this repo.",
-      "reason": "already-documented in `.factory/library/environment.md`"
+      "observation": "Recommend again that Windows worker startup should prefer `.factory/windows-swift-env.ps1` / `.factory/services.yaml` over `bash .factory/init.sh` on this repo.",
+      "reason": "duplicate of the round 1 scrutiny recommendation already captured in `.factory/validation/text-system-and-atlas/scrutiny/synthesis.round1.json`"
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/text-system-and-atlas/scrutiny/synthesis.round1.json"
 }

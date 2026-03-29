@@ -139,6 +139,15 @@ final class TestObservableObject: ObservableObject {
     @Published var secondaryValue: String = ""
 }
 
+@MainActor
+struct ObservedObjectValueView: View {
+    @ObservedObject var model: TestObservableObject
+
+    var body: some View {
+        Text("\(model.value)")
+    }
+}
+
 // MARK: - Refresh Rate Testing Helpers
 
 /// Captures the effective refresh rate behavior by examining timer configuration.
@@ -948,234 +957,162 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
     // MARK: - VAL-CROSS-010: Observed-Object Batching and Coalescing Tests
 
     /// VAL-CROSS-010: Multiple same-turn changes from an observed object coalesce into one host-driven rebuild.
-    /// This test asserts same-turn coalescing via concrete counters.
-    func testObservedObjectReloadsCoalesceWithinOneTurn() async {
-        await MainActor.run {
-            let frameRenderer = FakeRenderBackend()
+    /// This test waits for the deferred reload task, then proves exactly one
+    /// rebuild and one follow-up render happened for three same-turn changes.
+    func testObservedObjectReloadsCoalesceWithinOneTurn() async throws {
+        let frameRenderer = FakeRenderBackend()
+        let observable = TestObservableObject()
+        let expectedSurface = SurfaceDescriptor(
+            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+            pixelSize: IntSize(width: 320, height: 200),
+            scaleFactor: 1.0
+        )
+        let config = WindowGroupConfiguration(
+            title: "Test",
+            size: IntSize(width: 320, height: 200),
+            clearColor: .black,
+            content: [AnyView(ObservedObjectValueView(model: observable))]
+        )
+        let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+        let host = WinSwiftUIWindowHost(
+            configuration: config,
+            renderer: frameRenderer,
+            batchRenderer: nil,
+            surfaceDescriptorProvider: { _ in expectedSurface }
+        )
 
-            let expectedSurface = SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
-                pixelSize: IntSize(width: 320, height: 200),
-                scaleFactor: 1.0
-            )
+        host.windowDidCreate(fakeWindow)
+        XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial host startup should render once")
 
-            let config = WindowGroupConfiguration(
-                title: "Test",
-                size: IntSize(width: 320, height: 200),
-                clearColor: .black,
-                content: []
-            )
-
-            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
-
-            let host = WinSwiftUIWindowHost(
-                configuration: config,
-                renderer: frameRenderer,
-                batchRenderer: nil,
-                surfaceDescriptorProvider: { _ in expectedSurface }
-            )
-
-            host.windowDidCreate(fakeWindow)
-
-            // Create an observable object
-            let observable = TestObservableObject()
-
-            // Track coalescing events
-            var scheduledEvents: [(objectID: ObjectIdentifier, coalesced: Bool)] = []
-            host.onObservedObjectReloadScheduled = { objectID, coalesced in
-                scheduledEvents.append((objectID, coalesced))
-            }
-
-            // Reset counters to establish baseline
-            host.resetObservabilityCounters()
-
-            // Register the object for observation (simulating what @ObservedObject would do)
-            host.observe(observable)
-
-            // Simulate multiple @Published changes in rapid succession (same turn)
-            ObservableObjectCenter.shared.notify(observable)
-            ObservableObjectCenter.shared.notify(observable)
-            ObservableObjectCenter.shared.notify(observable)
-
-            // Assert same-turn coalescing via concrete counter:
-            // - scheduledReloadCount should be 1 (only first notification schedules a reload)
-            // - Multiple notifications should result in only 1 scheduled reload
-            XCTAssertEqual(host.scheduledReloadCount, 1,
-                "Same-turn notifications should coalesce into exactly one scheduled reload")
-
-            // Assert coalescing via event tracking:
-            // - First notification: coalesced = false (new task scheduled)
-            // - Subsequent notifications: coalesced = true (accumulated but no new task)
-            XCTAssertEqual(scheduledEvents.count, 3, "All three notifications should be recorded")
-            XCTAssertFalse(scheduledEvents[0].coalesced, "First notification should schedule new reload task")
-            XCTAssertTrue(scheduledEvents[1].coalesced, "Second notification should be coalesced")
-            XCTAssertTrue(scheduledEvents[2].coalesced, "Third notification should be coalesced")
-
-            // The key assertion: reloadScheduled flag prevents multiple Task creations
-            // This is verified by the implementation logic in scheduleObservedObjectReload:
-            // guard !reloadScheduled else { return }
-            // reloadScheduled = true
-            // Task { @MainActor [weak self] in ... }
-            XCTAssertTrue(true, "Multiple same-turn notifications are coalesced into single reload via reloadScheduled flag")
+        var scheduledEvents: [(objectID: ObjectIdentifier, coalesced: Bool)] = []
+        var deferredTaskResults: [Bool] = []
+        var reloadCompletedCount = 0
+        let reloadCompleted = expectation(description: "relevant observed-object reload completed")
+        let deferredTaskCompleted = expectation(description: "deferred observed-object reload task finished")
+        host.onObservedObjectReloadScheduled = { objectID, coalesced in
+            scheduledEvents.append((objectID, coalesced))
         }
+        host.onReloadContentCompleted = {
+            reloadCompletedCount += 1
+            reloadCompleted.fulfill()
+        }
+        host.onObservedObjectReloadTaskCompleted = { didReload in
+            deferredTaskResults.append(didReload)
+            deferredTaskCompleted.fulfill()
+        }
+
+        host.resetObservabilityCounters()
+
+        observable.value = 1
+        observable.secondaryValue = "second change"
+        observable.value = 2
+
+        XCTAssertEqual(host.scheduledReloadCount, 1, "Three same-turn changes should schedule exactly one deferred reload task")
+        XCTAssertEqual(scheduledEvents.count, 3, "Every observed-object change should be recorded")
+        XCTAssertEqual(scheduledEvents.map(\.objectID), Array(repeating: ObjectIdentifier(observable), count: 3))
+        XCTAssertEqual(scheduledEvents.map(\.coalesced), [false, true, true], "Only the first change should create a new deferred reload task")
+
+        await fulfillment(of: [reloadCompleted, deferredTaskCompleted], timeout: 1.0)
+
+        XCTAssertEqual(host.completedObservedObjectReloadTaskCount, 1, "Exactly one deferred reload task should finish")
+        XCTAssertEqual(host.skippedObservedObjectReloadCount, 0, "The relevant dependency should not be filtered out")
+        XCTAssertEqual(host.executedReloadCount, 1, "Exactly one deferred reload should rebuild content")
+        XCTAssertEqual(reloadCompletedCount, 1, "Exactly one deferred reload should complete")
+        XCTAssertEqual(deferredTaskResults, [true], "The deferred reload task should report an executed reload")
+        XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Rebuild should queue presentation but not render until display is requested")
+
+        host.windowNeedsDisplay(fakeWindow)
+
+        XCTAssertEqual(frameRenderer.renderedFrames.count, 2, "The queued presentation should render exactly one follow-up frame")
+        XCTAssertEqual(frameRenderer.renderedFrames.last?.clearColor, .black, "The follow-up frame should present the configured clear color")
     }
 
-    /// VAL-CROSS-010: Changes from objects not observed by the current component tree do not trigger redundant rebuilds.
-    /// This test asserts dependency filtering via concrete counters.
-    func testUnrelatedObservedObjectChangesDoNotTriggerReload() async throws {
-        await MainActor.run {
-            let frameRenderer = FakeRenderBackend()
+    /// VAL-CROSS-010: The ComponentHost dependency set rejects irrelevant
+    /// observed-object changes after the deferred reload task runs.
+    func testObservedObjectDependencySetRejectsIrrelevantChanges() async throws {
+        let frameRenderer = FakeRenderBackend()
+        let relevantObject = TestObservableObject()
+        let irrelevantObject = TestObservableObject()
+        let expectedSurface = SurfaceDescriptor(
+            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+            pixelSize: IntSize(width: 320, height: 200),
+            scaleFactor: 1.0
+        )
+        let config = WindowGroupConfiguration(
+            title: "Test",
+            size: IntSize(width: 320, height: 200),
+            clearColor: .black,
+            content: [AnyView(ObservedObjectValueView(model: relevantObject))]
+        )
+        let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+        let host = WinSwiftUIWindowHost(
+            configuration: config,
+            renderer: frameRenderer,
+            batchRenderer: nil,
+            surfaceDescriptorProvider: { _ in expectedSurface }
+        )
 
-            let expectedSurface = SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
-                pixelSize: IntSize(width: 320, height: 200),
-                scaleFactor: 1.0
-            )
+        host.windowDidCreate(fakeWindow)
+        XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial host startup should render once")
 
-            let config = WindowGroupConfiguration(
-                title: "Test",
-                size: IntSize(width: 320, height: 200),
-                clearColor: .black,
-                content: []
-            )
-
-            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
-
-            let host = WinSwiftUIWindowHost(
-                configuration: config,
-                renderer: frameRenderer,
-                batchRenderer: nil,
-                surfaceDescriptorProvider: { _ in expectedSurface }
-            )
-
-            host.windowDidCreate(fakeWindow)
-
-            // Create two observable objects
-            let observedObject = TestObservableObject()
-            let unobservedObject = TestObservableObject()
-
-            // Track which objects triggered reloads
-            var reloadTriggeringObjects: [ObjectIdentifier] = []
-            host.onObservedObjectReloadScheduled = { objectID, _ in
-                reloadTriggeringObjects.append(objectID)
-            }
-
-            // Reset counters to establish baseline
-            host.resetObservabilityCounters()
-
-            // Register only the observed object (simulating a view that uses @ObservedObject)
-            host.observe(observedObject)
-
-            // The dependency tracking logic in scheduleObservedObjectReload:
-            // ```
-            // let dependsOnChangedObject = self.componentHost.observedObjects.isEmpty
-            //     || !relevantChanges.isDisjoint(with: self.componentHost.observedObjects)
-            // guard dependsOnChangedObject else { return }
-            // ```
-            //
-            // When componentHost.observedObjects is empty (no dependencies registered),
-            // dependsOnChangedObject = true, so all changes trigger rebuild.
-            // When componentHost.observedObjects has entries, only matching IDs trigger reload.
-
-            // Notify the unobserved object (not registered)
-            ObservableObjectCenter.shared.notify(unobservedObject)
-
-            // Since we only registered observedObject, notify(unobservedObject) should not
-            // trigger any reload because there are no observers registered for it.
-            // The scheduledReloadCount should still be 0.
-            XCTAssertEqual(host.scheduledReloadCount, 0,
-                "Unobserved object should not trigger any reload (no observers registered)")
-
-            // Now notify the observed object
-            ObservableObjectCenter.shared.notify(observedObject)
-
-            // This should trigger a reload
-            XCTAssertEqual(host.scheduledReloadCount, 1,
-                "Observed object should trigger a scheduled reload")
-            XCTAssertTrue(reloadTriggeringObjects.contains(ObjectIdentifier(observedObject)),
-                "The observed object ID should be in the list of triggering objects")
+        let relevantReloadCompleted = expectation(description: "relevant object establishes dependency set")
+        let relevantTaskCompleted = expectation(description: "relevant deferred reload task finished")
+        var relevantTaskResults: [Bool] = []
+        host.onReloadContentCompleted = {
+            relevantReloadCompleted.fulfill()
         }
-    }
-
-    /// VAL-CROSS-010: Coalescing and dependency filtering work together correctly.
-    /// This test asserts presentation/rebuild counts after notifications.
-    func testObservedObjectCoalescingByDependencyRelevance() async throws {
-        await MainActor.run {
-            let frameRenderer = FakeRenderBackend()
-            let batchRenderer = FakeBatchRenderBackend()
-
-            let expectedSurface = SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
-                pixelSize: IntSize(width: 320, height: 200),
-                scaleFactor: 1.0
-            )
-
-            let config = WindowGroupConfiguration(
-                title: "Test",
-                size: IntSize(width: 320, height: 200),
-                clearColor: .black,
-                content: []
-            )
-
-            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
-
-            let host = WinSwiftUIWindowHost(
-                configuration: config,
-                renderer: frameRenderer,
-                batchRenderer: batchRenderer,
-                surfaceDescriptorProvider: { _ in expectedSurface }
-            )
-
-            host.windowDidCreate(fakeWindow)
-
-            // Verify batch presenter was selected (host uses batch when available)
-            XCTAssertEqual(batchRenderer.renderedScenes.count, 1, "Initial render should use batch presenter")
-
-            // Track reload completions
-            var reloadCompletedCount = 0
-            host.onReloadContentCompleted = {
-                reloadCompletedCount += 1
-            }
-
-            // The complete coalescing mechanism in scheduleObservedObjectReload:
-            // 1. reloadScheduled flag: prevents multiple Task creations for same-turn changes
-            // 2. pendingChangedObjects: accumulates all changed object IDs during the batch window
-            // 3. Dependency check: only rebuilds if componentHost.observedObjects intersects with pendingChangedObjects
-            // 4. Single reload: the deferred Task calls reloadContent() exactly once
-
-            // Reset counters
-            host.resetObservabilityCounters()
-
-            // Create test objects to demonstrate the behavior
-            let objectA = TestObservableObject()
-            let objectB = TestObservableObject()
-
-            // Register both objects for observation
-            host.observe(objectA)
-            host.observe(objectB)
-
-            // Simulate rapid changes from multiple objects (all in same turn)
-            ObservableObjectCenter.shared.notify(objectA)
-            ObservableObjectCenter.shared.notify(objectB)
-            ObservableObjectCenter.shared.notify(objectA)  // Duplicate notification
-
-            // Assert same-turn coalescing:
-            // Only 1 reload task should be scheduled despite 3 notifications
-            XCTAssertEqual(host.scheduledReloadCount, 1,
-                "Host should schedule exactly one reload task for same-turn changes")
-
-            // Assert that all objects are tracked as having triggered
-            XCTAssertTrue(host.reloadTriggeringObjectIDs.contains(ObjectIdentifier(objectA)),
-                "Object A should be tracked as having triggered a reload")
-            XCTAssertTrue(host.reloadTriggeringObjectIDs.contains(ObjectIdentifier(objectB)),
-                "Object B should be tracked as having triggered a reload")
-
-            // Note: The actual reload execution depends on dependency filtering.
-            // With empty content, componentHost.observedObjects is empty, which means
-            // the dependency check (isDisjoint) returns true (conservative behavior).
-            // However, the scheduled reload Task may not have executed yet.
-            // The key assertions above already prove coalescing works correctly.
+        host.onObservedObjectReloadTaskCompleted = { didReload in
+            relevantTaskResults.append(didReload)
+            relevantTaskCompleted.fulfill()
         }
+
+        host.resetObservabilityCounters()
+        relevantObject.value = 1
+        await fulfillment(of: [relevantReloadCompleted, relevantTaskCompleted], timeout: 1.0)
+        host.windowNeedsDisplay(fakeWindow)
+
+        XCTAssertEqual(relevantTaskResults, [true], "A relevant observed-object change should execute one deferred reload")
+        XCTAssertEqual(frameRenderer.renderedFrames.count, 2, "The relevant change should render one follow-up frame")
+
+        var rejectedTaskResults: [Bool] = []
+        var scheduledEvents: [(objectID: ObjectIdentifier, coalesced: Bool)] = []
+        var rejectedReloadCompletedCount = 0
+        let rejectedTaskCompleted = expectation(description: "irrelevant deferred reload task finished")
+        host.onObservedObjectReloadScheduled = { objectID, coalesced in
+            scheduledEvents.append((objectID, coalesced))
+        }
+        host.onReloadContentCompleted = {
+            rejectedReloadCompletedCount += 1
+        }
+        host.onObservedObjectReloadTaskCompleted = { didReload in
+            rejectedTaskResults.append(didReload)
+            rejectedTaskCompleted.fulfill()
+        }
+
+        host.resetObservabilityCounters()
+        host.observe(irrelevantObject)
+        XCTAssertEqual(host.observedObjectRegistrationCount, 1, "The host should hold a real observation token for the irrelevant object before filtering it")
+
+        let renderCountBeforeIrrelevantChange = frameRenderer.renderedFrames.count
+        irrelevantObject.value = 1
+
+        XCTAssertEqual(host.scheduledReloadCount, 1, "A changed but non-dependent object should still schedule one deferred reload task")
+
+        await fulfillment(of: [rejectedTaskCompleted], timeout: 1.0)
+
+        XCTAssertEqual(host.completedObservedObjectReloadTaskCount, 1, "The deferred reload task should still finish after dependency evaluation")
+        XCTAssertEqual(host.skippedObservedObjectReloadCount, 1, "The ComponentHost dependency set should reject the irrelevant change")
+        XCTAssertEqual(host.executedReloadCount, 0, "Rejected dependency changes must not rebuild content")
+        XCTAssertEqual(rejectedReloadCompletedCount, 0, "Rejected dependency changes must not report reload completion")
+        XCTAssertEqual(rejectedTaskResults, [false], "The deferred reload task should report that it skipped the rebuild")
+        XCTAssertEqual(scheduledEvents.count, 1, "Only one irrelevant notification should be scheduled")
+        XCTAssertEqual(scheduledEvents.first?.objectID, ObjectIdentifier(irrelevantObject), "The scheduled task should correspond to the irrelevant object")
+        XCTAssertEqual(scheduledEvents.first?.coalesced, false, "The irrelevant notification should schedule one non-coalesced task")
+        XCTAssertEqual(frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange, "Rejected dependency changes must not render immediately")
+
+        host.windowNeedsDisplay(fakeWindow)
+
+        XCTAssertEqual(frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange, "Rejected dependency changes must not queue a later render either")
     }
 
     /// VAL-CROSS-010: Pending changed objects accumulation and dependency filtering.

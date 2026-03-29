@@ -145,6 +145,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Used for testing dependency filtering behavior.
     private(set) var executedReloadCount = 0
 
+    /// Counter for deferred observed-object reload tasks that finished.
+    /// Used for testing that deferred reload work was awaited and processed.
+    private(set) var completedObservedObjectReloadTaskCount = 0
+
+    /// Counter for deferred observed-object reload tasks that were rejected by
+    /// the ComponentHost dependency set.
+    private(set) var skippedObservedObjectReloadCount = 0
+
     /// Counter for observed object registrations.
     /// Used for testing dependency registration tracking.
     private(set) var observedObjectRegistrationCount = 0
@@ -164,6 +172,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     /// Optional callback invoked when reloadContent completes.
     /// Used for testing rebuild/presentation counts.
     var onReloadContentCompleted: (() -> Void)?
+
+    /// Optional callback invoked when a deferred observed-object reload task
+    /// finishes dependency evaluation.
+    /// Used for testing whether the task reloaded or was rejected.
+    var onObservedObjectReloadTaskCompleted: ((_ didReload: Bool) -> Void)?
 
     /// Optional callback for recording timer state changes, used for testing.
     /// Called whenever `syncAnimationDriver` updates timer configuration.
@@ -396,6 +409,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func resetObservabilityCounters() {
         scheduledReloadCount = 0
         executedReloadCount = 0
+        completedObservedObjectReloadTaskCount = 0
+        skippedObservedObjectReloadCount = 0
         observedObjectRegistrationCount = 0
         reloadTriggeringObjectIDs.removeAll()
     }
@@ -463,10 +478,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             guard dependsOnChangedObject else {
                 // Dependency filtering: none of the changed objects are in our dependency set
                 // Skip the reload entirely
+                self.skippedObservedObjectReloadCount += 1
+                self.completedObservedObjectReloadTaskCount += 1
+                self.onObservedObjectReloadTaskCompleted?(false)
                 return
             }
 
             self.reloadContent()
+            self.completedObservedObjectReloadTaskCount += 1
+            self.onObservedObjectReloadTaskCompleted?(true)
         }
     }
 

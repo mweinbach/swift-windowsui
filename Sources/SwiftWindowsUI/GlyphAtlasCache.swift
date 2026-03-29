@@ -35,6 +35,10 @@ public final class GlyphAtlasCache {
         return cached.entry
     }
 
+    public func peek(_ key: GlyphKey) -> GlyphEntry? {
+        entries[key]?.entry
+    }
+
     public func insert(
         key: GlyphKey,
         pixels: Data,

@@ -3,6 +3,31 @@ import SwiftWindowsGraphics
 
 @MainActor
 final class NativeGlyphAtlas {
+    struct PreparedGlyph {
+        fileprivate let key: GlyphKey
+        fileprivate let cachedEntry: GlyphEntry?
+        fileprivate let bitmap: NativeGlyphBitmap?
+
+        var previewEntry: GlyphEntry? {
+            if let cachedEntry {
+                return cachedEntry
+            }
+            guard let bitmap else {
+                return nil
+            }
+
+            return GlyphEntry(
+                atlasX: 0,
+                atlasY: 0,
+                width: bitmap.width,
+                height: bitmap.height,
+                bearingX: bitmap.bearingX,
+                bearingY: bitmap.bearingY,
+                advance: bitmap.advance
+            )
+        }
+    }
+
     static let shared = NativeGlyphAtlas()
 
     private let atlas = GlyphAtlas(width: 2048, height: 2048)
@@ -58,6 +83,13 @@ final class NativeGlyphAtlas {
     }
 
     func glyph(for character: Character, style: PixelTextStyle, scaleFactor: Double) -> GlyphEntry? {
+        guard let preparedGlyph = prepareGlyph(for: character, style: style, scaleFactor: scaleFactor) else {
+            return nil
+        }
+        return commitPreparedGlyph(preparedGlyph)
+    }
+
+    func prepareGlyph(for character: Character, style: PixelTextStyle, scaleFactor: Double) -> PreparedGlyph? {
         let key = GlyphKey(
             character: character,
             fontFamily: style.fontFamily,
@@ -65,12 +97,19 @@ final class NativeGlyphAtlas {
             weight: style.weight.glyphAtlasWeight
         )
 
-        return lookupOrInsertGlyph(key: key) {
+        return prepareGlyph(key: key) {
             NativeTextRenderer.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
         }
     }
 
     func glyph(for glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> GlyphEntry? {
+        guard let preparedGlyph = prepareGlyph(for: glyph, style: style, scaleFactor: scaleFactor) else {
+            return nil
+        }
+        return commitPreparedGlyph(preparedGlyph)
+    }
+
+    func prepareGlyph(for glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> PreparedGlyph? {
         let fontSize = max(glyph.fontSize, style.nativeFontPixelSize)
         let fontFamily = glyph.fontFamily
         let weight = glyph.weight.glyphAtlasWeight
@@ -93,26 +132,23 @@ final class NativeGlyphAtlas {
             )
         }
 
-        return lookupOrInsertGlyph(key: key) {
+        return prepareGlyph(key: key) {
             NativeTextRenderer.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
         }
     }
 
-    private func lookupOrInsertGlyph(
-        key: GlyphKey,
-        rasterize: () -> NativeGlyphBitmap?
-    ) -> GlyphEntry? {
-        if let cached = cache.lookup(key) {
+    func commitPreparedGlyph(_ preparedGlyph: PreparedGlyph) -> GlyphEntry? {
+        if let cached = cache.lookup(preparedGlyph.key) {
             usedInCurrentFrame = true
             return cached
         }
 
-        guard let bitmap = rasterize() else {
+        guard let bitmap = preparedGlyph.bitmap else {
             return nil
         }
 
         let entry = cache.insert(
-            key: key,
+            key: preparedGlyph.key,
             pixels: bitmap.surface.pixels,
             width: bitmap.surface.width,
             height: bitmap.surface.height,
@@ -127,6 +163,21 @@ final class NativeGlyphAtlas {
             usedInCurrentFrame = true
         }
         return entry
+    }
+
+    private func prepareGlyph(
+        key: GlyphKey,
+        rasterize: () -> NativeGlyphBitmap?
+    ) -> PreparedGlyph? {
+        if let cached = cache.peek(key) {
+            return PreparedGlyph(key: key, cachedEntry: cached, bitmap: nil)
+        }
+
+        guard let bitmap = rasterize() else {
+            return nil
+        }
+
+        return PreparedGlyph(key: key, cachedEntry: nil, bitmap: bitmap)
     }
 }
 

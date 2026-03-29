@@ -441,7 +441,7 @@ struct ScenePainterTests {
         expectAtlasSilent(scene)
     }
 
-    @Test("Fully clipped native text does not dirty or attach the native atlas - VAL-TEXT-010")
+    @Test("Fully clipped native text, including padding-only clip intersections, does not dirty or attach the native atlas - VAL-TEXT-010")
     func fullyClippedNativeTextStaysAtlasSilent() {
         defer {
             NativeTextRenderer.resetTestingOverrides()
@@ -455,20 +455,42 @@ struct ScenePainterTests {
             stubNativeGlyphBitmap()
         }
 
-        let textNode = ViewNode(
+        let fullyClippedTextNode = ViewNode(
             frame: Rect(x: 0, y: 0, width: 160, height: 32),
             text: "CLIPPED",
             textStyle: PixelTextStyle(color: .white, alignment: .trailing, verticalAlignment: .top, nativeFontSize: 18)
         )
-        let root = ViewNode(
+        let fullyClippedRoot = ViewNode(
             frame: Rect(x: 0, y: 0, width: 20, height: 32),
             clipsToBounds: true,
-            children: [textNode]
+            children: [fullyClippedTextNode]
         )
 
-        let scene = ScenePainter.paint(root: root, clearColor: .black, surfaceSize: surfaceSize)
+        let fullyClippedScene = ScenePainter.paint(root: fullyClippedRoot, clearColor: .black, surfaceSize: surfaceSize)
 
-        expectAtlasSilent(scene)
+        expectAtlasSilent(fullyClippedScene)
+        #expect(NativeGlyphAtlas.shared.wasUsedInCurrentFrame == false)
+
+        NativeGlyphAtlas.shared.resetForTesting()
+
+        let paddingOnlyIntersectionTextNode = ViewNode(
+            frame: Rect(x: 21, y: 0, width: 40, height: 32),
+            text: "A",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+        )
+        let paddingOnlyIntersectionRoot = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 32),
+            clipsToBounds: true,
+            children: [paddingOnlyIntersectionTextNode]
+        )
+
+        let paddingOnlyIntersectionScene = ScenePainter.paint(
+            root: paddingOnlyIntersectionRoot,
+            clearColor: .black,
+            surfaceSize: surfaceSize
+        )
+
+        expectAtlasSilent(paddingOnlyIntersectionScene)
         #expect(NativeGlyphAtlas.shared.wasUsedInCurrentFrame == false)
     }
 

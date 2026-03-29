@@ -726,16 +726,18 @@ public enum ScenePainter {
                     continue
                 }
 
-                guard let entry = NativeGlyphAtlas.shared.glyph(for: glyph, style: style, scaleFactor: displayScale) else {
+                guard let preparedGlyph = NativeGlyphAtlas.shared.prepareGlyph(for: glyph, style: style, scaleFactor: displayScale),
+                      let previewEntry = preparedGlyph.previewEntry
+                else {
                     continue
                 }
-                guard entry.width > 0, entry.height > 0 else {
+                guard previewEntry.width > 0, previewEntry.height > 0 else {
                     continue
                 }
 
                 let destinationOrigin = Point(
-                    x: glyphLayoutOrigin.x + Double(entry.bearingX),
-                    y: glyphLayoutOrigin.y + Double(entry.bearingY)
+                    x: glyphLayoutOrigin.x + Double(previewEntry.bearingX),
+                    y: glyphLayoutOrigin.y + Double(previewEntry.bearingY)
                 )
                 guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
                     continue
@@ -743,10 +745,13 @@ public enum ScenePainter {
                 let glyphRect = Rect(
                     x: destinationOrigin.x,
                     y: destinationOrigin.y,
-                    width: Double(entry.width),
-                    height: Double(entry.height)
+                    width: Double(previewEntry.width),
+                    height: Double(previewEntry.height)
                 )
                 if let scaledVisibleClip, scaledVisibleClip.intersected(with: glyphRect) == nil {
+                    continue
+                }
+                guard let entry = NativeGlyphAtlas.shared.commitPreparedGlyph(preparedGlyph) else {
                     continue
                 }
                 let atlasSize = NativeGlyphAtlas.shared.size

@@ -56,6 +56,7 @@ Manual interaction probes are allowed when a feature changes presenter selection
 - Prefer focused suites first, then run full `test` and `build` before concluding a feature.
 - If a contract assertion references a test suite that does not exist yet, that feature is expected to create the focused suite or equivalent coverage.
 - Treat batch-image and renderer-atlas assertions as end-to-end gates; do not mark them passed from runtime-only evidence.
+- For `VAL-RENDER-007`, do not rely on `D3D11BatchRendererTests` alone: renderer tests prove unresolved-image rejection, but the required same-session downgrade evidence comes from `WinSwiftUIWindowHostTests.testUnresolvedImageBatchFailureDowngradesToFrameSameSession`.
 
 ## Flow Validator Guidance: Swift test suites
 

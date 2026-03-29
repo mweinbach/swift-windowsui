@@ -1,0 +1,117 @@
+{
+  "groupId": "renderer-suite",
+  "milestone": "batch-renderer-capability",
+  "testedAt": "2026-03-29T19:58:41.862170+00:00",
+  "surface": "Swift test suites",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "evidenceDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\evidence\\batch-renderer-capability\\renderer-suite",
+    "reportPath": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\batch-renderer-capability\\user-testing\\flows\\renderer-suite.json",
+    "singleLane": true,
+    "networkUsed": false
+  },
+  "assertions": [
+    {
+      "id": "VAL-RENDER-007",
+      "status": "blocked",
+      "reason": "This assigned flow only ran D3D11BatchRendererTests and IntegrationTests. The renderer suite proved unresolved image primitives are rejected before render, but it did not execute the required WinSwiftUIWindowHost downgrade path needed to confirm same-session host fallback.",
+      "evidence": {
+        "suite": "D3D11BatchRendererTests",
+        "tests": [
+          "testRejectsUnresolvedImagePrimitivesBeforeRender"
+        ],
+        "logs": [
+          "batch-renderer-capability/renderer-suite/D3D11BatchRendererTests.txt"
+        ],
+        "mapping": "Renderer-side rejection is covered, but host downgrade evidence is absent in this flow."
+      }
+    },
+    {
+      "id": "VAL-RENDER-008",
+      "status": "pass",
+      "reason": "Batch renderer planning preserved glyph presentation across an atlas-bearing first render and an atlas-free cached replay by switching from snapshot-backed glyph steps to cached atlas reuse.",
+      "evidence": {
+        "suites": [
+          "D3D11BatchRendererTests",
+          "IntegrationTests"
+        ],
+        "tests": [
+          "testBatchTextPresentationSurvivesAtlasFreeCachedSceneReplay",
+          "testRuntimeAtlasDisciplineStaysCompatibleWithBatchRendererReuse"
+        ],
+        "logs": [
+          "batch-renderer-capability/renderer-suite/D3D11BatchRendererTests.txt",
+          "batch-renderer-capability/renderer-suite/IntegrationTests.txt"
+        ],
+        "mapping": "The renderer suite showed glyph steps move from atlasSource .snapshot to .cached, and the integration suite showed runtime atlas omission remains compatible with cached glyph replay."
+      }
+    },
+    {
+      "id": "VAL-RENDER-009",
+      "status": "pass",
+      "reason": "Batch image render planning preserved image clip bounds, opacity, and texture-run ordering for bound image resources, including bridged image resources.",
+      "evidence": {
+        "suite": "D3D11BatchRendererTests",
+        "tests": [
+          "testImageRenderPlanUsesBoundTextureRunsAndPreservesClipOpacity",
+          "testBridgedImageResourcesBindBeforeRenderPlanValidation"
+        ],
+        "logs": [
+          "batch-renderer-capability/renderer-suite/D3D11BatchRendererTests.txt"
+        ],
+        "mapping": "The renderer suite verified ordered image runs by texture ID and preserved clip/opacity values for image-bearing scenes."
+      }
+    },
+    {
+      "id": "VAL-CROSS-008",
+      "status": "pass",
+      "reason": "Fresh runtime scenes attached atlas payloads, cached scenes omitted redundant atlas payloads, and the batch renderer reused previously uploaded cached atlas resources without losing glyph replay.",
+      "evidence": {
+        "suites": [
+          "IntegrationTests",
+          "D3D11BatchRendererTests"
+        ],
+        "tests": [
+          "testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild",
+          "testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput",
+          "testRuntimeAtlasDisciplineStaysCompatibleWithBatchRendererReuse",
+          "testBatchTextPresentationSurvivesAtlasFreeCachedSceneReplay"
+        ],
+        "logs": [
+          "batch-renderer-capability/renderer-suite/IntegrationTests.txt",
+          "batch-renderer-capability/renderer-suite/D3D11BatchRendererTests.txt"
+        ],
+        "mapping": "Integration coverage confirmed runtime atlas discipline on fresh vs cached scenes, and renderer coverage confirmed cached atlas resources still drive text presentation."
+      }
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter D3D11BatchRendererTests",
+      "exitCode": 0,
+      "observation": "Passed. Relevant cases: testBatchTextPresentationSurvivesAtlasFreeCachedSceneReplay, testImageRenderPlanUsesBoundTextureRunsAndPreservesClipOpacity, testRejectsUnresolvedImagePrimitivesBeforeRender."
+    },
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter IntegrationTests",
+      "exitCode": 0,
+      "observation": "Passed. Relevant cases: testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild, testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput, testRuntimeAtlasDisciplineStaysCompatibleWithBatchRendererReuse."
+    }
+  ],
+  "toolsUsed": [
+    "powershell",
+    "swift test",
+    ".factory/windows-swift-env.ps1"
+  ],
+  "frictions": [],
+  "blockers": [
+    {
+      "description": "VAL-RENDER-007 requires WinSwiftUIWindowHost downgrade evidence, but this renderer-focused assignment only called for D3D11BatchRendererTests and IntegrationTests.",
+      "affectedAssertions": [
+        "VAL-RENDER-007"
+      ],
+      "quickFixAttempted": "Reviewed focused renderer evidence and confirmed only renderer-side unresolved-image rejection was exercised in this flow."
+    }
+  ],
+  "summary": "Validated 4 assigned assertions in the renderer-focused flow: VAL-RENDER-008, VAL-RENDER-009, and VAL-CROSS-008 passed from the requested focused suites; VAL-RENDER-007 remains blocked because same-session host downgrade behavior was not exercised by the assigned test surfaces."
+}

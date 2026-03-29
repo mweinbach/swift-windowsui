@@ -1,0 +1,27 @@
+{
+  "milestone": "batch-renderer-capability",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-RENDER-007",
+    "VAL-RENDER-008",
+    "VAL-RENDER-009",
+    "VAL-CROSS-008"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Recorded that VAL-RENDER-007 requires WinSwiftUIWindowHostTests for same-session downgrade evidence; D3D11BatchRendererTests only prove renderer-side unresolved-image rejection.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null
+}

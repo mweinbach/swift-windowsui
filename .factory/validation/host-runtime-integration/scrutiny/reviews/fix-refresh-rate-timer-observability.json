@@ -1,0 +1,28 @@
+{
+  "featureId": "fix-refresh-rate-timer-observability",
+  "reviewedAt": "2026-03-29T12:44:02.739687-04:00",
+  "commitId": "166dbf9",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix adds a usable timer-state seam and makes idle suppression and timer-enabled state observable, but VAL-CROSS-009 is still not fully validator-visible because the refresh-rate test never drives or asserts a refresh-rate change through WinSwiftUIWindowHost.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 1363,
+        "severity": "blocking",
+        "description": "testRefreshRateUpdatesControlRuntimeMinimumFrameInterval still does not exercise a refresh-rate update or verify cadence changes derived from it. The test only checks that some TimerState was recorded, that high-resolution mode is true, and that the interval is positive/reasonable; it never drives windowDidChangeDisplay/windowDidChangeSystemSettings, never supplies a non-default monitorRefreshRate, and never asserts that currentTimerState.intervalMilliseconds or refreshRate changed in response. A regression where syncAnimationDriver stopped propagating monitor refresh-rate changes into timer cadence would still pass."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-host-worker guidance requires explicit observable evidence for refresh pacing changes, but there is still no documented harness pattern for faking Win32Window monitor refresh rate in host tests. This fix added output-side timer observability, yet the test suite still cannot demonstrate a refresh-rate transition end-to-end.",
+      "evidence": "Sources/WinSwiftUI/App.swift:472-488 reads window.monitorRefreshRate directly inside syncAnimationDriver, while Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1363-1413 never drives windowDidChangeDisplay/windowDidChangeSystemSettings or any non-default refresh-rate input."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\host-runtime-integration\\scrutiny\\reviews\\host-refresh-and-observation-batching.json",
+  "summary": "Fail: the fix closes the timer-state observability gap, but it still does not provide host-level proof that refresh-rate updates change timer cadence, so the original VAL-CROSS-009 scrutiny failure is only partially resolved."
+}

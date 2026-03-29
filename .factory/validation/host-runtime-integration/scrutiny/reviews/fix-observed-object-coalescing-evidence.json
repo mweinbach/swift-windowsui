@@ -1,0 +1,28 @@
+{
+  "featureId": "fix-observed-object-coalescing-evidence",
+  "reviewedAt": "2026-03-29T16:44:30Z",
+  "commitId": "19ccc218656f43c5030da5e4d07da68e5267d4ff",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "Review failed. The fix adds useful host observability hooks, but the revised VAL-CROSS-010 tests still do not prove queued reload execution, rebuild/presentation counts, or real dependency filtering against the ComponentHost dependency set, so the original blocking evidence gap remains.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 1643,
+        "severity": "blocking",
+        "description": "The same-turn coalescing proof still stops at scheduling. `testObservedObjectReloadsCoalesceWithinOneTurn` leaves the prior placeholder `XCTAssertTrue(true)` in place and never waits for the deferred main-actor task or asserts `executedReloadCount`, `onReloadContentCompleted`, or a new render/present count, so a regression where the queued reload never executes would still pass. `testObservedObjectCoalescingByDependencyRelevance` has the same gap: it records `reloadCompletedCount` but never asserts it and explicitly notes that the scheduled task may not have executed."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 1690,
+        "severity": "blocking",
+        "description": "The dependency-filtering claim is still unproven. `testUnrelatedObservedObjectChangesDoNotTriggerReload` only shows that an object with no registered observer does not notify the host. It does not exercise the filtering branch in `scheduleObservedObjectReload` because manual `host.observe(...)` only installs tokens, while `componentHost.observedObjects` is populated during `reloadContent` in `Sources/WinSwiftUI/App.swift:315-326`; with `content: []`, that set stays empty and the `dependsOnChangedObject` check at `Sources/WinSwiftUI/App.swift:403-409` never rejects a scheduled reload. The fix therefore still lacks validator-visible evidence that a changed-but-non-dependent observed object is filtered out by the current component tree."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\host-runtime-integration\\scrutiny\\reviews\\host-refresh-and-observation-batching.json",
+  "summary": "Fail: although the fix adds observability seams, it still does not prove deferred reload execution or true dependency filtering, so VAL-CROSS-010 remains non-visible to scrutiny."
+}

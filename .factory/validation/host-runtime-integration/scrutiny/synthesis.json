@@ -1,6 +1,6 @@
 {
   "milestone": "host-runtime-integration",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -20,59 +20,84 @@
     }
   },
   "reviewsSummary": {
-    "total": 2,
-    "passed": 0,
-    "failed": 2,
+    "total": 5,
+    "passed": 1,
+    "failed": 4,
     "failedFeatures": [
-      "windowhost-input-resize-and-downgrade-harness",
-      "host-refresh-and-observation-batching"
+      "fix-input-routing-observable-assertions",
+      "fix-resize-dpi-propagation-test",
+      "fix-refresh-rate-timer-observability",
+      "fix-observed-object-coalescing-evidence"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "featureId": "fix-input-routing-observable-assertions",
       "severity": "blocking",
-      "description": "`testBatchRenderFailureDowngradesToFrameSameSession` only proves frame-backend attachment after fallback, not that the triggering frame was actually rendered via the frame path, so VAL-RENDER-004 remains unproven."
+      "description": "The new input-routing tests exercise a mirrored `TestableInputRecordingHost` instead of `WinSwiftUIWindowHost.window(_:pointerMovedTo:)`, `window(_:mouseWheelAt:delta:)`, `window(_:keyDown:)`, and `windowDidLoseKeyboardFocus(_:)`, so VAL-CROSS-004/005/006 are still not proven through the production host seam."
     },
     {
-      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "featureId": "fix-input-routing-observable-assertions",
       "severity": "blocking",
-      "description": "The pointer, wheel, keyboard, and focus-loss host tests mostly assert that calls do not crash instead of proving coordinate conversion or runtime event routing, leaving VAL-CROSS-004/005/006 unvalidated."
+      "description": "`TestableInputRecordingRuntime` records events before delegating, and the assertions only inspect those recorder arrays, so the tests do not prove the real runtime consumed the dispatched pointer, wheel, keyboard, or focus-loss events."
     },
     {
-      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "featureId": "fix-resize-dpi-propagation-test",
       "severity": "blocking",
-      "description": "`testResizeUpdatesLogicalSizeWithScaleFactor` rechecks the injected surface descriptor instead of exercising resize/DPI propagation through host and runtime state, so VAL-CROSS-003 is only partially covered."
+      "description": "The resize/DPI proof moved to a mirrored `TestableRuntimeObservingHost` instead of driving `WinSwiftUIWindowHost.window(_:didResizeTo:)`, so VAL-CROSS-003 still lacks end-to-end validation through the production host path."
     },
     {
-      "featureId": "host-refresh-and-observation-batching",
+      "featureId": "fix-resize-dpi-propagation-test",
       "severity": "blocking",
-      "description": "The VAL-CROSS-009 tests do not verify refresh-rate propagation or timer enable/disable behavior; they only inspect `useHighResolutionTimer` or a local cadence helper, so regressions in host pacing could still pass."
+      "description": "The helper uses a test-only `surfaceDescriptor.scaleFactor` path, but production resize logic reads `window.scaleFactor`, which comes from `GetDpiForWindow(hwnd)`, so the DPI assertions do not cover the real seam."
     },
     {
-      "featureId": "host-refresh-and-observation-batching",
+      "featureId": "fix-resize-dpi-propagation-test",
       "severity": "blocking",
-      "description": "The VAL-CROSS-010 tests are placeholders that neither register observed dependencies nor assert reload/presentation counts after notifications, so same-turn coalescing and dependency filtering remain unproven."
+      "description": "The post-downgrade resize test only resizes the helper's frame renderer instead of proving the real same-session fallback path that reattaches the frame renderer, resizes it, and switches the active backend."
+    },
+    {
+      "featureId": "fix-refresh-rate-timer-observability",
+      "severity": "blocking",
+      "description": "The timer observability seam is now real, but `testRefreshRateUpdatesControlRuntimeMinimumFrameInterval` still never drives a changed `monitorRefreshRate` through `WinSwiftUIWindowHost`, so VAL-CROSS-009 remains only partially proven."
+    },
+    {
+      "featureId": "fix-observed-object-coalescing-evidence",
+      "severity": "blocking",
+      "description": "The coalescing tests still stop at scheduling: they do not wait for the deferred reload task or assert `executedReloadCount`, reload completion, or render/present evidence, so queued reload execution is still unproven."
+    },
+    {
+      "featureId": "fix-observed-object-coalescing-evidence",
+      "severity": "blocking",
+      "description": "The dependency-filtering test never exercises the `ComponentHost` dependency-set rejection path, because manual `observe(...)` tokens are installed without populating `componentHost.observedObjects`, so VAL-CROSS-010 is still not validator-visible."
     }
   ],
-  "appliedUpdates": [],
+  "appliedUpdates": [
+    {
+      "target": "library",
+      "description": "Added `.factory/library/host-runtime-test-seams.md` documenting that host resize uses `window.scaleFactor` from `GetDpiForWindow(hwnd)` and timer cadence uses `window.monitorRefreshRate`, so test-only surface-descriptor updates or output-only timer assertions do not prove the production seams.",
+      "sourceFeature": "fix-resize-dpi-propagation-test"
+    }
+  ],
   "suggestedGuidanceUpdates": [
     {
-      "target": "mission-worker-base skill",
-      "suggestion": "Make the startup checklist explicitly restate that mission files live in the absolute `missionDir` from the worker bootstrap, not under a repo-local `.factory/missions/...` path.",
-      "evidence": "The `windowhost-input-resize-and-downgrade-harness` worker first attempted to read `C:/Users/maxw6/Projects/swift-windowsui/.factory/missions/5d62c514-a5fc-4389-9107-8af5d18bcb58/...` before recovering to the real mission directory, wasting startup time.",
-      "isSystemic": false
+      "target": "runtime-host-worker skill",
+      "suggestion": "When hardening scrutiny evidence for host assertions, require tests to keep calling the real `WinSwiftUIWindowHost` methods under review rather than introducing mirrored helper hosts that duplicate production routing or resize logic.",
+      "evidence": "Both `fix-input-routing-observable-assertions` and `fix-resize-dpi-propagation-test` replaced weak assertions with stronger checks gathered from test-only helper hosts, but the helpers bypassed the production `WinSwiftUIWindowHost` seams and left the original contract blockers unresolved.",
+      "isSystemic": true
+    },
+    {
+      "target": "runtime-host-worker skill",
+      "suggestion": "Re-emphasize that the required `.factory/library/architecture.md` startup read still applies to narrow scrutiny-fix sessions, or document a deliberate exception if the mission wants to allow skipping it.",
+      "evidence": "Both `fix-frame-path-render-after-batch-failure` and `fix-resize-dpi-propagation-test` skipped the required architecture-library read even though the skill currently lists it as a startup step.",
+      "isSystemic": true
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "Strengthen `runtime-host-worker` guidance because the worker that added `WinSwiftUIWindowHostTests` did not read `.factory/library/user-testing.md` before changing validation surfaces.",
-      "reason": "already-documented; the current skill already requires reading `user-testing.md`, so this round shows worker non-compliance rather than missing guidance"
-    },
-    {
-      "observation": "Document a standard timer-state assertion seam for host tests because the worker fell back to placeholder assertions after discovering `Win32Window` is final.",
-      "reason": "ambiguous and feature-specific; the blocking issue is missing test observability in the codebase, not yet a proven cross-worker guidance gap"
+      "observation": "Restate that mission files live under the absolute `missionDir` instead of a repo-local `.factory/missions/...` path.",
+      "reason": "duplicate of the previous scrutiny round's guidance recommendation"
     }
   ],
-  "previousRound": null
+  "previousRound": ".factory/validation/host-runtime-integration/scrutiny/synthesis.round1.json"
 }

@@ -25,7 +25,7 @@ None.
 
 1. Read the assigned feature, the validation assertions it fulfills, `.factory/library/architecture.md`, and `.factory/services.yaml`. Read `.factory/library/user-testing.md` when the feature changes validation surfaces, host/demo probes, or user-testing setup assumptions.
 2. Identify the host/runtime seams that must be observable for the assigned assertions. If the contract references a focused suite such as `WinSwiftUIWindowHostTests`, create or extend that suite first.
-3. Add failing focused tests before implementation. For scrutiny or evidence-hardening fixes, strengthening an existing focused test in place is acceptable if it directly closes the cited proof gap. Prefer fake backend / fake window seams over manual reasoning.
+3. Add failing focused tests before implementation. For scrutiny or evidence-hardening fixes, strengthening an existing focused test in place is acceptable if it directly closes the cited proof gap. Prefer fake backend / fake window seams over manual reasoning. IMPORTANT: For scrutiny fixes, do NOT use mirrored helper hosts (like `TestableInputRecordingHost` or `TestableRuntimeObservingHost`) that bypass the real `WinSwiftUIWindowHost` logic; test the actual production pathways end-to-end. Refer to `.factory/library/host-runtime-test-seams.md` for the factual DPI, refresh-rate, and event production seams.
 4. Implement the runtime/host changes while preserving:
    - retained-runtime ownership of layout/prepaint/interaction state,
    - backend-neutral scene semantics,

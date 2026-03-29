@@ -63,12 +63,21 @@ final class FakeRenderBackend: RenderBackend {
 
 @MainActor
 final class FakeBatchRenderBackend: BatchRenderBackend {
+    enum Event: Equatable {
+        case bind([Int32])
+        case render([Int32])
+    }
+
     private(set) var attachedSurfaces: [SurfaceDescriptor] = []
     private(set) var resizedSizes: [IntSize] = []
     private(set) var renderedScenes: [GPUIScene] = []
+    private(set) var boundScenes: [GPUIScene] = []
+    private(set) var events: [Event] = []
     private(set) var attachShouldFail: Bool
     private(set) var resizeShouldFail: Bool
     private(set) var renderShouldFail: Bool
+    private(set) var requireBoundImageResourcesBeforeRender = false
+    private var boundTextureIDs = Set<Int32>()
     var failureError: Error = FakeRenderBackendError.simulatedFailure
 
     init(attachShouldFail: Bool = false, resizeShouldFail: Bool = false, renderShouldFail: Bool = false) {
@@ -93,11 +102,31 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
         resizedSizes.append(size)
     }
 
+    func bindResources(for scene: GPUIScene) {
+        boundScenes.append(scene)
+        let textureIDs = scene.imageResources.map(\.textureID).sorted()
+        boundTextureIDs = Set(textureIDs)
+        events.append(.bind(textureIDs))
+    }
+
     func render(scene: GPUIScene) throws {
         if renderShouldFail {
             throw failureError
         }
+
+        if requireBoundImageResourcesBeforeRender {
+            let imageTextureIDs = Set(scene.layers.flatMap(\.images).map(\.textureID))
+            if !imageTextureIDs.isSubset(of: boundTextureIDs) {
+                throw BatchRendererError(
+                    operation: "Resolve image resources",
+                    hresult: -1,
+                    details: "Scene contains image primitives without bound resources."
+                )
+            }
+        }
+
         renderedScenes.append(scene)
+        events.append(.render(scene.layers.flatMap(\.images).map(\.textureID)))
     }
 
     func setAttachShouldFail(_ shouldFail: Bool) {
@@ -110,6 +139,10 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
 
     func setRenderShouldFail(_ shouldFail: Bool) {
         renderShouldFail = shouldFail
+    }
+
+    func setRequireBoundImageResourcesBeforeRender(_ require: Bool) {
+        requireBoundImageResourcesBeforeRender = require
     }
 }
 
@@ -166,6 +199,21 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             pixelSize: pixelSize,
             scaleFactor: scaleFactor
         )
+    }
+
+    private func makeBoundImageScene() -> GPUIScene {
+        let bitmap = BitmapSurface(width: 1, height: 1, bytesPerRow: 4, pixels: Data([255, 255, 255, 255]))
+        let frame = RenderFrame(
+            clearColor: .black,
+            commands: [
+                .drawBitmap(DrawBitmapCommand(
+                    rect: Rect(x: 20, y: 24, width: 48, height: 32),
+                    bitmap: bitmap,
+                    opacity: 0.75
+                ))
+            ]
+        )
+        return GPUIScene(from: frame, surfaceSize: Size(width: 320, height: 200))
     }
 
     private func makeInputRoutingHost(
@@ -358,6 +406,50 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1)
+        }
+    }
+
+    func testBoundImageSceneStaysOnBatchPresenterWithoutDowngrade() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            batchRenderer.setRequireBoundImageResourcesBeforeRender(true)
+            let frameRenderer = FakeRenderBackend()
+
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: []
+            )
+
+            let boundImageScene = makeBoundImageScene()
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in expectedSurface },
+                sceneRenderer: { _, _ in boundImageScene }
+            )
+
+            let fakeWindow = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            XCTAssertTrue(host.isUsingBatchPresentationBackend)
+            XCTAssertEqual(batchRenderer.boundScenes.count, 1)
+            XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
+            XCTAssertEqual(batchRenderer.events, [
+                .bind([0]),
+                .render([0]),
+            ])
+            XCTAssertEqual(batchRenderer.renderedScenes[0].layers[0].images[0].opacity, 0.75, accuracy: 0.001)
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 0)
+            XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
         }
     }
 

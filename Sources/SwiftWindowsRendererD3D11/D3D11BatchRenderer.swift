@@ -144,6 +144,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
     }
 
+    public func bindResources(for scene: GPUIScene) {
+        for binding in scene.imageResources {
+            bindImageResource(binding.bitmap, for: binding.textureID)
+        }
+    }
+
     internal var cachedResourcesForTesting: CachedResources {
         CachedResources(
             hasGlyphAtlas: glyphAtlasSRV != nil,

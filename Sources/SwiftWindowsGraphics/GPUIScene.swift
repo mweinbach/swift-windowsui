@@ -65,6 +65,16 @@ public struct GlyphAtlasSnapshot: Equatable, Sendable {
     }
 }
 
+public struct ImageResourceBinding: Equatable, Sendable {
+    public var textureID: Int32
+    public var bitmap: BitmapSurface
+
+    public init(textureID: Int32, bitmap: BitmapSurface) {
+        self.textureID = textureID
+        self.bitmap = bitmap
+    }
+}
+
 /// A rendering layer containing typed, contiguous primitive arrays.
 /// `paintOperations` preserves the source paint order across primitive families
 /// while sidecar draw-order metadata enables Zed-style sorted batching.
@@ -306,18 +316,21 @@ public struct GPUIScene: Equatable, Sendable {
     public var paintRecords: [GPUIScenePaintRecord]
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
+    public var imageResources: [ImageResourceBinding]
     private var isFinished = false
 
     public init(
         clearColor: Color = .black,
         glyphAtlas: GlyphAtlasSnapshot? = nil,
-        pixelGlyphAtlas: GlyphAtlasSnapshot? = nil
+        pixelGlyphAtlas: GlyphAtlasSnapshot? = nil,
+        imageResources: [ImageResourceBinding] = []
     ) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
         self.paintRecords = []
         self.glyphAtlas = glyphAtlas
         self.pixelGlyphAtlas = pixelGlyphAtlas
+        self.imageResources = imageResources
     }
 
     // MARK: - Layer management
@@ -348,6 +361,30 @@ public struct GPUIScene: Equatable, Sendable {
             paintRecords.append(.startLayer(layerIndex: layerIndex, bounds: bounds))
             isFinished = false
         }
+    }
+
+    @discardableResult
+    public mutating func registerImageResource(_ bitmap: BitmapSurface) -> Int32 {
+        if let existing = imageResources.first(where: { $0.bitmap == bitmap }) {
+            return existing.textureID
+        }
+
+        let nextTextureID = (imageResources.map(\.textureID).max() ?? -1) + 1
+        imageResources.append(ImageResourceBinding(textureID: nextTextureID, bitmap: bitmap))
+        return nextTextureID
+    }
+
+    public mutating func bindImageResource(_ bitmap: BitmapSurface, for textureID: Int32) {
+        guard textureID >= 0 else {
+            return
+        }
+
+        if let index = imageResources.firstIndex(where: { $0.textureID == textureID }) {
+            imageResources[index].bitmap = bitmap
+            return
+        }
+
+        imageResources.append(ImageResourceBinding(textureID: textureID, bitmap: bitmap))
     }
 
     public mutating func popScopedLayer(fromLayer layerIndex: Int) {
@@ -448,6 +485,10 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                 depth: validation.depth,
                 reason: validation.reason!
             )
+        }
+
+        for binding in previousScene.imageResources {
+            bindImageResource(binding.bitmap, for: binding.textureID)
         }
         
         for record in previousScene.paintRecords[range] {
@@ -573,7 +614,8 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
         lhs.layers == rhs.layers &&
         lhs.paintRecords == rhs.paintRecords &&
         lhs.glyphAtlas == rhs.glyphAtlas &&
-        lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas
+        lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas &&
+        lhs.imageResources == rhs.imageResources
     }
 }
 

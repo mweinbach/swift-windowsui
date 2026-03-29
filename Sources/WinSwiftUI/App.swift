@@ -115,6 +115,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
+    private let sceneRenderer: @MainActor (RetainedViewRuntime, Double) -> GPUIScene
     private let inputRateTracker = WindowInputRateTracker()
 
     private var isRendererReady = false
@@ -198,7 +199,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         configuration: WindowGroupConfiguration,
         renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
         batchRenderer: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend(),
-        surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost.defaultSurfaceDescriptor
+        surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost.defaultSurfaceDescriptor,
+        sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil
     ) {
         self.configuration = configuration
         self.window = Win32Window(title: configuration.title, clientSize: configuration.size)
@@ -207,6 +209,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
         self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
         self.componentHost = ComponentHost(runtime: runtime)
+        self.sceneRenderer = sceneRenderer ?? { runtime, timestamp in
+            runtime.renderScene(at: timestamp)
+        }
 
         runtime.setRootSize(configuration.size)
         componentHost.setComponents { [weak self] in
@@ -529,7 +534,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
         do {
             if activeBackend == .batch, let batchRenderer {
-                try batchRenderer.render(scene: runtime.renderScene(at: timestamp ?? 0))
+                let scene = sceneRenderer(runtime, timestamp ?? 0)
+                batchRenderer.bindResources(for: scene)
+                try batchRenderer.render(scene: scene)
             } else {
                 try renderer.render(frame: runtime.renderFrame(at: timestamp ?? 0))
             }

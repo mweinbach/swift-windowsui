@@ -272,4 +272,45 @@ final class D3D11BatchRendererTests: XCTestCase {
             XCTAssertEqual(scene.layers[0].images[2].clipHeight, 32, accuracy: 0.001)
         }
     }
+
+    func testBridgedImageResourcesBindBeforeRenderPlanValidation() async throws {
+        try await MainActor.run {
+            let bitmap = Self.makeBitmapSurface(fill: 200)
+            let frame = RenderFrame(
+                clearColor: .black,
+                commands: [
+                    .drawBitmap(DrawBitmapCommand(
+                        rect: Rect(x: 0, y: 0, width: 32, height: 32),
+                        bitmap: bitmap,
+                        opacity: 0.4
+                    )),
+                    .drawBitmap(DrawBitmapCommand(
+                        rect: Rect(x: 40, y: 0, width: 16, height: 16),
+                        bitmap: bitmap,
+                        opacity: 0.9,
+                        clipRect: Rect(x: 40, y: 0, width: 8, height: 16)
+                    )),
+                ]
+            )
+            let scene = GPUIScene(from: frame, surfaceSize: Size(width: 128, height: 128))
+            XCTAssertEqual(scene.imageResources, [
+                ImageResourceBinding(textureID: 0, bitmap: bitmap)
+            ])
+
+            let renderer = D3D11BatchRenderer()
+            renderer.bindResources(for: scene)
+
+            let plan = try D3D11BatchRenderer.makeRenderPlan(
+                for: scene,
+                cachedResources: renderer.cachedResourcesForTesting
+            )
+
+            XCTAssertEqual(plan.steps, [
+                .images(layerIndex: 0, range: 0..<2, textureID: 0)
+            ])
+            XCTAssertEqual(scene.layers[0].images[0].opacity, 0.4, accuracy: 0.001)
+            XCTAssertEqual(scene.layers[0].images[1].opacity, 0.9, accuracy: 0.001)
+            XCTAssertEqual(scene.layers[0].images[1].clipWidth, 8, accuracy: 0.001)
+        }
+    }
 }

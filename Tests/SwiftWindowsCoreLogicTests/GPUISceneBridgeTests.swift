@@ -159,7 +159,10 @@ struct GPUISceneBridgeTests {
         #expect(img.uvW == 1)
         #expect(img.uvH == 1)
         #expect(img.opacity == 0.8)
-        #expect(img.textureID == -1)
+        #expect(img.textureID == 0)
+        #expect(scene.imageResources == [
+            ImageResourceBinding(textureID: 0, bitmap: bitmap)
+        ])
     }
 
     // MARK: - VAL-SCENE-008: Default clip when no clip is active
@@ -692,6 +695,11 @@ struct GPUISceneBridgeTests {
 
         #expect(scene.layers.count == 1)
         #expect(scene.layers[0].images.count == 2)
+        #expect(scene.layers[0].images[0].textureID == 0)
+        #expect(scene.layers[0].images[1].textureID == 0)
+        #expect(scene.imageResources == [
+            ImageResourceBinding(textureID: 0, bitmap: bitmap)
+        ])
         #expect(scene.layers[0].paintOperations == [
             GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
         ])

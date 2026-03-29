@@ -87,10 +87,12 @@ extension GPUIScene {
                     // VAL-SCENE-009: Empty resulting clip suppresses command
                     continue
                 }
-                
+
+                let textureID = self.registerImageResource(cmd.bitmap)
                 let image = Self.makeImage(
                     from: cmd,
-                    effectiveClip: effectiveClip
+                    effectiveClip: effectiveClip,
+                    textureID: textureID
                 )
                 self.addImage(image)
 
@@ -233,7 +235,8 @@ extension GPUIScene {
     /// Converts a `DrawBitmapCommand` to an `ImagePrimitive`.
     private static func makeImage(
         from cmd: DrawBitmapCommand,
-        effectiveClip: Rect
+        effectiveClip: Rect,
+        textureID: Int32
     ) -> ImagePrimitive {
         return ImagePrimitive(
             screenX: Float(cmd.rect.origin.x),
@@ -246,7 +249,7 @@ extension GPUIScene {
             clipY: Float(effectiveClip.origin.y),
             clipWidth: Float(effectiveClip.size.width),
             clipHeight: Float(effectiveClip.size.height),
-            textureID: -1
+            textureID: textureID
         )
     }
 }

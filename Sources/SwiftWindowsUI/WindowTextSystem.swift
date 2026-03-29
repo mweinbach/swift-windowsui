@@ -3,8 +3,7 @@ import SwiftWindowsCore
 
 @MainActor
 final class WindowTextSystem {
-    private struct LayoutKey: Hashable {
-        var text: String
+    struct LayoutStyleKey: Hashable {
         var fontFamily: String
         var resolvedNativeFontSize: Double
         var weight: TextWeight
@@ -19,11 +18,8 @@ final class WindowTextSystem {
         var underline: Bool
         var strikethrough: Bool
         var enableKerning: Bool
-        var maxWidth: Double?
-        var spansFingerprint: Int
 
-        init(text: String, style: PixelTextStyle, maxWidth: Double?) {
-            self.text = text
+        init(style: PixelTextStyle) {
             self.fontFamily = style.fontFamily
             self.resolvedNativeFontSize = style.nativeFontPixelSize
             self.weight = style.weight
@@ -38,48 +34,56 @@ final class WindowTextSystem {
             self.underline = style.underline
             self.strikethrough = style.strikethrough
             self.enableKerning = style.enableKerning
-            self.maxWidth = maxWidth
-            self.spansFingerprint = Self.makeSpansFingerprint(style.spans, in: text)
+        }
+    }
+
+    struct LayoutSpanKey: Hashable {
+        var text: String
+        var style: LayoutStyleKey
+        var utf16RangeStart: Int?
+        var utf16RangeLength: Int?
+
+        init(span: TextSpan, in fullText: String) {
+            self.text = span.text
+            self.style = LayoutStyleKey(style: span.style)
+
+            let range = Self.utf16Range(for: span.range, in: fullText)
+            self.utf16RangeStart = range?.start
+            self.utf16RangeLength = range?.length
         }
 
-        private static func makeSpansFingerprint(_ spans: [TextSpan]?, in text: String) -> Int {
-            var hasher = Hasher()
-            hasher.combine(spans?.count ?? 0)
-            let utf16View = text.utf16
-
-            for span in spans ?? [] {
-                hasher.combine(span.text)
-                combineLayoutStyle(span.style, into: &hasher)
-
-                if let range = span.range,
-                   let utf16Start = range.lowerBound.samePosition(in: utf16View),
-                   let utf16End = range.upperBound.samePosition(in: utf16View)
-                {
-                    hasher.combine(utf16View.distance(from: utf16View.startIndex, to: utf16Start))
-                    hasher.combine(utf16View.distance(from: utf16Start, to: utf16End))
-                } else {
-                    hasher.combine(-1)
-                }
+        private static func utf16Range(
+            for range: Range<String.Index>?,
+            in text: String
+        ) -> (start: Int, length: Int)? {
+            guard let range else {
+                return nil
             }
 
-            return hasher.finalize()
-        }
+            let utf16View = text.utf16
+            guard let utf16Start = range.lowerBound.samePosition(in: utf16View),
+                  let utf16End = range.upperBound.samePosition(in: utf16View)
+            else {
+                return nil
+            }
 
-        private static func combineLayoutStyle(_ style: PixelTextStyle, into hasher: inout Hasher) {
-            hasher.combine(style.fontFamily)
-            hasher.combine(style.nativeFontPixelSize)
-            hasher.combine(style.weight)
-            hasher.combine(style.letterSpacing)
-            hasher.combine(style.lineSpacing)
-            hasher.combine(style.lineBreakMode)
-            hasher.combine(style.maximumNumberOfLines)
-            hasher.combine(style.insets.top)
-            hasher.combine(style.insets.leading)
-            hasher.combine(style.insets.bottom)
-            hasher.combine(style.insets.trailing)
-            hasher.combine(style.underline)
-            hasher.combine(style.strikethrough)
-            hasher.combine(style.enableKerning)
+            let start = utf16View.distance(from: utf16View.startIndex, to: utf16Start)
+            let length = utf16View.distance(from: utf16Start, to: utf16End)
+            return (start, length)
+        }
+    }
+
+    struct LayoutKey: Hashable {
+        var text: String
+        var style: LayoutStyleKey
+        var maxWidth: Double?
+        var spans: [LayoutSpanKey]
+
+        init(text: String, style: PixelTextStyle, maxWidth: Double?) {
+            self.text = text
+            self.style = LayoutStyleKey(style: style)
+            self.maxWidth = maxWidth
+            self.spans = (style.spans ?? []).map { LayoutSpanKey(span: $0, in: text) }
         }
     }
 

@@ -319,6 +319,54 @@ final class TextSystemTests: XCTestCase {
         XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
     }
 
+    func testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity() {
+        let text = "Alpha Beta Gamma Beta"
+        let firstRange = text.range(of: "Beta")!
+        let secondRange = text.range(of: "Beta", range: firstRange.upperBound..<text.endIndex)!
+        let spanStyle = PixelTextStyle(
+            color: .white,
+            scale: 1.4,
+            alignment: .leading,
+            verticalAlignment: .top,
+            letterSpacing: 1,
+            lineSpacing: 2,
+            fontFamily: "Segoe UI",
+            nativeFontSize: 18,
+            weight: .regular,
+            lineBreakMode: .wrap,
+            maximumNumberOfLines: 2,
+            enableKerning: true
+        )
+        let baseStyle = PixelTextStyle(
+            color: .white,
+            scale: 2,
+            alignment: .leading,
+            verticalAlignment: .top,
+            letterSpacing: 1,
+            lineSpacing: 2,
+            insets: EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4),
+            fontFamily: "Segoe UI",
+            nativeFontSize: 18,
+            weight: .regular,
+            lineBreakMode: .wrap,
+            maximumNumberOfLines: 2,
+            enableKerning: true,
+            spans: [TextSpan(text: "Beta", style: spanStyle, range: firstRange)]
+        )
+
+        var movedSpanStyle = baseStyle
+        movedSpanStyle.spans = [TextSpan(text: "Beta", style: spanStyle, range: secondRange)]
+
+        let firstKey = WindowTextSystem.LayoutKey(text: text, style: baseStyle, maxWidth: 140)
+        let secondKey = WindowTextSystem.LayoutKey(text: text, style: movedSpanStyle, maxWidth: 140)
+        let rebuiltFirstKey = WindowTextSystem.LayoutKey(text: String(text), style: baseStyle, maxWidth: 140)
+
+        XCTAssertNotEqual(firstKey.spans, secondKey.spans)
+        XCTAssertNotEqual(firstKey, secondKey)
+        XCTAssertEqual(firstKey.spans, rebuiltFirstKey.spans)
+        XCTAssertEqual(firstKey, rebuiltFirstKey)
+    }
+
     func testWindowTextSystemInvalidatesReuseWhenNativeFontSizeIsDerivedFromScale() async throws {
         let capabilities = await MainActor.run {
             TextSystem.capabilities()

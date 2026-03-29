@@ -2138,6 +2138,10 @@ public final class RetainedViewRuntime {
     private var cachedFrame: RenderFrame?
     private var cachedScene: GPUIScene?
     private var prepaintState = RuntimePrepaintState()
+
+    /// Access to current prepaint state for testing deferred scene-path behavior.
+    @MainActor
+    internal var currentPrepaintState: RuntimePrepaintState { prepaintState }
     internal private(set) var lastFrameReplayCount = 0
     internal private(set) var lastSceneReplayCount = 0
     internal private(set) var lastLayoutReuseCount = 0

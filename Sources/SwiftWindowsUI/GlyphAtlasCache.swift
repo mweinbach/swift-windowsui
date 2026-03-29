@@ -7,6 +7,7 @@ public final class GlyphAtlasCache {
     private let atlas: GlyphAtlas
     private let maxEntries: Int
     private var frameCounter: UInt64 = 0
+    public private(set) var didRecoverFromExhaustionOnLastInsert = false
 
     struct CacheEntry {
         var entry: GlyphEntry
@@ -43,11 +44,54 @@ public final class GlyphAtlasCache {
         bearingY: Float,
         advance: Float
     ) -> GlyphEntry? {
+        didRecoverFromExhaustionOnLastInsert = false
+
         // Evict if at capacity
         if entries.count >= maxEntries {
             evictLRU(count: 1)
         }
 
+        guard width > 0,
+              height > 0,
+              width <= atlas.width,
+              height <= atlas.height else {
+            return nil
+        }
+
+        guard let entry = insertWithoutRecovery(
+            key: key,
+            pixels: pixels,
+            width: width,
+            height: height,
+            bearingX: bearingX,
+            bearingY: bearingY,
+            advance: advance
+        ) else {
+            clear()
+            didRecoverFromExhaustionOnLastInsert = true
+            return insertWithoutRecovery(
+                key: key,
+                pixels: pixels,
+                width: width,
+                height: height,
+                bearingX: bearingX,
+                bearingY: bearingY,
+                advance: advance
+            )
+        }
+
+        return entry
+    }
+
+    private func insertWithoutRecovery(
+        key: GlyphKey,
+        pixels: Data,
+        width: Int32,
+        height: Int32,
+        bearingX: Float,
+        bearingY: Float,
+        advance: Float
+    ) -> GlyphEntry? {
         guard let position = atlas.allocate(width: width, height: height) else {
             return nil
         }

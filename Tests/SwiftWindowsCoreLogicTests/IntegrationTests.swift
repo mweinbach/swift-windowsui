@@ -8,6 +8,10 @@ import SwiftWindowsRendererD3D11
 
 final class IntegrationTests: XCTestCase {
 
+    private static func flattenedGlyphs(in scene: GPUIScene) -> (native: [GlyphPrimitive], pixel: [GlyphPrimitive]) {
+        (scene.layers.flatMap(\.glyphs), scene.layers.flatMap(\.pixelGlyphs))
+    }
+
     // MARK: - GPUIScene Bridge Tests
 
     func testBridgeConvertsEmptyFrameToSceneWithOneLayer() {
@@ -183,6 +187,59 @@ final class IntegrationTests: XCTestCase {
             XCTAssertTrue(firstScene.glyphAtlas != nil || firstScene.pixelGlyphAtlas != nil)
             XCTAssertNil(cachedScene.glyphAtlas)
             XCTAssertNil(cachedScene.pixelGlyphAtlas)
+        }
+    }
+
+    func testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput() async {
+        await MainActor.run {
+            let textNode = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 180, height: 40),
+                text: "HELLO",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+            )
+            let sibling = ViewNode(
+                frame: Rect(x: 0, y: 60, width: 80, height: 20),
+                backgroundColor: .white
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 120),
+                children: [textNode, sibling]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let initialScene = runtime.renderScene()
+            sibling.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+            let rebuiltScene = runtime.renderScene()
+            let initialGlyphs = Self.flattenedGlyphs(in: initialScene)
+            let rebuiltGlyphs = Self.flattenedGlyphs(in: rebuiltScene)
+
+            XCTAssertFalse(initialGlyphs.native.isEmpty && initialGlyphs.pixel.isEmpty)
+            XCTAssertNil(rebuiltScene.glyphAtlas)
+            XCTAssertNil(rebuiltScene.pixelGlyphAtlas)
+            XCTAssertEqual(initialGlyphs.native, rebuiltGlyphs.native)
+            XCTAssertEqual(initialGlyphs.pixel, rebuiltGlyphs.pixel)
+        }
+    }
+
+    func testTextMutationReattachesAtlasPayloadWithDirtyRegion() async {
+        await MainActor.run {
+            let textNode = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 240, height: 80),
+                text: "HELLO",
+                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top)
+            )
+            let runtime = RetainedViewRuntime(root: textNode)
+
+            _ = runtime.renderScene()
+            textNode.text = "WORLD"
+            let mutatedScene = runtime.renderScene()
+            let mutatedGlyphs = Self.flattenedGlyphs(in: mutatedScene)
+
+            XCTAssertFalse(mutatedGlyphs.native.isEmpty && mutatedGlyphs.pixel.isEmpty)
+            XCTAssertTrue(
+                mutatedScene.glyphAtlas?.dirtyRegion != nil ||
+                mutatedScene.pixelGlyphAtlas?.dirtyRegion != nil
+            )
         }
     }
 

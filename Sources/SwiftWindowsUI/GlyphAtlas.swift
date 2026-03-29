@@ -20,8 +20,15 @@ public struct GlyphKey: Hashable, Sendable {
         self.weight = weight
     }
 
-    public init(glyphID: UInt32, fontFaceID: UInt64?, fontFamily: String, fontSize: Float, weight: GlyphWeight) {
-        self.character = nil
+    public init(
+        character: Character? = nil,
+        glyphID: UInt32,
+        fontFaceID: UInt64?,
+        fontFamily: String,
+        fontSize: Float,
+        weight: GlyphWeight
+    ) {
+        self.character = character
         self.glyphID = glyphID
         self.fontFaceID = fontFaceID
         self.fontFamily = fontFamily

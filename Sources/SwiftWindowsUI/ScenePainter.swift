@@ -35,50 +35,76 @@ public enum ScenePainter {
         replayCount: inout Int,
         deferredReplayCount: inout Int
     ) -> GPUIScene {
-        var scene = GPUIScene(clearColor: clearColor)
-        NativeGlyphAtlas.shared.beginFrame()
-        var usedNativeGlyphs = false
-        var usedPixelGlyphs = false
         let fullClip = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
         let deviceSurfaceSize = surfaceSize.scaled(by: max(displayScale, 1.0))
-        paintNode(
-            root,
-            into: &scene,
-            deferredDraws: &deferredDraws,
-            parentOrigin: .zero,
-            inheritedClip: fullClip,
-            layerIndex: 0,
-            surfaceSize: deviceSurfaceSize,
-            displayScale: max(displayScale, 1.0),
-            textSystem: textSystem,
-            previousScene: previousScene,
-            usedNativeGlyphs: &usedNativeGlyphs,
-            usedPixelGlyphs: &usedPixelGlyphs,
-            replayCount: &replayCount
-        )
-        appendDeferredDraws(
-            &deferredDraws,
-            into: &scene,
-            previousScene: previousScene,
-            surfaceSize: deviceSurfaceSize,
-            displayScale: max(displayScale, 1.0),
-            textSystem: textSystem,
-            usedNativeGlyphs: &usedNativeGlyphs,
-            usedPixelGlyphs: &usedPixelGlyphs,
-            replayCount: &deferredReplayCount
-        )
-        if usedNativeGlyphs {
-            scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
-        }
-        if usedPixelGlyphs {
-            let atlas = PixelFontAtlas.shared.surface
-            scene.pixelGlyphAtlas = GlyphAtlasSnapshot(
-                width: atlas.width,
-                height: atlas.height,
-                pixels: atlas.pixels,
-                dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
+        let originalDeferredDraws = deferredDraws
+
+        for attempt in 0..<2 {
+            var scene = GPUIScene(clearColor: clearColor)
+            var attemptDeferredDraws = originalDeferredDraws
+            var attemptReplayCount = 0
+            var attemptDeferredReplayCount = 0
+            var usedNativeGlyphs = false
+            var usedPixelGlyphs = false
+
+            NativeGlyphAtlas.shared.beginFrame()
+            paintNode(
+                root,
+                into: &scene,
+                deferredDraws: &attemptDeferredDraws,
+                parentOrigin: .zero,
+                inheritedClip: fullClip,
+                layerIndex: 0,
+                surfaceSize: deviceSurfaceSize,
+                displayScale: max(displayScale, 1.0),
+                textSystem: textSystem,
+                previousScene: previousScene,
+                usedNativeGlyphs: &usedNativeGlyphs,
+                usedPixelGlyphs: &usedPixelGlyphs,
+                replayCount: &attemptReplayCount
             )
+            appendDeferredDraws(
+                &attemptDeferredDraws,
+                into: &scene,
+                previousScene: previousScene,
+                surfaceSize: deviceSurfaceSize,
+                displayScale: max(displayScale, 1.0),
+                textSystem: textSystem,
+                usedNativeGlyphs: &usedNativeGlyphs,
+                usedPixelGlyphs: &usedPixelGlyphs,
+                replayCount: &attemptDeferredReplayCount
+            )
+
+            if usedNativeGlyphs,
+               NativeGlyphAtlas.shared.consumeRecoveryRequest(),
+               attempt == 0 {
+                continue
+            }
+
+            if usedNativeGlyphs {
+                scene.glyphAtlas = NativeGlyphAtlas.shared.snapshotIfUsedInCurrentFrame()
+            }
+            if usedPixelGlyphs {
+                let atlas = PixelFontAtlas.shared.surface
+                scene.pixelGlyphAtlas = GlyphAtlasSnapshot(
+                    width: atlas.width,
+                    height: atlas.height,
+                    pixels: atlas.pixels,
+                    dirtyRegion: GlyphAtlasRegion(x: 0, y: 0, width: atlas.width, height: atlas.height)
+                )
+            }
+
+            deferredDraws = attemptDeferredDraws
+            replayCount = attemptReplayCount
+            deferredReplayCount = attemptDeferredReplayCount
+            scene.finish()
+            return scene
         }
+
+        deferredDraws = originalDeferredDraws
+        replayCount = 0
+        deferredReplayCount = 0
+        var scene = GPUIScene(clearColor: clearColor)
         scene.finish()
         return scene
     }

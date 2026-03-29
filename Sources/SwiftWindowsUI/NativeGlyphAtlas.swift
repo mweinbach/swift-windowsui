@@ -8,6 +8,7 @@ final class NativeGlyphAtlas {
     private let atlas = GlyphAtlas(width: 2048, height: 2048)
     private let cache: GlyphAtlasCache
     private var usedInCurrentFrame = false
+    private var didRecoverFromExhaustionInCurrentFrame = false
 
     private init() {
         self.cache = GlyphAtlasCache(atlas: atlas)
@@ -15,6 +16,7 @@ final class NativeGlyphAtlas {
 
     func beginFrame() {
         usedInCurrentFrame = false
+        didRecoverFromExhaustionInCurrentFrame = false
         cache.nextFrame()
     }
 
@@ -41,6 +43,12 @@ final class NativeGlyphAtlas {
         IntSize(width: atlas.width, height: atlas.height)
     }
 
+    func consumeRecoveryRequest() -> Bool {
+        let didRecover = didRecoverFromExhaustionInCurrentFrame
+        didRecoverFromExhaustionInCurrentFrame = false
+        return didRecover
+    }
+
     func glyph(for character: Character, style: PixelTextStyle, scaleFactor: Double) -> GlyphEntry? {
         let key = GlyphKey(
             character: character,
@@ -61,6 +69,7 @@ final class NativeGlyphAtlas {
         let key: GlyphKey
         if let glyphID = glyph.glyphID {
             key = GlyphKey(
+                character: glyph.character,
                 glyphID: glyphID,
                 fontFaceID: glyph.fontFace?.identifier,
                 fontFamily: fontFamily,
@@ -103,6 +112,9 @@ final class NativeGlyphAtlas {
             bearingY: bitmap.bearingY,
             advance: bitmap.advance
         )
+        if cache.didRecoverFromExhaustionOnLastInsert, entry != nil {
+            didRecoverFromExhaustionInCurrentFrame = true
+        }
         if entry != nil {
             usedInCurrentFrame = true
         }

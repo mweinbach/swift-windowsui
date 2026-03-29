@@ -10,7 +10,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A retained `ViewNode` runtime with mutable state, subtree layout/measurement reuse, frame/scene replay for clean subtrees, hit testing, focus, clipping, and animation
 - Renderer-neutral `RenderFrame` and `GPUIScene` contracts
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
-- An active demo path that now defaults to `RenderFrame` -> `D3D11Renderer` for correctness, with the `GPUIScene` -> `D3D11BatchRenderer` path kept behind an explicit experimental opt-in
+- An active demo path that now defaults to `GPUIScene` -> `D3D11BatchRenderer`, with the `RenderFrame` -> `D3D11Renderer` path kept as an automatic same-session fallback and explicit debug override
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
 - An experimental batch scene path that scales primitives into device pixels, keeps replayable scene paint records plus per-layer family operations as metadata, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and now routes deferred-subtree prepaint plus deferred paint records through runtime-owned prepaint dispatch state while it is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
@@ -57,20 +57,19 @@ The default running demo now goes through:
 3. `WinSwiftUIWindowHost`
 4. `Win32Window` delegate callbacks
 5. `RetainedViewRuntime`
-6. `RenderFrame`
-7. `D3D11Renderer`
+6. `GPUIScene`
+7. `D3D11BatchRenderer`
 
-The experimental scene path is still in the repo and can be forced with:
+The explicit frame-debug path is still available and can be forced with:
 
 ```powershell
-$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH = "1"
+$env:SWIFT_WINDOWSUI_FRAME_DEBUG = "1"
 swift run swift-windowsui
 ```
 
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
 
-`GPUIScene` -> `D3D11BatchRenderer` remains in the repo as the active porting
-target. It now keeps replayable scene paint records plus per-layer family paint
+`GPUIScene` -> `D3D11BatchRenderer` is the default demo presentation path. It now keeps replayable scene paint records plus per-layer family paint
 operations, carries semantic content masks on typed primitives, assigns
 Zed-style bounds-based draw orders from masked bounds inside each scene layer,
 finishes scenes into ordered family batches before upload, caches logical
@@ -86,9 +85,7 @@ prepaint phase has rebuilt its dispatch metadata,
 only attaches atlas snapshots to freshly-built scenes, and uploads typed
 primitive ranges without materializing per-operation slice arrays. It now
 follows GPUI-style inherited opacity propagation instead of inventing a
-save-layer opacity model, but it is not the default demo presentation path
-until text rendering, full deferred element replay, and fuller scene parity
-match the retained/frame behavior more closely.
+save-layer opacity model.
 
 ## WinSwiftUI Coverage
 
@@ -109,8 +106,8 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text on the default path still uses native bitmap draws; the experimental scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, runtime-owned prepaint dispatch state plus split deferred-subtree prepaint and deferred paint replay for interaction/focus/late-paint metadata and ancestor routing, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, per-deferred prepaint replay ranges, subpixel sprite families, and text-system-owned line layout
-- `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the experimental scene path currently covers shadows, quads, and atlas-backed glyphs
+- Text on the frame fallback path still uses native bitmap draws; the default scene path now has a runtime-owned logical layout cache, subtree layout/measurement reuse, runtime-owned prepaint dispatch state plus split deferred-subtree prepaint and deferred paint replay for interaction/focus/late-paint metadata and ancestor routing, semantic content masks, inherited-opacity propagation, and DirectWrite glyph-run capture, but it still lacks GPUI-style shaped runs, per-deferred prepaint replay ranges, subpixel sprite families, and text-system-owned line layout
+- `D3D11Renderer` only executes `fillRect` and `drawBitmap`; the default scene path currently covers shadows, quads, and atlas-backed glyphs
 
 ## Demo Source Compatibility
 

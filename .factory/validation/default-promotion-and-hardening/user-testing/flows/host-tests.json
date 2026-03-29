@@ -1,0 +1,165 @@
+{
+  "groupId": "host-tests",
+  "testedAt": "2026-03-29T19:01:43Z",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "milestone": "default-promotion-and-hardening",
+    "swiftWrapper": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1"
+  },
+  "toolsUsed": [
+    "swift test suites",
+    "powershell"
+  ],
+  "commands": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .factory/windows-swift-env.ps1 swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter WinSwiftUIWindowHostTests",
+      "exitCode": 0,
+      "evidence": [
+        "default-promotion-and-hardening/host-tests/winswiftuiwindowhosttests.log"
+      ],
+      "observations": "Focused WinSwiftUIWindowHostTests suite passed: 34 tests, 0 failures. The log includes default scene selection, explicit frame-debug startup, attach-failure fallback, and downgrade-to-frame evidence."
+    },
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .factory/windows-swift-env.ps1 swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0,
+      "evidence": [
+        "default-promotion-and-hardening/host-tests/swift-test.log"
+      ],
+      "observations": "Full swift test passed: 302 tests, 0 failures."
+    },
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .factory/windows-swift-env.ps1 swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0,
+      "evidence": [
+        "default-promotion-and-hardening/host-tests/swift-build-swift-windowsui.log"
+      ],
+      "observations": "swift build --product swift-windowsui completed successfully."
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-RENDER-001",
+      "title": "Host presenter selection defaults to scene presentation after promotion",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the focused WinSwiftUIWindowHostTests suite.",
+          "expected": "Host presenter-selection coverage passes for the promoted default path and frame-routing exceptions.",
+          "observed": "The focused suite passed, including default scene startup, explicit frame-debug startup, and attach-failure fallback coverage."
+        },
+        {
+          "action": "Inspect the targeted host tests and focused log.",
+          "expected": "Healthy startup selects scene presentation by default, while explicit frame-debug mode or presenter failure routes to frame presentation.",
+          "observed": "testDefaultStartupSelectsScenePresenterAndInitializesRuntimeGeometry, testFrameDebugStartupSelectsFramePresenterAndSkipsSceneRenderPath, and testBatchAttachFailureFallsBackToFrameRenderer all passed."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "default-promotion-and-hardening/host-tests/winswiftuiwindowhosttests.log"
+        ],
+        "sourceReferences": [
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:289",
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1649",
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1698"
+        ],
+        "logHighlights": [
+          "winswiftuiwindowhosttests.log:11-13 batch attach failure falls back to frame renderer",
+          "winswiftuiwindowhosttests.log:24-25 default startup scene presenter test passed",
+          "winswiftuiwindowhosttests.log:31-32 frame-debug startup frame presenter test passed"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Default host startup initializes runtime geometry and performs an initial scene render",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the focused WinSwiftUIWindowHostTests suite.",
+          "expected": "The default-startup host integration test passes.",
+          "observed": "testDefaultStartupSelectsScenePresenterAndInitializesRuntimeGeometry passed."
+        },
+        {
+          "action": "Inspect the default-startup test assertions.",
+          "expected": "Runtime root size and display scale initialize from the surface descriptor, the scene presenter attaches, and an initial scene render occurs.",
+          "observed": "The test asserts one attached surface, one bound scene, one rendered scene, logical root size 320x240, and display scale 2.0."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "default-promotion-and-hardening/host-tests/winswiftuiwindowhosttests.log"
+        ],
+        "sourceReferences": [
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1649"
+        ],
+        "logHighlights": [
+          "winswiftuiwindowhosttests.log:24-25 default startup test passed"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "Explicit frame-debug startup renders through renderFrame() on the happy path",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the focused WinSwiftUIWindowHostTests suite.",
+          "expected": "The frame-debug startup host integration test passes.",
+          "observed": "testFrameDebugStartupSelectsFramePresenterAndSkipsSceneRenderPath passed."
+        },
+        {
+          "action": "Inspect the frame-debug startup test assertions.",
+          "expected": "The host attaches only the frame presenter, renders one frame, and does not use the scene presenter.",
+          "observed": "The test asserts zero batch attachments and renders, zero scene-render invocations, one frame attachment, and one frame render with frame-debug selection metadata."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "default-promotion-and-hardening/host-tests/winswiftuiwindowhosttests.log"
+        ],
+        "sourceReferences": [
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:1698"
+        ],
+        "logHighlights": [
+          "winswiftuiwindowhosttests.log:31-32 frame-debug startup test passed"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CROSS-007",
+      "title": "Host-driven downgrade preserves deferred replay correctness",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the focused WinSwiftUIWindowHostTests suite.",
+          "expected": "The downgrade-and-replay host integration test passes.",
+          "observed": "testHostDrivenDowngradePreservesDeferredReplayCorrectnessAfterLocalizedMutation passed."
+        },
+        {
+          "action": "Inspect the downgrade test assertions.",
+          "expected": "After scene-to-frame downgrade on a localized mutation, the triggering frame reruns incompatible deferred payloads, later downgraded-frame renders replay unchanged deferred content, and deferred ordering remains correct.",
+          "observed": "The test asserts a downgrade to frame presentation, triggering-frame deferred replay count 0, later prepaint replay count 2, later deferred frame replay count 1, and the deferred indicator staying last in both downgraded renders."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "default-promotion-and-hardening/host-tests/winswiftuiwindowhosttests.log"
+        ],
+        "sourceReferences": [
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:399"
+        ],
+        "logHighlights": [
+          "winswiftuiwindowhosttests.log:40-42 downgrade test passed after batch-render failure switch to frame renderer"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Validated 4 assigned assertions with the focused WinSwiftUIWindowHostTests suite; all 4 passed. Follow-up full swift test (302 tests) and swift build --product swift-windowsui also passed."
+}

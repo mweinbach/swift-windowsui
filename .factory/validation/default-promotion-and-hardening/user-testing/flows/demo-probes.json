@@ -1,0 +1,70 @@
+{
+  "groupId": "demo-probes",
+  "testedAt": "2026-03-29T19:07:20.6013516-04:00",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "milestone": "default-promotion-and-hardening",
+    "guidance": "Flow Validator Guidance: Demo launch probes",
+    "serialExecution": true
+  },
+  "toolsUsed": [
+    "native-demo-launch-probes",
+    "powershell"
+  ],
+  "commands": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\demo_default.ps1\"",
+      "exitCode": 0,
+      "observation": "Probe launched successfully and recorded scene presentation with reason=default-scene."
+    },
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\demo_frame.ps1\"",
+      "exitCode": 0,
+      "observation": "Probe launched successfully and recorded frame presentation with reason=frame-debug-override."
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-RENDER-005",
+      "title": "Default demo startup stays green on the promoted scene path",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the normalized default demo probe",
+          "expected": "Startup succeeds and the probe records scene-path presenter selection on the default path.",
+          "observed": "Startup succeeded with presenter=scene, reason=default-scene, and scene_backend=D3D11 BATCH."
+        }
+      ],
+      "evidence": {
+        "logs": [
+          "default-promotion-and-hardening/demo-probes/demo-default.log"
+        ],
+        "probeSummary": "presenter=scene; reason=default-scene; scene_backend=D3D11 BATCH; logical_root_size=853x480; display_scale=1.500"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-RENDER-006",
+      "title": "Explicit frame-debug startup and automatic downgrade both stay green",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run the normalized frame-debug demo probe",
+          "expected": "Startup succeeds and the probe records frame-path presentation with a clear reason for not using the scene presenter.",
+          "observed": "Startup succeeded with presenter=frame, reason=frame-debug-override, and frame_backend=DIRECT2D."
+        }
+      ],
+      "evidence": {
+        "logs": [
+          "default-promotion-and-hardening/demo-probes/demo-frame.log"
+        ],
+        "probeSummary": "presenter=frame; reason=frame-debug-override; frame_backend=DIRECT2D; logical_root_size=853x480; display_scale=1.500"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 2 assertions with serial native demo startup probes. VAL-RENDER-005 passed on the promoted default scene path, and VAL-RENDER-006 passed on the explicit frame-debug path."
+}

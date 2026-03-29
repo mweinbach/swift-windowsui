@@ -71,3 +71,17 @@ Manual interaction probes are allowed when a feature changes presenter selection
   - Do not edit source files during validation.
   - Capture the exact command run, exit code, relevant suite names, and a concise assertion-to-evidence mapping in the flow report.
   - If a focused suite fails, stop that flow after collecting enough output to explain the failure instead of running broader validators.
+
+## Flow Validator Guidance: Demo launch probes
+
+- Isolation boundary:
+  - Launch only one demo instance at a time from `C:\Users\maxw6\Projects\swift-windowsui`.
+  - Use the probe commands from `.factory/services.yaml` (`demo_default` and `demo_frame`) so the Swift Windows environment is normalized consistently.
+  - Write only the assigned flow report under `.factory/validation/<milestone>/user-testing/flows/` and evidence under the assigned mission evidence directory.
+- Concurrency:
+  - Treat demo startup validation as single-lane; do not overlap demo probes with Swift tests or another demo launch.
+  - Reuse the same local checkout and do not create alternate package copies or ports.
+- Safety and evidence:
+  - Do not edit source files during validation.
+  - Capture the exact probe command, exit code, and the log lines that show presenter selection or downgrade reasons.
+  - If a probe fails to start or cannot show backend-selection evidence, stop after collecting enough output to explain the failure instead of retrying with ad hoc commands.

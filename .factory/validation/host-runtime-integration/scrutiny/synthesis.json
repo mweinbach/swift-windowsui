@@ -1,7 +1,7 @@
 {
   "milestone": "host-runtime-integration",
-  "round": 2,
-  "status": "fail",
+  "round": 3,
+  "status": "pass",
   "validatorsRun": {
     "test": {
       "passed": true,
@@ -20,84 +20,30 @@
     }
   },
   "reviewsSummary": {
-    "total": 5,
-    "passed": 1,
-    "failed": 4,
-    "failedFeatures": [
-      "fix-input-routing-observable-assertions",
-      "fix-resize-dpi-propagation-test",
-      "fix-refresh-rate-timer-observability",
-      "fix-observed-object-coalescing-evidence"
-    ]
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "failedFeatures": []
   },
-  "blockingIssues": [
-    {
-      "featureId": "fix-input-routing-observable-assertions",
-      "severity": "blocking",
-      "description": "The new input-routing tests exercise a mirrored `TestableInputRecordingHost` instead of `WinSwiftUIWindowHost.window(_:pointerMovedTo:)`, `window(_:mouseWheelAt:delta:)`, `window(_:keyDown:)`, and `windowDidLoseKeyboardFocus(_:)`, so VAL-CROSS-004/005/006 are still not proven through the production host seam."
-    },
-    {
-      "featureId": "fix-input-routing-observable-assertions",
-      "severity": "blocking",
-      "description": "`TestableInputRecordingRuntime` records events before delegating, and the assertions only inspect those recorder arrays, so the tests do not prove the real runtime consumed the dispatched pointer, wheel, keyboard, or focus-loss events."
-    },
-    {
-      "featureId": "fix-resize-dpi-propagation-test",
-      "severity": "blocking",
-      "description": "The resize/DPI proof moved to a mirrored `TestableRuntimeObservingHost` instead of driving `WinSwiftUIWindowHost.window(_:didResizeTo:)`, so VAL-CROSS-003 still lacks end-to-end validation through the production host path."
-    },
-    {
-      "featureId": "fix-resize-dpi-propagation-test",
-      "severity": "blocking",
-      "description": "The helper uses a test-only `surfaceDescriptor.scaleFactor` path, but production resize logic reads `window.scaleFactor`, which comes from `GetDpiForWindow(hwnd)`, so the DPI assertions do not cover the real seam."
-    },
-    {
-      "featureId": "fix-resize-dpi-propagation-test",
-      "severity": "blocking",
-      "description": "The post-downgrade resize test only resizes the helper's frame renderer instead of proving the real same-session fallback path that reattaches the frame renderer, resizes it, and switches the active backend."
-    },
-    {
-      "featureId": "fix-refresh-rate-timer-observability",
-      "severity": "blocking",
-      "description": "The timer observability seam is now real, but `testRefreshRateUpdatesControlRuntimeMinimumFrameInterval` still never drives a changed `monitorRefreshRate` through `WinSwiftUIWindowHost`, so VAL-CROSS-009 remains only partially proven."
-    },
-    {
-      "featureId": "fix-observed-object-coalescing-evidence",
-      "severity": "blocking",
-      "description": "The coalescing tests still stop at scheduling: they do not wait for the deferred reload task or assert `executedReloadCount`, reload completion, or render/present evidence, so queued reload execution is still unproven."
-    },
-    {
-      "featureId": "fix-observed-object-coalescing-evidence",
-      "severity": "blocking",
-      "description": "The dependency-filtering test never exercises the `ComponentHost` dependency-set rejection path, because manual `observe(...)` tokens are installed without populating `componentHost.observedObjects`, so VAL-CROSS-010 is still not validator-visible."
-    }
-  ],
-  "appliedUpdates": [
-    {
-      "target": "library",
-      "description": "Added `.factory/library/host-runtime-test-seams.md` documenting that host resize uses `window.scaleFactor` from `GetDpiForWindow(hwnd)` and timer cadence uses `window.monitorRefreshRate`, so test-only surface-descriptor updates or output-only timer assertions do not prove the production seams.",
-      "sourceFeature": "fix-resize-dpi-propagation-test"
-    }
-  ],
+  "blockingIssues": [],
+  "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
-      "target": "runtime-host-worker skill",
-      "suggestion": "When hardening scrutiny evidence for host assertions, require tests to keep calling the real `WinSwiftUIWindowHost` methods under review rather than introducing mirrored helper hosts that duplicate production routing or resize logic.",
-      "evidence": "Both `fix-input-routing-observable-assertions` and `fix-resize-dpi-propagation-test` replaced weak assertions with stronger checks gathered from test-only helper hosts, but the helpers bypassed the production `WinSwiftUIWindowHost` seams and left the original contract blockers unresolved.",
-      "isSystemic": true
-    },
-    {
-      "target": "runtime-host-worker skill",
-      "suggestion": "Re-emphasize that the required `.factory/library/architecture.md` startup read still applies to narrow scrutiny-fix sessions, or document a deliberate exception if the mission wants to allow skipping it.",
-      "evidence": "Both `fix-frame-path-render-after-batch-failure` and `fix-resize-dpi-propagation-test` skipped the required architecture-library read even though the skill currently lists it as a startup step.",
+      "target": "mission-worker-base skill",
+      "suggestion": "On native Windows missions, the startup procedure should allow `powershell -NoProfile -ExecutionPolicy Bypass -File .factory/windows-swift-env.ps1 -CheckOnly` as the first-class environment check when `bash`/WSL is unavailable, instead of assuming `.factory/init.sh` can run everywhere.",
+      "evidence": "Three rerun reviews (`fix-input-routing-observable-assertions-round2`, `fix-resize-dpi-propagation-test-round2`, and `fix-refresh-rate-timer-observability-round2`) independently reported that `.factory/init.sh` is a bash wrapper and failed on this Windows machine until the worker switched to `windows-swift-env.ps1 -CheckOnly`.",
       "isSystemic": true
     }
   ],
   "rejectedObservations": [
     {
-      "observation": "Restate that mission files live under the absolute `missionDir` instead of a repo-local `.factory/missions/...` path.",
-      "reason": "duplicate of the previous scrutiny round's guidance recommendation"
+      "observation": "Add a new library note that workers should use `.factory/windows-swift-env.ps1` for Swift commands on Windows.",
+      "reason": "already-documented in `.factory/library/environment.md` and `.factory/library/user-testing.md`"
+    },
+    {
+      "observation": "Record the bash-wrapper startup gap again as a separate recommendation for `runtime-host-worker`.",
+      "reason": "duplicate; the issue is a general Windows startup-procedure problem, not specific to one worker skill"
     }
   ],
-  "previousRound": ".factory/validation/host-runtime-integration/scrutiny/synthesis.round1.json"
+  "previousRound": ".factory/validation/host-runtime-integration/scrutiny/synthesis.round2.json"
 }

@@ -1,0 +1,15 @@
+{
+  "featureId": "fix-observed-object-coalescing-evidence-round2",
+  "reviewedAt": "2026-03-29T17:25:56Z",
+  "commitId": "e6196f71e12fe4e8c6085d2525b0a52fc2352357",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Review passed. Compared with the original failed fix, the rerun closes both blocking VAL-CROSS-010 gaps: `WinSwiftUIWindowHost` now records deferred reload-task completion and skip outcomes, and the focused host tests switched from empty-content/manual observation setup to a real `@ObservedObject`-backed view that populates `ComponentHost.observedObjects`. The new coverage waits for the deferred task, proves one executed reload plus one follow-up render for same-turn relevant changes, and proves an observed-but-irrelevant object is rejected by the dependency set without rebuilding or rendering.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\host-runtime-integration\\scrutiny\\reviews\\fix-observed-object-coalescing-evidence.json",
+  "summary": "Pass: the rerun fix resolves the prior VAL-CROSS-010 blockers by awaiting the deferred reload task, asserting executed/completed reload outcomes, and exercising the real ComponentHost dependency-set rejection path with no remaining review issues."
+}

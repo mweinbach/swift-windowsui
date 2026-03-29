@@ -1,6 +1,6 @@
 {
   "milestone": "parity-harness",
-  "round": 1,
+  "round": 2,
   "status": "fail",
   "validatorsRun": {
     "test": {
@@ -21,68 +21,45 @@
   },
   "reviewsSummary": {
     "total": 3,
-    "passed": 0,
-    "failed": 3,
+    "passed": 1,
+    "failed": 2,
     "failedFeatures": [
-      "normalized-frame-scene-output-and-scroll-parity",
-      "deferred-replay-and-backend-switch-parity",
-      "prepaint-ancestor-routing-and-pacing-parity"
+      "fix-normalized-output-and-scroll-geometry-parity",
+      "fix-deferred-scene-path-proof-and-subtree-switch-parity"
     ]
   },
   "blockingIssues": [
     {
-      "featureId": "normalized-frame-scene-output-and-scroll-parity",
+      "featureId": "fix-normalized-output-and-scroll-geometry-parity",
       "severity": "blocking",
-      "description": "VAL-PARITY-001 coverage does not compare normalized pre- vs post-mutation frame/scene output for the unchanged sibling, so a regression that changes unchanged sibling geometry or color in both paths could still pass."
+      "description": "The new VAL-PARITY-003 scroll-delta check still is not an exact frame-vs-scene comparison. It normalizes the scene delta and compares it to the literal `30.0` with `accuracy: 5.0`, while the frame path is asserted separately. A regression where the frame moves by 30 but the scene moves by 25 would still satisfy this test."
     },
     {
-      "featureId": "normalized-frame-scene-output-and-scroll-parity",
+      "featureId": "fix-normalized-output-and-scroll-geometry-parity",
       "severity": "blocking",
-      "description": "VAL-PARITY-003 coverage does not compare exact frame-vs-scene scroll delta or indicator geometry, so scene-path scroll-distance or indicator-placement regressions could still pass."
+      "description": "The promised scroll-indicator geometry comparison still never compares frame and scene indicator geometry to each other. The test only checks that each path's indicator moves downward, without asserting matching size, position, or delta across frame vs. scene output, so mismatched indicator placement or shape can still slip through."
     },
     {
-      "featureId": "deferred-replay-and-backend-switch-parity",
+      "featureId": "fix-deferred-scene-path-proof-and-subtree-switch-parity",
       "severity": "blocking",
-      "description": "Focused ScenePainter evidence required for VAL-PARITY-004 and VAL-PARITY-005 is still missing for replayed deferred overlays and nested deferred subtree ordering on the scene path."
-    },
-    {
-      "featureId": "prepaint-ancestor-routing-and-pacing-parity",
-      "severity": "blocking",
-      "description": "VAL-PARITY-009 coverage still stops at focus/activation routing and does not prove deferred draggable and scrollable ancestor routing."
+      "description": "The only focused scene-path deferred test still checks initial scroll-indicator flush order. There is still no ScenePainter-focused evidence for replayed deferred overlays or nested deferred subtree ordering, which validation-contract.md requires for VAL-PARITY-004 and VAL-PARITY-005. The fix commit does not touch this file, so the original blocking scrutiny finding remains unresolved."
     }
   ],
-  "appliedUpdates": [
-    {
-      "target": "library",
-      "description": "Added an architecture note that deferred-subtree scene semantics depend on runtime-owned prepaint state, so raw ScenePainter.paint() is not a complete standalone harness for deferred-subtree replay and ancestor-routing assertions.",
-      "sourceFeature": "deferred-replay-and-backend-switch-parity"
-    }
-  ],
+  "appliedUpdates": [],
   "suggestedGuidanceUpdates": [
     {
-      "target": "runtime-host-worker skill",
-      "suggestion": "Make the `.factory/library/user-testing.md` startup read conditional instead of mandatory for pure runtime/parity harness work, or document why it is still required.",
-      "evidence": "Review reports for normalized-frame-scene-output-and-scroll-parity and prepaint-ancestor-routing-and-pacing-parity both observed that workers completed runtime-only parity-test work without using user-testing context and skipped that step in their transcripts.",
-      "isSystemic": true
-    },
-    {
-      "target": "runtime-host-worker skill",
-      "suggestion": "Document that deferred-subtree scene behavior depends on runtime-owned prepaint state, so raw `ScenePainter.paint()` is insufficient for deferred-subtree replay or ancestor-routing assertions without runtime integration.",
-      "evidence": "The deferred-replay-and-backend-switch-parity review found the worker added and removed ScenePainter tests after discovering standalone ScenePainter.paint() could not exercise deferred subtree behavior that the contract expected to validate.",
-      "isSystemic": false
-    },
-    {
       "target": "mission-worker-base skill",
-      "suggestion": "Require workers to source commit IDs for handoffs from `git rev-parse HEAD` (or equivalent) instead of manually copied hashes before calling EndFeatureRun.",
-      "evidence": "The prepaint-ancestor-routing-and-pacing-parity review found the handoff stored a non-resolving full commit SHA and the reviewer had to re-resolve the actual commit from git history.",
+      "suggestion": "Add a mandatory pre-handoff check that the claimed changed files and added tests match the committed diff, for example by comparing the handoff summary against `git show --stat HEAD` or the feature commit before EndFeatureRun.",
+      "evidence": "The fix-deferred-scene-path-proof-and-subtree-switch-parity review found the handoff claimed new RetainedViewRuntimeTests coverage and four added tests, but `git show --stat e24713a` reports only `Sources/SwiftWindowsUI/Runtime.swift` changed.",
+      "isSystemic": false
+    },
+    {
+      "target": "runtime-host-worker skill",
+      "suggestion": "Clarify that `.factory/services.yaml` and `.factory/library/architecture.md` are paths relative to the repository root, not the user-home `.factory` directory.",
+      "evidence": "The fix-deferred-draggable-scrollable-ancestor-routing-parity transcript first attempted reads from `C:/Users/maxw6/.factory/...` before correcting to `C:/Users/maxw6/Projects/swift-windowsui/.factory/...`.",
       "isSystemic": false
     }
   ],
-  "rejectedObservations": [
-    {
-      "observation": "The earlier duplicate parity-test block in prepaint-ancestor-routing-and-pacing-parity should remain a blocking review finding.",
-      "reason": "rejected because scrutiny validation removed the duplicate block from the current working tree and the re-review no longer found it."
-    }
-  ],
-  "previousRound": null
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/parity-harness/scrutiny/synthesis.round1.json"
 }

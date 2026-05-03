@@ -672,6 +672,9 @@ private struct WinSwiftUIProbeView: View {
                     ControlGroup {
                         Button("RUN") {}
                         Button("STOP") {}
+                        Menu("ACTIONS", systemImage: "ellipsis") {
+                            Button("MENU ACTION") {}
+                        }
                     }
                     DisclosureGroup("MORE DETAIL", isExpanded: Binding(get: { true }, set: { _ in })) {
                         Text("DISCLOSED ROW")

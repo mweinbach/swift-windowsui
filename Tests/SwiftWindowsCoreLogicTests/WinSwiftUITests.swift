@@ -1574,6 +1574,69 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuTogglesExpandedActionContent() async {
+        await MainActor.run {
+            var didRefresh = false
+            var invalidationCount = 0
+            let view = Menu("More") {
+                Button("Refresh") {
+                    didRefresh = true
+                }
+                Button("Archive") {}
+            }
+            let collapsedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("More", in: collapsedNode))
+            XCTAssertFalse(containsText("Refresh", in: collapsedNode))
+
+            firstFocusableNode(in: collapsedNode)?.onActivate?()
+
+            let expandedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertTrue(containsText("Refresh", in: expandedNode))
+            XCTAssertTrue(containsText("Archive", in: expandedNode))
+
+            firstFocusableNode(containing: "Refresh", in: expandedNode)?.onActivate?()
+
+            XCTAssertTrue(didRefresh)
+        }
+    }
+
+    func testMenuSupportsSystemImageAndCustomLabelInitializers() async {
+        await MainActor.run {
+            let systemImageNode = makeNode(
+                Menu("Actions", systemImage: "ellipsis") {
+                    Button("Run") {}
+                }
+            )
+
+            XCTAssertTrue(containsText("Actions", in: systemImageNode))
+            XCTAssertFalse(containsText("Run", in: systemImageNode))
+
+            let customLabelNode = makeNode(
+                Menu {
+                    Button("Delete") {}
+                } label: {
+                    Label("Custom", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertTrue(containsText("Custom", in: customLabelNode))
+            XCTAssertFalse(containsText("Delete", in: customLabelNode))
+        }
+    }
+
     func testEmptyToolbarDoesNotWrapContent() async {
         await MainActor.run {
             let node = makeNode(
@@ -1912,6 +1975,21 @@ private func firstFocusableNode(in node: ViewNode) -> ViewNode? {
 
     for child in node.children {
         if let focusable = firstFocusableNode(in: child) {
+            return focusable
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func firstFocusableNode(containing text: String, in node: ViewNode) -> ViewNode? {
+    if node.isFocusable && containsText(text, in: node) {
+        return node
+    }
+
+    for child in node.children {
+        if let focusable = firstFocusableNode(containing: text, in: child) {
             return focusable
         }
     }

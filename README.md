@@ -68,7 +68,7 @@ Included today:
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Core views: `Text`, `Image(systemName:)`, `Label`, `LabeledContent`, `ControlGroup`, `Spacer`, `Divider`, `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, `Capsule`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Form`, `TabView`, `NavigationStack`, `NavigationLink`, `NavigationSplitView`, `ToolbarItem`, `ToolbarItemGroup`, `GroupBox`, `DisclosureGroup`, `Section` with header/footer builders, `HSplitView`, `VSplitView`
-- Controls: `Button` with role, `systemImage`, and common style variants, `TextField`, `SecureField`, `Toggle`, `Stepper`, stepped `Slider`, labeled `ProgressView`, `Picker` with hashable selection tags
+- Controls: `Button` with role, `systemImage`, and common style variants, `Menu`, `TextField`, `SecureField`, `Toggle`, `Stepper`, stepped `Slider`, labeled `ProgressView`, `Picker` with hashable selection tags
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `hidden`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `navigationTitle`, `toolbar`, `tabItem`, `tag`
 - Shape styling: `fill(_:)` for colors and linear gradients, plus `stroke(_:lineWidth:)`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `Material`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `FillStyle`, `DragGesture`

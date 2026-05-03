@@ -1658,6 +1658,78 @@ public struct Button: View {
 }
 
 @MainActor
+public struct Menu: View {
+    public typealias Body = Never
+
+    @State private var isExpanded = false
+
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.7, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.content = content()
+    }
+
+    public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
+        self.label = [
+            AnyView(
+                Label(title, systemImage: systemImage)
+                    .font(.system(size: 1.55, weight: .semibold))
+            )
+        ]
+        self.content = content()
+    }
+
+    public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Menu has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: {
+                isExpanded = !isExpanded
+            }) {
+                HStack(spacing: 8) {
+                    label
+                    Text(isExpanded ? "^" : "v")
+                        .font(.system(size: 1.1, weight: .semibold))
+                        .foregroundColor(Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88))
+                        .frame(width: 14)
+                }
+            }
+            .buttonStyle(.bordered)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 6) {
+                    content
+                }
+                .padding(8)
+                .background(Color(red: 0.08, green: 0.12, blue: 0.19, alpha: 0.82))
+                .cornerRadius(16)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10), lineWidth: 1)
+                )
+            }
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct Toggle: View {
     public typealias Body = Never
 

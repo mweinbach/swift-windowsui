@@ -72,6 +72,7 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+- `Menu`
 - `TextField`
 - `SecureField`
 - `Toggle`
@@ -154,6 +155,7 @@ Surface direction:
 - `Button` maps into retained button controls and preserves focus/press/activate animation state. SwiftUI-shaped role and `systemImage` initializers are available; `.destructive` maps to a red-tinted retained button surface while `.cancel` currently keeps the automatic surface.
 - `buttonStyle` supports `.automatic`, `.bordered`, `.borderedProminent`, `.borderless`, and `.plain`. `.borderedProminent` maps to a blue translucent retained surface; `.borderless` and `.plain` map to transparent chrome.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `Menu` maps common title, `systemImage`, and custom-label call sites into a retained disclosure-style action cluster. Expanded content is currently rendered inline rather than through a native popup surface, but child controls keep their normal retained focus and activation behavior.
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked.
 - `Toggle`, `Stepper`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `Stepper` supports bounded integer and double values with title or custom-label call sites. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `ProgressView` also supports a string-title initializer that composes a retained label with the progress bar.

@@ -103,6 +103,7 @@ let package = Package(
                 "SwiftWindowsGraphics",
                 "SwiftWindowsRendererD3D11",
                 "SwiftWindowsUI",
+                "WinSwiftUI",
             ]
         ),
         .testTarget(

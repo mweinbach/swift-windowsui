@@ -98,6 +98,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testInspectionSnapshotSummarizesWinSwiftUIViewTree() async {
+        await MainActor.run {
+            let snapshot = WinSwiftUIInspection.snapshot(
+                of: VStack(alignment: .leading, spacing: 8) {
+                    Text("INSPECT")
+                    Button("RUN") {}
+                    Toggle("POWER", isOn: Binding(get: { true }, set: { _ in }))
+                    ProgressView(value: 0.5)
+                }
+                .foregroundColor(Color(red: 0.8, green: 0.9, blue: 1.0, alpha: 1.0))
+                .font(.system(size: 16, weight: .semibold)),
+                size: Size(width: 320, height: 180)
+            )
+
+            XCTAssertGreaterThan(snapshot.nodeCount, 8)
+            XCTAssertGreaterThanOrEqual(snapshot.textNodeCount, 3)
+            XCTAssertGreaterThanOrEqual(snapshot.focusableNodeCount, 2)
+            XCTAssertEqual(snapshot.rootLayoutKind, "stack.vertical")
+            XCTAssertTrue(snapshot.textSamples.contains("INSPECT"))
+            XCTAssertTrue(snapshot.textSamples.contains("RUN"))
+            XCTAssertGreaterThan(snapshot.renderCommands.total, 0)
+        }
+    }
+
     func testForEachExpandsRowsAndAssignsStableTags() async {
         await MainActor.run {
             struct Row: Identifiable {

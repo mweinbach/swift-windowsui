@@ -3,6 +3,7 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsRendererD3D11
 import SwiftWindowsUI
+import WinSwiftUI
 
 @main
 struct SwiftWindowsUIInspector {
@@ -28,6 +29,10 @@ struct SwiftWindowsUIInspector {
         let controlProbeRuntime = makeControlProbeRuntime()
         let controlProbeCounts = CommandCounts(controlProbeRuntime.renderFrame().commands)
         let controlProbeFocusableCount = countFocusableNodes(controlProbeRuntime.root)
+        let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
+            of: WinSwiftUIProbeView(),
+            size: Size(width: 360, height: 260)
+        )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
@@ -55,6 +60,9 @@ struct SwiftWindowsUIInspector {
         print("Text probe: \(textProbeCounts.drawText) drawText command")
         print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
         print("Control probe: \(controlProbeFocusableCount) focusable, \(controlProbeCounts.fillRect) fills, \(controlProbeCounts.drawBitmap) bitmaps")
+        print("WinSwiftUI probe: \(winSwiftUIProbe.nodeCount) nodes, \(winSwiftUIProbe.textNodeCount) text, \(winSwiftUIProbe.focusableNodeCount) focusable")
+        print("  layout: \(winSwiftUIProbe.rootLayoutKind), depth: \(winSwiftUIProbe.maxDepth), commands: \(winSwiftUIProbe.renderCommands.total)")
+        print("  text: \(winSwiftUIProbe.textSamples.joined(separator: ", "))")
         print("Text input probe: \(textInputProbeValue)")
         print("Scroll stress: \(scrollStress.rowCount) rows -> \(scrollStress.commandCount) commands in \(formatMilliseconds(scrollStress.elapsedMilliseconds)) ms")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
@@ -348,6 +356,42 @@ private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {
     }
 
     return "x=\(clip.0) y=\(clip.1) w=\(clip.2) h=\(clip.3)"
+}
+
+@MainActor
+private struct WinSwiftUIProbeView: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("DECLARATIVE INSPECTOR")
+                .font(.system(size: 2.1, weight: .bold))
+                .lineLimit(1)
+
+            HStack(spacing: 8) {
+                Image(systemName: "bolt.fill")
+                Text("WINSWIFTUI TO RETAINED TREE")
+                    .lineLimit(1)
+            }
+
+            Button("DISABLED ACTION") {}
+                .disabled(true)
+
+            Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
+
+            ProgressView(value: 0.68)
+        }
+        .padding(16)
+        .foregroundColor(Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 1.0))
+        .font(.system(size: 1.5, weight: .semibold))
+        .background(LinearGradient(
+            colors: [
+                Color(red: 0.18, green: 0.24, blue: 0.34, alpha: 0.94),
+                Color(red: 0.07, green: 0.10, blue: 0.16, alpha: 0.98),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        ))
+        .cornerRadius(18)
+    }
 }
 
 private extension GPUIScene {

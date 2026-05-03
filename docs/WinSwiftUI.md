@@ -35,6 +35,7 @@ App/scene hosting:
 - `App`
 - `Scene`
 - `WindowGroup`
+- `WinSwiftUIInspection.snapshot(of:)` for retained-tree/render-command diagnostics without opening a window
 
 Views and containers:
 
@@ -146,6 +147,10 @@ Surface direction:
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 
 This is intentionally small. It exists to support shared app source and runtime invalidation, not to reproduce the full SwiftUI observation stack.
+
+## Inspection
+
+`WinSwiftUIInspection.snapshot(of:)` builds any `WinSwiftUI.View` into the retained runtime and returns a lightweight diagnostic summary: retained node counts, text/focus/hit-test counts, root layout kind, text samples, invalidations during build, and render-command counts. The `swift-windowsui-inspect` executable uses this alongside lower-level retained/runtime probes so compatibility work can be checked from the console without launching the GUI demo.
 
 ## Demo Contract
 

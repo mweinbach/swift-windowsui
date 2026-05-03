@@ -31,6 +31,7 @@ Products:
 - `WinSwiftUI`: SwiftUI-shaped compatibility layer over the retained runtime
 - `SwiftWindowsApp`: app shell and D3D11 wiring
 - `swift-windowsui`: demo executable
+- `swift-windowsui-inspect`: console diagnostics for retained, renderer, and `WinSwiftUI` probe coverage
 
 Targets:
 
@@ -102,6 +103,7 @@ Run from the repository root in PowerShell:
 ```powershell
 swift test
 swift build --product swift-windowsui
+swift run swift-windowsui-inspect
 swift run swift-windowsui
 ```
 

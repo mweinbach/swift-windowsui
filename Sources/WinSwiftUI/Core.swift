@@ -471,6 +471,92 @@ private final class AppStorageBox {
     var invalidate: (() -> Void)?
 }
 
+@MainActor
+@propertyWrapper
+public struct SceneStorage<Value> {
+    private let key: String
+    private let defaultValue: Value
+    private let box = SceneStorageBox<Value>()
+
+    public init(wrappedValue: Value, _ key: String) {
+        self.key = key
+        self.defaultValue = wrappedValue
+    }
+
+    public var wrappedValue: Value {
+        get {
+            bindToCurrentContext()
+            return readValue()
+        }
+        nonmutating set {
+            writeValue(newValue)
+            box.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        bindToCurrentContext()
+        return Binding<Value>(
+            get: {
+                readValue()
+            },
+            set: { newValue in
+                writeValue(newValue)
+                box.invalidate?()
+            },
+            invalidatesOnSet: true
+        )
+    }
+
+    private func bindToCurrentContext() {
+        guard let context = ViewBuildContextScope.current else {
+            return
+        }
+
+        box.hasValue = { key in
+            context.hasSceneStorageValue(for: key)
+        }
+        box.read = { key, defaultValue in
+            context.sceneStorageValue(for: key, defaultValue: defaultValue)
+        }
+        box.write = { value, key in
+            context.setSceneStorageValue(value, for: key)
+        }
+        if let fallbackValue = box.fallbackValue,
+           !context.hasSceneStorageValue(for: key) {
+            context.setSceneStorageValue(fallbackValue, for: key)
+        }
+        box.invalidate = {
+            context.invalidate()
+        }
+    }
+
+    private func readValue() -> Value {
+        if let read = box.read {
+            return read(key, defaultValue)
+        }
+
+        return box.fallbackValue ?? defaultValue
+    }
+
+    private func writeValue(_ value: Value) {
+        if let write = box.write {
+            write(value, key)
+        } else {
+            box.fallbackValue = value
+        }
+    }
+}
+
+@MainActor
+private final class SceneStorageBox<Value> {
+    var hasValue: (@MainActor (String) -> Bool)?
+    var read: (@MainActor (String, Value) -> Value)?
+    var write: (@MainActor (Value, String) -> Void)?
+    var fallbackValue: Value?
+    var invalidate: (() -> Void)?
+}
+
 public extension AppStorage where Value: RawRepresentable, Value.RawValue == String {
     init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
         self.explicitStore = store
@@ -901,6 +987,7 @@ final class ViewBuildDynamicState {
     private var callsiteOccurrences: [String: Int] = [:]
     private var onChangeValues: [String: Any] = [:]
     private var observedPreferenceValues: [String: Any] = [:]
+    private var sceneStorageValues: [String: Any] = [:]
     private var preferenceScopes: [[ObjectIdentifier: PreferenceEntry]] = [[:]]
 
     func beginRootBuild() {
@@ -929,6 +1016,18 @@ final class ViewBuildDynamicState {
 
     func setOnChangeValue<Value>(_ value: Value, for key: String) {
         onChangeValues[key] = value
+    }
+
+    func hasSceneStorageValue(for key: String) -> Bool {
+        sceneStorageValues[key] != nil
+    }
+
+    func sceneStorageValue<Value>(for key: String, defaultValue: Value) -> Value {
+        sceneStorageValues[key] as? Value ?? defaultValue
+    }
+
+    func setSceneStorageValue<Value>(_ value: Value, for key: String) {
+        sceneStorageValues[key] = value
     }
 
     func setPreference<Key: PreferenceKey>(_ key: Key.Type, value: Key.Value) {
@@ -1132,6 +1231,18 @@ public struct ViewBuildContext {
         }
 
         dynamicState.setOnChangeValue(value, for: key)
+    }
+
+    func hasSceneStorageValue(for key: String) -> Bool {
+        dynamicState.hasSceneStorageValue(for: key)
+    }
+
+    func sceneStorageValue<Value>(for key: String, defaultValue: Value) -> Value {
+        dynamicState.sceneStorageValue(for: key, defaultValue: defaultValue)
+    }
+
+    func setSceneStorageValue<Value>(_ value: Value, for key: String) {
+        dynamicState.setSceneStorageValue(value, for: key)
     }
 
     func setPreference<Key: PreferenceKey>(_ key: Key.Type, value: Key.Value) {

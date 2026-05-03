@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 96
+            maximumTextSamples: 128
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -736,6 +736,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("DEFAULT APP STORAGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the defaultAppStorage sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("SCENE STORAGE READY") {
+        failures.append("WinSwiftUI probe text samples are missing the SceneStorage sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -885,6 +888,15 @@ private struct InspectorDefaultAppStorageSample: View {
     }
 }
 
+private struct InspectorSceneStorageSample: View {
+    @SceneStorage("swift-windowsui.inspect.scene-storage.label") private var label = "SCENE STORAGE READY"
+
+    var body: some View {
+        Text(label)
+            .modifier(InspectorChipModifier())
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -1002,6 +1014,8 @@ private struct WinSwiftUIProbeView: View {
 
             InspectorDefaultAppStorageSample()
                 .defaultAppStorage(defaultAppStorageStore)
+
+            InspectorSceneStorageSample()
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

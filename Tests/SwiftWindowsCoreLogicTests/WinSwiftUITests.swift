@@ -4315,6 +4315,76 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSceneStorageBindingPersistsAcrossRetainedRebuilds() async {
+        await MainActor.run {
+            struct SceneSearchView: View {
+                @SceneStorage("query") var query = ""
+
+                var body: some View {
+                    TextField("Scene Search", text: $query)
+                }
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 80) },
+                invalidateHandler: {
+                    invalidationCount += 1
+                }
+            )
+
+            let firstNode = SceneSearchView().makeComponent(context: context).makeNode(runtime: runtime)
+            firstNode.onTextInput?("Retained")
+
+            let rebuiltNode = SceneSearchView().makeComponent(context: context).makeNode(runtime: runtime)
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertEqual(rebuiltNode.children[0].text, "Retained")
+        }
+    }
+
+    func testSceneStorageIsScopedToBuildContext() async {
+        await MainActor.run {
+            struct SceneLabelView: View {
+                @SceneStorage("label") var label = "SCENE FALLBACK"
+
+                var body: some View {
+                    VStack {
+                        Text(label)
+                        Button("SET SCENE LABEL") {
+                            label = "SCENE A VALUE"
+                        }
+                    }
+                }
+            }
+
+            let firstRuntime = RetainedViewRuntime(root: ViewNode())
+            let firstContext = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 120) },
+                invalidateHandler: {}
+            )
+            let secondRuntime = RetainedViewRuntime(root: ViewNode())
+            let secondContext = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 120) },
+                invalidateHandler: {}
+            )
+
+            let firstNode = SceneLabelView().makeComponent(context: firstContext).makeNode(runtime: firstRuntime)
+            guard let button = firstFocusableNode(containing: "SET SCENE LABEL", in: firstNode) else {
+                XCTFail("Expected scene storage button")
+                return
+            }
+            button.onActivate?()
+
+            let rebuiltFirstNode = SceneLabelView().makeComponent(context: firstContext).makeNode(runtime: firstRuntime)
+            let secondNode = SceneLabelView().makeComponent(context: secondContext).makeNode(runtime: secondRuntime)
+
+            XCTAssertTrue(containsText("SCENE A VALUE", in: rebuiltFirstNode))
+            XCTAssertTrue(containsText("SCENE FALLBACK", in: secondNode))
+        }
+    }
+
     func testStateObjectProjectedBindingPersistsAcrossRebuilds() async {
         await MainActor.run {
             final class SettingsModel: ObservableObject {

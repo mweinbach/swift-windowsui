@@ -305,6 +305,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontDesignStylesTextAndConcatenatedSpans() async {
+        await MainActor.run {
+            let node = makeNode(Text("CODE").fontDesign(.monospaced))
+
+            XCTAssertEqual(node.textStyle.fontFamily, "Cascadia Mono")
+
+            let spanNode = makeNode(
+                (
+                    Text("LEFT")
+                        .fontDesign(.monospaced)
+                    + Text(" RIGHT")
+                        .fontDesign(.rounded)
+                )
+                .fontDesign(.default)
+            )
+
+            XCTAssertEqual(spanNode.textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(spanNode.textStyle.spans?.map(\.style.fontFamily), ["Segoe UI", "Segoe UI"])
+        }
+    }
+
+    func testGenericFontDesignStylesTextDescendantsAndPreservesIconFamily() async {
+        await MainActor.run {
+            let node = makeNode(
+                HStack {
+                    Text("TITLE")
+                    Image(systemName: "star.fill")
+                }
+                .fontDesign(.monospaced)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(node.children[1].textStyle.fontFamily, "Segoe Fluent Icons")
+        }
+    }
+
     func testGenericTextAlignmentAndLineLimitStyleDescendants() async {
         await MainActor.run {
             let node = makeNode(

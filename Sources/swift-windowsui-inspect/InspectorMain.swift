@@ -726,7 +726,7 @@ private struct WinSwiftUIProbeView: View {
             Text("DECORATED TEXT")
                 .underline()
                 .strikethrough()
-                .monospaced()
+                .fontDesign(.monospaced)
                 .tracking(1.6)
                 .lineLimit(1)
 

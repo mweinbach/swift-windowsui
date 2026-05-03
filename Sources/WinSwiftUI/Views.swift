@@ -216,6 +216,21 @@ public struct Text: View {
         return copy
     }
 
+    public func fontDesign(_ design: Font.Design?) -> Text {
+        guard let design else {
+            return self
+        }
+
+        var copy = self
+        copy.font.design = design
+        copy.font.family = nil
+        let family = copy.font.resolvedFamily
+        copy.updateSpanStyles { style in
+            style.fontFamily = family
+        }
+        return copy
+    }
+
     public func bold() -> Text {
         fontWeight(.bold)
     }

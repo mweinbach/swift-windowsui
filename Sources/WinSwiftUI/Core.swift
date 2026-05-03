@@ -2172,6 +2172,24 @@ public extension View {
         }
     }
 
+    func fontDesign(_ design: Font.Design?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                if let design {
+                    let family = Font(size: 1, design: design).resolvedFamily
+                    updateTextStyles(in: node) { style in
+                        if style.fontFamily != "Segoe Fluent Icons" {
+                            style.fontFamily = family
+                        }
+                    }
+                }
+                return node
+            }
+        }
+    }
+
     func kerning(_ value: CGFloat) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

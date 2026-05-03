@@ -1337,6 +1337,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAccentColorAliasesTintForControlDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Toggle("POWER", isOn: Binding(get: { true }, set: { _ in }))
+                    Slider(value: Binding(get: { 0.5 }, set: { _ in }), in: 0...1)
+                    ProgressView(value: 0.5)
+                    ProgressView(value: 0.5)
+                        .accentColor(.purple)
+                        .accentColor(nil)
+                }
+                .accentColor(.mint)
+                .accentColor(nil)
+            )
+
+            let toggleTrack = node.children[0].children[1].children[0]
+            let sliderFill = node.children[1].children[1]
+            let progressFill = node.children[2].children[1]
+            let explicitProgressFill = node.children[3].children[1]
+
+            XCTAssertEqual(toggleTrack.backgroundColor, .mint)
+            XCTAssertEqual(sliderFill.backgroundColor, .mint)
+            XCTAssertEqual(progressFill.backgroundColor, .mint)
+            XCTAssertEqual(explicitProgressFill.backgroundColor, .purple)
+
+            let explicitToggle = makeNode(
+                Toggle("READY", isOn: Binding(get: { true }, set: { _ in }))
+                    .accentColor(.orange)
+                    .labelsHidden()
+            )
+            XCTAssertEqual(explicitToggle.children[0].backgroundColor, .orange)
+
+            let explicitSlider = makeNode(
+                Slider(value: Binding(get: { 0.5 }, set: { _ in }), in: 0...1)
+                    .accentColor(.cyan)
+            )
+            XCTAssertEqual(explicitSlider.children[1].backgroundColor, .cyan)
+        }
+    }
+
     func testVisualEffectModifiersReachRuntimeNode() async {
         await MainActor.run {
             let effectNode = makeNode(

@@ -2322,6 +2322,10 @@ public extension View {
         }
     }
 
+    func accentColor(_ color: Color?) -> some View {
+        tint(color)
+    }
+
     func onSubmit(_ action: @escaping @MainActor () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withSubmitAction(action))

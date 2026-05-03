@@ -2690,6 +2690,10 @@ public struct Toggle: View {
         return copy
     }
 
+    public func accentColor(_ color: Color?) -> Toggle {
+        tint(color)
+    }
+
     public func labelsHidden() -> Toggle {
         var copy = self
         copy.hidesLabel = true
@@ -2898,6 +2902,10 @@ public struct Slider: View {
         copy.tintColor = color
         return copy
     }
+
+    public func accentColor(_ color: Color?) -> Slider {
+        tint(color)
+    }
 }
 
 @MainActor
@@ -2972,6 +2980,10 @@ public struct ProgressView: View {
         var copy = self
         copy.tintColor = color
         return copy
+    }
+
+    public func accentColor(_ color: Color?) -> ProgressView {
+        tint(color)
     }
 }
 

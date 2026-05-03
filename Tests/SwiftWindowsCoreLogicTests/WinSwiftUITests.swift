@@ -462,6 +462,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayAndBackgroundViewOverloadsFillZeroSizedLayers() async {
+        await MainActor.run {
+            let overlayNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(.cyan, lineWidth: 2))
+            )
+            let backgroundNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .background(Rectangle().fill(.orange))
+            )
+
+            XCTAssertEqual(overlayNode.children.count, 2)
+            XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 100, height: 50))
+            XCTAssertEqual(overlayNode.children[1].borderColor, .cyan)
+            XCTAssertEqual(overlayNode.children[1].borderWidth, 2)
+            XCTAssertEqual(backgroundNode.children.count, 2)
+            XCTAssertEqual(backgroundNode.children[0].frame, Rect(x: 0, y: 0, width: 100, height: 50))
+            XCTAssertEqual(backgroundNode.children[0].backgroundColor, .orange)
+        }
+    }
+
     func testLifecycleModifiersRouteToRetainedCallbacks() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

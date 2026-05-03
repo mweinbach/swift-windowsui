@@ -1359,7 +1359,11 @@ private func layeredComponent(
                 baseNode.frame = baseFrame
             }
 
-            let layerSize = layerNode.intrinsicContentSize()
+            let measuredLayerSize = layerNode.intrinsicContentSize()
+            let layerSize = Size(
+                width: measuredLayerSize.width > 0 ? measuredLayerSize.width : bounds.size.width,
+                height: measuredLayerSize.height > 0 ? measuredLayerSize.height : bounds.size.height
+            )
             let layerFrame = Rect(
                 origin: alignment.frameOrigin(for: layerSize, in: bounds.size),
                 size: layerSize
@@ -1533,6 +1537,17 @@ public extension View {
         }
     }
 
+    func background<V: View>(_ background: V, alignment: Alignment = .center) -> some View {
+        ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: background.makeComponent(context: context),
+                alignment: alignment,
+                placement: .behind
+            )
+        }
+    }
+
     func background(alignment: Alignment = .center, @ViewBuilder content: () -> [AnyView]) -> some View {
         let backgroundViews = content()
 
@@ -1542,6 +1557,17 @@ public extension View {
                 layer: composeComponent(from: backgroundViews, context: context),
                 alignment: alignment,
                 placement: .behind
+            )
+        }
+    }
+
+    func overlay<V: View>(_ overlay: V, alignment: Alignment = .center) -> some View {
+        ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: overlay.makeComponent(context: context),
+                alignment: alignment,
+                placement: .above
             )
         }
     }

@@ -81,12 +81,14 @@ final class WinSwiftUITests: XCTestCase {
                 Text("DECORATED")
                     .bold()
                     .monospaced()
+                    .kerning(1.75)
                     .underline()
                     .strikethrough()
             )
 
             XCTAssertEqual(styledNode.textStyle.weight, .bold)
             XCTAssertEqual(styledNode.textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(styledNode.textStyle.letterSpacing, 1.75, accuracy: 0.001)
             XCTAssertTrue(styledNode.textStyle.underline)
             XCTAssertTrue(styledNode.textStyle.strikethrough)
 
@@ -94,11 +96,13 @@ final class WinSwiftUITests: XCTestCase {
                 (
                     Text("UNDER")
                         .underline()
+                        .tracking(2.25)
                     + Text(" STRIKE")
                         .strikethrough()
                         .fontWeight(.semibold)
                 )
                 .monospaced()
+                .kerning(3.5)
             )
 
             guard let spans = spanNode.textStyle.spans else {
@@ -112,6 +116,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(spans[1].style.strikethrough)
             XCTAssertEqual(spans[1].style.weight, .semibold)
             XCTAssertEqual(spans.map(\.style.fontFamily), ["Cascadia Mono", "Cascadia Mono"])
+            XCTAssertEqual(spans.map(\.style.letterSpacing), [3.5, 3.5])
         }
     }
 
@@ -124,6 +129,7 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .fontWeight(.semibold)
                 .monospaced()
+                .tracking(2.5)
                 .underline()
                 .strikethrough()
             )
@@ -131,6 +137,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTextDescendants(in: node) { child in
                 child.textStyle.weight == .semibold
                     && child.textStyle.fontFamily == "Cascadia Mono"
+                    && child.textStyle.letterSpacing == 2.5
                     && child.textStyle.underline
                     && child.textStyle.strikethrough
             })

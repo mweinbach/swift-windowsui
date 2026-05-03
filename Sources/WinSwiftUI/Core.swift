@@ -2172,6 +2172,23 @@ public extension View {
         }
     }
 
+    func kerning(_ value: CGFloat) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.letterSpacing = value
+                }
+                return node
+            }
+        }
+    }
+
+    func tracking(_ value: CGFloat) -> some View {
+        kerning(value)
+    }
+
     func fontWeight(_ weight: Font.Weight?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

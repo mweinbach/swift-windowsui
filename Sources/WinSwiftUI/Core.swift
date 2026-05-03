@@ -1065,6 +1065,87 @@ public struct DatePickerComponents: OptionSet, Sendable {
     public static let date = DatePickerComponents(rawValue: 1 << 1)
 }
 
+struct SearchFieldPlacementMetrics: Sendable {
+    var spacing: Double
+    var padding: EdgeInsets
+    var backgroundColor: Color
+    var borderColor: Color
+    var borderWidth: Double
+    var cornerRadius: Double
+}
+
+public struct SearchFieldPlacement: Sendable, Equatable {
+    public struct NavigationBarDrawerDisplayMode: Sendable, Equatable {
+        private enum Kind: Sendable, Equatable {
+            case automatic
+            case always
+        }
+
+        private let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let automatic = NavigationBarDrawerDisplayMode(kind: .automatic)
+        public static let always = NavigationBarDrawerDisplayMode(kind: .always)
+    }
+
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case toolbar
+        case sidebar
+        case navigationBarDrawer(displayMode: NavigationBarDrawerDisplayMode)
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = SearchFieldPlacement(kind: .automatic)
+    public static let toolbar = SearchFieldPlacement(kind: .toolbar)
+    public static let sidebar = SearchFieldPlacement(kind: .sidebar)
+    public static let navigationBarDrawer = SearchFieldPlacement(kind: .navigationBarDrawer(displayMode: .automatic))
+
+    public static func navigationBarDrawer(displayMode: NavigationBarDrawerDisplayMode) -> SearchFieldPlacement {
+        SearchFieldPlacement(kind: .navigationBarDrawer(displayMode: displayMode))
+    }
+
+    var metrics: SearchFieldPlacementMetrics {
+        switch kind {
+        case .automatic, .navigationBarDrawer:
+            return SearchFieldPlacementMetrics(
+                spacing: 10,
+                padding: EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10),
+                backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.74),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.12),
+                borderWidth: 1,
+                cornerRadius: 18
+            )
+        case .toolbar:
+            return SearchFieldPlacementMetrics(
+                spacing: 8,
+                padding: EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8),
+                backgroundColor: Color(red: 0.12, green: 0.17, blue: 0.25, alpha: 0.68),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 16
+            )
+        case .sidebar:
+            return SearchFieldPlacementMetrics(
+                spacing: 8,
+                padding: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10),
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.64),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 16
+            )
+        }
+    }
+}
+
 public enum ScrollIndicatorVisibility: Sendable, Equatable {
     case automatic
     case visible
@@ -2508,6 +2589,47 @@ struct ModifiedView<Content: View>: View {
 }
 
 @MainActor
+private struct SearchableView<Content: View>: View {
+    typealias Body = Never
+
+    let content: Content
+    let text: Binding<String>
+    let placement: SearchFieldPlacement
+    let prompt: Text?
+
+    var body: Never {
+        fatalError("SearchableView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let metrics = placement.metrics
+        let promptText = prompt ?? Text("Search")
+
+        return VStack(alignment: .leading, spacing: metrics.spacing) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 1.35, weight: .semibold))
+                    .foregroundColor(Color(red: 0.66, green: 0.74, blue: 0.84, alpha: 0.88))
+                    .frame(width: 18)
+
+                TextField("", text: text, prompt: promptText)
+                    .textFieldStyle(.plain)
+            }
+            .padding(metrics.padding)
+            .background(metrics.backgroundColor)
+            .cornerRadius(metrics.cornerRadius)
+            .overlay(
+                RoundedRectangle(cornerRadius: metrics.cornerRadius)
+                    .stroke(metrics.borderColor, lineWidth: metrics.borderWidth)
+            )
+
+            content
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 func composeComponent(
     from views: [AnyView],
     context: ViewBuildContext,
@@ -3658,6 +3780,18 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withControlSize(size))
         }
+    }
+
+    func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: Text? = nil) -> some View {
+        SearchableView(content: self, text: text, placement: placement, prompt: prompt)
+    }
+
+    func searchable<S: StringProtocol>(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: S
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: Text(String(prompt)))
     }
 
     func textFieldStyle(_ style: TextFieldStyle) -> some View {

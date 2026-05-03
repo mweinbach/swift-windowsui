@@ -670,6 +670,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("PROMPT SEARCH") {
         failures.append("WinSwiftUI probe text samples are missing the prompt-backed text field")
     }
+    if !winSwiftUIProbe.textSamples.contains("FILTER INSPECTOR") {
+        failures.append("WinSwiftUI probe text samples are missing the searchable field")
+    }
     if !winSwiftUIProbe.textSamples.contains("GAUGE LOAD") {
         failures.append("WinSwiftUI probe text samples are missing the Gauge label")
     }
@@ -773,6 +776,15 @@ private struct WinSwiftUIProbeView: View {
                 .disabled(true)
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("SEARCH RESULT ROW")
+            }
+            .searchable(
+                text: Binding(get: { "" }, set: { _ in }),
+                placement: .toolbar,
+                prompt: "FILTER INSPECTOR"
+            )
 
             TextField("Ignored title", text: Binding(get: { "" }, set: { _ in }), prompt: Text("PROMPT SEARCH"))
 

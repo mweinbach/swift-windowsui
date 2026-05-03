@@ -2842,6 +2842,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSearchableWrapsContentWithRetainedSearchField() async {
+        await MainActor.run {
+            var query = ""
+            let node = makeNode(
+                VStack {
+                    Text("ALPHA")
+                    Text("BETA")
+                }
+                .searchable(text: Binding(get: { query }, set: { query = $0 }), prompt: "FILTER")
+            )
+
+            XCTAssertTrue(containsText("FILTER", in: node))
+            XCTAssertTrue(containsText("ALPHA", in: node))
+            XCTAssertTrue(containsText("BETA", in: node))
+
+            let searchField = firstFocusableNode(containing: "FILTER", in: node)
+            searchField?.onTextInput?("abc")
+
+            XCTAssertEqual(query, "abc")
+        }
+    }
+
+    func testSearchableAcceptsNavigationDrawerPlacement() async {
+        await MainActor.run {
+            var query = ""
+            let node = makeNode(
+                Text("BODY")
+                    .searchable(
+                        text: Binding(get: { query }, set: { query = $0 }),
+                        placement: .navigationBarDrawer(displayMode: .always)
+                    )
+            )
+
+            XCTAssertTrue(containsText("Search", in: node))
+            XCTAssertTrue(containsText("BODY", in: node))
+            XCTAssertNotNil(firstFocusableNode(containing: "Search", in: node))
+        }
+    }
+
     func testTextFieldEditsAtCaretAndMovesCaret() async {
         await MainActor.run {
             var text = ""

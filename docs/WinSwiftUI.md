@@ -120,6 +120,7 @@ Modifiers:
 - `truncationMode`
 - `tint`
 - `controlSize`
+- `searchable`
 - `textFieldStyle`
 - `progressViewStyle`
 - `gaugeStyle`
@@ -181,6 +182,7 @@ Compatibility helpers:
 - `FillStyle`
 - `DragGesture`
 - `ControlSize`
+- `SearchFieldPlacement`
 - `DatePickerComponents`
 - common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `DatePickerStyle`, `MenuStyle`, `ControlGroupStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
@@ -210,6 +212,7 @@ Surface direction:
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Menu` maps common title, `systemImage`, and custom-label call sites into a retained disclosure-style action cluster. `menuStyle` supports `.automatic`, `.button`, `.borderedButton`, and `.borderlessButton` style values plus common concrete wrappers such as `BorderlessButtonMenuStyle()`, flowing through the build context to descendant menus. Expanded content is currently rendered inline rather than through a native popup surface, but child controls keep their normal retained focus and activation behavior.
 - `TextField` maps into a retained single-line editable control. StringProtocol title and `prompt: Text` initializer shapes are accepted, with prompt text used as the retained placeholder. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while pointer clicks/drags, arrows, shift-selection, home/end, backspace, delete, `Ctrl+A`, and injected clipboard shortcuts update the retained caret/editing state. `textFieldStyle` supports `.automatic`, `.roundedBorder`, and `.plain` style values plus common concrete wrappers such as `PlainTextFieldStyle()`, flowing through the build context to descendant text fields.
+- `searchable(text:placement:prompt:)` wraps the view with a retained inline search field that reuses the same `TextField` editing, focus, submit, and binding behavior. `SearchFieldPlacement` accepts `.automatic`, `.toolbar`, `.sidebar`, `.navigationBarDrawer`, and `.navigationBarDrawer(displayMode:)` call sites for source compatibility, but placement is advisory for now and lowers to an inline retained field above the modified content.
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked. It supports the same string-title, `prompt: Text` placeholder initializer shapes, and inherited `textFieldStyle` chrome as `TextField`. Paste is allowed through the injected clipboard bridge, but copy/cut do not expose selected secure text.
 - `TextEditor(text:)` reuses the retained text-input path in multiline mode. Return/enter inserts newlines, text wraps inside the editor surface, and the caret tracks explicit line breaks with pointer clicks/drags plus up/down arrow movement across explicit lines. Keyboard and pointer range/select-all replacement/deletion plus injected clipboard shortcuts are supported, while rich text and full platform text services are still future work.
 - Clipboard shortcuts use the runtime-level `TextClipboard` injection point. `SwiftWindowsPlatform.Win32TextClipboard` provides `CF_UNICODETEXT` read/write with Windows CRLF normalization, and both `FoundationApp` and `WinSwiftUIWindowHost` install it for retained text controls.
@@ -243,6 +246,7 @@ Surface direction:
 - `Font` supports `system(size:weight:design:)`, `system(_:design:weight:)`, `custom(_:size:)`, `custom(_:fixedSize:)`, and common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`. `font(nil)` is accepted for SwiftUI source compatibility and leaves retained text styles unchanged.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, `ProgressView`, and `Gauge` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
+- `searchable` uses the supplied search text binding as the retained search field storage. Search suggestions, tokens, scopes, environment-driven dismissal, and native toolbar/sidebar placement are still future work.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `progressViewStyle` and `gaugeStyle` are carried through the build context so descendant progress and gauge controls can share linear or circular retained indicators unless they set explicit styles.
 - `datePickerStyle` is carried through the build context so descendant date pickers can share compact, field, graphical, or wheel-inspired retained chrome unless they set explicit styles.

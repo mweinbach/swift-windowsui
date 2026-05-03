@@ -569,6 +569,30 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testRuntimeCachesRasterizedTextAcrossDirtyFrames() async {
+        await MainActor.run {
+            let label = Controls.label("HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let runtime = RetainedViewRuntime(root: root)
+
+            let firstFrame = runtime.renderFrame()
+            guard let firstBitmap = firstBitmapCommand(in: firstFrame)?.bitmap else {
+                return XCTFail("Expected bitmap text command")
+            }
+
+            XCTAssertEqual(runtime.textRasterCache?.count, 1)
+
+            root.backgroundColor = .clear
+            let secondFrame = runtime.renderFrame()
+            guard let secondBitmap = firstBitmapCommand(in: secondFrame)?.bitmap else {
+                return XCTFail("Expected cached bitmap text command")
+            }
+
+            XCTAssertEqual(runtime.textRasterCache?.count, 1)
+            XCTAssertEqual(secondBitmap, firstBitmap)
+        }
+    }
+
     func testDisplayScaleIncreasesRenderedBitmapResolution() async {
         await MainActor.run {
             let label = Controls.label("HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
@@ -922,6 +946,18 @@ private func shadowRectCommands(in frame: RenderFrame) -> [ShadowRectCommand] {
 
         return shadowRect
     }
+}
+
+private func firstBitmapCommand(in frame: RenderFrame) -> DrawBitmapCommand? {
+    for command in frame.commands {
+        guard case .drawBitmap(let drawBitmap) = command else {
+            continue
+        }
+
+        return drawBitmap
+    }
+
+    return nil
 }
 
 private func drawCommandRects(in frame: RenderFrame) -> [Rect] {

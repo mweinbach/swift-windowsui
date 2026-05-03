@@ -27,8 +27,9 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var underline: Bool
     var strikethrough: Bool
     var enableKerning: Bool
+    var displayScale: Double
 
-    init(text: String, style: PixelTextStyle, size: Size) {
+    init(text: String, style: PixelTextStyle, size: Size, displayScale: Double) {
         self.text = text
         self.fontFamily = style.fontFamily
         self.scale = style.scale
@@ -53,6 +54,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.underline = style.underline
         self.strikethrough = style.strikethrough
         self.enableKerning = style.enableKerning
+        self.displayScale = displayScale
     }
 }
 
@@ -64,7 +66,7 @@ public final class TextRasterCache {
     private let maxMemoryBytes: Int
     private var totalMemoryBytes: Int = 0
 
-    init(maxEntryCount: Int = 256, maxMemoryBytes: Int = 64 * 1024 * 1024) {
+    public init(maxEntryCount: Int = 256, maxMemoryBytes: Int = 64 * 1024 * 1024) {
         self.maxEntryCount = maxEntryCount
         self.maxMemoryBytes = maxMemoryBytes
     }

@@ -993,7 +993,26 @@ public final class ViewNode {
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             let displayScale = runtime?.displayScale ?? 1.0
             let textCommandStartIndex = commands.count
-            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
+            let cacheKey = TextRasterCacheKey(text: text, style: textStyle, size: fillRect.size, displayScale: displayScale)
+            if let cachedBitmap = runtime?.textRasterCache?.get(for: cacheKey) {
+                commands.append(
+                    .drawBitmap(
+                        DrawBitmapCommand(
+                            rect: fillRect,
+                            bitmap: cachedBitmap,
+                            opacity: 1.0,
+                            clipRect: effectiveClip
+                        )
+                    )
+                )
+            } else if NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
+                cacheRasterizedTextCommand(
+                    in: commands,
+                    from: textCommandStartIndex,
+                    key: cacheKey,
+                    cache: runtime?.textRasterCache
+                )
+            } else {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
@@ -1941,6 +1960,7 @@ public final class RetainedViewRuntime {
         self.clearColor = clearColor
         self.root = root
         self.displayScale = displayScale
+        self.textRasterCache = TextRasterCache()
         self.root.setRuntime(self)
     }
 
@@ -2553,6 +2573,24 @@ private func applyOpacity(to commands: inout [RenderCommand], from startIndex: I
     for index in startIndex..<commands.count {
         commands[index] = renderCommand(commands[index], applyingOpacity: opacity)
     }
+}
+
+@MainActor
+private func cacheRasterizedTextCommand(
+    in commands: [RenderCommand],
+    from startIndex: Int,
+    key: TextRasterCacheKey,
+    cache: TextRasterCache?
+) {
+    guard let cache, commands.count == startIndex + 1 else {
+        return
+    }
+
+    guard case .drawBitmap(let command) = commands[startIndex] else {
+        return
+    }
+
+    cache.insert(command.bitmap, for: key)
 }
 
 private func renderCommand(_ command: RenderCommand, applyingOpacity opacity: Double) -> RenderCommand {

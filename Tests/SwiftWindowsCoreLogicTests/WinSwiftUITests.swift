@@ -218,9 +218,42 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(text, "H")
 
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
-            XCTAssertEqual(text, "")
-            XCTAssertEqual(node.children[0].text, "Search")
-            XCTAssertEqual(invalidationCount, 3)
+            XCTAssertEqual(text, "H")
+            XCTAssertEqual(node.children[0].text, "H")
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testTextFieldEditsAtCaretAndMovesCaret() async {
+        await MainActor.run {
+            var text = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+
+            node.onTextInput?("ABC")
+            _ = runtime.renderFrame()
+            let endCaretX = node.children[1].frame.origin.x
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            _ = runtime.renderFrame()
+            let movedCaretX = node.children[1].frame.origin.x
+
+            node.onTextInput?("x")
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onTextInput?("^")
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+
+            XCTAssertLessThan(movedCaretX, endCaretX)
+            XCTAssertEqual(text, "^Ax")
         }
     }
 

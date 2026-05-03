@@ -271,8 +271,11 @@ private func runTextInputProbe() -> String {
     )
 
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
-    runtime.textInput("OK")
-    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+    runtime.textInput("ABC")
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+    runtime.textInput("x")
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
     return value
 }
 

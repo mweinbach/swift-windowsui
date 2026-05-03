@@ -842,6 +842,16 @@ public enum Controls {
         let state = TextFieldState(text: text)
         let resolvedTextColor = isEnabled ? textColor : palette.disabledForeground
         let resolvedPlaceholderColor = isEnabled ? placeholderColor : palette.disabledForeground
+        let contentInsets = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+        let textStyle = PixelTextStyle(
+            color: state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor,
+            scale: 1.6,
+            alignment: .leading,
+            fontFamily: "Segoe UI",
+            weight: .regular,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
 
         let textLabel = label(
             state.displayText(placeholder: placeholder),
@@ -872,13 +882,7 @@ public enum Controls {
             outlineWidth: chrome.focusRingWidth,
             cornerRadius: 12,
             clipsToBounds: true,
-            layoutMode: .stack(
-                .horizontal(
-                    spacing: 4,
-                    padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                    alignment: .center
-                )
-            ),
+            layoutMode: .absolute,
             isHitTestVisible: true,
             children: [textLabel, caret]
         )
@@ -890,14 +894,53 @@ public enum Controls {
             textLabel.textStyle = style
         }
 
-        func commit(_ newText: String) {
-            guard state.text != newText else {
+        func measuredPrefixWidth() -> Double {
+            let prefix = state.prefixBeforeCaret
+            guard !prefix.isEmpty else {
+                return 0
+            }
+
+            return NativeTextRenderer.measure(prefix, style: textStyle, scaleFactor: runtime.displayScale)?.width
+                ?? PixelFont.measure(prefix, style: textStyle).width
+        }
+
+        func layoutTextAndCaret(in bounds: Rect) {
+            let contentX = contentInsets.leading
+            let contentY = contentInsets.top
+            let contentWidth = max(0, bounds.size.width - contentInsets.leading - contentInsets.trailing)
+            let contentHeight = max(0, bounds.size.height - contentInsets.top - contentInsets.bottom)
+            textLabel.frame = Rect(x: contentX, y: 0, width: contentWidth, height: bounds.size.height)
+
+            let caretX = min(contentX + measuredPrefixWidth(), contentX + contentWidth)
+            let caretHeight = min(18, max(0, contentHeight))
+            caret.frame = Rect(
+                x: caretX,
+                y: contentY + max(0, (contentHeight - caretHeight) * 0.5),
+                width: 1.5,
+                height: caretHeight
+            )
+        }
+
+        func applyTextMutation(_ didMutate: Bool) {
+            guard didMutate else {
                 return
             }
 
-            state.text = newText
             refreshText()
-            onTextChanged?(newText)
+            layoutTextAndCaret(in: root.resolvedFrame)
+            onTextChanged?(state.text)
+        }
+
+        func applyCaretMove(_ didMove: Bool) {
+            guard didMove else {
+                return
+            }
+
+            layoutTextAndCaret(in: root.resolvedFrame)
+        }
+
+        root.onLayout = { bounds in
+            layoutTextAndCaret(in: bounds)
         }
 
         if isEnabled {
@@ -945,17 +988,22 @@ public enum Controls {
                     return
                 }
 
-                commit(state.text + sanitizedInput)
+                applyTextMutation(state.insert(sanitizedInput))
             }
             root.onKeyDown = { event in
                 switch event.key {
                 case .backspace:
-                    guard !state.text.isEmpty else {
-                        return
-                    }
-                    commit(String(state.text.dropLast()))
+                    applyTextMutation(state.backspace())
                 case .delete:
-                    commit("")
+                    applyTextMutation(state.deleteForward())
+                case .leftArrow:
+                    applyCaretMove(state.moveCaretLeft())
+                case .rightArrow:
+                    applyCaretMove(state.moveCaretRight())
+                case .home:
+                    applyCaretMove(state.moveCaretToStart())
+                case .end:
+                    applyCaretMove(state.moveCaretToEnd())
                 case .enter:
                     onSubmit?()
                 default:
@@ -1553,13 +1601,99 @@ private final class ButtonInteractionState {
 
 private final class TextFieldState {
     var text: String
+    var caretOffset: Int
 
     init(text: String) {
         self.text = text
+        self.caretOffset = text.count
     }
 
     func displayText(placeholder: String) -> String {
         text.isEmpty ? placeholder : text
+    }
+
+    var prefixBeforeCaret: String {
+        String(text.prefix(caretOffset))
+    }
+
+    func replace(with newText: String) -> Bool {
+        guard text != newText else {
+            caretOffset = min(caretOffset, text.count)
+            return false
+        }
+
+        text = newText
+        caretOffset = text.count
+        return true
+    }
+
+    func insert(_ input: String) -> Bool {
+        guard !input.isEmpty else {
+            return false
+        }
+
+        let insertionIndex = text.index(text.startIndex, offsetBy: clampedCaretOffset)
+        text.insert(contentsOf: input, at: insertionIndex)
+        caretOffset = clampedCaretOffset + input.count
+        return true
+    }
+
+    func backspace() -> Bool {
+        let offset = clampedCaretOffset
+        guard offset > 0 else {
+            return false
+        }
+
+        let removeEnd = text.index(text.startIndex, offsetBy: offset)
+        let removeStart = text.index(before: removeEnd)
+        text.removeSubrange(removeStart..<removeEnd)
+        caretOffset = offset - 1
+        return true
+    }
+
+    func deleteForward() -> Bool {
+        let offset = clampedCaretOffset
+        guard offset < text.count else {
+            return false
+        }
+
+        let removeStart = text.index(text.startIndex, offsetBy: offset)
+        let removeEnd = text.index(after: removeStart)
+        text.removeSubrange(removeStart..<removeEnd)
+        caretOffset = offset
+        return true
+    }
+
+    func moveCaretLeft() -> Bool {
+        let nextOffset = max(0, clampedCaretOffset - 1)
+        return moveCaret(to: nextOffset)
+    }
+
+    func moveCaretRight() -> Bool {
+        let nextOffset = min(text.count, clampedCaretOffset + 1)
+        return moveCaret(to: nextOffset)
+    }
+
+    func moveCaretToStart() -> Bool {
+        moveCaret(to: 0)
+    }
+
+    func moveCaretToEnd() -> Bool {
+        moveCaret(to: text.count)
+    }
+
+    private func moveCaret(to offset: Int) -> Bool {
+        let nextOffset = min(max(0, offset), text.count)
+        guard nextOffset != caretOffset else {
+            return false
+        }
+
+        caretOffset = nextOffset
+        return true
+    }
+
+    private var clampedCaretOffset: Int {
+        min(max(0, caretOffset), text.count)
     }
 }
 

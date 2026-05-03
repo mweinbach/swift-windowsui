@@ -77,7 +77,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text entry is single-line and caret/editing support is intentionally minimal while the runtime grows fuller text editing
+- Text entry is single-line with caret-aware keyboard editing, but selection and multiline editing are still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
 
 ## Demo Source Compatibility

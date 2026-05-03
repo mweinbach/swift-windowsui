@@ -852,6 +852,34 @@ public struct ButtonSurfaceStyle: Sendable {
     }
 
     public static let `default` = ButtonSurfaceStyle()
+    public static let prominent = ButtonSurfaceStyle(
+        palette: SurfacePalette(
+            idle: Color(red: 0.05, green: 0.36, blue: 0.82, alpha: 0.86),
+            hovered: Color(red: 0.08, green: 0.44, blue: 0.94, alpha: 0.92),
+            focused: Color(red: 0.12, green: 0.50, blue: 1.0, alpha: 0.96),
+            pressed: Color(red: 0.18, green: 0.58, blue: 1.0, alpha: 1.0),
+            activated: Color(red: 0.32, green: 0.68, blue: 1.0, alpha: 1.0),
+            disabledBackground: Color(red: 0.16, green: 0.24, blue: 0.34, alpha: 0.58),
+            disabledForeground: Color(red: 0.62, green: 0.70, blue: 0.78, alpha: 0.72),
+            disabledBorder: Color(red: 0.34, green: 0.48, blue: 0.64, alpha: 0.30),
+            errorBorder: Color(red: 0.90, green: 0.22, blue: 0.20, alpha: 0.90)
+        ),
+        chrome: SurfaceChrome(
+            borderColor: Color(red: 0.78, green: 0.90, blue: 1.0, alpha: 0.18),
+            borderHoveredColor: Color(red: 0.84, green: 0.94, blue: 1.0, alpha: 0.32),
+            borderFocusedColor: Color(red: 0.90, green: 0.97, blue: 1.0, alpha: 0.42),
+            borderPressedColor: Color(red: 0.94, green: 0.99, blue: 1.0, alpha: 0.48),
+            borderWidth: 1,
+            focusRingColor: Color(red: 0.58, green: 0.78, blue: 1.0, alpha: 0.36),
+            focusRingWidth: 2,
+            shadowColor: Color(red: 0.02, green: 0.12, blue: 0.28, alpha: 0.22),
+            shadowHoveredColor: Color(red: 0.02, green: 0.16, blue: 0.36, alpha: 0.28),
+            shadowFocusedColor: Color(red: 0.04, green: 0.20, blue: 0.44, alpha: 0.34),
+            shadowPressedColor: Color(red: 0.02, green: 0.08, blue: 0.20, alpha: 0.18),
+            shadowOffset: Point(x: 0, y: 16),
+            shadowSpread: 12
+        )
+    )
     public static let destructive = ButtonSurfaceStyle(
         palette: SurfacePalette(
             idle: Color(red: 0.50, green: 0.12, blue: 0.14, alpha: 0.82),
@@ -911,6 +939,9 @@ public enum ButtonRole: Sendable, Equatable {
 public struct ButtonStyle: Sendable, Equatable {
     private enum Kind: Sendable, Equatable {
         case automatic
+        case bordered
+        case borderedProminent
+        case borderless
         case plain
     }
 
@@ -921,13 +952,18 @@ public struct ButtonStyle: Sendable, Equatable {
     }
 
     public static let automatic = ButtonStyle(kind: .automatic)
+    public static let bordered = ButtonStyle(kind: .bordered)
+    public static let borderedProminent = ButtonStyle(kind: .borderedProminent)
+    public static let borderless = ButtonStyle(kind: .borderless)
     public static let plain = ButtonStyle(kind: .plain)
 
     var surfaceStyle: ButtonSurfaceStyle {
         switch kind {
-        case .automatic:
+        case .automatic, .bordered:
             return .default
-        case .plain:
+        case .borderedProminent:
+            return .prominent
+        case .borderless, .plain:
             return .plain
         }
     }

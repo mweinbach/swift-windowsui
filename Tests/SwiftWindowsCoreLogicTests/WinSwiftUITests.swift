@@ -418,6 +418,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonStyleVariantsMapToRetainedSurfaces() async {
+        await MainActor.run {
+            let borderedNode = makeNode(
+                Button("OK") {}
+                    .buttonStyle(.bordered)
+            )
+            let prominentNode = makeNode(
+                Button("SAVE") {}
+                    .buttonStyle(.borderedProminent)
+            )
+            let borderlessNode = makeNode(
+                Button("MORE") {}
+                    .buttonStyle(.borderless)
+            )
+
+            XCTAssertEqual(borderedNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(prominentNode.backgroundColor, ButtonSurfaceStyle.prominent.palette.idle)
+            XCTAssertEqual(prominentNode.borderColor, ButtonSurfaceStyle.prominent.chrome.borderColor)
+            XCTAssertEqual(borderlessNode.backgroundColor, .clear)
+            XCTAssertEqual(borderlessNode.borderColor, .clear)
+            XCTAssertFalse(borderlessNode.clipsToBounds)
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25

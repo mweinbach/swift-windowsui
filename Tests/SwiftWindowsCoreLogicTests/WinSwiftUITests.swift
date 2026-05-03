@@ -4166,6 +4166,73 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAppStorageRawRepresentableValuesUseRawStorage() async {
+        await MainActor.run {
+            let suiteName = "WinSwiftUITests.AppStorage.Raw.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Expected suite-backed UserDefaults")
+                return
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            enum DisplayMode: String {
+                case compact
+                case expanded
+            }
+
+            enum Density: Int {
+                case low = 1
+                case high = 2
+            }
+
+            struct StoredSettingsView: View {
+                @AppStorage("mode") var mode = DisplayMode.compact
+                @AppStorage("density") var density = Density.low
+
+                init(store: UserDefaults) {
+                    _mode = AppStorage(wrappedValue: .compact, "mode", store: store)
+                    _density = AppStorage(wrappedValue: .low, "density", store: store)
+                }
+
+                var body: some View {
+                    VStack {
+                        Text(mode == .expanded ? "EXPANDED MODE" : "COMPACT MODE")
+                        Text(density == .high ? "HIGH DENSITY" : "LOW DENSITY")
+                        Button("SET RAW MODE") {
+                            mode = .expanded
+                        }
+                    }
+                }
+            }
+
+            store.set("expanded", forKey: "mode")
+            store.set(2, forKey: "density")
+            let storedNode = makeNode(StoredSettingsView(store: store))
+            XCTAssertTrue(containsText("EXPANDED MODE", in: storedNode))
+            XCTAssertTrue(containsText("HIGH DENSITY", in: storedNode))
+
+            store.set("unknown", forKey: "mode")
+            let fallbackNode = makeNode(StoredSettingsView(store: store))
+            XCTAssertTrue(containsText("COMPACT MODE", in: fallbackNode))
+
+            store.removeObject(forKey: "mode")
+            var invalidationCount = 0
+            let buttonNode = makeNode(StoredSettingsView(store: store)) {
+                invalidationCount += 1
+            }
+            guard let button = firstFocusableNode(containing: "SET RAW MODE", in: buttonNode) else {
+                XCTFail("Expected AppStorage raw-value button")
+                return
+            }
+            button.onActivate?()
+
+            XCTAssertEqual(store.string(forKey: "mode"), "expanded")
+            XCTAssertGreaterThanOrEqual(invalidationCount, 1)
+        }
+    }
+
     func testStateObjectProjectedBindingPersistsAcrossRebuilds() async {
         await MainActor.run {
             final class SettingsModel: ObservableObject {

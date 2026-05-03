@@ -385,24 +385,27 @@ private final class StateBox<Value> {
 @MainActor
 @propertyWrapper
 public struct AppStorage<Value> {
-    private let key: String
-    private let defaultValue: Value
-    private let store: UserDefaults
+    private let reader: @MainActor () -> Value
+    private let writer: @MainActor (Value) -> Void
     private let box = AppStorageBox()
 
     public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
-        self.key = key
-        self.defaultValue = wrappedValue
-        self.store = store ?? .standard
+        let store = store ?? .standard
+        self.reader = {
+            Self.readStoredValue(forKey: key, defaultValue: wrappedValue, store: store)
+        }
+        self.writer = { value in
+            store.set(value, forKey: key)
+        }
     }
 
     public var wrappedValue: Value {
         get {
             bindToCurrentContext()
-            return readValue()
+            return reader()
         }
         nonmutating set {
-            writeValue(newValue)
+            writer(newValue)
             box.invalidate?()
         }
     }
@@ -411,10 +414,10 @@ public struct AppStorage<Value> {
         bindToCurrentContext()
         return Binding<Value>(
             get: {
-                readValue()
+                reader()
             },
             set: { newValue in
-                writeValue(newValue)
+                writer(newValue)
                 box.invalidate?()
             },
             invalidatesOnSet: true
@@ -431,7 +434,7 @@ public struct AppStorage<Value> {
         }
     }
 
-    private func readValue() -> Value {
+    private static func readStoredValue(forKey key: String, defaultValue: Value, store: UserDefaults) -> Value {
         guard store.object(forKey: key) != nil else {
             return defaultValue
         }
@@ -454,15 +457,43 @@ public struct AppStorage<Value> {
 
         return store.object(forKey: key) as? Value ?? defaultValue
     }
-
-    private func writeValue(_ value: Value) {
-        store.set(value, forKey: key)
-    }
 }
 
 @MainActor
 private final class AppStorageBox {
     var invalidate: (() -> Void)?
+}
+
+public extension AppStorage where Value: RawRepresentable, Value.RawValue == String {
+    init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
+        let store = store ?? .standard
+        self.reader = {
+            guard let rawValue = store.string(forKey: key) else {
+                return wrappedValue
+            }
+
+            return Value(rawValue: rawValue) ?? wrappedValue
+        }
+        self.writer = { value in
+            store.set(value.rawValue, forKey: key)
+        }
+    }
+}
+
+public extension AppStorage where Value: RawRepresentable, Value.RawValue == Int {
+    init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
+        let store = store ?? .standard
+        self.reader = {
+            guard store.object(forKey: key) != nil else {
+                return wrappedValue
+            }
+
+            return Value(rawValue: store.integer(forKey: key)) ?? wrappedValue
+        }
+        self.writer = { value in
+            store.set(value.rawValue, forKey: key)
+        }
+    }
 }
 
 @MainActor

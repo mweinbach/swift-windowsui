@@ -18,6 +18,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - The active demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `RenderFrame` -> `D3D11Renderer`.
 - The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
 - The shared render graph is intentionally tiny. Most visible features reduce to `FillRectCommand`.
+- `ViewBuildContext` carries inherited SwiftUI-shaped style and environment state into retained components; prefer extending that propagation path over introducing global UI state.
 - `SwiftWindowsScene` exists, but it is not the primary path used by the demo.
 - `LayoutNode` and `FixedLayoutBox` are present, but the running UI currently relies on `ViewLayoutMode` and `StackLayout`.
 - `FoundationApp` still exists, but it is no longer the main demo bootstrap path.
@@ -44,7 +45,7 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 
 ## High-Value File Targets
 
-- `Sources/WinSwiftUI/Core.swift`: shared aliases, modifiers, observation wrappers, and compatibility helpers
+- `Sources/WinSwiftUI/Core.swift`: shared aliases, modifiers, environment/observation wrappers, and compatibility helpers
 - `Sources/WinSwiftUI/Views.swift`: SwiftUI-shaped view/container/control mappings
 - `Sources/WinSwiftUI/App.swift`: `App`, `Scene`, `WindowGroup`, and retained-runtime hosting
 - `Sources/swift-windowsui/AppEntry.swift`: active demo entry point

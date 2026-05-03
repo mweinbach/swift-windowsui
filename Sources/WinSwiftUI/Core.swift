@@ -461,11 +461,101 @@ public struct ObservedObject<ObjectType: ObservableObject> {
     }
 }
 
+public protocol EnvironmentKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+}
+
+public struct EnvironmentValues {
+    private struct Box {
+        var value: Any
+    }
+
+    private var storage: [ObjectIdentifier: Box] = [:]
+
+    public init() {}
+
+    public subscript<Key: EnvironmentKey>(_ key: Key.Type) -> Key.Value {
+        get {
+            guard let box = storage[ObjectIdentifier(key)] else {
+                return Key.defaultValue
+            }
+
+            return box.value as? Key.Value ?? Key.defaultValue
+        }
+        set {
+            storage[ObjectIdentifier(key)] = Box(value: newValue)
+        }
+    }
+
+    func contains<Key: EnvironmentKey>(_ key: Key.Type) -> Bool {
+        storage[ObjectIdentifier(key)] != nil
+    }
+}
+
+private struct TintEnvironmentKey: EnvironmentKey {
+    static let defaultValue: Color? = nil
+}
+
+private struct ControlSizeEnvironmentKey: EnvironmentKey {
+    static let defaultValue: ControlSize = .regular
+}
+
+private struct IsEnabledEnvironmentKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+public extension EnvironmentValues {
+    var tint: Color? {
+        get {
+            self[TintEnvironmentKey.self]
+        }
+        set {
+            self[TintEnvironmentKey.self] = newValue
+        }
+    }
+
+    var controlSize: ControlSize {
+        get {
+            self[ControlSizeEnvironmentKey.self]
+        }
+        set {
+            self[ControlSizeEnvironmentKey.self] = newValue
+        }
+    }
+
+    var isEnabled: Bool {
+        get {
+            self[IsEnabledEnvironmentKey.self]
+        }
+        set {
+            self[IsEnabledEnvironmentKey.self] = newValue
+        }
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct Environment<Value> {
+    private let keyPath: KeyPath<EnvironmentValues, Value>
+
+    public init(_ keyPath: KeyPath<EnvironmentValues, Value>) {
+        self.keyPath = keyPath
+    }
+
+    public var wrappedValue: Value {
+        let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
+        return values[keyPath: keyPath]
+    }
+}
+
 @MainActor
 public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
+    var environmentValues: EnvironmentValues
     var tintColor: Color?
     var buttonStyle: ButtonStyle?
     var listStyle: ListStyle?
@@ -479,6 +569,7 @@ public struct ViewBuildContext {
     var progressViewStyle: ProgressViewStyle
     var gaugeStyle: GaugeStyle
     var datePickerStyle: DatePickerStyle
+    var isEnabled: Bool
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -490,6 +581,7 @@ public struct ViewBuildContext {
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
+        environmentValues: EnvironmentValues = EnvironmentValues(),
         tintColor: Color? = nil,
         buttonStyle: ButtonStyle? = nil,
         listStyle: ListStyle? = nil,
@@ -503,13 +595,26 @@ public struct ViewBuildContext {
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
         datePickerStyle: DatePickerStyle = .automatic,
+        isEnabled: Bool = true,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
+        var resolvedEnvironmentValues = environmentValues
+        if !resolvedEnvironmentValues.contains(ControlSizeEnvironmentKey.self) {
+            resolvedEnvironmentValues.controlSize = controlSize
+        }
+        if let tintColor, !resolvedEnvironmentValues.contains(TintEnvironmentKey.self) {
+            resolvedEnvironmentValues.tint = tintColor
+        }
+        if !resolvedEnvironmentValues.contains(IsEnabledEnvironmentKey.self) {
+            resolvedEnvironmentValues.isEnabled = isEnabled
+        }
+
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
-        self.tintColor = tintColor
+        self.environmentValues = resolvedEnvironmentValues
+        self.tintColor = resolvedEnvironmentValues.contains(TintEnvironmentKey.self) ? resolvedEnvironmentValues.tint : tintColor
         self.buttonStyle = buttonStyle
         self.listStyle = listStyle
         self.labelStyle = labelStyle
@@ -517,11 +622,12 @@ public struct ViewBuildContext {
         self.pickerStyle = pickerStyle
         self.menuStyle = menuStyle
         self.controlGroupStyle = controlGroupStyle
-        self.controlSize = controlSize
+        self.controlSize = resolvedEnvironmentValues.contains(ControlSizeEnvironmentKey.self) ? resolvedEnvironmentValues.controlSize : controlSize
         self.textFieldStyle = textFieldStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
         self.datePickerStyle = datePickerStyle
+        self.isEnabled = resolvedEnvironmentValues.contains(IsEnabledEnvironmentKey.self) ? resolvedEnvironmentValues.isEnabled : isEnabled
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -534,11 +640,40 @@ public struct ViewBuildContext {
         observedObjectHandler(object)
     }
 
-    func withTint(_ color: Color) -> ViewBuildContext {
-        ViewBuildContext(
+    func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
+        return ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: values,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
+            controlGroupStyle: controlGroupStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withTint(_ color: Color) -> ViewBuildContext {
+        var values = environmentValues
+        values.tint = color
+
+        return ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            environmentValues: values,
             tintColor: color,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -552,16 +687,18 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
     }
 
     func withButtonStyle(_ style: ButtonStyle) -> ViewBuildContext {
-        ViewBuildContext(
+        return ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: style,
             listStyle: listStyle,
@@ -575,6 +712,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -585,6 +723,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: style,
@@ -598,6 +737,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -608,6 +748,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -621,6 +762,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -631,6 +773,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -644,6 +787,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -654,6 +798,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -667,6 +812,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -677,6 +823,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -690,6 +837,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -700,6 +848,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -713,16 +862,21 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
     }
 
     func withControlSize(_ size: ControlSize) -> ViewBuildContext {
-        ViewBuildContext(
+        var values = environmentValues
+        values.controlSize = size
+
+        return ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: values,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -736,6 +890,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -746,6 +901,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -759,6 +915,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -769,6 +926,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -782,6 +940,7 @@ public struct ViewBuildContext {
             progressViewStyle: style,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -792,6 +951,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -805,6 +965,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: style,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -815,6 +976,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -828,6 +990,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: style,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -838,6 +1001,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -851,6 +1015,7 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -861,6 +1026,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
@@ -874,8 +1040,37 @@ public struct ViewBuildContext {
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
             datePickerStyle: datePickerStyle,
+            isEnabled: isEnabled,
             submitAction: submitAction,
             containerAxis: axis
+        )
+    }
+
+    func withIsEnabled(_ enabled: Bool) -> ViewBuildContext {
+        var values = environmentValues
+        values.isEnabled = enabled
+
+        return ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            environmentValues: values,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
+            controlGroupStyle: controlGroupStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
+            isEnabled: enabled,
+            submitAction: submitAction,
+            containerAxis: containerAxis
         )
     }
 }
@@ -3857,6 +4052,14 @@ public extension View {
         }
     }
 
+    func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values[keyPath: keyPath] = value
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
     func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: Text? = nil) -> some View {
         SearchableView(content: self, text: text, placement: placement, prompt: prompt)
     }
@@ -4826,7 +5029,8 @@ public extension View {
 
     func disabled(_ disabled: Bool) -> some View {
         ModifiedView(content: self) { content, context in
-            let child = content.makeComponent(context: context)
+            let childContext = context.withIsEnabled(context.isEnabled && !disabled)
+            let child = content.makeComponent(context: childContext)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 guard disabled else {

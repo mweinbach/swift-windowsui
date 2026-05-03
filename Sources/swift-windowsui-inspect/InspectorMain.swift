@@ -682,6 +682,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("MODIFIER CHIP") {
         failures.append("WinSwiftUI probe text samples are missing the ViewModifier sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("ENVIRONMENT VALUE") {
+        failures.append("WinSwiftUI probe text samples are missing the Environment sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -745,6 +748,30 @@ private struct InspectorChipModifier: ViewModifier {
             .padding(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
             .background(Color(red: 0.12, green: 0.20, blue: 0.30, alpha: 0.78))
             .cornerRadius(15)
+    }
+}
+
+private struct InspectorEnvironmentLabelKey: EnvironmentKey {
+    static let defaultValue = "ENVIRONMENT DEFAULT"
+}
+
+private extension EnvironmentValues {
+    var inspectorEnvironmentLabel: String {
+        get {
+            self[InspectorEnvironmentLabelKey.self]
+        }
+        set {
+            self[InspectorEnvironmentLabelKey.self] = newValue
+        }
+    }
+}
+
+private struct InspectorEnvironmentSample: View {
+    @Environment(\.inspectorEnvironmentLabel) private var label
+
+    var body: some View {
+        Text(label)
+            .modifier(InspectorChipModifier())
     }
 }
 
@@ -821,6 +848,9 @@ private struct WinSwiftUIProbeView: View {
 
             Text("MODIFIER CHIP")
                 .modifier(InspectorChipModifier())
+
+            InspectorEnvironmentSample()
+                .environment(\.inspectorEnvironmentLabel, "ENVIRONMENT VALUE")
 
             Toggle("LIVE SWITCH", isOn: .constant(true))
 

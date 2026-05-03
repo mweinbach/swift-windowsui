@@ -123,6 +123,7 @@ Modifiers:
 - `multilineTextAlignment`
 - `lineLimit`
 - `truncationMode`
+- `environment`
 - `tint`
 - `controlSize`
 - `searchable`
@@ -200,6 +201,7 @@ Compatibility helpers:
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 - minimal `Binding`, including `Binding.constant(_:)` and projected `@ObservedObject` and `@StateObject` bindings
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
+- minimal `EnvironmentKey`, `EnvironmentValues`, `Environment`, and `environment(_:_:)`
 
 Surface direction:
 
@@ -255,12 +257,13 @@ Surface direction:
 - `GeometryReader` uses the current build context canvas size.
 - `frame` supports fixed dimensions plus the common min/ideal/max overload. Infinite maximums, such as `maxWidth: .infinity`, map to retained fill-available behavior and participate in stack growth.
 - `fixedSize(horizontal:vertical:)` marks selected axes for unconstrained retained measurement, prevents flexible growth on those axes, and makes stack compression respect the measured fixed extent before shrinking other siblings. It preserves SwiftUI's common fixed-size source shape but is still bounded by explicit finite `maximumSize` values.
-- `ViewModifier` and `modifier(_:)` support ordinary SwiftUI-style custom modifiers by rebuilding the modifier body into the same retained component path as built-in modifiers. Modifier bodies can return composed WinSwiftUI views and still propagate inherited build-context styles such as `buttonStyle`, `tint`, and `controlSize`; preference keys and environment values remain future work.
+- `ViewModifier` and `modifier(_:)` support ordinary SwiftUI-style custom modifiers by rebuilding the modifier body into the same retained component path as built-in modifiers. Modifier bodies can return composed WinSwiftUI views and still propagate inherited build-context styles such as `buttonStyle`, `tint`, and `controlSize`; preference keys remain future work.
 - `padding` accepts explicit lengths, edge sets, `EdgeInsets`, and optional lengths where `nil` resolves to the retained default padding.
 - Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `fontDesign`, `textCase`, `kerning`, `tracking`, `lineSpacing`, `fontWeight`, `bold`, `italic`, `monospaced`, `underline`, `strikethrough`, `multilineTextAlignment`, `lineLimit`, and `truncationMode`) walk the retained subtree and update text descendants. Optional `foregroundColor(nil)` and `foregroundStyle(nil)` are accepted for SwiftUI source compatibility and leave retained text colors unchanged. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight; `fontDesign` and `monospaced` also preserve icon glyph families. `textCase` rewrites retained text and span ranges for uppercase/lowercase source compatibility. `lineLimit` and `truncationMode` map onto retained maximum-line and head/tail/middle line-break metadata. `kerning` and `tracking` update retained `letterSpacing` metadata; `lineSpacing` updates retained line gap metadata. These spacing values are honored by the bitmap text path and kept available to native text backends.
 - `Font` supports `system(size:weight:design:)`, `system(_:design:weight:)`, `custom(_:size:)`, `custom(_:fixedSize:)`, and common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`. `font(nil)` is accepted for SwiftUI source compatibility and leaves retained text styles unchanged.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, `ProgressView`, and `Gauge` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
+- `EnvironmentKey`, `EnvironmentValues`, `@Environment`, and `environment(_:_:)` support custom SwiftUI-shaped environment values. The built-in `tint`, `controlSize`, and `isEnabled` values are wired back into the retained build context so `environment(\.tint, ...)`, `environment(\.controlSize, ...)`, and `disabled(_:)` affect compatible descendant controls; the full SwiftUI environment catalog is still future work.
 - `searchable` uses the supplied search text binding as the retained search field storage. Search suggestions, tokens, scopes, environment-driven dismissal, and native toolbar/sidebar placement are still future work.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `progressViewStyle` and `gaugeStyle` are carried through the build context so descendant progress and gauge controls can share linear or circular retained indicators unless they set explicit styles.

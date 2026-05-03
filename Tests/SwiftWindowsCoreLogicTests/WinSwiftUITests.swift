@@ -395,6 +395,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentReadsDefaultsAndCustomValues() async {
+        await MainActor.run {
+            let defaultNode = makeNode(TestEnvironmentReaderView())
+            let overriddenNode = makeNode(
+                VStack {
+                    TestEnvironmentReaderView()
+                    TestEnvironmentReaderView()
+                        .environment(\.testEnvironmentLabel, "CHILD ENV")
+                }
+                .environment(\.testEnvironmentLabel, "ROOT ENV")
+            )
+
+            XCTAssertTrue(containsText("DEFAULT ENV", in: defaultNode))
+            XCTAssertTrue(containsText("ROOT ENV", in: overriddenNode))
+            XCTAssertTrue(containsText("CHILD ENV", in: overriddenNode))
+        }
+    }
+
+    func testEnvironmentControlSizeTintAndIsEnabledAffectRetainedBuilds() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Button("ENV RUN") {}
+                    Toggle("ENV POWER", isOn: .constant(true))
+                        .labelsHidden()
+                    TestEnvironmentControlReader()
+                }
+                .environment(\.controlSize, .large)
+                .environment(\.tint, Color.mint)
+            )
+
+            let button = node.children[0]
+            XCTAssertEqual(button.cornerRadius, 18)
+            if case .stack(let layout) = button.layoutMode {
+                XCTAssertEqual(layout.padding, EdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18))
+            } else {
+                XCTFail("Expected button stack layout")
+            }
+            XCTAssertEqual(node.children[1].children[0].backgroundColor, .mint)
+            XCTAssertTrue(containsText("LARGE ENV", in: node))
+            XCTAssertTrue(containsText("MINT TINT", in: node))
+            XCTAssertTrue(containsText("ENABLED ENV", in: node))
+
+            let disabledNode = makeNode(
+                VStack {
+                    TestEnvironmentControlReader()
+                    Button("BLOCKED") {}
+                }
+                .disabled(true)
+            )
+
+            XCTAssertTrue(containsText("DISABLED ENV", in: disabledNode))
+            XCTAssertNil(firstFocusableNode(containing: "BLOCKED", in: disabledNode))
+        }
+    }
+
     func testGenericTextCaseStylesDescendants() async {
         await MainActor.run {
             let node = makeNode(
@@ -4882,6 +4938,43 @@ private struct TestConditionalModifier: ViewModifier {
             content.foregroundColor(.green)
         } else {
             content
+        }
+    }
+}
+
+private struct TestEnvironmentLabelKey: EnvironmentKey {
+    static let defaultValue = "DEFAULT ENV"
+}
+
+private extension EnvironmentValues {
+    var testEnvironmentLabel: String {
+        get {
+            self[TestEnvironmentLabelKey.self]
+        }
+        set {
+            self[TestEnvironmentLabelKey.self] = newValue
+        }
+    }
+}
+
+private struct TestEnvironmentReaderView: View {
+    @Environment(\.testEnvironmentLabel) private var label
+
+    var body: some View {
+        Text(label)
+    }
+}
+
+private struct TestEnvironmentControlReader: View {
+    @Environment(\.controlSize) private var controlSize
+    @Environment(\.tint) private var tint
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        VStack {
+            Text(controlSize == .large ? "LARGE ENV" : "OTHER SIZE ENV")
+            Text(tint == .mint ? "MINT TINT" : "OTHER TINT")
+            Text(isEnabled ? "ENABLED ENV" : "DISABLED ENV")
         }
     }
 }

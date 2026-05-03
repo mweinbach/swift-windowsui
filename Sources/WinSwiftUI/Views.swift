@@ -835,7 +835,7 @@ public struct TextField: View {
                 runtime: runtime,
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && context.isEnabled,
                 preferredSize: context.controlSize.metrics.textFieldPreferredSize,
                 palette: style.palette,
                 chrome: style.chrome,
@@ -917,7 +917,7 @@ public struct SecureField: View {
                 runtime: runtime,
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && context.isEnabled,
                 preferredSize: context.controlSize.metrics.textFieldPreferredSize,
                 palette: style.palette,
                 chrome: style.chrome,
@@ -974,7 +974,7 @@ public struct TextEditor: View {
             Controls.textEditor(
                 runtime: runtime,
                 text: text.wrappedValue,
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && context.isEnabled,
                 preferredSize: context.controlSize.metrics.textEditorPreferredSize,
                 textColor: textColor,
                 onTextChanged: { newText in
@@ -2885,6 +2885,7 @@ public struct Button: View {
         )
 
         return Component { runtime in
+            let effectiveIsEnabled = isEnabled && context.isEnabled
             let metrics = context.controlSize.metrics
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let surfaceStyle = resolvedSurfaceStyle(inheritedStyle: context.buttonStyle)
@@ -2893,11 +2894,11 @@ public struct Button: View {
                 cornerRadius: resolvedCornerRadius(surfaceStyle: surfaceStyle, context: context, metrics: metrics),
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,
-                isEnabled: isEnabled,
+                isEnabled: effectiveIsEnabled,
                 clipsToBounds: surfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(padding: metrics.buttonPadding, alignment: .stretch, mainAlignment: .center)),
                 animation: surfaceStyle.animation,
-                action: isEnabled ? {
+                action: effectiveIsEnabled ? {
                     action()
                     context.invalidate()
                 } : nil,
@@ -3093,11 +3094,12 @@ public struct Toggle: View {
 
     private func makeSwitchComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
+            let effectiveIsEnabled = isEnabled && context.isEnabled
             let metrics = context.controlSize.metrics
             let switchNode = Controls.toggle(
                 runtime: runtime,
                 isOn: isOn.wrappedValue,
-                isEnabled: isEnabled,
+                isEnabled: effectiveIsEnabled,
                 preferredSize: metrics.switchPreferredSize,
                 onColor: resolvedTintColor(context),
                 offColor: offColor,
@@ -3134,6 +3136,7 @@ public struct Toggle: View {
         )
 
         return Component { runtime in
+            let effectiveIsEnabled = isEnabled && context.isEnabled
             let accent = resolvedTintColor(context)
             let metrics = context.controlSize.metrics
             let isChecked = isOn.wrappedValue
@@ -3165,7 +3168,7 @@ public struct Toggle: View {
                 cornerRadius: 10,
                 palette: checkboxPalette,
                 chrome: checkboxChrome,
-                isEnabled: isEnabled,
+                isEnabled: effectiveIsEnabled,
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .horizontal(
@@ -3174,7 +3177,7 @@ public struct Toggle: View {
                         alignment: .center
                     )
                 ),
-                action: isEnabled ? {
+                action: effectiveIsEnabled ? {
                     toggleValue(context: context)
                 } : nil,
                 children: children
@@ -3190,6 +3193,7 @@ public struct Toggle: View {
         )
 
         return Component { runtime in
+            let effectiveIsEnabled = isEnabled && context.isEnabled
             let accent = resolvedTintColor(context)
             let metrics = context.controlSize.metrics
             let labelNode = hidesLabel || label.isEmpty
@@ -3205,7 +3209,7 @@ public struct Toggle: View {
                 cornerRadius: metrics.buttonCornerRadius,
                 palette: isOn.wrappedValue ? buttonOnPalette(accent: accent) : ButtonSurfaceStyle.defaultPalette,
                 chrome: .elevatedButton,
-                isEnabled: isEnabled,
+                isEnabled: effectiveIsEnabled,
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .horizontal(
@@ -3215,7 +3219,7 @@ public struct Toggle: View {
                         mainAlignment: .center
                     )
                 ),
-                action: isEnabled ? {
+                action: effectiveIsEnabled ? {
                     toggleValue(context: context)
                 } : nil,
                 children: [labelNode]
@@ -3375,8 +3379,9 @@ public struct Stepper<Value: Comparable>: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let currentValue = clamped(value.wrappedValue)
-        let canDecrement = isEnabled && currentValue > bounds.lowerBound
-        let canIncrement = isEnabled && currentValue < bounds.upperBound
+        let effectiveIsEnabled = isEnabled && context.isEnabled
+        let canDecrement = effectiveIsEnabled && currentValue > bounds.lowerBound
+        let canIncrement = effectiveIsEnabled && currentValue < bounds.upperBound
 
         return HStack(spacing: 10) {
             label
@@ -3452,11 +3457,12 @@ public struct Slider: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.slider(
+            let effectiveIsEnabled = isEnabled && context.isEnabled
+            return Controls.slider(
                 runtime: runtime,
                 value: value.wrappedValue,
                 range: bounds,
-                isEnabled: isEnabled,
+                isEnabled: effectiveIsEnabled,
                 preferredSize: context.controlSize.metrics.sliderPreferredSize,
                 trackColor: trackColor,
                 filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
@@ -3640,6 +3646,7 @@ public struct DatePicker: View {
         let currentValue = clamped(selection.wrappedValue)
         let dateLabel = components.contains(.date) && components.contains(.hourAndMinute) ? "D" : ""
         let timeLabel = components.contains(.date) && components.contains(.hourAndMinute) ? "T" : ""
+        let effectiveIsEnabled = isEnabled && context.isEnabled
 
         return HStack(spacing: metrics.spacing) {
             if !hidesLabel {
@@ -3659,24 +3666,24 @@ public struct DatePicker: View {
                     Button("-\(dateLabel)") {
                         adjust(.day, value: -1)
                     }
-                    .disabled(!canAdjust(.day, value: -1, from: currentValue))
+                    .disabled(!canAdjust(.day, value: -1, from: currentValue, isEnabled: effectiveIsEnabled))
 
                     Button("+\(dateLabel)") {
                         adjust(.day, value: 1)
                     }
-                    .disabled(!canAdjust(.day, value: 1, from: currentValue))
+                    .disabled(!canAdjust(.day, value: 1, from: currentValue, isEnabled: effectiveIsEnabled))
                 }
 
                 if components.contains(.hourAndMinute) {
                     Button("-\(timeLabel)") {
                         adjust(.minute, value: -15)
                     }
-                    .disabled(!canAdjust(.minute, value: -15, from: currentValue))
+                    .disabled(!canAdjust(.minute, value: -15, from: currentValue, isEnabled: effectiveIsEnabled))
 
                     Button("+\(timeLabel)") {
                         adjust(.minute, value: 15)
                     }
-                    .disabled(!canAdjust(.minute, value: 15, from: currentValue))
+                    .disabled(!canAdjust(.minute, value: 15, from: currentValue, isEnabled: effectiveIsEnabled))
                 }
             }
             .buttonStyle(metrics.buttonStyle)
@@ -3701,7 +3708,7 @@ public struct DatePicker: View {
         selection.wrappedValue = clamped(nextValue)
     }
 
-    private func canAdjust(_ component: Calendar.Component, value: Int, from date: Date) -> Bool {
+    private func canAdjust(_ component: Calendar.Component, value: Int, from date: Date, isEnabled: Bool) -> Bool {
         guard isEnabled else {
             return false
         }
@@ -3818,6 +3825,7 @@ public struct ColorPicker: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let color = normalizedColor(selection.wrappedValue)
         let channels: [Channel] = supportsOpacity ? [.red, .green, .blue, .alpha] : [.red, .green, .blue]
+        let effectiveIsEnabled = isEnabled && context.isEnabled
 
         return HStack(spacing: 8) {
             if !hidesLabel {
@@ -3845,7 +3853,7 @@ public struct ColorPicker: View {
                         advance(channel)
                     }
                     .buttonStyle(.borderless)
-                    .disabled(!isEnabled)
+                    .disabled(!effectiveIsEnabled)
                 }
             }
         }
@@ -4228,7 +4236,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 runtime: runtime,
                 options: optionTitles,
                 selectedIndex: selectedIndex,
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && context.isEnabled,
                 preferredSize: context.controlSize.metrics.pickerMenuPreferredSize,
                 onSelect: { selectedOptionIndex in
                     guard options.indices.contains(selectedOptionIndex) else {
@@ -4253,7 +4261,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 runtime: runtime,
                 tabs: optionTitles,
                 selectedIndex: selectedIndex,
-                isEnabled: isEnabled,
+                isEnabled: isEnabled && context.isEnabled,
                 preferredSize: context.controlSize.metrics.pickerSegmentedPreferredSize,
                 onSelect: { selectedOptionIndex in
                     selectOption(at: selectedOptionIndex, from: options, context: context)
@@ -4272,7 +4280,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                     runtime: runtime,
                     label: option.title,
                     isSelected: option.value == selection.wrappedValue,
-                    isEnabled: isEnabled,
+                    isEnabled: isEnabled && context.isEnabled,
                     preferredSize: context.controlSize.metrics.pickerRadioRowPreferredSize,
                     selectedColor: context.tintColor ?? Color.accentColor,
                     onSelect: {

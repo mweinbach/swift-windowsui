@@ -111,6 +111,8 @@ swift run swift-windowsui-inspect -- --json --verify
 swift run swift-windowsui
 ```
 
+The inspector includes renderer, retained-runtime, text-input, and multi-offset scroll-stress probes so performance-sensitive culling regressions can be caught without launching the GUI demo.
+
 Useful focused command:
 
 ```powershell

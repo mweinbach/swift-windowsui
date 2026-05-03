@@ -336,7 +336,7 @@ private func printHumanReport(_ report: InspectorReport) {
     print("  layout: \(report.winSwiftUIProbe.rootLayoutKind), depth: \(report.winSwiftUIProbe.maxDepth), commands: \(report.winSwiftUIProbe.renderCommands)")
     print("  text: \(report.winSwiftUIProbe.textSamples.joined(separator: ", "))")
     print("Text input probe: \(report.textInputProbe)")
-    print("Scroll stress: \(report.scrollStress.rowCount) rows -> \(report.scrollStress.commandCount) commands in \(formatMilliseconds(report.scrollStress.elapsedMilliseconds)) ms")
+    print("Scroll stress: \(report.scrollStress.rowCount) rows, \(report.scrollStress.sampleCount) offsets -> max \(report.scrollStress.commandCount) commands, avg \(formatMilliseconds(report.scrollStress.averageElapsedMilliseconds)) ms, max \(formatMilliseconds(report.scrollStress.elapsedMilliseconds)) ms")
     print("Clip stack probe: \(formatClip(report.clipStackProbe))")
 }
 
@@ -515,26 +515,52 @@ private func countFocusableNodes(_ node: ViewNode) -> Int {
 
 private struct ScrollStressResult: Encodable {
     var rowCount: Int
+    var sampleCount: Int
+    var commandCount: Int
+    var elapsedMilliseconds: Double
+    var averageElapsedMilliseconds: Double
+    var samples: [ScrollStressSample]
+}
+
+private struct ScrollStressSample: Encodable {
+    var scrollOffset: Double
     var commandCount: Int
     var elapsedMilliseconds: Double
 }
 
 @MainActor
 private func runScrollStressProbe(rowCount: Int = 500) -> ScrollStressResult {
-    let runtime = makeScrollStressRuntime(rowCount: rowCount)
-    let start = DispatchTime.now().uptimeNanoseconds
-    let frame = runtime.renderFrame()
-    let elapsed = DispatchTime.now().uptimeNanoseconds - start
+    let (runtime, scrollPanel, maxOffset) = makeScrollStressRuntime(rowCount: rowCount)
+    let offsets = scrollStressOffsets(maxOffset: maxOffset)
+    let samples = offsets.map { offset in
+        scrollPanel.scrollOffset = offset
+        let start = DispatchTime.now().uptimeNanoseconds
+        let frame = runtime.renderFrame()
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        return ScrollStressSample(
+            scrollOffset: offset,
+            commandCount: frame.commands.count,
+            elapsedMilliseconds: Double(elapsed) / 1_000_000
+        )
+    }
+    let maxCommandCount = samples.map(\.commandCount).max() ?? 0
+    let maxElapsedMilliseconds = samples.map(\.elapsedMilliseconds).max() ?? 0
+    let averageElapsedMilliseconds = samples.isEmpty
+        ? 0
+        : samples.reduce(0) { $0 + $1.elapsedMilliseconds } / Double(samples.count)
 
     return ScrollStressResult(
         rowCount: rowCount,
-        commandCount: frame.commands.count,
-        elapsedMilliseconds: Double(elapsed) / 1_000_000
+        sampleCount: samples.count,
+        commandCount: maxCommandCount,
+        elapsedMilliseconds: maxElapsedMilliseconds,
+        averageElapsedMilliseconds: averageElapsedMilliseconds,
+        samples: samples
     )
 }
 
 @MainActor
-private func makeScrollStressRuntime(rowCount: Int) -> RetainedViewRuntime {
+private func makeScrollStressRuntime(rowCount: Int) -> (RetainedViewRuntime, ViewNode, Double) {
     let rows = (0..<rowCount).map { index in
         Controls.panel(
             preferredSize: Size(width: 0, height: 24),
@@ -545,6 +571,11 @@ private func makeScrollStressRuntime(rowCount: Int) -> RetainedViewRuntime {
             isHitTestVisible: false
         )
     }
+    let rowHeight = 24.0
+    let rowSpacing = 2.0
+    let viewportHeight = 220.0
+    let contentHeight = Double(rowCount) * rowHeight + Double(max(0, rowCount - 1)) * rowSpacing
+    let maxOffset = max(0, contentHeight - viewportHeight)
 
     let scrollPanel = Controls.scrollPanel(
         axis: .vertical,
@@ -562,7 +593,15 @@ private func makeScrollStressRuntime(rowCount: Int) -> RetainedViewRuntime {
         children: [scrollPanel]
     )
 
-    return RetainedViewRuntime(root: root, displayScale: 1.0)
+    return (RetainedViewRuntime(root: root, displayScale: 1.0), scrollPanel, maxOffset)
+}
+
+private func scrollStressOffsets(maxOffset: Double) -> [Double] {
+    guard maxOffset > 0 else {
+        return [0]
+    }
+
+    return [0, maxOffset * 0.25, maxOffset * 0.5, maxOffset * 0.75, maxOffset]
 }
 
 private func formatMilliseconds(_ value: Double) -> String {
@@ -718,8 +757,11 @@ private func verificationFailures(
     if textInputProbeValue != "ZQ->Z-Q|-" {
         failures.append("text input probe expected ZQ->Z-Q|- after select-all, selection replacement, pointer editing, and clipboard shortcuts, got \(textInputProbeValue)")
     }
+    if scrollStress.sampleCount < 5 {
+        failures.append("scroll stress sampled \(scrollStress.sampleCount) offsets; expected a multi-position sweep")
+    }
     if scrollStress.commandCount > 40 {
-        failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")
+        failures.append("scroll stress sweep emitted up to \(scrollStress.commandCount) commands; expected culling to keep every sample at or below 40")
     }
     if !clipMatches(clipProbeScene.layers.first?.quads.first?.clipRect, x: 100, y: 50, width: 70, height: 70) {
         failures.append("clip probe did not resolve to the expected intersection")

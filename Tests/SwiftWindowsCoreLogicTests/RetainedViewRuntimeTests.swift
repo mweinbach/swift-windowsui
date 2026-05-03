@@ -421,12 +421,19 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 children: [scrollPanel]
             )
             let runtime = RetainedViewRuntime(root: root)
+            let offsets = [0.0, 2_000, 4_000, 8_000, 10_000]
 
-            let fills = fillRectCommands(in: runtime.renderFrame())
+            for offset in offsets {
+                scrollPanel.scrollOffset = offset
+                let fills = fillRectCommands(in: runtime.renderFrame())
 
-            XCTAssertLessThan(fills.count, 40)
-            XCTAssertGreaterThan(fills.count, 2)
-            XCTAssertTrue(fills.allSatisfy { $0.rect.intersected(with: scrollPanel.frame) != nil })
+                XCTAssertLessThan(fills.count, 40, "Expected scroll culling at offset \(offset)")
+                XCTAssertGreaterThan(fills.count, 2, "Expected visible rows at offset \(offset)")
+                XCTAssertTrue(
+                    fills.allSatisfy { $0.rect.intersected(with: scrollPanel.frame) != nil },
+                    "Expected emitted rows to stay clipped to the scroll panel at offset \(offset)"
+                )
+            }
         }
     }
 

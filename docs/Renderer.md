@@ -37,7 +37,7 @@ swift run swift-windowsui-inspect -- --verify
 swift run swift-windowsui-inspect -- --json --verify
 ```
 
-The inspector builds small retained and `WinSwiftUI` declarative trees, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes path, text, blur, retained-control, `WinSwiftUI`, text-input, scroll-stress, and clip-stack probes without opening a window.
-Use `--verify` to turn those probes into a smoke gate; it exits nonzero if command emission, retained-control focusability, `WinSwiftUI` tree generation, text input, scroll culling, or clip resolution regresses. Add `--json` to emit the same diagnostics as structured JSON for scripts or CI dashboards.
+The inspector builds small retained and `WinSwiftUI` declarative trees, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes path, text, blur, retained-control, `WinSwiftUI`, text-input, multi-offset scroll-stress, and clip-stack probes without opening a window.
+Use `--verify` to turn those probes into a smoke gate; it exits nonzero if command emission, retained-control focusability, `WinSwiftUI` tree generation, text input, scroll culling across the sweep, or clip resolution regresses. Add `--json` to emit the same diagnostics as structured JSON for scripts or CI dashboards.
 
 Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, `drawText`, and `applyBlur`. Clip-stack support is currently rectangular/bounds-based rather than full vector masking.

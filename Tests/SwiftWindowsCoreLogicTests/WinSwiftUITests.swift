@@ -515,6 +515,69 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFixedSizeUsesIntrinsicExtentInsteadOfFlexibleFrameGrowth() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                HStack(spacing: 0) {
+                    Color.orange
+                        .frame(width: 20, height: 10)
+                        .frame(maxWidth: .infinity)
+                        .fixedSize()
+                    Color.cyan
+                        .frame(width: 20, height: 10)
+                }
+                .frame(width: 100, height: 20),
+                size: Size(width: 100, height: 20)
+            )
+            let stackNode = node.children[0]
+
+            XCTAssertEqual(stackNode.children[0].resolvedFrame, Rect(x: 0, y: 5, width: 20, height: 10))
+            XCTAssertEqual(stackNode.children[1].resolvedFrame, Rect(x: 20, y: 5, width: 20, height: 10))
+        }
+    }
+
+    func testFixedSizeResistsStackCompressionAlongFixedAxes() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                HStack(spacing: 0) {
+                    Color.orange
+                        .frame(width: 80, height: 10)
+                        .fixedSize()
+                    Color.cyan
+                        .frame(width: 40, height: 10)
+                }
+                .frame(width: 50, height: 20),
+                size: Size(width: 50, height: 20)
+            )
+            let stackNode = node.children[0]
+
+            XCTAssertEqual(stackNode.children[0].resolvedFrame, Rect(x: 0, y: 5, width: 80, height: 10))
+            XCTAssertEqual(stackNode.children[1].resolvedFrame, Rect(x: 80, y: 5, width: 0, height: 10))
+            XCTAssertEqual(stackNode.resolvedContentSize.width, 80)
+        }
+    }
+
+    func testFixedSizeSingleAxisStillAllowsFlexibleGrowthOnOtherAxis() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                VStack(alignment: .leading, spacing: 0) {
+                    Color.orange
+                        .frame(width: 20, height: 10)
+                        .frame(maxHeight: .infinity)
+                        .fixedSize(horizontal: true, vertical: false)
+                    Color.cyan
+                        .frame(width: 20, height: 10)
+                }
+                .frame(width: 40, height: 100),
+                size: Size(width: 40, height: 100)
+            )
+            let stackNode = node.children[0]
+
+            XCTAssertEqual(stackNode.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 20, height: 90))
+            XCTAssertEqual(stackNode.children[1].resolvedFrame, Rect(x: 0, y: 90, width: 20, height: 10))
+        }
+    }
+
     func testFrameMinAndMaxClampRetainedSize() async {
         await MainActor.run {
             let node = laidOutNode(

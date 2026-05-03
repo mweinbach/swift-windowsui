@@ -2604,6 +2604,32 @@ public extension View {
         }
     }
 
+    func fixedSize(horizontal: Bool = true, vertical: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let intrinsicSize = childNode.intrinsicContentSize()
+                let preferredSize = childNode.preferredSize ?? .zero
+                var minimumSize = childNode.minimumSize ?? .zero
+                if horizontal {
+                    childNode.fixedSizeHorizontal = true
+                    childNode.fillsAvailableWidth = false
+                    minimumSize.width = max(minimumSize.width, intrinsicSize.width, preferredSize.width, childNode.frame.size.width)
+                }
+                if vertical {
+                    childNode.fixedSizeVertical = true
+                    childNode.fillsAvailableHeight = false
+                    minimumSize.height = max(minimumSize.height, intrinsicSize.height, preferredSize.height, childNode.frame.size.height)
+                }
+                if horizontal || vertical {
+                    childNode.minimumSize = minimumSize
+                }
+                return childNode
+            }
+        }
+    }
+
     func padding(_ length: Double? = nil) -> some View {
         padding(EdgeInsets.all(resolvedPaddingLength(length)))
     }

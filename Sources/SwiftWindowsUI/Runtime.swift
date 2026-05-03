@@ -131,6 +131,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var fixedSizeHorizontal: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var fixedSizeVertical: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var layoutPriority: Double {
         didSet { invalidateRuntime(.layout) }
     }
@@ -298,6 +306,8 @@ public final class ViewNode {
         maximumSize: Size? = nil,
         fillsAvailableWidth: Bool = false,
         fillsAvailableHeight: Bool = false,
+        fixedSizeHorizontal: Bool = false,
+        fixedSizeVertical: Bool = false,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
@@ -343,6 +353,8 @@ public final class ViewNode {
         self.maximumSize = maximumSize
         self.fillsAvailableWidth = fillsAvailableWidth
         self.fillsAvailableHeight = fillsAvailableHeight
+        self.fixedSizeHorizontal = fixedSizeHorizontal
+        self.fixedSizeVertical = fixedSizeVertical
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
@@ -519,7 +531,8 @@ public final class ViewNode {
                 allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
                     children: visibleChildren,
-                    availableExtent: availableChildMainExtent
+                    availableExtent: availableChildMainExtent,
+                    axis: stackLayout.axis
                 )
             }
 
@@ -548,19 +561,27 @@ public final class ViewNode {
                 } else if remaining < 0 {
                     // Shrink items with flexShrink > 0
                     let deficit = -remaining
-                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
+                    let shrinkCapacities = visibleChildren.enumerated().map { index, child in
+                        max(0, allocatedMainSizes[index] - minimumMainSize(for: child, axis: stackLayout.axis, currentSize: allocatedMainSizes[index]))
+                    }
+                    let participantIndices = visibleChildren.indices.filter {
+                        visibleChildren[$0].flexItem.shrink > 0 && shrinkCapacities[$0] > 0
+                    }
+                    let totalShrink = participantIndices.reduce(0.0) { partialResult, index in
+                        partialResult + visibleChildren[index].flexItem.shrink
+                    }
                     if totalShrink > 0 {
-                        var leftover = deficit
-                        for (i, child) in visibleChildren.enumerated() {
-                            guard child.flexItem.shrink > 0 else { continue }
+                        var remainingDeficit = deficit
+                        for (offset, index) in participantIndices.enumerated() {
                             let share: Double
-                            if i == visibleChildren.count - 1 {
-                                share = leftover
+                            if offset == participantIndices.count - 1 {
+                                share = remainingDeficit
                             } else {
-                                share = deficit * (child.flexItem.shrink / totalShrink)
-                                leftover -= share
+                                share = deficit * (visibleChildren[index].flexItem.shrink / totalShrink)
                             }
-                            allocatedMainSizes[i] = max(0, allocatedMainSizes[i] - share)
+                            let appliedShare = min(shrinkCapacities[index], share)
+                            allocatedMainSizes[index] -= appliedShare
+                            remainingDeficit -= appliedShare
                         }
                     }
                 }
@@ -1213,7 +1234,8 @@ public final class ViewNode {
     }
 
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
-        var measuredSize = textContentSize(in: constraints) ?? .zero
+        let measuringConstraints = fixedSizeMeasuringConstraints(from: constraints)
+        var measuredSize = textContentSize(in: measuringConstraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
@@ -1222,8 +1244,8 @@ public final class ViewNode {
 
             for child in children where !child.isHidden {
                 let childConstraints = LayoutConstraints(
-                    maxWidth: remainingConstraintExtent(constraints.maxWidth, offset: child.frame.origin.x),
-                    maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: child.frame.origin.y)
+                    maxWidth: remainingConstraintExtent(measuringConstraints.maxWidth, offset: child.frame.origin.x),
+                    maxHeight: remainingConstraintExtent(measuringConstraints.maxHeight, offset: child.frame.origin.y)
                 )
                 let childSize = child.sizeThatFits(in: childConstraints)
                 let resolvedWidth = child.explicitWidth ?? childSize.width
@@ -1235,7 +1257,7 @@ public final class ViewNode {
             measuredSize = Size(width: maxChildX, height: maxChildY)
 
         case .stack(let stackLayout):
-            let contentConstraints = insetConstraints(constraints, by: stackLayout.padding)
+            let contentConstraints = insetConstraints(measuringConstraints, by: stackLayout.padding)
             let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
             let visibleChildren = children.filter { !$0.isHidden }
             let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
@@ -1253,7 +1275,7 @@ public final class ViewNode {
             )
 
         case .grid(let gridLayout):
-            let contentConstraints = insetConstraints(constraints, by: gridLayout.padding)
+            let contentConstraints = insetConstraints(measuringConstraints, by: gridLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
             let finiteContentWidth = contentConstraints.maxWidth.isFinite ? contentConstraints.maxWidth : nil
             let preliminaryColumnWidths = gridColumnWidths(for: finiteContentWidth, layout: gridLayout)
@@ -1339,8 +1361,12 @@ public final class ViewNode {
         var measuredHeight = explicitHeight ?? size.height
         let resolvedMinimumWidth = max(constraints.minWidth, minimumSize?.width ?? 0)
         let resolvedMinimumHeight = max(constraints.minHeight, minimumSize?.height ?? 0)
-        let resolvedMaximumWidth = minimumFiniteExtent(constraints.maxWidth, maximumSize?.width)
-        let resolvedMaximumHeight = minimumFiniteExtent(constraints.maxHeight, maximumSize?.height)
+        let resolvedMaximumWidth = fixedSizeHorizontal
+            ? maximumSize?.width ?? .infinity
+            : minimumFiniteExtent(constraints.maxWidth, maximumSize?.width)
+        let resolvedMaximumHeight = fixedSizeVertical
+            ? maximumSize?.height ?? .infinity
+            : minimumFiniteExtent(constraints.maxHeight, maximumSize?.height)
 
         if fillsAvailableWidth, constraints.maxWidth.isFinite {
             measuredWidth = max(measuredWidth, constraints.maxWidth)
@@ -1353,6 +1379,15 @@ public final class ViewNode {
         return Size(
             width: clampedExtent(measuredWidth, min: resolvedMinimumWidth, max: resolvedMaximumWidth),
             height: clampedExtent(measuredHeight, min: resolvedMinimumHeight, max: resolvedMaximumHeight)
+        )
+    }
+
+    private func fixedSizeMeasuringConstraints(from constraints: LayoutConstraints) -> LayoutConstraints {
+        LayoutConstraints(
+            minWidth: constraints.minWidth,
+            maxWidth: fixedSizeHorizontal ? .infinity : constraints.maxWidth,
+            minHeight: constraints.minHeight,
+            maxHeight: fixedSizeVertical ? .infinity : constraints.maxHeight
         )
     }
 
@@ -1383,22 +1418,25 @@ public final class ViewNode {
     private func allocateMainSizes(
         desiredSizes: [Double],
         children: [ViewNode],
-        availableExtent: Double
+        availableExtent: Double,
+        axis: StackAxis
     ) -> [Double] {
         var allocatedSizes = desiredSizes
         let desiredExtent = desiredSizes.reduce(0, +)
 
         if desiredExtent > availableExtent {
-            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent)
+            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent, axis: axis)
         } else if desiredExtent < availableExtent {
-            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent)
+            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent, axis: axis)
         }
 
         return allocatedSizes
     }
 
-    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double) {
-        let participantIndices = children.indices.filter { children[$0].layoutPriority > 0 }
+    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double, axis: StackAxis) {
+        let participantIndices = children.indices.filter {
+            children[$0].layoutPriority > 0 && !isFixedSize(children[$0], along: axis)
+        }
         guard !participantIndices.isEmpty else {
             return
         }
@@ -1424,18 +1462,21 @@ public final class ViewNode {
         }
     }
 
-    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double) {
+    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double, axis: StackAxis) {
         var remainingDeficit = deficit
         let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
 
         for priority in priorities where remainingDeficit > 0 {
-            let indices = children.indices.filter { children[$0].layoutPriority == priority && sizes[$0] > 0 }
+            let indices = children.indices.filter {
+                children[$0].layoutPriority == priority
+                    && sizes[$0] > minimumMainSize(for: children[$0], axis: axis, currentSize: sizes[$0])
+            }
             guard !indices.isEmpty else {
                 continue
             }
 
             let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
-                partialResult + sizes[index]
+                partialResult + max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index]))
             }
             guard shrinkCapacity > 0 else {
                 continue
@@ -1449,15 +1490,41 @@ public final class ViewNode {
                 if offset == indices.count - 1 {
                     reduction = remainingReduction
                 } else {
-                    reduction = targetReduction * (sizes[index] / shrinkCapacity)
+                    let itemCapacity = max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index]))
+                    reduction = targetReduction * (itemCapacity / shrinkCapacity)
                     remainingReduction -= reduction
                 }
 
-                let appliedReduction = min(sizes[index], reduction)
+                let appliedReduction = min(max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index])), reduction)
                 sizes[index] -= appliedReduction
             }
 
             remainingDeficit -= targetReduction
+        }
+    }
+
+    private func minimumMainSize(for child: ViewNode, axis: StackAxis, currentSize: Double) -> Double {
+        let configuredMinimum: Double
+        let fixedSize: Bool
+
+        switch axis {
+        case .vertical:
+            configuredMinimum = child.minimumSize?.height ?? 0
+            fixedSize = child.fixedSizeVertical
+        case .horizontal:
+            configuredMinimum = child.minimumSize?.width ?? 0
+            fixedSize = child.fixedSizeHorizontal
+        }
+
+        return fixedSize ? max(configuredMinimum, currentSize) : configuredMinimum
+    }
+
+    private func isFixedSize(_ child: ViewNode, along axis: StackAxis) -> Bool {
+        switch axis {
+        case .vertical:
+            return child.fixedSizeVertical
+        case .horizontal:
+            return child.fixedSizeHorizontal
         }
     }
 

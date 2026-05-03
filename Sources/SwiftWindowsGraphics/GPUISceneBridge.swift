@@ -28,6 +28,7 @@ extension GPUIScene {
         self.clearColor = frame.clearColor
         self.layers = [GPUILayer()]
         self.imageResources = []
+        self.glyphAtlasResource = nil
 
         var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         var lastKind: LastPrimitiveKind = .none

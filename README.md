@@ -117,7 +117,7 @@ To exercise the demo through the batch renderer, set `SWIFT_WINDOWSUI_RENDERER=b
 
 Renderer note: retained shadows are first-class `shadowRect` render commands. The batch scene bridge converts them into clipped `ShadowPrimitive` values for the instanced D3D11 path, while the default frame renderer still has a conservative expanded-fill fallback.
 
-Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad, shadow, and cached bitmap-backed image batches today, with retained text bitmaps reused by a runtime `TextRasterCache` before reaching the renderer texture cache. Glyph primitives remain in `GPUIScene` for inspection and future atlas work, but they are reported as unsupported by the batch backend until glyph-atlas binding lands.
+Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad, shadow, glyph-atlas, and cached bitmap-backed image batches today, with retained text bitmaps reused by a runtime `TextRasterCache` before reaching the renderer texture cache. Retained text still reaches the batch path as bitmap images; glyph primitives are available for direct `GPUIScene` callers that provide a `glyphAtlasResource`.
 
 Useful focused command:
 

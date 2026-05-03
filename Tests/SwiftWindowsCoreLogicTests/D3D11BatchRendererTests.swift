@@ -49,10 +49,10 @@ final class D3D11BatchRendererTests: XCTestCase {
 
             XCTAssertTrue(capabilities.shadows)
             XCTAssertTrue(capabilities.quads)
-            XCTAssertFalse(capabilities.glyphs)
+            XCTAssertTrue(capabilities.glyphs)
             XCTAssertTrue(capabilities.images)
-            XCTAssertEqual(capabilities.supportedPrimitiveNames, ["shadows", "quads", "images"])
-            XCTAssertEqual(capabilities.unsupportedPrimitiveNames, ["glyphs"])
+            XCTAssertEqual(capabilities.supportedPrimitiveNames, ["shadows", "quads", "glyphs", "images"])
+            XCTAssertEqual(capabilities.unsupportedPrimitiveNames, [])
         }
     }
 

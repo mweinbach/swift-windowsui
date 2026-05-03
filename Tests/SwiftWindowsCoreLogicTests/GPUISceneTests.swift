@@ -120,6 +120,20 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertNil(scene.imageResource(for: 12))
     }
 
+    func testSetGlyphAtlasResourceStoresAtlasBitmap() {
+        let atlas = BitmapSurface(
+            width: 2,
+            height: 2,
+            bytesPerRow: 8,
+            pixels: Data(repeating: 255, count: 16)
+        )
+        var scene = GPUIScene()
+
+        scene.setGlyphAtlasResource(atlas)
+
+        XCTAssertEqual(scene.glyphAtlasResource?.bitmap, atlas)
+    }
+
     func testAddShadowAppendsToLastLayer() {
         var scene = GPUIScene()
         scene.addShadow(ShadowPrimitive(x: 5, y: 5, width: 100, height: 100, blurRadius: 8))

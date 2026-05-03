@@ -19,7 +19,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     public static let currentPrimitiveCapabilities = BatchPrimitiveCapabilities(
         shadows: true,
         quads: true,
-        glyphs: false,
+        glyphs: true,
         images: true
     )
     static let maxCachedImageTextures = 128
@@ -38,6 +38,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     private var quadPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var imageVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var imagePS: UnsafeMutablePointer<ID3D11PixelShader>?
+    private var glyphVS: UnsafeMutablePointer<ID3D11VertexShader>?
+    private var glyphPS: UnsafeMutablePointer<ID3D11PixelShader>?
     private var shadowVS: UnsafeMutablePointer<ID3D11VertexShader>?
     private var shadowPS: UnsafeMutablePointer<ID3D11PixelShader>?
 
@@ -59,6 +61,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     private var imageInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var imageInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var imageInstanceCapacity: Int = 256
+
+    private var glyphInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
+    private var glyphInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var glyphInstanceCapacity: Int = 256
 
     private var shadowInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
@@ -172,6 +178,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
         let imageTextureViews = try createImageTextureResourceViews(for: scene.imageResources)
+        let glyphAtlasTextureView = try createGlyphAtlasTextureResourceView(for: scene.glyphAtlasResource)
 
         for layer in scene.layers {
             if !layer.shadows.isEmpty {
@@ -194,6 +201,19 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
                     vs: quadVS, ps: quadPS,
                     label: "quad",
                     deviceContext: deviceContext
+                )
+            }
+            if primitiveCapabilities.glyphs, !layer.glyphs.isEmpty, let glyphAtlasTextureView {
+                try renderBatch(
+                    layer.glyphs,
+                    capacity: &glyphInstanceCapacity,
+                    buffer: &glyphInstanceBuffer,
+                    srv: &glyphInstanceSRV,
+                    vs: glyphVS, ps: glyphPS,
+                    label: "glyph",
+                    deviceContext: deviceContext,
+                    bindSampler: true,
+                    pixelShaderResourceView: glyphAtlasTextureView
                 )
             }
             if primitiveCapabilities.images && !layer.images.isEmpty {
@@ -234,12 +254,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             source: batchImageShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var imagePSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchImageShaderSource, entryPoint: "psMain", profile: "ps_5_0")
+        var glyphVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
+        var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: "psMain", profile: "ps_5_0")
         var shadowVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchShadowShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var shadowPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchShadowShaderSource, entryPoint: "psMain", profile: "ps_5_0")
         releaseCOMPointer(&shadowPSBlob)
         releaseCOMPointer(&shadowVSBlob)
+        releaseCOMPointer(&glyphPSBlob)
+        releaseCOMPointer(&glyphVSBlob)
         releaseCOMPointer(&imagePSBlob)
         releaseCOMPointer(&imageVSBlob)
         releaseCOMPointer(&quadPSBlob)
@@ -393,6 +419,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         )
         try createShaderPair(
             device: device,
+            source: GlyphPipelineResources.vertexShaderSource,
+            vs: &glyphVS,
+            ps: &glyphPS,
+            label: "glyph"
+        )
+        try createShaderPair(
+            device: device,
             source: batchShadowShaderSource,
             vs: &shadowVS,
             ps: &shadowPS,
@@ -456,6 +489,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             buffer: &imageInstanceBuffer,
             srv: &imageInstanceSRV,
             label: "image"
+        )
+        try createInstanceBuffer(
+            device: device,
+            capacity: glyphInstanceCapacity,
+            strideBytes: MemoryLayout<GlyphPrimitive>.stride,
+            buffer: &glyphInstanceBuffer,
+            srv: &glyphInstanceSRV,
+            label: "glyph"
         )
         try createInstanceBuffer(
             device: device,
@@ -671,18 +712,27 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         for resources: [GPUISceneImageResource]
     ) throws -> [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] {
         var views: [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] = [:]
-        for resource in resources where isValidImageResource(resource) {
+        for resource in resources where resource.id >= 0 && isValidBitmapResource(resource.bitmap) {
             views[resource.id] = try cachedShaderResourceView(for: resource.bitmap)
         }
         return views
     }
 
-    private func isValidImageResource(_ resource: GPUISceneImageResource) -> Bool {
-        resource.id >= 0
-            && resource.bitmap.width > 0
-            && resource.bitmap.height > 0
-            && resource.bitmap.bytesPerRow >= resource.bitmap.width * 4
-            && resource.bitmap.pixels.count >= Int(resource.bitmap.bytesPerRow * resource.bitmap.height)
+    private func createGlyphAtlasTextureResourceView(
+        for resource: GPUISceneGlyphAtlasResource?
+    ) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView>? {
+        guard let resource, isValidBitmapResource(resource.bitmap) else {
+            return nil
+        }
+
+        return try cachedShaderResourceView(for: resource.bitmap)
+    }
+
+    private func isValidBitmapResource(_ bitmap: BitmapSurface) -> Bool {
+        bitmap.width > 0
+            && bitmap.height > 0
+            && bitmap.bytesPerRow >= bitmap.width * 4
+            && bitmap.pixels.count >= Int(bitmap.bytesPerRow * bitmap.height)
     }
 
     private func createShaderResourceView(

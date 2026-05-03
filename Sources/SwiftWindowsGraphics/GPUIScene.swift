@@ -44,6 +44,14 @@ public struct GPUISceneImageResource: Equatable, Sendable {
     }
 }
 
+public struct GPUISceneGlyphAtlasResource: Equatable, Sendable {
+    public var bitmap: BitmapSurface
+
+    public init(bitmap: BitmapSurface) {
+        self.bitmap = bitmap
+    }
+}
+
 /// Top-level GPUI-style scene container that organizes primitives by type into
 /// contiguous arrays within layers. This structure replaces the flat
 /// `[RenderCommand]` list with typed arrays suitable for instanced draw calls.
@@ -51,11 +59,13 @@ public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
     public var imageResources: [GPUISceneImageResource]
+    public var glyphAtlasResource: GPUISceneGlyphAtlasResource?
 
     public init(clearColor: Color = .black) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
         self.imageResources = []
+        self.glyphAtlasResource = nil
     }
 
     /// Total primitive count across all layers.
@@ -92,6 +102,10 @@ public struct GPUIScene: Equatable, Sendable {
 
     public mutating func addShadow(_ shadow: ShadowPrimitive) {
         layers[layers.count - 1].shadows.append(shadow)
+    }
+
+    public mutating func setGlyphAtlasResource(_ bitmap: BitmapSurface) {
+        glyphAtlasResource = GPUISceneGlyphAtlasResource(bitmap: bitmap)
     }
 
     @discardableResult

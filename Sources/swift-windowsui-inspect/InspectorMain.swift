@@ -699,12 +699,13 @@ private struct WinSwiftUIProbeView: View {
                     Text("INSPECTOR DESTINATION")
                 }
             }
+            .navigationTitle("Inspector")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Inspect") {}
                 }
             }
-            .frame(height: 104)
+            .frame(height: 132)
 
             NavigationSplitView {
                 Text("NAV SIDEBAR")

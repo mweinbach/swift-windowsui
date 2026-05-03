@@ -112,6 +112,7 @@ Modifiers:
 - `onSubmit`
 - `onTapGesture`
 - `gesture` with `DragGesture`
+- `navigationTitle`
 - `toolbar`
 - `tabItem`
 - `id`
@@ -164,6 +165,7 @@ Surface direction:
 - `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
 - `TabView` maps tagged pages into a retained segmented tab bar plus the selected content subtree. The `selection:` initializer supports typed `Binding` values, while unbound tabs keep local `@State` selection.
 - `NavigationStack` keeps a local retained route stack for simple drill-in flows. `NavigationLink` renders as an interactive retained row and pushes destination content when built inside a `NavigationStack`.
+- `navigationTitle(_:)` wraps content in a retained translucent title strip. This is visual retained chrome rather than full platform navigation-bar integration; pushed `NavigationStack` destinations still use the route title from `NavigationLink` for the back bar.
 - `NavigationSplitView` maps the common two- and three-column closure forms onto retained nested `HSplitView`s with styled sidebar/content/detail columns.
 - `toolbar` wraps a view in a retained translucent action bar. `ToolbarItem` and `ToolbarItemGroup` preserve common SwiftUI call-site shapes while lowering their contents into retained controls. Placement values are accepted for compatibility, but currently render in one horizontal action row.
 - `GroupBox` maps title and custom-label call sites into retained `Section`-style rounded panels for settings and dashboard groups.

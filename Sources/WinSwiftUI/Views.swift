@@ -2303,6 +2303,72 @@ private enum NavigationStackScope {
 }
 
 @MainActor
+private struct NavigationTitleHost<Content: View>: View {
+    typealias Body = Never
+
+    let content: Content
+    let title: String
+
+    var body: Never {
+        fatalError("NavigationTitleHost has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let contentComponent = content.makeComponent(context: context)
+
+        return Component { runtime in
+            let titleLabel = Controls.label(
+                title.uppercased(),
+                layoutPriority: 1,
+                color: Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 0.96),
+                scale: 2.05,
+                weight: .semibold,
+                alignment: .leading,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+            titleLabel.fillsAvailableWidth = true
+
+            let titleBar = Controls.stackPanel(
+                backgroundColor: Color(red: 0.09, green: 0.13, blue: 0.20, alpha: 0.62),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.09),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.12),
+                shadowOffset: Point(x: 0, y: 10),
+                shadowSpread: 8,
+                cornerRadius: 20,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: [titleLabel]
+            )
+            titleBar.fillsAvailableWidth = true
+
+            let contentNode = contentComponent.makeNode(runtime: runtime)
+            contentNode.layoutPriority = 1
+            contentNode.fillsAvailableWidth = true
+            contentNode.fillsAvailableHeight = true
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 10, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [titleBar, contentNode]
+            )
+        }
+    }
+}
+
+public extension View {
+    func navigationTitle<S: StringProtocol>(_ title: S) -> some View {
+        NavigationTitleHost(content: self, title: String(title))
+    }
+}
+
+@MainActor
 private struct ToolbarHost<Content: View>: View {
     typealias Body = Never
 

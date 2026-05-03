@@ -1517,6 +1517,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationTitleWrapsContentWithRetainedHeader() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("BODY")
+                    .navigationTitle("Dashboard")
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(containsText("DASHBOARD", in: node.children[0]))
+            XCTAssertEqual(node.children[1].text, "BODY")
+        }
+    }
+
+    func testNavigationStackRendersRootNavigationTitle() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationStack {
+                    Text("BODY")
+                        .navigationTitle("Root")
+                }
+            )
+
+            XCTAssertTrue(containsText("ROOT", in: node))
+            XCTAssertTrue(containsText("BODY", in: node))
+        }
+    }
+
     func testToolbarModifierWrapsContentAndInteractiveItems() async {
         await MainActor.run {
             var didRefresh = false

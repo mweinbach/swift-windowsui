@@ -664,6 +664,12 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("CUSTOM LABEL") {
         failures.append("WinSwiftUI probe text samples are missing the custom Label builder")
     }
+    if !winSwiftUIProbe.textSamples.contains("EMPTY INSPECTOR STATE") {
+        failures.append("WinSwiftUI probe text samples are missing the ContentUnavailableView title")
+    }
+    if !winSwiftUIProbe.textSamples.contains("NO SNAPSHOT ITEMS") {
+        failures.append("WinSwiftUI probe text samples are missing the ContentUnavailableView description")
+    }
     if textInputProbeValue != "ZQ->Z-Q|-" {
         failures.append("text input probe expected ZQ->Z-Q|- after select-all, selection replacement, pointer editing, and clipboard shortcuts, got \(textInputProbeValue)")
     }
@@ -714,6 +720,13 @@ private struct WinSwiftUIProbeView: View {
             } icon: {
                 Image(systemName: "sparkles")
             }
+
+            ContentUnavailableView(
+                "EMPTY INSPECTOR STATE",
+                systemImage: "tray",
+                description: Text("NO SNAPSHOT ITEMS")
+            )
+            .frame(height: 94)
 
             Button("DISABLED ACTION") {}
                 .disabled(true)

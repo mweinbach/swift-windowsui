@@ -300,6 +300,89 @@ public struct Label: View {
 }
 
 @MainActor
+public struct ContentUnavailableView: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let description: [AnyView]
+    private let actions: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder description: () -> [AnyView] = { [] },
+        @ViewBuilder actions: () -> [AnyView] = { [] }
+    ) {
+        self.label = label()
+        self.description = description()
+        self.actions = actions()
+    }
+
+    public init(_ title: String, systemImage: String, description: Text? = nil) {
+        self.init {
+            Label(title, systemImage: systemImage)
+        } description: {
+            if let description {
+                description
+            }
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, description: Text? = nil) {
+        self.init(String(title), systemImage: systemImage, description: description)
+    }
+
+    public static var search: ContentUnavailableView {
+        ContentUnavailableView(
+            "No Results",
+            systemImage: "magnifyingglass",
+            description: Text("Try a different search.")
+        )
+    }
+
+    public static func search(text: String) -> ContentUnavailableView {
+        ContentUnavailableView(
+            "No Results for \"\(text)\"",
+            systemImage: "magnifyingglass",
+            description: Text("Check the spelling or try another query.")
+        )
+    }
+
+    public var body: Never {
+        fatalError("ContentUnavailableView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        VStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .center, spacing: 8) {
+                label
+            }
+            .multilineTextAlignment(.center)
+            .foregroundColor(.white)
+            .font(.title3)
+
+            if !description.isEmpty {
+                VStack(alignment: .center, spacing: 4) {
+                    description
+                }
+                .multilineTextAlignment(.center)
+                .foregroundColor(Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.76))
+                .font(.callout)
+            }
+
+            if !actions.isEmpty {
+                HStack(spacing: 8) {
+                    actions
+                }
+                .padding(.top, 4)
+            }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .center)
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct LabeledContent: View {
     public typealias Body = Never
 
@@ -3099,6 +3182,8 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
     case "magnifyingglass":
         return .search
     case "folder":
+        return .folder
+    case "archivebox", "archivebox.fill", "tray", "tray.fill":
         return .folder
     case "gearshape", "gearshape.fill":
         return .settings

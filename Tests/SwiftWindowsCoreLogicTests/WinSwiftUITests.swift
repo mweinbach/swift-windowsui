@@ -240,6 +240,51 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentUnavailableViewMapsStringSearchAndBuilderForms() async {
+        await MainActor.run {
+            let titledNode = makeNode(
+                ContentUnavailableView(
+                    "NO DATA",
+                    systemImage: "tray",
+                    description: Text("IMPORT SOMETHING")
+                )
+            )
+
+            XCTAssertTrue(containsText("NO DATA", in: titledNode))
+            XCTAssertTrue(containsText("IMPORT SOMETHING", in: titledNode))
+
+            let searchNode = makeNode(ContentUnavailableView.search(text: "devices"))
+
+            XCTAssertTrue(containsText("No Results for \"devices\"", in: searchNode))
+            XCTAssertTrue(containsText("Check the spelling or try another query.", in: searchNode))
+
+            var didCreate = false
+            let customNode = makeNode(
+                ContentUnavailableView {
+                    Label {
+                        Text("EMPTY PROJECT")
+                    } icon: {
+                        Image(systemName: "sparkles")
+                    }
+                } description: {
+                    Text("CREATE A SCENE TO CONTINUE")
+                } actions: {
+                    Button("CREATE") {
+                        didCreate = true
+                    }
+                }
+            )
+
+            XCTAssertTrue(containsText("EMPTY PROJECT", in: customNode))
+            XCTAssertTrue(containsText("CREATE A SCENE TO CONTINUE", in: customNode))
+            XCTAssertTrue(hasInteractiveNode(in: customNode))
+
+            firstFocusableNode(containing: "CREATE", in: customNode)?.onActivate?()
+
+            XCTAssertTrue(didCreate)
+        }
+    }
+
     func testLabeledContentMapsTitleValueAndCustomRows() async {
         await MainActor.run {
             let valueNode = makeNode(

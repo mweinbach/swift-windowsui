@@ -113,7 +113,7 @@ public final class ComponentHost {
     }
 
     /// Copy visual / layout properties from `source` onto `target`, keeping
-    /// `target`'s identity (parent, runtime, callbacks) intact.
+    /// `target`'s identity (parent/runtime) intact while refreshing handlers.
     private func updateNodeProperties(target: ViewNode, source: ViewNode) {
         if target.frame != source.frame { target.frame = source.frame }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
@@ -146,5 +146,23 @@ public final class ComponentHost {
         if targetLayoutTag != sourceLayoutTag {
             target.layoutMode = source.layoutMode
         }
+
+        target.onPointerEnter = source.onPointerEnter
+        target.onPointerExit = source.onPointerExit
+        target.onPointerDown = source.onPointerDown
+        target.onPointerUpInside = source.onPointerUpInside
+        target.onPointerUpOutside = source.onPointerUpOutside
+        target.onFocusEnter = source.onFocusEnter
+        target.onFocusExit = source.onFocusExit
+        target.onKeyDown = source.onKeyDown
+        target.onTextInput = source.onTextInput
+        target.onActivate = source.onActivate
+        target.onDragStart = source.onDragStart
+        target.onDragChange = source.onDragChange
+        target.onDragEnd = source.onDragEnd
+        target.onLayout = source.onLayout
+        target.onAppear = source.onAppear
+        target.onDisappear = source.onDisappear
+        target.onSizeChange = source.onSizeChange
     }
 }

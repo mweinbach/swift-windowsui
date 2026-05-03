@@ -82,4 +82,34 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(node.transform.scaleX, 2, accuracy: 0.001)
         }
     }
+
+    func testReloadRefreshesHandlersInPlace() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var version = 1
+            var activations: [Int] = []
+
+            host.setContent {
+                let capturedVersion = version
+                Component { _ in
+                    let node = ViewNode(backgroundColor: .white)
+                    node.onActivate = {
+                        activations.append(capturedVersion)
+                    }
+                    return node
+                }
+            }
+
+            let node = runtime.root.children[0]
+            node.onActivate?()
+
+            version = 2
+            host.reload()
+            runtime.root.children[0].onActivate?()
+
+            XCTAssertTrue(runtime.root.children[0] === node)
+            XCTAssertEqual(activations, [1, 2])
+        }
+    }
 }

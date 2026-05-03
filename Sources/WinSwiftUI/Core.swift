@@ -1355,6 +1355,28 @@ public extension View {
         }
     }
 
+    func onAppear(perform action: @escaping @MainActor () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.onAppear = action
+                return childNode
+            }
+        }
+    }
+
+    func onDisappear(perform action: @escaping @MainActor () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.onDisappear = action
+                return childNode
+            }
+        }
+    }
+
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
     func id(_ identifier: String) -> some View {

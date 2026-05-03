@@ -221,6 +221,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLifecycleModifiersRouteToRetainedCallbacks() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 120, height: 60) }, invalidateHandler: {})
+            var didAppear = false
+            var didDisappear = false
+
+            let node = Text("LIFE")
+                .onAppear {
+                    didAppear = true
+                }
+                .onDisappear {
+                    didDisappear = true
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 120, height: 60))
+            _ = runtime.renderFrame()
+            runtime.root.removeAllChildren()
+
+            XCTAssertTrue(didAppear)
+            XCTAssertTrue(didDisappear)
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))

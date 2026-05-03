@@ -733,6 +733,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("APP STORAGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the AppStorage sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("DEFAULT APP STORAGE READY") {
+        failures.append("WinSwiftUI probe text samples are missing the defaultAppStorage sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -873,6 +876,15 @@ private struct InspectorAppStorageSample: View {
     }
 }
 
+private struct InspectorDefaultAppStorageSample: View {
+    @AppStorage("swift-windowsui.inspect.default-app-storage.label") private var label = "DEFAULT APP STORAGE READY"
+
+    var body: some View {
+        Text(label)
+            .modifier(InspectorChipModifier())
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -905,6 +917,13 @@ private struct WinSwiftUIProbeView: View {
     private var sampleDate: Date {
         Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 9, minute: 30))
             ?? Date(timeIntervalSince1970: 0)
+    }
+
+    private var defaultAppStorageStore: UserDefaults {
+        let key = "swift-windowsui.inspect.default-app-storage.label"
+        let store = UserDefaults(suiteName: "swift-windowsui.inspect.default-app-storage") ?? .standard
+        store.set("DEFAULT APP STORAGE READY", forKey: key)
+        return store
     }
 
     var body: some View {
@@ -980,6 +999,9 @@ private struct WinSwiftUIProbeView: View {
             InspectorEnvironmentObjectSample()
 
             InspectorAppStorageSample()
+
+            InspectorDefaultAppStorageSample()
+                .defaultAppStorage(defaultAppStorageStore)
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

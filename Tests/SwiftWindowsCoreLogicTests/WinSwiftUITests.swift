@@ -4166,6 +4166,88 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDefaultAppStorageSuppliesStoreForAppStorageReadsAndWrites() async {
+        await MainActor.run {
+            let suiteName = "WinSwiftUITests.AppStorage.Default.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Expected suite-backed UserDefaults")
+                return
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            struct DefaultStoredSettingsView: View {
+                @AppStorage("label") var label = "DEFAULT STORE FALLBACK"
+                @AppStorage("enabled") var enabled = false
+
+                var body: some View {
+                    VStack {
+                        Text(label)
+                        Toggle("DEFAULT STORE ENABLED", isOn: $enabled)
+                    }
+                }
+            }
+
+            store.set("DEFAULT STORE LABEL", forKey: "label")
+            var invalidationCount = 0
+            let node = makeNode(
+                DefaultStoredSettingsView()
+                    .defaultAppStorage(store)
+            ) {
+                invalidationCount += 1
+            }
+            XCTAssertTrue(containsText("DEFAULT STORE LABEL", in: node))
+            guard let toggle = firstFocusableNode(in: node) else {
+                XCTFail("Expected default AppStorage toggle")
+                return
+            }
+            toggle.onActivate?()
+
+            XCTAssertTrue(store.bool(forKey: "enabled"))
+            XCTAssertGreaterThanOrEqual(invalidationCount, 1)
+        }
+    }
+
+    func testExplicitAppStorageStoreOverridesDefaultAppStorage() async {
+        await MainActor.run {
+            let defaultSuiteName = "WinSwiftUITests.AppStorage.DefaultOverride.\(UUID().uuidString)"
+            let explicitSuiteName = "WinSwiftUITests.AppStorage.ExplicitOverride.\(UUID().uuidString)"
+            guard let defaultStore = UserDefaults(suiteName: defaultSuiteName),
+                  let explicitStore = UserDefaults(suiteName: explicitSuiteName)
+            else {
+                XCTFail("Expected suite-backed UserDefaults")
+                return
+            }
+            defer {
+                defaultStore.removePersistentDomain(forName: defaultSuiteName)
+                explicitStore.removePersistentDomain(forName: explicitSuiteName)
+            }
+
+            struct ExplicitStoredLabelView: View {
+                @AppStorage("label") var label = "EXPLICIT FALLBACK"
+
+                init(store: UserDefaults) {
+                    _label = AppStorage(wrappedValue: "EXPLICIT FALLBACK", "label", store: store)
+                }
+
+                var body: some View {
+                    Text(label)
+                }
+            }
+
+            defaultStore.set("DEFAULT STORE LABEL", forKey: "label")
+            explicitStore.set("EXPLICIT STORE LABEL", forKey: "label")
+            let node = makeNode(
+                ExplicitStoredLabelView(store: explicitStore)
+                    .defaultAppStorage(defaultStore)
+            )
+
+            XCTAssertTrue(containsText("EXPLICIT STORE LABEL", in: node))
+            XCTAssertFalse(containsText("DEFAULT STORE LABEL", in: node))
+        }
+    }
+
     func testAppStorageRawRepresentableValuesUseRawStorage() async {
         await MainActor.run {
             let suiteName = "WinSwiftUITests.AppStorage.Raw.\(UUID().uuidString)"

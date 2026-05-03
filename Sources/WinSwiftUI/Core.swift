@@ -385,16 +385,17 @@ private final class StateBox<Value> {
 @MainActor
 @propertyWrapper
 public struct AppStorage<Value> {
-    private let reader: @MainActor () -> Value
-    private let writer: @MainActor (Value) -> Void
+    private let explicitStore: UserDefaults?
+    private let reader: @MainActor (UserDefaults) -> Value
+    private let writer: @MainActor (Value, UserDefaults) -> Void
     private let box = AppStorageBox()
 
     public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
-        let store = store ?? .standard
-        self.reader = {
+        self.explicitStore = store
+        self.reader = { store in
             Self.readStoredValue(forKey: key, defaultValue: wrappedValue, store: store)
         }
-        self.writer = { value in
+        self.writer = { value, store in
             store.set(value, forKey: key)
         }
     }
@@ -402,10 +403,10 @@ public struct AppStorage<Value> {
     public var wrappedValue: Value {
         get {
             bindToCurrentContext()
-            return reader()
+            return reader(resolvedStore())
         }
         nonmutating set {
-            writer(newValue)
+            writer(newValue, resolvedStore())
             box.invalidate?()
         }
     }
@@ -414,10 +415,10 @@ public struct AppStorage<Value> {
         bindToCurrentContext()
         return Binding<Value>(
             get: {
-                reader()
+                reader(resolvedStore())
             },
             set: { newValue in
-                writer(newValue)
+                writer(newValue, resolvedStore())
                 box.invalidate?()
             },
             invalidatesOnSet: true
@@ -429,9 +430,14 @@ public struct AppStorage<Value> {
             return
         }
 
+        box.defaultStore = context.environmentValues[DefaultAppStorageEnvironmentKey.self]
         box.invalidate = {
             context.invalidate()
         }
+    }
+
+    private func resolvedStore() -> UserDefaults {
+        explicitStore ?? box.defaultStore ?? .standard
     }
 
     private static func readStoredValue(forKey key: String, defaultValue: Value, store: UserDefaults) -> Value {
@@ -461,20 +467,21 @@ public struct AppStorage<Value> {
 
 @MainActor
 private final class AppStorageBox {
+    var defaultStore: UserDefaults?
     var invalidate: (() -> Void)?
 }
 
 public extension AppStorage where Value: RawRepresentable, Value.RawValue == String {
     init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
-        let store = store ?? .standard
-        self.reader = {
+        self.explicitStore = store
+        self.reader = { store in
             guard let rawValue = store.string(forKey: key) else {
                 return wrappedValue
             }
 
             return Value(rawValue: rawValue) ?? wrappedValue
         }
-        self.writer = { value in
+        self.writer = { value, store in
             store.set(value.rawValue, forKey: key)
         }
     }
@@ -482,15 +489,15 @@ public extension AppStorage where Value: RawRepresentable, Value.RawValue == Str
 
 public extension AppStorage where Value: RawRepresentable, Value.RawValue == Int {
     init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
-        let store = store ?? .standard
-        self.reader = {
+        self.explicitStore = store
+        self.reader = { store in
             guard store.object(forKey: key) != nil else {
                 return wrappedValue
             }
 
             return Value(rawValue: store.integer(forKey: key)) ?? wrappedValue
         }
-        self.writer = { value in
+        self.writer = { value, store in
             store.set(value.rawValue, forKey: key)
         }
     }
@@ -732,6 +739,12 @@ private struct IsEnabledEnvironmentKey: EnvironmentKey {
 
 private struct DismissEnvironmentKey: EnvironmentKey {
     static let defaultValue = DismissAction()
+}
+
+private struct DefaultAppStorageEnvironmentKey: EnvironmentKey {
+    static var defaultValue: UserDefaults {
+        .standard
+    }
 }
 
 public extension EnvironmentValues {
@@ -4626,6 +4639,14 @@ public extension View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
             values.setEnvironmentObject(object)
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
+    func defaultAppStorage(_ store: UserDefaults) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values[DefaultAppStorageEnvironmentKey.self] = store
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }

@@ -739,6 +739,18 @@ public struct Font: Sendable, Equatable {
     public static func system(size: Double, weight: Weight = .regular, design: Design = .default) -> Font {
         Font(size: size, weight: weight, design: design)
     }
+
+    public static let largeTitle = Font(size: 34, weight: .regular)
+    public static let title = Font(size: 28, weight: .regular)
+    public static let title2 = Font(size: 22, weight: .regular)
+    public static let title3 = Font(size: 20, weight: .regular)
+    public static let headline = Font(size: 17, weight: .semibold)
+    public static let subheadline = Font(size: 15, weight: .regular)
+    public static let body = Font(size: 17, weight: .regular)
+    public static let callout = Font(size: 16, weight: .regular)
+    public static let footnote = Font(size: 13, weight: .regular)
+    public static let caption = Font(size: 12, weight: .regular)
+    public static let caption2 = Font(size: 11, weight: .regular)
 }
 
 public struct Material: Sendable, Equatable {

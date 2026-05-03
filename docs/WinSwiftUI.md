@@ -142,6 +142,7 @@ Surface direction:
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
 - Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `multilineTextAlignment`, and `lineLimit`) walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight.
+- `Font` supports `system(size:weight:design:)` plus common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
 - `Material` presets lower to passive retained layers with translucent fills, blur radius, border, rounded corners, and soft shadow values for macOS-style glass surfaces.

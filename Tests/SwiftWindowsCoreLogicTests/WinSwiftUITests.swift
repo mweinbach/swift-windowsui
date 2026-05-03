@@ -35,6 +35,18 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNamedFontPresetsMapToRetainedTextStyle() async {
+        await MainActor.run {
+            let headlineNode = makeNode(Text("HEADLINE").font(.headline))
+            let captionNode = makeNode(Text("CAPTION").font(.caption2))
+
+            XCTAssertEqual(headlineNode.textStyle.scale, 1.7, accuracy: 0.001)
+            XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
+            XCTAssertEqual(captionNode.textStyle.scale, 1.1, accuracy: 0.001)
+            XCTAssertEqual(captionNode.textStyle.weight, .regular)
+        }
+    }
+
     func testVStackMapsToVerticalStackPanel() async {
         await MainActor.run {
             let node = makeNode(

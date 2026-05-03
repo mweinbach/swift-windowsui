@@ -58,6 +58,7 @@ final class WinSwiftUITests: XCTestCase {
             var count = 1
             var amount = 0.5
             var date = localDate(year: 2026, month: 5, day: 3)
+            var color = Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1)
             var selection = "one"
             var isExpanded = false
 
@@ -89,6 +90,7 @@ final class WinSwiftUITests: XCTestCase {
                     Stepper("PREFIX-COUNT".suffix(5), value: Binding(get: { count }, set: { count = $0 }), in: 0...5)
                     Stepper("PREFIX-AMOUNT".suffix(6), value: Binding(get: { amount }, set: { amount = $0 }), in: 0...1, step: 0.25)
                     DatePicker("PREFIX-DATE".suffix(4), selection: Binding(get: { date }, set: { date = $0 }), displayedComponents: [.date])
+                    ColorPicker("PREFIX-COLOR".suffix(5), selection: Binding(get: { color }, set: { color = $0 }))
                     ProgressView("PREFIX-PROGRESS".suffix(8), value: 0.4)
                     Picker("PREFIX-PICKER".suffix(6), selection: Binding(get: { selection }, set: { selection = $0 })) {
                         Text("ONE").tag("one")
@@ -99,7 +101,7 @@ final class WinSwiftUITests: XCTestCase {
             for expectedText in [
                 "BUTTON", "SAVE", "LABEL", "LABELED", "VALUE", "DETAIL", "GROUP",
                 "DISCLOSE", "SECTION", "MENU", "ACTIONS", "TOGGLE", "COUNT",
-                "AMOUNT", "DATE", "PROGRESS", "PICKER"
+                "AMOUNT", "DATE", "COLOR", "PROGRESS", "PICKER"
             ] {
                 XCTAssertTrue(containsText(expectedText, in: node), "Expected retained tree to contain \(expectedText)")
             }
@@ -1638,6 +1640,52 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertNotNil(inheritedSurface)
             XCTAssertNotNil(explicitSurface)
+        }
+    }
+
+    func testColorPickerMapsSwatchValueAndChannelButtons() async {
+        await MainActor.run {
+            var value = Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.5)
+            var invalidationCount = 0
+
+            let node = makeNode(
+                ColorPicker("ACCENT", selection: Binding(get: { value }, set: { value = $0 })),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("ACCENT", in: node))
+            XCTAssertTrue(containsText("#334D6680", in: node))
+            XCTAssertNotNil(firstNode(withBackground: value, in: node))
+
+            firstFocusableNode(containing: "R", in: node)?.onActivate?()
+
+            XCTAssertEqual(Double(value.red), 0.3, accuracy: 0.001)
+            XCTAssertEqual(Double(value.green), 0.3, accuracy: 0.001)
+            XCTAssertEqual(Double(value.blue), 0.4, accuracy: 0.001)
+            XCTAssertEqual(Double(value.alpha), 0.5, accuracy: 0.001)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testColorPickerSupportsOpacityFlagAndHiddenLabels() async {
+        await MainActor.run {
+            var value = Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 0.3)
+
+            let node = makeNode(
+                ColorPicker("HIDDEN COLOR", selection: Binding(get: { value }, set: { value = $0 }), supportsOpacity: false)
+                    .labelsHidden()
+            )
+
+            XCTAssertFalse(containsText("HIDDEN COLOR", in: node))
+            XCTAssertTrue(containsText("#336699", in: node))
+            XCTAssertNil(firstFocusableNode(containing: "A", in: node))
+
+            firstFocusableNode(containing: "B", in: node)?.onActivate?()
+
+            XCTAssertEqual(Double(value.blue), 0.7, accuracy: 0.001)
+            XCTAssertEqual(Double(value.alpha), 1.0, accuracy: 0.001)
         }
     }
 

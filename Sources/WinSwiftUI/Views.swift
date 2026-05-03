@@ -3360,6 +3360,175 @@ public struct DatePicker: View {
 }
 
 @MainActor
+public struct ColorPicker: View {
+    public typealias Body = Never
+
+    private enum Channel: Sendable {
+        case red
+        case green
+        case blue
+        case alpha
+
+        var title: String {
+            switch self {
+            case .red:
+                return "R"
+            case .green:
+                return "G"
+            case .blue:
+                return "B"
+            case .alpha:
+                return "A"
+            }
+        }
+    }
+
+    private let selection: Binding<Color>
+    private let supportsOpacity: Bool
+    private let label: [AnyView]
+    private var isEnabled: Bool
+    private var hidesLabel: Bool
+
+    public init(_ title: String, selection: Binding<Color>, supportsOpacity: Bool = true) {
+        self.init(
+            selection: selection,
+            supportsOpacity: supportsOpacity,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }
+        )
+    }
+
+    public init<S: StringProtocol>(_ title: S, selection: Binding<Color>, supportsOpacity: Bool = true) {
+        self.init(String(title), selection: selection, supportsOpacity: supportsOpacity)
+    }
+
+    public init(selection: Binding<Color>, supportsOpacity: Bool = true, @ViewBuilder label: () -> [AnyView]) {
+        self.selection = selection
+        self.supportsOpacity = supportsOpacity
+        self.label = label()
+        self.isEnabled = true
+        self.hidesLabel = false
+    }
+
+    public var body: Never {
+        fatalError("ColorPicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let color = normalizedColor(selection.wrappedValue)
+        let channels: [Channel] = supportsOpacity ? [.red, .green, .blue, .alpha] : [.red, .green, .blue]
+
+        return HStack(spacing: 8) {
+            if !hidesLabel {
+                label
+                Spacer()
+            }
+
+            RoundedRectangle(cornerRadius: 8)
+                .fill(color)
+                .frame(width: 34, height: 22)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.20), lineWidth: 1)
+                )
+
+            Text(formattedColor(color))
+                .font(.system(size: 1.25, weight: .semibold, design: .monospaced))
+                .foregroundColor(Color(red: 0.84, green: 0.90, blue: 1.0, alpha: 0.78))
+                .lineLimit(1)
+                .frame(minWidth: supportsOpacity ? 92 : 72, alignment: .trailing)
+
+            HStack(spacing: 4) {
+                for channel in channels {
+                    Button(channel.title) {
+                        advance(channel)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(!isEnabled)
+                }
+            }
+        }
+        .padding(EdgeInsets(top: 5, leading: 6, bottom: 5, trailing: 6))
+        .background(Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.72))
+        .cornerRadius(14)
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12), lineWidth: 1)
+        )
+        .makeComponent(context: context)
+    }
+
+    private func advance(_ channel: Channel) {
+        var color = normalizedColor(selection.wrappedValue)
+        switch channel {
+        case .red:
+            color.red = steppedChannel(color.red)
+        case .green:
+            color.green = steppedChannel(color.green)
+        case .blue:
+            color.blue = steppedChannel(color.blue)
+        case .alpha:
+            color.alpha = steppedChannel(color.alpha)
+        }
+
+        selection.wrappedValue = normalizedColor(color)
+    }
+
+    private func normalizedColor(_ color: Color) -> Color {
+        Color(
+            red: clampedChannel(color.red),
+            green: clampedChannel(color.green),
+            blue: clampedChannel(color.blue),
+            alpha: supportsOpacity ? clampedChannel(color.alpha) : 1
+        )
+    }
+
+    private func clampedChannel(_ value: Float) -> Float {
+        min(max(value, 0), 1)
+    }
+
+    private func steppedChannel(_ value: Float) -> Float {
+        value >= 0.95 ? 0 : min(1, value + 0.1)
+    }
+
+    private func formattedColor(_ color: Color) -> String {
+        let red = hexByte(color.red)
+        let green = hexByte(color.green)
+        let blue = hexByte(color.blue)
+        guard supportsOpacity else {
+            return "#\(red)\(green)\(blue)"
+        }
+
+        return "#\(red)\(green)\(blue)\(hexByte(color.alpha))"
+    }
+
+    private func hexByte(_ value: Float) -> String {
+        let byte = Int((clampedChannel(value) * 255).rounded())
+        let digits = "0123456789ABCDEF"
+        let high = digits[digits.index(digits.startIndex, offsetBy: byte / 16)]
+        let low = digits[digits.index(digits.startIndex, offsetBy: byte % 16)]
+        return "\(high)\(low)"
+    }
+
+    public func disabled(_ disabled: Bool) -> ColorPicker {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func labelsHidden() -> ColorPicker {
+        var copy = self
+        copy.hidesLabel = true
+        return copy
+    }
+}
+
+@MainActor
 public struct ProgressView: View {
     public typealias Body = Never
 

@@ -676,6 +676,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("SCHEDULE WINDOW") {
         failures.append("WinSwiftUI probe text samples are missing the DatePicker label")
     }
+    if !winSwiftUIProbe.textSamples.contains("COLOR ACCENT") {
+        failures.append("WinSwiftUI probe text samples are missing the ColorPicker label")
+    }
     if !winSwiftUIProbe.textSamples.contains("CUSTOM LABEL") {
         failures.append("WinSwiftUI probe text samples are missing the custom Label builder")
     }
@@ -779,6 +782,12 @@ private struct WinSwiftUIProbeView: View {
                 displayedComponents: [.date, .hourAndMinute]
             )
             .datePickerStyle(.field)
+
+            ColorPicker(
+                "COLOR ACCENT",
+                selection: Binding(get: { Color(red: 0.20, green: 0.54, blue: 0.92, alpha: 1.0) }, set: { _ in }),
+                supportsOpacity: false
+            )
 
             ProgressView(value: 0.68)
 

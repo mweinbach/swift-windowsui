@@ -39,7 +39,7 @@ Targets:
 - `SwiftWindowsGraphics`: `RenderBackend`, `RenderFrame`, gradients, and render commands
 - `SwiftWindowsScene`: alternate scene abstraction
 - `SwiftWindowsLayout`: stack layout primitives and experimental generic layout helpers
-- `SwiftWindowsPlatform`: Win32 windowing, input, timers, and delegate bridge
+- `SwiftWindowsPlatform`: Win32 windowing, input, clipboard, timers, and delegate bridge
 - `SwiftWindowsRendererD3D11`: Direct3D 11 renderer
 - `SwiftWindowsUI`: retained `ViewNode` tree, runtime, controls, bitmap/native text plumbing, and `FoundationApp`
 - `WinSwiftUI`: `App`, `Scene`, `WindowGroup`, common views/modifiers, observation wrappers, and the retained-runtime host bridge
@@ -79,7 +79,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text entry includes click/caret-aware single-line fields, keyboard and pointer-drag selection replacement/deletion, injectable clipboard shortcuts, and a basic multiline `TextEditor`, but rich editing is still future work
+- Text entry includes click/caret-aware single-line fields, keyboard and pointer-drag selection replacement/deletion, injectable clipboard shortcuts with a Win32 clipboard adapter for hosts that install it, and a basic multiline `TextEditor`, but rich editing is still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
 - `Rectangle` and `RoundedRectangle` are renderable shape views. Fills and strokes lower into retained panels, with `RoundedRectangle` carrying its corner radius into the retained node.
 - Shape clipping maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills and overlays.

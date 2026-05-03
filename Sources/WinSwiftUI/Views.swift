@@ -2569,6 +2569,7 @@ public struct Toggle: View {
     private var isEnabled: Bool
     private var tintColor: Color?
     private var offColor: Color
+    private var hidesLabel: Bool
 
     public init(_ title: String, isOn: Binding<Bool>) {
         self.isOn = isOn
@@ -2584,6 +2585,7 @@ public struct Toggle: View {
         self.isEnabled = true
         self.tintColor = nil
         self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
+        self.hidesLabel = false
     }
 
     public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) {
@@ -2596,6 +2598,7 @@ public struct Toggle: View {
         self.isEnabled = true
         self.tintColor = nil
         self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
+        self.hidesLabel = false
     }
 
     public var body: Never {
@@ -2616,7 +2619,7 @@ public struct Toggle: View {
                 }
             )
 
-            guard !label.isEmpty else {
+            guard !hidesLabel, !label.isEmpty else {
                 return switchNode
             }
 
@@ -2644,6 +2647,12 @@ public struct Toggle: View {
     public func tint(_ color: Color) -> Toggle {
         var copy = self
         copy.tintColor = color
+        return copy
+    }
+
+    public func labelsHidden() -> Toggle {
+        var copy = self
+        copy.hidesLabel = true
         return copy
     }
 }
@@ -2926,12 +2935,14 @@ public struct Picker<SelectionValue: Hashable>: View {
     private let selection: Binding<SelectionValue>
     private let content: [AnyView]
     private var isEnabled: Bool
+    private var hidesLabel: Bool
 
     public init(_ title: String = "", selection: Binding<SelectionValue>, @ViewBuilder content: () -> [AnyView]) {
         self.title = title
         self.selection = selection
         self.content = content()
         self.isEnabled = true
+        self.hidesLabel = false
     }
 
     public init<S: StringProtocol>(_ title: S, selection: Binding<SelectionValue>, @ViewBuilder content: () -> [AnyView]) {
@@ -2962,7 +2973,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 }
             )
 
-            guard !title.isEmpty else {
+            guard !hidesLabel, !title.isEmpty else {
                 return dropdown
             }
 
@@ -2988,6 +2999,12 @@ public struct Picker<SelectionValue: Hashable>: View {
     public func disabled(_ disabled: Bool) -> Picker {
         var copy = self
         copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func labelsHidden() -> Picker {
+        var copy = self
+        copy.hidesLabel = true
         return copy
     }
 }

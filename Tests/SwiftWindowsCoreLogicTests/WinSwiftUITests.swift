@@ -945,6 +945,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToggleLabelsHiddenKeepsInteractiveSwitch() async {
+        await MainActor.run {
+            var isOn = false
+
+            let node = makeNode(
+                Toggle("POWER", isOn: Binding(get: { isOn }, set: { isOn = $0 }))
+                    .labelsHidden()
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertFalse(containsText("POWER", in: node))
+
+            node.onActivate?()
+            XCTAssertTrue(isOn)
+        }
+    }
+
     func testStepperUpdatesBindingAndDisablesAtBounds() async {
         await MainActor.run {
             var value = 2
@@ -1802,6 +1819,32 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(selection, 2)
             XCTAssertTrue(didInvalidate)
             XCTAssertTrue(optionsList.isHidden)
+        }
+    }
+
+    func testPickerLabelsHiddenKeepsDropdownInteraction() async {
+        await MainActor.run {
+            var selection = 1
+
+            let node = makeNode(
+                Picker("MODE", selection: Binding(get: { selection }, set: { selection = $0 })) {
+                    Text("Layout").tag(0)
+                    Text("Input").tag(1)
+                    Text("Render").tag(2)
+                }
+                .labelsHidden()
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertFalse(containsText("MODE", in: node))
+            XCTAssertEqual(node.children[0].children.first?.text, "Input")
+
+            let optionsList = node.children[1]
+            node.onActivate?()
+            XCTAssertFalse(optionsList.isHidden)
+
+            optionsList.children[0].onActivate?()
+            XCTAssertEqual(selection, 0)
         }
     }
 

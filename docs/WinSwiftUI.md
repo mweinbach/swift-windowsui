@@ -115,6 +115,7 @@ Modifiers:
 - `lineLimit`
 - `truncationMode`
 - `tint`
+- `labelsHidden`
 - `background`
 - `overlay`
 - `alert`
@@ -217,6 +218,7 @@ Surface direction:
 - Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `fontDesign`, `textCase`, `kerning`, `tracking`, `lineSpacing`, `fontWeight`, `bold`, `italic`, `monospaced`, `underline`, `strikethrough`, `multilineTextAlignment`, `lineLimit`, and `truncationMode`) walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight; `fontDesign` and `monospaced` also preserve icon glyph families. `textCase` rewrites retained text and span ranges for uppercase/lowercase source compatibility. `lineLimit` and `truncationMode` map onto retained maximum-line and head/tail/middle line-break metadata. `kerning` and `tracking` update retained `letterSpacing` metadata; `lineSpacing` updates retained line gap metadata. These spacing values are honored by the bitmap text path and kept available to native text backends.
 - `Font` supports `system(size:weight:design:)`, `system(_:design:weight:)`, `custom(_:size:)`, `custom(_:fixedSize:)`, and common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
+- `labelsHidden()` is supported on `Toggle` and `Picker`; it removes the retained label/title wrapper while preserving the interactive switch or dropdown node.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
 - `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and the current implementation is an in-window overlay rather than a separate native dialog surface.
 - `sheet(isPresented:onDismiss:content:)` maps to a retained in-window sheet with a dimming scrim and a wider glass-style bottom panel. Scrim dismissal updates the presentation binding and calls `onDismiss`; content-driven dismissal should update the supplied binding directly.

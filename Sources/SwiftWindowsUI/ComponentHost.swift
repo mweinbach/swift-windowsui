@@ -110,7 +110,7 @@ public final class ComponentHost {
                 return "stack.h"
             }
         case .grid(let layout):
-            return "grid.\(layout.columns).\(layout.rowSpacing).\(layout.columnSpacing)"
+            return "grid.\(layout.columns).\(layout.rowSpacing).\(layout.columnSpacing).\(layout.columnWidths)"
         case .flex:
             return "flex"
         }

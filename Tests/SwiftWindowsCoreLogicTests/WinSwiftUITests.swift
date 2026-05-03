@@ -1369,7 +1369,31 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(gridLayout.columns, 2)
             XCTAssertEqual(gridLayout.rowSpacing, 8)
             XCTAssertEqual(gridLayout.columnSpacing, 6)
+            XCTAssertEqual(gridLayout.columnWidths, [746, 48])
             XCTAssertEqual(node.children.map(\.text), ["A", "B", "C"].map(Optional.some))
+        }
+    }
+
+    func testLazyVGridResolvesAdaptiveColumnsFromAvailableWidth() async {
+        await MainActor.run {
+            let node = makeNode(
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 90), spacing: 10)], spacing: 6) {
+                    Text("A")
+                    Text("B")
+                    Text("C")
+                    Text("D")
+                },
+                size: Size(width: 320, height: 180)
+            )
+
+            guard case .grid(let gridLayout) = node.layoutMode else {
+                XCTFail("Expected adaptive LazyVGrid to lower to a retained grid layout")
+                return
+            }
+
+            XCTAssertEqual(gridLayout.columns, 3)
+            XCTAssertEqual(gridLayout.columnSpacing, 10)
+            XCTAssertEqual(gridLayout.columnWidths, Array(repeating: 100, count: 3))
         }
     }
 

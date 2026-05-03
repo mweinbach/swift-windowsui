@@ -125,17 +125,20 @@ public struct GridLayout: Equatable, Sendable {
     public var columns: Int
     public var rowSpacing: Double
     public var columnSpacing: Double
+    public var columnWidths: [Double]
     public var padding: EdgeInsets
 
     public init(
         columns: Int,
         rowSpacing: Double = 0,
         columnSpacing: Double = 0,
+        columnWidths: [Double] = [],
         padding: EdgeInsets = .zero
     ) {
-        self.columns = max(columns, 1)
+        self.columns = max(columns, columnWidths.count, 1)
         self.rowSpacing = rowSpacing
         self.columnSpacing = columnSpacing
+        self.columnWidths = columnWidths.map { max(0, $0) }
         self.padding = padding
     }
 
@@ -143,9 +146,10 @@ public struct GridLayout: Equatable, Sendable {
     public init(
         columns: Int,
         spacing: Double,
+        columnWidths: [Double] = [],
         padding: EdgeInsets = .zero
     ) {
-        self.init(columns: columns, rowSpacing: spacing, columnSpacing: spacing, padding: padding)
+        self.init(columns: columns, rowSpacing: spacing, columnSpacing: spacing, columnWidths: columnWidths, padding: padding)
     }
 }
 

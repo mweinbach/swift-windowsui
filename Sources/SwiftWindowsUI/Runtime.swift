@@ -654,11 +654,12 @@ public final class ViewNode {
         case .grid(let gridLayout):
             let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: gridLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
-            let columnCount = max(1, gridLayout.columns)
+            let columnWidths = gridColumnWidths(for: contentRect.size.width, layout: gridLayout)
+            let columnCount = columnWidths.count
             let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
-            let columnWidth = max(0, (contentRect.size.width - columnSpacingTotal) / Double(columnCount))
-            let childConstraints = LayoutConstraints(maxWidth: columnWidth)
-            let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            let desiredSizes = visibleChildren.enumerated().map { index, child in
+                child.sizeThatFits(in: LayoutConstraints(maxWidth: columnWidths[index % columnCount]))
+            }
             let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
             var rowHeights = Array(repeating: 0.0, count: rowCount)
 
@@ -675,11 +676,12 @@ public final class ViewNode {
 
                 let row = visibleIndex / columnCount
                 let column = visibleIndex % columnCount
+                let columnOffset = columnWidths.prefix(column).reduce(0, +) + gridLayout.columnSpacing * Double(column)
                 let rowOffset = rowHeights.prefix(row).reduce(0, +) + gridLayout.rowSpacing * Double(row)
                 child.resolvedFrame = Rect(
-                    x: contentRect.origin.x + Double(column) * (columnWidth + gridLayout.columnSpacing),
+                    x: contentRect.origin.x + columnOffset,
                     y: contentRect.origin.y + rowOffset,
-                    width: columnWidth,
+                    width: columnWidths[column],
                     height: rowHeights[row]
                 )
                 child.layoutSubtree()
@@ -690,7 +692,7 @@ public final class ViewNode {
                 + gridLayout.rowSpacing * Double(max(0, rowCount - 1))
                 + gridLayout.padding.top
                 + gridLayout.padding.bottom
-            let contentWidth = columnWidth * Double(columnCount)
+            let contentWidth = columnWidths.reduce(0, +)
                 + columnSpacingTotal
                 + gridLayout.padding.leading
                 + gridLayout.padding.trailing
@@ -1178,14 +1180,25 @@ public final class ViewNode {
         case .grid(let gridLayout):
             let contentConstraints = insetConstraints(constraints, by: gridLayout.padding)
             let visibleChildren = children.filter { !$0.isHidden }
-            let columnCount = max(1, gridLayout.columns)
+            let finiteContentWidth = contentConstraints.maxWidth.isFinite ? contentConstraints.maxWidth : nil
+            let preliminaryColumnWidths = gridColumnWidths(for: finiteContentWidth, layout: gridLayout)
+            let preliminaryColumnCount = preliminaryColumnWidths.count
+            let preliminaryChildSizes = visibleChildren.enumerated().map { index, child in
+                let columnWidth = preliminaryColumnWidths[index % preliminaryColumnCount]
+                let maxWidth = columnWidth > 0 ? columnWidth : .infinity
+                return child.sizeThatFits(in: LayoutConstraints(maxWidth: maxWidth))
+            }
+            let fallbackColumnWidth = preliminaryChildSizes.map(\.width).max() ?? 0
+            let columnWidths = gridColumnWidths(
+                for: finiteContentWidth,
+                layout: gridLayout,
+                measuredFallbackWidth: fallbackColumnWidth
+            )
+            let columnCount = columnWidths.count
             let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
-            let finiteColumnWidth: Double? = contentConstraints.maxWidth.isFinite
-                ? max(0, (contentConstraints.maxWidth - columnSpacingTotal) / Double(columnCount))
-                : nil
-            let childConstraints = LayoutConstraints(maxWidth: finiteColumnWidth ?? .infinity)
-            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
-            let inferredColumnWidth = finiteColumnWidth ?? (childSizes.map(\.width).max() ?? 0)
+            let childSizes = visibleChildren.enumerated().map { index, child in
+                child.sizeThatFits(in: LayoutConstraints(maxWidth: columnWidths[index % columnCount]))
+            }
             let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
             var rowHeights = Array(repeating: 0.0, count: rowCount)
 
@@ -1193,7 +1206,7 @@ public final class ViewNode {
                 rowHeights[index / columnCount] = max(rowHeights[index / columnCount], childSize.height)
             }
 
-            let measuredGridWidth = inferredColumnWidth * Double(columnCount)
+            let measuredGridWidth = columnWidths.reduce(0, +)
                 + columnSpacingTotal
                 + gridLayout.padding.leading
                 + gridLayout.padding.trailing
@@ -1371,6 +1384,43 @@ public final class ViewNode {
 
             remainingDeficit -= targetReduction
         }
+    }
+
+    private func gridColumnWidths(
+        for availableWidth: Double?,
+        layout: GridLayout,
+        measuredFallbackWidth: Double = 0
+    ) -> [Double] {
+        let columnCount = max(1, layout.columns, layout.columnWidths.count)
+        let spacingTotal = layout.columnSpacing * Double(max(0, columnCount - 1))
+
+        guard !layout.columnWidths.isEmpty else {
+            let equalWidth: Double
+            if let availableWidth {
+                equalWidth = max(0, (availableWidth - spacingTotal) / Double(columnCount))
+            } else {
+                equalWidth = max(0, measuredFallbackWidth)
+            }
+
+            return Array(repeating: equalWidth, count: columnCount)
+        }
+
+        var widths = Array(layout.columnWidths.prefix(columnCount)).map { max(0, $0) }
+        guard widths.count < columnCount else {
+            return widths
+        }
+
+        let missingCount = columnCount - widths.count
+        let usedWidth = widths.reduce(0, +)
+        let fillWidth: Double
+        if let availableWidth {
+            fillWidth = max(0, (availableWidth - spacingTotal - usedWidth) / Double(missingCount))
+        } else {
+            fillWidth = max(0, measuredFallbackWidth)
+        }
+
+        widths.append(contentsOf: Array(repeating: fillWidth, count: missingCount))
+        return widths
     }
 
     fileprivate var isScrollable: Bool {

@@ -672,13 +672,7 @@ public struct LazyVGrid: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let childContext = context.withContainerAxis(.vertical)
-        let columnCount = max(1, columns.count)
-        let columnSpacing = columns.compactMap(\.spacing).first ?? spacing
-        let gridLayout = GridLayout(
-            columns: columnCount,
-            rowSpacing: spacing,
-            columnSpacing: columnSpacing
-        )
+        let gridLayout = resolvedGridLayout(for: context.canvasSize.width)
 
         return Component { runtime in
             _ = alignment
@@ -689,6 +683,72 @@ public struct LazyVGrid: View {
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
+    }
+
+    private func resolvedGridLayout(for availableWidth: Double) -> GridLayout {
+        let columnSpacing = columns.compactMap(\.spacing).first ?? spacing
+        let safeAvailableWidth = max(0, availableWidth)
+
+        if let adaptive = columns.first(where: { item in
+            if case .adaptive = item.size {
+                return true
+            }
+            return false
+        }), case let .adaptive(minimum, maximum) = adaptive.size {
+            let minimumWidth = max(1, minimum)
+            let maximumWidth = maximum.isFinite ? max(minimumWidth, maximum) : .infinity
+            let rawCount = Int((safeAvailableWidth + columnSpacing) / (minimumWidth + columnSpacing))
+            let columnCount = max(1, rawCount)
+            let spacingTotal = columnSpacing * Double(max(0, columnCount - 1))
+            let proposedWidth = max(minimumWidth, (safeAvailableWidth - spacingTotal) / Double(columnCount))
+            let columnWidth = maximumWidth.isFinite ? min(maximumWidth, proposedWidth) : proposedWidth
+            return GridLayout(
+                columns: columnCount,
+                rowSpacing: spacing,
+                columnSpacing: columnSpacing,
+                columnWidths: Array(repeating: columnWidth, count: columnCount)
+            )
+        }
+
+        let resolvedColumns = columns.isEmpty ? [GridItem()] : columns
+        let columnCount = resolvedColumns.count
+        let spacingTotal = columnSpacing * Double(max(0, columnCount - 1))
+        let fixedTotal = resolvedColumns.reduce(0.0) { total, item in
+            if case let .fixed(width) = item.size {
+                return total + max(0, width)
+            }
+            return total
+        }
+        let flexibleItems = resolvedColumns.filter { item in
+            if case .flexible = item.size {
+                return true
+            }
+            return false
+        }
+        let remainingWidth = max(0, safeAvailableWidth - spacingTotal - fixedTotal)
+        let defaultFlexibleWidth = flexibleItems.isEmpty ? 0 : remainingWidth / Double(flexibleItems.count)
+
+        let widths = resolvedColumns.map { item -> Double in
+            switch item.size {
+            case .fixed(let width):
+                return max(0, width)
+            case .flexible(let minimum, let maximum):
+                let minimumWidth = max(0, minimum)
+                let maximumWidth = maximum.isFinite ? max(minimumWidth, maximum) : .infinity
+                let flexibleWidth = max(minimumWidth, defaultFlexibleWidth)
+                return maximumWidth.isFinite ? min(maximumWidth, flexibleWidth) : flexibleWidth
+            case .adaptive(let minimum, let maximum):
+                let maximumWidth = maximum.isFinite ? max(minimum, maximum) : .infinity
+                return maximumWidth.isFinite ? min(maximumWidth, max(0, minimum)) : max(0, minimum)
+            }
+        }
+
+        return GridLayout(
+            columns: columnCount,
+            rowSpacing: spacing,
+            columnSpacing: columnSpacing,
+            columnWidths: widths
+        )
     }
 }
 

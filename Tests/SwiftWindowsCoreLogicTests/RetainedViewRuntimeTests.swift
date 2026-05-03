@@ -430,6 +430,30 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testGridLayoutUsesResolvedColumnWidths() async {
+        await MainActor.run {
+            let first = ViewNode(backgroundColor: .white, preferredSize: Size(width: 20, height: 10))
+            let second = ViewNode(backgroundColor: .black, preferredSize: Size(width: 20, height: 20))
+            let third = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 20, height: 15)
+            )
+            let grid = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 150, height: 90),
+                layoutMode: .grid(GridLayout(columns: 3, rowSpacing: 4, columnSpacing: 6, columnWidths: [20, 40, 60])),
+                children: [first, second, third]
+            )
+            let runtime = RetainedViewRuntime(root: grid)
+
+            runtime.setRootSize(IntSize(width: 150, height: 90))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(first.resolvedFrame, Rect(x: 0, y: 0, width: 20, height: 20))
+            XCTAssertEqual(second.resolvedFrame, Rect(x: 26, y: 0, width: 40, height: 20))
+            XCTAssertEqual(third.resolvedFrame, Rect(x: 72, y: 0, width: 60, height: 20))
+        }
+    }
+
     func testScrollIndicatorHoverAndDragUpdateColorAndOffset() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

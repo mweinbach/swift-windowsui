@@ -1196,6 +1196,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFormMapsToGroupedVerticalScrollPanel() async {
+        await MainActor.run {
+            let node = makeNode(
+                Form {
+                    Section("ACCOUNT") {
+                        Toggle("SYNC", isOn: Binding(get: { true }, set: { _ in }))
+                    }
+                    Section {
+                        Text("DETAILS")
+                    } footer: {
+                        Text("PRIVATE")
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.scrollAxis, .vertical)
+            XCTAssertTrue(node.showsScrollIndicator)
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, Form.defaultStyle.cornerRadius)
+            XCTAssertEqual(node.backgroundColor, Form.defaultStyle.backgroundColor)
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].children.first?.text, "ACCOUNT")
+            XCTAssertEqual(node.children[1].children.map(\.text), ["DETAILS", "PRIVATE"].map(Optional.some))
+        }
+    }
+
     func testSectionStringTitleKeepsStyledHeader() async {
         await MainActor.run {
             let style = SectionStyle(

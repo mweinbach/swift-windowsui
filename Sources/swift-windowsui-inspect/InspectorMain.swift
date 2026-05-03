@@ -659,6 +659,13 @@ private struct WinSwiftUIProbeView: View {
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 
             ProgressView(value: 0.68)
+
+            Form {
+                Section("FORM STATUS") {
+                    Toggle("INSPECTED ROW", isOn: Binding(get: { true }, set: { _ in }))
+                }
+            }
+            .frame(height: 126)
         }
         .padding(16)
         .foregroundColor(Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 1.0))

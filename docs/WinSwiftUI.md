@@ -57,6 +57,7 @@ Views and containers:
 - `ZStack`
 - `ScrollView`
 - `List`
+- `Form`
 - `Section`
 - `HSplitView`
 - `VSplitView`
@@ -145,6 +146,7 @@ Surface direction:
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
+- `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
 - `Section` supports the styled string-title initializer plus SwiftUI-shaped content/header/footer builder forms. Custom header and footer views are rendered as supplied retained subtrees.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.

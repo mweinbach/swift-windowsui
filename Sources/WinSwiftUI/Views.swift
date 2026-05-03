@@ -633,6 +633,44 @@ public struct List: View {
 }
 
 @MainActor
+public struct Form: View {
+    public typealias Body = Never
+
+    private let style: ScrollViewStyle
+    private let content: [AnyView]
+
+    public init(style: ScrollViewStyle = Form.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+        self.style = style
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Form has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ScrollView(.vertical, style: style) {
+            content
+        }
+        .makeComponent(context: context)
+    }
+
+    public static let defaultStyle = ScrollViewStyle(
+        spacing: 10,
+        padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10),
+        alignment: .leading,
+        backgroundColor: Color(red: 0.10, green: 0.13, blue: 0.18, alpha: 0.60),
+        borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+        borderWidth: 1,
+        shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.18),
+        shadowOffset: Point(x: 0, y: 18),
+        shadowSpread: 10,
+        cornerRadius: 22,
+        scrollStep: 44
+    )
+}
+
+@MainActor
 public struct Section: View {
     public typealias Body = Never
 

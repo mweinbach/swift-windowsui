@@ -739,6 +739,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("SCENE STORAGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the SceneStorage sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("SCALED METRIC READY") {
+        failures.append("WinSwiftUI probe text samples are missing the ScaledMetric sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -897,6 +900,17 @@ private struct InspectorSceneStorageSample: View {
     }
 }
 
+private struct InspectorScaledMetricSample: View {
+    @ScaledMetric(relativeTo: .body) private var inset = 4.0
+
+    var body: some View {
+        Text("SCALED METRIC READY")
+            .padding(inset)
+            .background(Color(red: 0.10, green: 0.18, blue: 0.28, alpha: 0.72))
+            .cornerRadius(14)
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -1016,6 +1030,9 @@ private struct WinSwiftUIProbeView: View {
                 .defaultAppStorage(defaultAppStorageStore)
 
             InspectorSceneStorageSample()
+
+            InspectorScaledMetricSample()
+                .controlSize(.large)
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

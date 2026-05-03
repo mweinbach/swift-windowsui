@@ -126,6 +126,7 @@ Modifiers:
 - `environment`
 - `environmentObject`
 - `defaultAppStorage`
+- `preferredColorScheme`
 - `preference`
 - `onPreferenceChange`
 - `tint`
@@ -198,6 +199,7 @@ Compatibility helpers:
 - `ControlSize`
 - `SearchFieldPlacement`
 - `DatePickerComponents`
+- `ColorScheme`
 - common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `DatePickerStyle`, `MenuStyle`, `ControlGroupStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
 - value-based `NavigationLink` routing through `navigationDestination(for:destination:)`
 - typed array `NavigationStack(path:)` bindings for programmatic value navigation
@@ -207,6 +209,8 @@ Compatibility helpers:
 - minimal `FocusState`, with bool and optional hashable value bindings for retained focus targets
 - minimal `AppStorage`, with primitive and `String`/`Int` RawRepresentable `UserDefaults` reads/writes, `defaultAppStorage(_:)`, and projected bindings tied into retained-runtime invalidation
 - minimal `SceneStorage`, with per-retained-host keyed values and projected bindings tied into retained-runtime invalidation
+- minimal `ScaledMetric`, backed by the current retained `controlSize` scale
+- minimal `DynamicProperty`, with built-in property wrappers conforming for source compatibility
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 - minimal `Binding`, including `Binding.constant(_:)` and projected `@ObservedObject` and `@StateObject` bindings
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
@@ -277,7 +281,9 @@ Surface direction:
 - `Font` supports `system(size:weight:design:)`, `system(_:design:weight:)`, `custom(_:size:)`, `custom(_:fixedSize:)`, and common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`. `font(nil)` is accepted for SwiftUI source compatibility and leaves retained text styles unchanged.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, `ProgressView`, and `Gauge` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
-- `EnvironmentKey`, `EnvironmentValues`, `@Environment`, and `environment(_:_:)` support custom SwiftUI-shaped environment values. `@EnvironmentObject` and `environmentObject(_:)` store type-keyed observable models in the same retained build context, observe them when read, and expose projected bindings through the existing `ObservedObject` path. The built-in `tint`, `controlSize`, and `isEnabled` values are wired back into the retained build context so `environment(\.tint, ...)`, `environment(\.controlSize, ...)`, and `disabled(_:)` affect compatible descendant controls; the full SwiftUI environment catalog and object precedence rules are still future work.
+- `ScaledMetric` resolves through the current retained build context and scales floating-point metric values from `controlSize`, so same-source spacing and frame constants can follow the toolkit's compact/large control sizing. The `relativeTo:` text style label is accepted for SwiftUI call-site compatibility; full Dynamic Type category scaling remains future work.
+- `EnvironmentKey`, `EnvironmentValues`, `@Environment`, and `environment(_:_:)` support custom SwiftUI-shaped environment values. `@EnvironmentObject` and `environmentObject(_:)` store type-keyed observable models in the same retained build context, observe them when read, and expose projected bindings through the existing `ObservedObject` path. The built-in `tint`, `controlSize`, `isEnabled`, and `colorScheme` values are available to descendants, with `tint`, `controlSize`, and `isEnabled` wired back into compatible retained controls; the full SwiftUI environment catalog and object precedence rules are still future work.
+- `preferredColorScheme(_:)` sets the retained build context's `colorScheme` environment value for descendants. Passing `nil` leaves the inherited scheme unchanged; the value is environment-visible today and does not yet restyle the built-in dark retained chrome.
 - `AppStorage` reads and writes primitive values plus `String`/`Int` RawRepresentable values through `UserDefaults`, exposes projected bindings for retained controls, and invalidates the retained host after writes. `defaultAppStorage(_:)` supplies the inherited store for descendants when an `AppStorage` property does not specify `store:` explicitly; explicit stores still win. URL/Data helpers, optional-value removal, and external defaults observation are still future work.
 - `SceneStorage` keeps keyed values in the retained build context's dynamic state so they survive view rebuilds within one window/host but remain isolated from other contexts. It exposes projected bindings for controls and invalidates after writes; restoration across process launches and platform scene-session serialization are still future work.
 - `onChange(of:initial:_:)` tracks equatable values by modifier callsite and retained-build occurrence, passing old and new values to the action when the value changes. The zero-argument modern closure and deprecated `onChange(of:perform:)` source shapes are also accepted. Actions run during the retained rebuild that observes the new value, so long-running work should still be dispatched out of the UI path.
@@ -313,6 +319,7 @@ Surface direction:
 - `@EnvironmentObject`
 - `@AppStorage`
 - `@SceneStorage`
+- `@ScaledMetric`
 
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 

@@ -503,6 +503,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(containsText("LARGE ENV", in: node))
             XCTAssertTrue(containsText("MINT TINT", in: node))
             XCTAssertTrue(containsText("ENABLED ENV", in: node))
+            XCTAssertTrue(containsText("DARK SCHEME", in: node))
 
             let disabledNode = makeNode(
                 VStack {
@@ -514,6 +515,25 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(containsText("DISABLED ENV", in: disabledNode))
             XCTAssertNil(firstFocusableNode(containing: "BLOCKED", in: disabledNode))
+        }
+    }
+
+    func testPreferredColorSchemeOverridesEnvironmentValue() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    TestEnvironmentControlReader()
+                    TestEnvironmentControlReader()
+                        .preferredColorScheme(.light)
+                    TestEnvironmentControlReader()
+                        .preferredColorScheme(nil)
+                }
+                .environment(\.colorScheme, .dark)
+            )
+
+            XCTAssertTrue(containsText("DARK SCHEME", in: node.children[0]))
+            XCTAssertTrue(containsText("LIGHT SCHEME", in: node.children[1]))
+            XCTAssertTrue(containsText("DARK SCHEME", in: node.children[2]))
         }
     }
 
@@ -827,6 +847,46 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected explicit edge padding to lower to a retained stack wrapper")
             }
             XCTAssertEqual(explicitLayout.padding, EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0))
+        }
+    }
+
+    func testScaledMetricUsesControlSizeEnvironment() async {
+        await MainActor.run {
+            struct ScaledPaddingView: View {
+                @ScaledMetric(relativeTo: .body) private var inset = 10.0
+
+                var body: some View {
+                    Text("METRIC")
+                        .padding(inset)
+                }
+            }
+
+            let regularNode = makeNode(ScaledPaddingView())
+            guard case .stack(let regularLayout) = regularNode.layoutMode else {
+                return XCTFail("Expected regular scaled metric padding to lower to a retained stack wrapper")
+            }
+            XCTAssertEqual(regularLayout.padding, EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))
+
+            let largeNode = makeNode(ScaledPaddingView().controlSize(.large))
+            guard case .stack(let largeLayout) = largeNode.layoutMode else {
+                return XCTFail("Expected large scaled metric padding to lower to a retained stack wrapper")
+            }
+            XCTAssertEqual(largeLayout.padding.top, 11.5, accuracy: 0.0001)
+            XCTAssertEqual(largeLayout.padding.leading, 11.5, accuracy: 0.0001)
+            XCTAssertEqual(largeLayout.padding.bottom, 11.5, accuracy: 0.0001)
+            XCTAssertEqual(largeLayout.padding.trailing, 11.5, accuracy: 0.0001)
+        }
+    }
+
+    func testBuiltInPropertyWrappersConformToDynamicProperty() async {
+        await MainActor.run {
+            func acceptsDynamicProperty<Property: DynamicProperty>(_: Property) {}
+
+            acceptsDynamicProperty(State(wrappedValue: "STATE"))
+            acceptsDynamicProperty(Binding.constant("BINDING"))
+            acceptsDynamicProperty(ScaledMetric<Double>(wrappedValue: 12))
+            acceptsDynamicProperty(Environment(\.controlSize))
+            acceptsDynamicProperty(FocusState<Bool>(wrappedValue: false))
         }
     }
 
@@ -5723,12 +5783,14 @@ private struct TestEnvironmentControlReader: View {
     @Environment(\.controlSize) private var controlSize
     @Environment(\.tint) private var tint
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack {
             Text(controlSize == .large ? "LARGE ENV" : "OTHER SIZE ENV")
             Text(tint == .mint ? "MINT TINT" : "OTHER TINT")
             Text(isEnabled ? "ENABLED ENV" : "DISABLED ENV")
+            Text(colorScheme == .light ? "LIGHT SCHEME" : "DARK SCHEME")
         }
     }
 }

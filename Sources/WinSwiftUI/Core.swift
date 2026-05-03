@@ -123,6 +123,15 @@ public enum CoordinateSpace: Sendable, Equatable {
 
 public protocol Gesture {}
 
+@MainActor
+public protocol DynamicProperty {
+    mutating func update()
+}
+
+public extension DynamicProperty {
+    mutating func update() {}
+}
+
 public struct DragGesture: Gesture {
     public struct Value: Sendable, Equatable {
         public var time: Date
@@ -264,7 +273,7 @@ public struct Published<Value> {
 @MainActor
 @dynamicMemberLookup
 @propertyWrapper
-public struct Binding<Value> {
+public struct Binding<Value>: DynamicProperty {
     private let getter: @MainActor () -> Value
     private let setter: @MainActor (Value) -> Void
     private let invalidatesOnSet: Bool
@@ -329,7 +338,7 @@ public struct Binding<Value> {
 
 @MainActor
 @propertyWrapper
-public struct State<Value> {
+public struct State<Value>: DynamicProperty {
     private let box: StateBox<Value>
 
     public init(wrappedValue: Value) {
@@ -384,7 +393,7 @@ private final class StateBox<Value> {
 
 @MainActor
 @propertyWrapper
-public struct AppStorage<Value> {
+public struct AppStorage<Value>: DynamicProperty {
     private let explicitStore: UserDefaults?
     private let reader: @MainActor (UserDefaults) -> Value
     private let writer: @MainActor (Value, UserDefaults) -> Void
@@ -473,7 +482,7 @@ private final class AppStorageBox {
 
 @MainActor
 @propertyWrapper
-public struct SceneStorage<Value> {
+public struct SceneStorage<Value>: DynamicProperty {
     private let key: String
     private let defaultValue: Value
     private let box = SceneStorageBox<Value>()
@@ -591,7 +600,7 @@ public extension AppStorage where Value: RawRepresentable, Value.RawValue == Int
 
 @MainActor
 @propertyWrapper
-public struct FocusState<Value: Hashable> {
+public struct FocusState<Value: Hashable>: DynamicProperty {
     private let box: FocusStateBox<Value>
 
     private init(storageValue: Value) {
@@ -692,7 +701,7 @@ private final class FocusStateBox<Value: Hashable> {
 
 @MainActor
 @propertyWrapper
-public struct StateObject<ObjectType: ObservableObject> {
+public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     private let box: StateObjectBox<ObjectType>
 
     public init(wrappedValue makeObject: @autoclosure @escaping @MainActor () -> ObjectType) {
@@ -735,7 +744,7 @@ private final class StateObjectBox<ObjectType: ObservableObject> {
 @MainActor
 @dynamicMemberLookup
 @propertyWrapper
-public struct ObservedObject<ObjectType: ObservableObject> {
+public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
     private var object: ObjectType
 
     public init(wrappedValue: ObjectType) {
@@ -773,6 +782,11 @@ public protocol EnvironmentKey {
     associatedtype Value
 
     static var defaultValue: Value { get }
+}
+
+public enum ColorScheme: Sendable, Equatable {
+    case light
+    case dark
 }
 
 public struct EnvironmentValues {
@@ -823,6 +837,10 @@ private struct IsEnabledEnvironmentKey: EnvironmentKey {
     static let defaultValue = true
 }
 
+private struct ColorSchemeEnvironmentKey: EnvironmentKey {
+    static let defaultValue: ColorScheme = .dark
+}
+
 private struct DismissEnvironmentKey: EnvironmentKey {
     static let defaultValue = DismissAction()
 }
@@ -861,6 +879,15 @@ public extension EnvironmentValues {
         }
     }
 
+    var colorScheme: ColorScheme {
+        get {
+            self[ColorSchemeEnvironmentKey.self]
+        }
+        set {
+            self[ColorSchemeEnvironmentKey.self] = newValue
+        }
+    }
+
     var dismiss: DismissAction {
         get {
             self[DismissEnvironmentKey.self]
@@ -886,7 +913,7 @@ public struct DismissAction: @unchecked Sendable {
 
 @MainActor
 @propertyWrapper
-public struct Environment<Value> {
+public struct Environment<Value>: DynamicProperty {
     private let keyPath: KeyPath<EnvironmentValues, Value>
     private let box = EnvironmentBox<Value>()
 
@@ -942,7 +969,7 @@ private func bindEnvironmentValues(in value: Any, values: EnvironmentValues) {
 @MainActor
 @dynamicMemberLookup
 @propertyWrapper
-public struct EnvironmentObject<ObjectType: ObservableObject> {
+public struct EnvironmentObject<ObjectType: ObservableObject>: DynamicProperty {
     public init() {}
 
     public var wrappedValue: ObjectType {
@@ -2216,6 +2243,23 @@ public struct Font: Sendable, Equatable {
     public static let caption2 = Font(size: 11, weight: .regular)
 }
 
+@MainActor
+@propertyWrapper
+public struct ScaledMetric<Value: BinaryFloatingPoint>: DynamicProperty {
+    private let baseValue: Value
+    private let relativeTextStyle: Font.TextStyle
+
+    public init(wrappedValue: Value, relativeTo textStyle: Font.TextStyle = .body) {
+        self.baseValue = wrappedValue
+        self.relativeTextStyle = textStyle
+    }
+
+    public var wrappedValue: Value {
+        let scale = ViewBuildContextScope.current?.controlSize.scaledMetricScale(relativeTo: relativeTextStyle) ?? 1.0
+        return Value(Double(baseValue) * scale)
+    }
+}
+
 public struct Material: Sendable, Equatable {
     public var backgroundColor: Color
     public var borderColor: Color
@@ -2317,6 +2361,21 @@ public struct ControlSize: Sendable, Equatable {
     public static let regular = ControlSize(kind: .regular)
     public static let large = ControlSize(kind: .large)
     public static let extraLarge = ControlSize(kind: .extraLarge)
+
+    func scaledMetricScale(relativeTo _: Font.TextStyle) -> Double {
+        switch kind {
+        case .mini:
+            return 0.84
+        case .small:
+            return 0.92
+        case .regular:
+            return 1.0
+        case .large:
+            return 1.15
+        case .extraLarge:
+            return 1.32
+        }
+    }
 
     var metrics: ControlSizeMetrics {
         switch kind {
@@ -4742,6 +4801,18 @@ public extension View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
             values[keyPath: keyPath] = value
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
+    func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard let colorScheme else {
+                return content.makeComponent(context: context)
+            }
+
+            var values = context.environmentValues
+            values.colorScheme = colorScheme
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }

@@ -47,6 +47,22 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var renderPath: RenderPath? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var pathFillColor: Color {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var pathStrokeColor: Color {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var pathStrokeStyle: StrokeStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var text: String? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -257,6 +273,10 @@ public final class ViewNode {
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
+        renderPath: RenderPath? = nil,
+        pathFillColor: Color = .clear,
+        pathStrokeColor: Color = .clear,
+        pathStrokeStyle: StrokeStyle? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -298,6 +318,10 @@ public final class ViewNode {
         self.frame = frame
         self.backgroundColor = backgroundColor
         self.backgroundGradient = backgroundGradient
+        self.renderPath = renderPath
+        self.pathFillColor = pathFillColor
+        self.pathStrokeColor = pathStrokeColor
+        self.pathStrokeStyle = pathStrokeStyle
         self.text = text
         self.textStyle = textStyle
         self.borderColor = borderColor
@@ -881,6 +905,49 @@ public final class ViewNode {
                         )
                     )
                 )
+            }
+        }
+
+        if let renderPath, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+            let resolvedPathFillColor = applyingOpacity(effectiveOpacity, to: pathFillColor)
+            let resolvedPathStrokeColor = applyingOpacity(effectiveOpacity, to: pathStrokeColor)
+            let shouldFillPath = resolvedPathFillColor.alpha > 0
+            let shouldStrokePath = resolvedPathStrokeColor.alpha > 0 && (pathStrokeStyle?.lineWidth ?? 0) > 0
+
+            if shouldFillPath || shouldStrokePath {
+                if let effectiveClip {
+                    commands.append(.pushClip(ClipCommand(shape: .rect(effectiveClip, cornerRadius: 0))))
+                }
+
+                let pathTransform = AffineTransform.translation(x: fillRect.origin.x, y: fillRect.origin.y)
+                if shouldFillPath {
+                    commands.append(
+                        .fillPath(
+                            FillPathCommand(
+                                path: renderPath,
+                                color: resolvedPathFillColor,
+                                transform: pathTransform
+                            )
+                        )
+                    )
+                }
+
+                if shouldStrokePath, let pathStrokeStyle {
+                    commands.append(
+                        .strokePath(
+                            StrokePathCommand(
+                                path: renderPath,
+                                color: resolvedPathStrokeColor,
+                                style: pathStrokeStyle,
+                                transform: pathTransform
+                            )
+                        )
+                    )
+                }
+
+                if effectiveClip != nil {
+                    commands.append(.popClip)
+                }
             }
         }
 

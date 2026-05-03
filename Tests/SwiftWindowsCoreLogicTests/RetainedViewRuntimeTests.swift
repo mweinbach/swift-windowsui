@@ -575,6 +575,50 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testPathControlEmitsRendererNeutralPathCommands() async {
+        await MainActor.run {
+            var path = RenderPath()
+            path.move(to: Point(x: 10, y: 0))
+            path.addLine(to: Point(x: 20, y: 16))
+            path.addLine(to: Point(x: 0, y: 16))
+            path.close()
+
+            let pathNode = Controls.path(
+                path,
+                frame: Rect(x: 10, y: 12, width: 20, height: 16),
+                fillColor: Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.8),
+                strokeColor: Color(red: 0.9, green: 0.95, blue: 1.0, alpha: 0.6),
+                strokeStyle: StrokeStyle(lineWidth: 2)
+            )
+            let clippedParent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 24, height: 24),
+                clipsToBounds: true,
+                opacity: 0.5,
+                isHitTestVisible: false,
+                children: [pathNode]
+            )
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 60), isHitTestVisible: false, children: [clippedParent])
+            let runtime = RetainedViewRuntime(root: root)
+
+            let frame = runtime.renderFrame()
+            let fills = fillPathCommands(in: frame)
+            let strokes = strokePathCommands(in: frame)
+
+            XCTAssertEqual(fills.count, 1)
+            XCTAssertEqual(strokes.count, 1)
+            XCTAssertEqual(fills[0].path, path)
+            XCTAssertEqual(fills[0].transform, AffineTransform.translation(x: 10, y: 12))
+            XCTAssertEqual(fills[0].color.alpha, 0.4, accuracy: 0.001)
+            XCTAssertEqual(strokes[0].color.alpha, 0.3, accuracy: 0.001)
+            XCTAssertEqual(strokes[0].style.lineWidth, 2)
+            guard case .pushClip(let clip)? = frame.commands.first else {
+                return XCTFail("Expected clipped path node to push a render clip")
+            }
+            XCTAssertEqual(clip.shape, .rect(Rect(x: 0, y: 0, width: 24, height: 24), cornerRadius: 0))
+            XCTAssertEqual(frame.commands.last, .popClip)
+        }
+    }
+
     func testOpacityPropagatesIntoRenderFrameCommands() async {
         await MainActor.run {
             let child = ViewNode(
@@ -743,6 +787,26 @@ private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
         }
 
         return fillRect
+    }
+}
+
+private func fillPathCommands(in frame: RenderFrame) -> [FillPathCommand] {
+    frame.commands.compactMap { command in
+        guard case .fillPath(let fillPath) = command else {
+            return nil
+        }
+
+        return fillPath
+    }
+}
+
+private func strokePathCommands(in frame: RenderFrame) -> [StrokePathCommand] {
+    frame.commands.compactMap { command in
+        guard case .strokePath(let strokePath) = command else {
+            return nil
+        }
+
+        return strokePath
     }
 }
 

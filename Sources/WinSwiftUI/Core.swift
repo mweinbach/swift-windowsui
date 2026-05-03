@@ -1920,10 +1920,21 @@ private func popoverComponent(
             backgroundColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.01),
             isHitTestVisible: true
         )
+        let popoverSurfaceColor = Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.95)
+        let popoverBorderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18)
+        let arrowSize = popoverArrowSize(for: arrowEdge)
+        let arrow = Controls.path(
+            popoverArrowPath(for: arrowEdge, size: arrowSize),
+            preferredSize: arrowSize,
+            fillColor: popoverSurfaceColor,
+            strokeColor: popoverBorderColor,
+            strokeStyle: StrokeStyle(lineWidth: 1, lineJoin: .round),
+            isHitTestVisible: false
+        )
         let card = Controls.stackPanel(
             preferredSize: Size(width: 300, height: 0),
-            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.95),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+            backgroundColor: popoverSurfaceColor,
+            borderColor: popoverBorderColor,
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
             shadowOffset: Point(x: 0, y: 16),
@@ -1949,7 +1960,7 @@ private func popoverComponent(
             preferredSize: context.canvasSize,
             layoutMode: .absolute,
             isHitTestVisible: false,
-            children: [baseNode, dismissLayer, card]
+            children: [baseNode, dismissLayer, arrow, card]
         )
 
         overlayRoot.onLayout = { bounds in
@@ -1962,7 +1973,9 @@ private func popoverComponent(
             }
 
             let outerInset = min(24.0, max(10.0, min(bounds.size.width, bounds.size.height) * 0.06))
-            let popoverWidth = min(340.0, max(220.0, bounds.size.width - outerInset * 2))
+            let popoverInset = outerInset + popoverArrowDepth(for: arrowEdge, size: arrowSize)
+            let availablePopoverWidth = max(0, bounds.size.width - popoverInset * 2)
+            let popoverWidth = min(340.0, availablePopoverWidth)
             let preferredPopoverSize = Size(width: popoverWidth, height: 0)
             if card.preferredSize != preferredPopoverSize {
                 card.preferredSize = preferredPopoverSize
@@ -1971,20 +1984,84 @@ private func popoverComponent(
             let measuredSize = card.intrinsicContentSize()
             let cardSize = Size(
                 width: popoverWidth,
-                height: min(max(0, bounds.size.height - outerInset * 2), measuredSize.height)
+                height: min(max(0, bounds.size.height - popoverInset * 2), measuredSize.height)
             )
             let cardFrame = popoverFrame(
                 in: bounds.size,
                 cardSize: cardSize,
                 arrowEdge: arrowEdge,
-                inset: outerInset
+                inset: popoverInset
             )
             if card.frame != cardFrame {
                 card.frame = cardFrame
             }
+
+            let arrowFrame = popoverArrowFrame(cardFrame: cardFrame, arrowEdge: arrowEdge, arrowSize: arrowSize)
+            if arrow.frame != arrowFrame {
+                arrow.frame = arrowFrame
+            }
         }
 
         return overlayRoot
+    }
+}
+
+private func popoverArrowSize(for edge: Edge) -> Size {
+    switch edge {
+    case .top, .bottom:
+        return Size(width: 24, height: 11)
+    case .leading, .trailing:
+        return Size(width: 11, height: 24)
+    }
+}
+
+private func popoverArrowDepth(for edge: Edge, size: Size) -> Double {
+    switch edge {
+    case .top, .bottom:
+        return size.height
+    case .leading, .trailing:
+        return size.width
+    }
+}
+
+private func popoverArrowPath(for edge: Edge, size: Size) -> RenderPath {
+    var path = RenderPath()
+    switch edge {
+    case .top:
+        path.move(to: Point(x: size.width * 0.5, y: 0))
+        path.addLine(to: Point(x: size.width, y: size.height))
+        path.addLine(to: Point(x: 0, y: size.height))
+    case .bottom:
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: size.width, y: 0))
+        path.addLine(to: Point(x: size.width * 0.5, y: size.height))
+    case .leading:
+        path.move(to: Point(x: 0, y: size.height * 0.5))
+        path.addLine(to: Point(x: size.width, y: 0))
+        path.addLine(to: Point(x: size.width, y: size.height))
+    case .trailing:
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: size.width, y: size.height * 0.5))
+        path.addLine(to: Point(x: 0, y: size.height))
+    }
+    path.close()
+    return path
+}
+
+private func popoverArrowFrame(cardFrame: Rect, arrowEdge: Edge, arrowSize: Size) -> Rect {
+    let horizontalCenter = cardFrame.origin.x + (cardFrame.size.width - arrowSize.width) * 0.5
+    let verticalCenter = cardFrame.origin.y + (cardFrame.size.height - arrowSize.height) * 0.5
+    let seamOverlap = 1.0
+
+    switch arrowEdge {
+    case .top:
+        return Rect(x: horizontalCenter, y: cardFrame.origin.y - arrowSize.height + seamOverlap, width: arrowSize.width, height: arrowSize.height)
+    case .bottom:
+        return Rect(x: horizontalCenter, y: cardFrame.maxY - seamOverlap, width: arrowSize.width, height: arrowSize.height)
+    case .leading:
+        return Rect(x: cardFrame.origin.x - arrowSize.width + seamOverlap, y: verticalCenter, width: arrowSize.width, height: arrowSize.height)
+    case .trailing:
+        return Rect(x: cardFrame.maxX - seamOverlap, y: verticalCenter, width: arrowSize.width, height: arrowSize.height)
     }
 }
 

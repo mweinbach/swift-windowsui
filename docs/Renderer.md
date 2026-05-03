@@ -19,6 +19,8 @@ Use these helpers in tests and diagnostics when checking primitive emission, lay
 
 Retained-node opacity is resolved in `RetainedViewRuntime.renderFrame()` before commands reach a backend. Fill colors, gradient stops, path/text colors, bitmap opacity, and scroll-indicator fills inherit parent opacity in the renderer-neutral command stream; zero-opacity nodes still lay out but skip command emission.
 
+Retained controls can emit local vector paths through `Controls.path`, which lowers to `fillPath` and optional `strokePath` commands translated into the node's resolved frame. When a path node is inside clipped retained content, the runtime wraps those path commands in `pushClip`/`popClip` so Direct2D-backed rendering and diagnostics see the same bounds-aware frame contract.
+
 The D3D11 fallback path activates per-command blend states for `.normal`, `.additive`, `.multiply`, and `.screen` on `fillRect` and `drawBitmap`. `.overlay` is still mapped to normal blending until the renderer has shader/effect composition for it, and the Direct2D path currently uses normal source-over blending.
 
 When Direct2D interop is active, the default renderer also translates `fillPath` and `strokePath` commands into native Direct2D path geometries with per-primitive antialiasing. Path fills currently use a solid color; path gradients fall back to the first gradient stop. Stroke width, dash pattern, cap, and join are forwarded to Direct2D. The pure D3D11 shader fallback still skips path commands.

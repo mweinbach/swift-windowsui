@@ -606,6 +606,9 @@ private func verificationFailures(
     if winSwiftUIProbe.nodeCount < 15 || winSwiftUIProbe.textNodeCount < 5 || winSwiftUIProbe.renderCommands.total == 0 {
         failures.append("WinSwiftUI probe did not produce the expected retained tree/render frame")
     }
+    if winSwiftUIProbe.renderCommands.fillPath == 0 {
+        failures.append("WinSwiftUI probe did not emit a vector path for popover chrome")
+    }
     if !winSwiftUIProbe.textSamples.contains("DECLARATIVE INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the title")
     }

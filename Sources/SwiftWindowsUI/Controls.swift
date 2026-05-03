@@ -323,6 +323,26 @@ public enum Controls {
         )
     }
 
+    public static func path(
+        _ path: RenderPath,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        fillColor: Color,
+        strokeColor: Color = .clear,
+        strokeStyle: StrokeStyle? = nil,
+        isHitTestVisible: Bool = false
+    ) -> ViewNode {
+        ViewNode(
+            frame: frame,
+            renderPath: path,
+            pathFillColor: fillColor,
+            pathStrokeColor: strokeColor,
+            pathStrokeStyle: strokeStyle,
+            preferredSize: preferredSize,
+            isHitTestVisible: isHitTestVisible
+        )
+    }
+
     public static func scrollPanel(
         axis: ScrollAxis,
         frame: Rect = .zero,

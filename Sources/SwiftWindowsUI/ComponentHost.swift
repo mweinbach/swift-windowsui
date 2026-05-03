@@ -122,6 +122,10 @@ public final class ComponentHost {
         if target.frame != source.frame { target.frame = source.frame }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
         if target.backgroundGradient != source.backgroundGradient { target.backgroundGradient = source.backgroundGradient }
+        if target.renderPath != source.renderPath { target.renderPath = source.renderPath }
+        if target.pathFillColor != source.pathFillColor { target.pathFillColor = source.pathFillColor }
+        if target.pathStrokeColor != source.pathStrokeColor { target.pathStrokeColor = source.pathStrokeColor }
+        if target.pathStrokeStyle != source.pathStrokeStyle { target.pathStrokeStyle = source.pathStrokeStyle }
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }

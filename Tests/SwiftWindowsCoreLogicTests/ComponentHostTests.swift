@@ -1,5 +1,6 @@
 import XCTest
 import SwiftWindowsCore
+import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
 
 final class ComponentHostTests: XCTestCase {
@@ -83,6 +84,41 @@ final class ComponentHostTests: XCTestCase {
         }
     }
 
+    func testReloadUpdatesVectorPathPropertiesInPlace() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var path = trianglePath(width: 10, height: 8)
+            var fill = Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.8)
+            var stroke = Color(red: 0.7, green: 0.8, blue: 0.9, alpha: 0.6)
+            var strokeStyle = StrokeStyle(lineWidth: 1)
+
+            host.setContent {
+                Component { _ in
+                    ViewNode(
+                        renderPath: path,
+                        pathFillColor: fill,
+                        pathStrokeColor: stroke,
+                        pathStrokeStyle: strokeStyle
+                    )
+                }
+            }
+
+            let node = runtime.root.children[0]
+            path = trianglePath(width: 20, height: 16)
+            fill = Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            stroke = Color(red: 1.0, green: 0.9, blue: 0.8, alpha: 1)
+            strokeStyle = StrokeStyle(lineWidth: 3)
+            host.reload()
+
+            XCTAssertTrue(runtime.root.children[0] === node)
+            XCTAssertEqual(node.renderPath, path)
+            XCTAssertEqual(node.pathFillColor, fill)
+            XCTAssertEqual(node.pathStrokeColor, stroke)
+            XCTAssertEqual(node.pathStrokeStyle?.lineWidth, 3)
+        }
+    }
+
     func testReloadRefreshesHandlersInPlace() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -133,4 +169,13 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertFalse(node.isFocusable)
         }
     }
+}
+
+private func trianglePath(width: Double, height: Double) -> RenderPath {
+    var path = RenderPath()
+    path.move(to: Point(x: width * 0.5, y: 0))
+    path.addLine(to: Point(x: width, y: height))
+    path.addLine(to: Point(x: 0, y: height))
+    path.close()
+    return path
 }

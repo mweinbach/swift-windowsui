@@ -1026,16 +1026,19 @@ final class WinSwiftUITests: XCTestCase {
                 size: Size(width: 420, height: 260)
             )
 
-            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children.count, 4)
             XCTAssertEqual(node.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
             XCTAssertEqual(node.children[1].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
             XCTAssertTrue(node.children[1].isHitTestVisible)
             XCTAssertTrue(containsText("BASE", in: node.children[0]))
-            XCTAssertTrue(containsText("POPOVER TITLE", in: node.children[2]))
-            XCTAssertTrue(containsText("POPOVER DETAIL", in: node.children[2]))
-            XCTAssertEqual(node.children[2].cornerRadius, 20)
-            XCTAssertGreaterThan(node.children[2].shadowSpread, 0)
-            XCTAssertGreaterThan(node.children[2].resolvedFrame.origin.x, 0)
+            XCTAssertNotNil(node.children[2].renderPath)
+            XCTAssertFalse(node.children[2].isHitTestVisible)
+            XCTAssertGreaterThan(node.children[2].resolvedFrame.origin.x, node.children[3].resolvedFrame.maxX - 2)
+            XCTAssertTrue(containsText("POPOVER TITLE", in: node.children[3]))
+            XCTAssertTrue(containsText("POPOVER DETAIL", in: node.children[3]))
+            XCTAssertEqual(node.children[3].cornerRadius, 20)
+            XCTAssertGreaterThan(node.children[3].shadowSpread, 0)
+            XCTAssertGreaterThan(node.children[3].resolvedFrame.origin.x, 0)
         }
     }
 

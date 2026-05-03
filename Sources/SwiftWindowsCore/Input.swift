@@ -29,6 +29,7 @@ public struct KeyboardModifiers: OptionSet, Sendable {
 }
 
 public enum KeyboardKey: UInt32, Sendable {
+    case backspace = 0x08
     case tab = 0x09
     case enter = 0x0D
     case shift = 0x10
@@ -43,6 +44,7 @@ public enum KeyboardKey: UInt32, Sendable {
     case upArrow = 0x26
     case rightArrow = 0x27
     case downArrow = 0x28
+    case delete = 0x2E
     case space = 0x20
 }
 

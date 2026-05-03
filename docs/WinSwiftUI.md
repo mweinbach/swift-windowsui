@@ -54,6 +54,7 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+- `TextField`
 - `Toggle`
 - `Slider`
 - `ProgressView`
@@ -84,7 +85,7 @@ Compatibility helpers:
 Surface direction:
 
 - default retained buttons now use lighter rounded chrome with hover, focus, press, and activation transitions
-- bindings now cover direct `Binding(get:set:)` values and projected `@ObservedObject` members for controls such as `Toggle` and `Slider`
+- bindings now cover direct `Binding(get:set:)` values and projected `@ObservedObject` members for controls such as `TextField`, `Toggle`, and `Slider`
 - the demo’s cards and chips are built from shared-source-friendly layered gradients and translucent strokes rather than WinSwiftUI-only styling hooks
 
 ## Mapping Notes
@@ -93,6 +94,7 @@ Surface direction:
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while backspace/delete remain keyboard events.
 - `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
 - `Picker` maps tagged `Text` options into the retained dropdown control; the current compatibility layer supports integer tags.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.

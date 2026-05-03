@@ -138,6 +138,11 @@ public final class FoundationApp: WindowDelegate {
         commitRuntimeState(in: window)
     }
 
+    public func window(_ window: Win32Window, textInput text: String) {
+        runtime.textInput(text)
+        commitRuntimeState(in: window)
+    }
+
     public func windowDidLoseKeyboardFocus(_ window: Win32Window) {
         runtime.keyboardFocusDidLeaveWindow()
         commitRuntimeState(in: window)

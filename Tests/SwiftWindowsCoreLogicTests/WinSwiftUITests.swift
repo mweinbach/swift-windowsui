@@ -191,6 +191,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldUsesBindingAndKeyboardEditing() async {
+        await MainActor.run {
+            var text = ""
+            var invalidationCount = 0
+
+            let node = makeNode(
+                TextField("Search", text: Binding(get: { text }, set: { text = $0 })),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.children[0].text, "Search")
+            XCTAssertTrue(node.children[1].isHidden)
+
+            node.onFocusEnter?()
+            XCTAssertFalse(node.children[1].isHidden)
+
+            node.onTextInput?("Hi")
+            XCTAssertEqual(text, "Hi")
+            XCTAssertEqual(node.children[0].text, "Hi")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            XCTAssertEqual(text, "H")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
+            XCTAssertEqual(text, "")
+            XCTAssertEqual(node.children[0].text, "Search")
+            XCTAssertEqual(invalidationCount, 3)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(

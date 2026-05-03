@@ -202,6 +202,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         commitRuntimeState(in: window)
     }
 
+    func window(_ window: Win32Window, textInput text: String) {
+        runtime.textInput(text)
+        commitRuntimeState(in: window)
+    }
+
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {
         runtime.keyboardFocusDidLeaveWindow()
         commitRuntimeState(in: window)

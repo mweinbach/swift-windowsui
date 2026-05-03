@@ -204,6 +204,7 @@ public final class ViewNode {
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
+    public var onTextInput: ((String) -> Void)?
     public var onActivate: (() -> Void)?
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
@@ -307,6 +308,7 @@ public final class ViewNode {
         self.onFocusEnter = nil
         self.onFocusExit = nil
         self.onKeyDown = nil
+        self.onTextInput = nil
         self.onActivate = nil
         self.onDragStart = nil
         self.onDragChange = nil
@@ -1712,6 +1714,10 @@ public final class RetainedViewRuntime {
         }
 
         focusedNode?.onKeyDown?(event)
+    }
+
+    public func textInput(_ text: String) {
+        focusedNode?.onTextInput?(text)
     }
 
     public func keyboardFocusDidLeaveWindow() {

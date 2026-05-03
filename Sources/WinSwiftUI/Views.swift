@@ -254,6 +254,55 @@ public struct Label: View {
 }
 
 @MainActor
+public struct TextField: View {
+    public typealias Body = Never
+
+    private let title: String
+    private let text: Binding<String>
+    private var isEnabled: Bool
+    private var textColor: Color
+
+    public init(_ title: String, text: Binding<String>) {
+        self.title = title
+        self.text = text
+        self.isEnabled = true
+        self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public var body: Never {
+        fatalError("TextField has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            Controls.textField(
+                runtime: runtime,
+                text: text.wrappedValue,
+                placeholder: title,
+                isEnabled: isEnabled,
+                textColor: textColor,
+                onTextChanged: { newText in
+                    text.wrappedValue = newText
+                    context.invalidate()
+                }
+            )
+        }
+    }
+
+    public func disabled(_ disabled: Bool) -> TextField {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func foregroundColor(_ color: Color) -> TextField {
+        var copy = self
+        copy.textColor = color
+        return copy
+    }
+}
+
+@MainActor
 public struct Spacer: View {
     public typealias Body = Never
 

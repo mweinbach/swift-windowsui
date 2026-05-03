@@ -173,6 +173,32 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testTextInputRoutesToFocusedNode() async {
+        await MainActor.run {
+            var receivedText: [String] = []
+            var receivedKeys: [KeyboardKey?] = []
+
+            let field = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 24), isFocusable: true)
+            field.onTextInput = { receivedText.append($0) }
+            field.onKeyDown = { receivedKeys.append($0.key) }
+
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 40),
+                isHitTestVisible: false,
+                children: [field]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.textInput("ignored")
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
+            runtime.textInput("A")
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+
+            XCTAssertEqual(receivedText, ["A"])
+            XCTAssertEqual(receivedKeys, [.backspace])
+        }
+    }
+
     func testPointerUpInsideAndOutsideCallMatchingHandlers() async {
         await MainActor.run {
             var pointerDownCount = 0

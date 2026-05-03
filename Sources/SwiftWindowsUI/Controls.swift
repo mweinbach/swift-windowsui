@@ -810,6 +810,163 @@ public enum Controls {
         )
     }
 
+    // MARK: - Text Field
+
+    public static func textField(
+        runtime: RetainedViewRuntime,
+        text: String,
+        placeholder: String = "",
+        isEnabled: Bool = true,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        palette: SurfacePalette = SurfacePalette(
+            idle: Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92),
+            hovered: Color(red: 0.18, green: 0.23, blue: 0.32, alpha: 0.96),
+            focused: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98),
+            pressed: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98)
+        ),
+        chrome: SurfaceChrome = SurfaceChrome(
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+            borderFocusedColor: Color(red: 0.48, green: 0.72, blue: 1.0, alpha: 0.58),
+            borderWidth: 1,
+            focusRingColor: Color(red: 0.50, green: 0.74, blue: 1.0, alpha: 0.20),
+            focusRingWidth: 2
+        ),
+        textColor: Color = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0),
+        placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
+        animation: ControlAnimationStyle = .default,
+        onTextChanged: ((String) -> Void)? = nil,
+        onSubmit: (() -> Void)? = nil
+    ) -> ViewNode {
+        let state = TextFieldState(text: text)
+        let resolvedTextColor = isEnabled ? textColor : palette.disabledForeground
+        let resolvedPlaceholderColor = isEnabled ? placeholderColor : palette.disabledForeground
+
+        let textLabel = label(
+            state.displayText(placeholder: placeholder),
+            layoutPriority: 1,
+            color: state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor,
+            scale: 1.6,
+            weight: .regular,
+            alignment: .leading,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+
+        let caret = panel(
+            preferredSize: Size(width: 1.5, height: 18),
+            backgroundColor: resolvedTextColor,
+            cornerRadius: 0.75,
+            isHitTestVisible: false
+        )
+        caret.isHidden = true
+
+        let root = panel(
+            preferredSize: preferredSize ?? Size(width: 220, height: 38),
+            layoutPriority: layoutPriority,
+            backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
+            borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
+            borderWidth: chrome.borderWidth,
+            outlineColor: .clear,
+            outlineWidth: chrome.focusRingWidth,
+            cornerRadius: 12,
+            clipsToBounds: true,
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                    alignment: .center
+                )
+            ),
+            isHitTestVisible: true,
+            children: [textLabel, caret]
+        )
+
+        func refreshText() {
+            textLabel.text = state.displayText(placeholder: placeholder)
+            var style = textLabel.textStyle
+            style.color = state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor
+            textLabel.textStyle = style
+        }
+
+        func commit(_ newText: String) {
+            guard state.text != newText else {
+                return
+            }
+
+            state.text = newText
+            refreshText()
+            onTextChanged?(newText)
+        }
+
+        if isEnabled {
+            let interactionState = ButtonInteractionState()
+
+            root.isFocusable = true
+            root.onPointerEnter = { [weak root] in
+                interactionState.isHovered = true
+                guard !interactionState.isFocused else {
+                    return
+                }
+                animate(.background, root, in: runtime, to: palette.hovered, duration: animation.focusDuration)
+                animate(.border, root, in: runtime, to: chrome.borderHoveredColor, duration: animation.focusDuration)
+            }
+            root.onPointerExit = { [weak root] in
+                interactionState.isHovered = false
+                guard !interactionState.isFocused else {
+                    return
+                }
+                animate(.background, root, in: runtime, to: palette.idle, duration: animation.focusDuration)
+                animate(.border, root, in: runtime, to: chrome.borderColor, duration: animation.focusDuration)
+            }
+            root.onFocusEnter = { [weak root, weak caret] in
+                interactionState.isFocused = true
+                caret?.isHidden = false
+                animate(.background, root, in: runtime, to: palette.focused, duration: animation.focusDuration)
+                animate(.border, root, in: runtime, to: chrome.borderFocusedColor, duration: animation.focusDuration)
+                animate(.outline, root, in: runtime, to: chrome.focusRingColor, duration: animation.focusDuration)
+            }
+            root.onFocusExit = { [weak root, weak caret] in
+                interactionState.isFocused = false
+                caret?.isHidden = true
+                let background = interactionState.isHovered ? palette.hovered : palette.idle
+                let border = interactionState.isHovered ? chrome.borderHoveredColor : chrome.borderColor
+                animate(.background, root, in: runtime, to: background, duration: animation.focusDuration)
+                animate(.border, root, in: runtime, to: border, duration: animation.focusDuration)
+                animate(.outline, root, in: runtime, to: .clear, duration: animation.focusDuration)
+            }
+            root.onTextInput = { input in
+                var sanitizedInput = ""
+                for scalar in input.unicodeScalars where scalar.value >= 0x20 && scalar.value != 0x7F {
+                    sanitizedInput.unicodeScalars.append(scalar)
+                }
+                guard !sanitizedInput.isEmpty else {
+                    return
+                }
+
+                commit(state.text + sanitizedInput)
+            }
+            root.onKeyDown = { event in
+                switch event.key {
+                case .backspace:
+                    guard !state.text.isEmpty else {
+                        return
+                    }
+                    commit(String(state.text.dropLast()))
+                case .delete:
+                    commit("")
+                case .enter:
+                    onSubmit?()
+                default:
+                    break
+                }
+            }
+        }
+
+        return root
+    }
+
     // MARK: - Checkbox
 
     public static func checkbox(
@@ -1392,6 +1549,18 @@ private final class ButtonInteractionState {
     var isHovered = false
     var isFocused = false
     var isPressed = false
+}
+
+private final class TextFieldState {
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    func displayText(placeholder: String) -> String {
+        text.isEmpty ? placeholder : text
+    }
 }
 
 private final class SliderDragState {

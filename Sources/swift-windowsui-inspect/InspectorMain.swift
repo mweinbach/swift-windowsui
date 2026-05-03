@@ -28,6 +28,7 @@ struct SwiftWindowsUIInspector {
         let controlProbeRuntime = makeControlProbeRuntime()
         let controlProbeCounts = CommandCounts(controlProbeRuntime.renderFrame().commands)
         let controlProbeFocusableCount = countFocusableNodes(controlProbeRuntime.root)
+        let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
@@ -54,6 +55,7 @@ struct SwiftWindowsUIInspector {
         print("Text probe: \(textProbeCounts.drawText) drawText command")
         print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
         print("Control probe: \(controlProbeFocusableCount) focusable, \(controlProbeCounts.fillRect) fills, \(controlProbeCounts.drawBitmap) bitmaps")
+        print("Text input probe: \(textInputProbeValue)")
         print("Scroll stress: \(scrollStress.rowCount) rows -> \(scrollStress.commandCount) commands in \(formatMilliseconds(scrollStress.elapsedMilliseconds)) ms")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
@@ -244,10 +246,34 @@ private func makeControlProbeRuntime() -> RetainedViewRuntime {
     )
 
     root.addChild(Controls.toggle(runtime: runtime, isOn: true))
+    root.addChild(Controls.textField(runtime: runtime, text: "Filter", placeholder: "Search"))
     root.addChild(Controls.slider(runtime: runtime, value: 0.42, preferredSize: Size(width: 220, height: 28)))
     root.addChild(Controls.progressBar(value: 0.64, preferredSize: Size(width: 220, height: 8)))
 
     return runtime
+}
+
+@MainActor
+private func runTextInputProbe() -> String {
+    var value = ""
+    let root = ViewNode(
+        frame: Rect(x: 0, y: 0, width: 240, height: 60),
+        isHitTestVisible: false
+    )
+    let runtime = RetainedViewRuntime(root: root, displayScale: 1.0)
+    root.addChild(
+        Controls.textField(
+            runtime: runtime,
+            text: "",
+            placeholder: "Search",
+            onTextChanged: { value = $0 }
+        )
+    )
+
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
+    runtime.textInput("OK")
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+    return value
 }
 
 @MainActor

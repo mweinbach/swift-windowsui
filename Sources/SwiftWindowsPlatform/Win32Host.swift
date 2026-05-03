@@ -13,6 +13,7 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, leftMouseDownAt point: Point)
     func window(_ window: Win32Window, leftMouseUpAt point: Point)
     func window(_ window: Win32Window, keyDown event: KeyboardEvent)
+    func window(_ window: Win32Window, textInput text: String)
     func windowDidLoseKeyboardFocus(_ window: Win32Window)
     func windowWillClose(_ window: Win32Window)
     func windowDidChangeDisplay(_ window: Win32Window)
@@ -44,6 +45,7 @@ public extension WindowDelegate {
     func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
     func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
     func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
+    func window(_ window: Win32Window, textInput text: String) {}
     func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
     func windowWillClose(_ window: Win32Window) {}
     func windowDidChangeDisplay(_ window: Win32Window) {}
@@ -468,6 +470,12 @@ public final class Win32Window {
             delegate?.window(self, keyDown: Self.keyboardEvent(from: wParam, lParam: lParam))
             return 0
 
+        case UINT(WM_CHAR):
+            if let text = Self.textInputString(fromCharacterCode: UInt32(truncatingIfNeeded: wParam)) {
+                delegate?.window(self, textInput: text)
+            }
+            return 0
+
         case UINT(WM_KILLFOCUS):
             delegate?.windowDidLoseKeyboardFocus(self)
             return 0
@@ -542,7 +550,11 @@ public final class Win32Window {
             return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_IME_CHAR):
-            delegate?.window(self, imeChar: UInt32(truncatingIfNeeded: wParam))
+            let character = UInt32(truncatingIfNeeded: wParam)
+            delegate?.window(self, imeChar: character)
+            if let text = Self.textInputString(fromCharacterCode: character) {
+                delegate?.window(self, textInput: text)
+            }
             return 0
 
         // Touch input
@@ -730,6 +742,14 @@ public final class Win32Window {
             modifiers: currentKeyboardModifiers(),
             isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x40000000) != 0
         )
+    }
+
+    private static func textInputString(fromCharacterCode code: UInt32) -> String? {
+        guard code >= 0x20, let scalar = UnicodeScalar(code) else {
+            return nil
+        }
+
+        return String(scalar)
     }
 
     private static func currentKeyboardModifiers() -> KeyboardModifiers {

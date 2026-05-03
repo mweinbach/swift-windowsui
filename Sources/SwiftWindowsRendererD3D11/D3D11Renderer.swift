@@ -39,6 +39,7 @@ public enum D3D11BlendMode: Hashable, Sendable {
     case normal
     case additive
     case multiply
+    case screen
 }
 
 public final class D3D11Renderer: RenderBackend {
@@ -389,6 +390,10 @@ public final class D3D11Renderer: RenderBackend {
             bitmapConstantBuffer != nil,
             bitmapSamplerState != nil,
             blendState != nil,
+            blendStates[.normal] != nil,
+            blendStates[.additive] != nil,
+            blendStates[.multiply] != nil,
+            blendStates[.screen] != nil,
             rasterizerState != nil
         {
             return
@@ -538,6 +543,26 @@ public final class D3D11Renderer: RenderBackend {
         try throwIfFailed(multiplyBlendStateHR, operation: "ID3D11Device.CreateBlendState(multiply)")
         if let multiplyBlendState {
             blendStates[.multiply] = multiplyBlendState
+        }
+
+        // Screen blend state: source-over style screen approximation.
+        var screenBlendDescriptor = D3D11_BLEND_DESC()
+        screenBlendDescriptor.AlphaToCoverageEnable = false
+        screenBlendDescriptor.IndependentBlendEnable = false
+        screenBlendDescriptor.RenderTarget.0.BlendEnable = true
+        screenBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
+        screenBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_COLOR
+        screenBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
+        screenBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
+        screenBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
+        screenBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
+        screenBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
+
+        var screenBlendState: UnsafeMutablePointer<ID3D11BlendState>?
+        let screenBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &screenBlendDescriptor, &screenBlendState)
+        try throwIfFailed(screenBlendStateHR, operation: "ID3D11Device.CreateBlendState(screen)")
+        if let screenBlendState {
+            blendStates[.screen] = screenBlendState
         }
 
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
@@ -958,6 +983,8 @@ public final class D3D11Renderer: RenderBackend {
             return
         }
 
+        activateBlendMode(d3d11BlendMode(for: scaledCommand.blendMode), deviceContext: deviceContext)
+
         var activeScissorRect = scissorRect
         deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vertexShader, nil, 0)
@@ -1039,6 +1066,8 @@ public final class D3D11Renderer: RenderBackend {
         guard let scissorRect = makeScissorRect(from: effectiveClip, surfaceSize: surfaceSize) else {
             return
         }
+
+        activateBlendMode(d3d11BlendMode(for: scaledCommand.blendMode), deviceContext: deviceContext)
 
         var activeScissorRect = scissorRect
         deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
@@ -1346,6 +1375,22 @@ func resolved(bitmap command: DrawBitmapCommand, clipStack: RenderClipStack) -> 
         clipRect: clipStack.resolvedClip(commandClip: command.clipRect),
         blendMode: command.blendMode
     )
+}
+
+func d3d11BlendMode(for blendMode: BlendMode) -> D3D11BlendMode {
+    switch blendMode {
+    case .normal:
+        return .normal
+    case .additive:
+        return .additive
+    case .multiply:
+        return .multiply
+    case .screen:
+        return .screen
+    case .overlay:
+        // Overlay needs shader/effect composition; keep it safe for now.
+        return .normal
+    }
 }
 
 private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRectCommand {

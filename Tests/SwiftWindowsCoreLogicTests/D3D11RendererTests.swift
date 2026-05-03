@@ -72,4 +72,12 @@ final class D3D11RendererTests: XCTestCase {
         XCTAssertEqual(resolvedCommand.clipRect, Rect(x: 10, y: 10, width: 40, height: 40))
         XCTAssertEqual(resolvedCommand.blendMode, .additive)
     }
+
+    func testBlendModeMappingUsesAvailableD3D11States() {
+        XCTAssertEqual(d3d11BlendMode(for: .normal), .normal)
+        XCTAssertEqual(d3d11BlendMode(for: .additive), .additive)
+        XCTAssertEqual(d3d11BlendMode(for: .multiply), .multiply)
+        XCTAssertEqual(d3d11BlendMode(for: .screen), .screen)
+        XCTAssertEqual(d3d11BlendMode(for: .overlay), .normal)
+    }
 }

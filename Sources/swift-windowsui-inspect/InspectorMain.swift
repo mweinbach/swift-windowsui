@@ -470,6 +470,8 @@ private func runTextInputProbe() -> String {
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
     runtime.textInput("x")
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
+    runtime.keyDown(KeyboardEvent(keyCode: 0x41, modifiers: [.control]))
+    runtime.textInput("Z")
     return value
 }
 
@@ -624,8 +626,8 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
         failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
     }
-    if textInputProbeValue != "AxC" {
-        failures.append("text input probe expected AxC, got \(textInputProbeValue)")
+    if textInputProbeValue != "Z" {
+        failures.append("text input probe expected Z after select-all replacement, got \(textInputProbeValue)")
     }
     if scrollStress.commandCount > 40 {
         failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")

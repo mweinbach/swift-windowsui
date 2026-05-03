@@ -1347,6 +1347,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldSelectAllReplacesAndDeletesSelection() async {
+        await MainActor.run {
+            var text = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("Hello")
+            _ = runtime.renderFrame()
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.control]))
+            _ = runtime.renderFrame()
+
+            XCTAssertFalse(node.children[2].isHidden)
+            XCTAssertGreaterThan(node.children[2].frame.size.width, 0)
+
+            node.onTextInput?("Q")
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(text, "Q")
+            XCTAssertEqual(node.children[0].text, "Q")
+            XCTAssertTrue(node.children[2].isHidden)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.control]))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.delete.rawValue))
+
+            XCTAssertEqual(text, "")
+            XCTAssertEqual(node.children[0].text, "Search")
+        }
+    }
+
     func testSecureFieldMasksDisplayWhileEditingBinding() async {
         await MainActor.run {
             var password = ""
@@ -1448,6 +1483,34 @@ final class WinSwiftUITests: XCTestCase {
             node.onTextInput?("!")
 
             XCTAssertEqual(text, "A\nBxC\nD!")
+        }
+    }
+
+    func testTextEditorSelectAllDeletesMultilineSelection() async {
+        await MainActor.run {
+            var text = "First\nSecond"
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 360, height: 180) }, invalidateHandler: {})
+            let node = TextEditor(text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 360, height: 180))
+            _ = runtime.renderFrame()
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.control]))
+            _ = runtime.renderFrame()
+
+            XCTAssertFalse(node.children[2].isHidden)
+            XCTAssertGreaterThan(node.children[2].frame.size.height, 0)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(text, "")
+            XCTAssertEqual(node.children[0].text, "")
+            XCTAssertTrue(node.children[2].isHidden)
         }
     }
 

@@ -930,6 +930,14 @@ public enum Controls {
             maximumNumberOfLines: isMultiline ? nil : 1
         )
 
+        let selectionHighlight = panel(
+            backgroundColor: Color(red: 0.36, green: 0.62, blue: 1.0, alpha: 0.34),
+            cornerRadius: 4,
+            isHitTestVisible: false
+        )
+        selectionHighlight.isHidden = true
+        selectionHighlight.zIndex = -1
+
         let caret = panel(
             preferredSize: Size(width: 1.5, height: 18),
             backgroundColor: resolvedTextColor,
@@ -950,7 +958,7 @@ public enum Controls {
             clipsToBounds: true,
             layoutMode: .absolute,
             isHitTestVisible: true,
-            children: [textLabel, caret]
+            children: [textLabel, caret, selectionHighlight]
         )
 
         func refreshText() {
@@ -960,14 +968,66 @@ public enum Controls {
             textLabel.textStyle = style
         }
 
-        func measuredPrefixWidth() -> Double {
-            let prefix = state.prefixBeforeCaret(isSecure: isSecure, currentLineOnly: isMultiline)
-            guard !prefix.isEmpty else {
+        func measuredTextWidth(_ text: String) -> Double {
+            guard !text.isEmpty else {
                 return 0
             }
 
-            return NativeTextRenderer.measure(prefix, style: textStyle, scaleFactor: runtime.displayScale)?.width
-                ?? PixelFont.measure(prefix, style: textStyle).width
+            return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: runtime.displayScale)?.width
+                ?? PixelFont.measure(text, style: textStyle).width
+        }
+
+        func measuredPrefixWidth() -> Double {
+            measuredTextWidth(state.prefixBeforeCaret(isSecure: isSecure, currentLineOnly: isMultiline))
+        }
+
+        func layoutSelectionHighlight(
+            contentX: Double,
+            contentY: Double,
+            contentWidth: Double,
+            contentHeight: Double,
+            lineHeight: Double
+        ) {
+            guard let selectedText = state.selectedDisplayText(isSecure: isSecure), !selectedText.isEmpty else {
+                selectionHighlight.isHidden = true
+                selectionHighlight.frame = .zero
+                return
+            }
+
+            if isMultiline {
+                let selectedLineCount = selectedText.reduce(1) { count, character in
+                    character == "\n" ? count + 1 : count
+                }
+                let selectionY = contentY + min(
+                    max(0, contentHeight),
+                    Double(state.lineIndexBeforeSelection()) * lineHeight
+                )
+                let availableHeight = max(0, contentY + contentHeight - selectionY)
+                let selectionHeight = min(availableHeight, max(lineHeight, Double(selectedLineCount) * lineHeight))
+                selectionHighlight.frame = Rect(
+                    x: contentX,
+                    y: selectionY,
+                    width: contentWidth,
+                    height: selectionHeight
+                )
+            } else {
+                let prefixWidth = min(
+                    contentWidth,
+                    measuredTextWidth(state.prefixBeforeSelection(isSecure: isSecure))
+                )
+                let availableWidth = max(0, contentWidth - prefixWidth)
+                let selectionWidth = min(availableWidth, measuredTextWidth(selectedText))
+                let selectionHeight = min(max(0, contentHeight), max(2, lineHeight))
+                selectionHighlight.frame = Rect(
+                    x: contentX + prefixWidth,
+                    y: contentY + max(0, (contentHeight - selectionHeight) * 0.5),
+                    width: selectionWidth,
+                    height: selectionHeight
+                )
+            }
+
+            selectionHighlight.isHidden = selectionHighlight.frame.size.width <= 0
+                || selectionHighlight.frame.size.height <= 0
         }
 
         func layoutTextAndCaret(in bounds: Rect) {
@@ -982,6 +1042,13 @@ public enum Controls {
             let caretX = min(contentX + measuredPrefixWidth(), contentX + contentWidth)
             let caretHeight = min(18, max(0, contentHeight))
             let lineHeight = measuredLineHeight()
+            layoutSelectionHighlight(
+                contentX: contentX,
+                contentY: contentY,
+                contentWidth: contentWidth,
+                contentHeight: contentHeight,
+                lineHeight: lineHeight
+            )
             let caretY = isMultiline
                 ? contentY + min(max(0, contentHeight - caretHeight), Double(state.lineIndexBeforeCaret()) * lineHeight)
                 : contentY + max(0, (contentHeight - caretHeight) * 0.5)
@@ -1010,6 +1077,14 @@ public enum Controls {
 
         func applyCaretMove(_ didMove: Bool) {
             guard didMove else {
+                return
+            }
+
+            layoutTextAndCaret(in: root.resolvedFrame)
+        }
+
+        func applySelectionChange(_ didChange: Bool) {
+            guard didChange else {
                 return
             }
 
@@ -1065,6 +1140,11 @@ public enum Controls {
                 applyTextMutation(state.insert(sanitizedInput))
             }
             root.onKeyDown = { event in
+                if event.modifiers.contains(.control), event.keyCode == 0x41 {
+                    applySelectionChange(state.selectAll())
+                    return
+                }
+
                 switch event.key {
                 case .backspace:
                     applyTextMutation(state.backspace())
@@ -1722,6 +1802,7 @@ private final class ButtonInteractionState {
 private final class TextFieldState {
     var text: String
     var caretOffset: Int
+    private var selectionRange: Range<Int>?
 
     init(text: String) {
         self.text = text
@@ -1743,6 +1824,24 @@ private final class TextFieldState {
         return isSecure ? String(repeating: "*", count: currentPrefix.count) : currentPrefix
     }
 
+    func prefixBeforeSelection(isSecure: Bool = false) -> String {
+        guard let selectionRange = normalizedSelectionRange else {
+            return ""
+        }
+
+        let prefix = String(text.prefix(selectionRange.lowerBound))
+        return isSecure ? String(repeating: "*", count: prefix.count) : prefix
+    }
+
+    func selectedDisplayText(isSecure: Bool = false) -> String? {
+        guard let selectionRange = normalizedSelectionRange else {
+            return nil
+        }
+
+        let selectedText = String(text.dropFirst(selectionRange.lowerBound).prefix(selectionRange.count))
+        return isSecure ? String(repeating: "*", count: selectedText.count) : selectedText
+    }
+
     func lineIndexBeforeCaret() -> Int {
         let prefix = text.prefix(clampedCaretOffset)
         return prefix.reduce(0) { count, character in
@@ -1750,10 +1849,23 @@ private final class TextFieldState {
         }
     }
 
+    func lineIndexBeforeSelection() -> Int {
+        guard let selectionRange = normalizedSelectionRange else {
+            return lineIndexBeforeCaret()
+        }
+
+        let prefix = text.prefix(selectionRange.lowerBound)
+        return prefix.reduce(0) { count, character in
+            character == "\n" ? count + 1 : count
+        }
+    }
+
     func replace(with newText: String) -> Bool {
+        let hadSelection = selectionRange != nil
+        selectionRange = nil
         guard text != newText else {
             caretOffset = min(caretOffset, text.count)
-            return false
+            return hadSelection
         }
 
         text = newText
@@ -1761,18 +1873,48 @@ private final class TextFieldState {
         return true
     }
 
+    func selectAll() -> Bool {
+        let previousSelection = normalizedSelectionRange
+        let previousCaretOffset = caretOffset
+
+        guard !text.isEmpty else {
+            selectionRange = nil
+            caretOffset = 0
+            return previousSelection != nil || previousCaretOffset != 0
+        }
+
+        selectionRange = 0..<text.count
+        caretOffset = text.count
+        let wasAlreadySelectedAll = previousSelection?.lowerBound == 0
+            && previousSelection?.upperBound == text.count
+        return !wasAlreadySelectedAll || previousCaretOffset != text.count
+    }
+
     func insert(_ input: String) -> Bool {
         guard !input.isEmpty else {
             return false
         }
 
-        let insertionIndex = text.index(text.startIndex, offsetBy: clampedCaretOffset)
+        if let selectionRange = normalizedSelectionRange {
+            let replacementRange = stringRange(for: selectionRange)
+            text.replaceSubrange(replacementRange, with: input)
+            caretOffset = selectionRange.lowerBound + input.count
+            self.selectionRange = nil
+            return true
+        }
+
+        let offset = clampedCaretOffset
+        let insertionIndex = text.index(text.startIndex, offsetBy: offset)
         text.insert(contentsOf: input, at: insertionIndex)
-        caretOffset = clampedCaretOffset + input.count
+        caretOffset = offset + input.count
         return true
     }
 
     func backspace() -> Bool {
+        if removeSelection() {
+            return true
+        }
+
         let offset = clampedCaretOffset
         guard offset > 0 else {
             return false
@@ -1786,6 +1928,10 @@ private final class TextFieldState {
     }
 
     func deleteForward() -> Bool {
+        if removeSelection() {
+            return true
+        }
+
         let offset = clampedCaretOffset
         guard offset < text.count else {
             return false
@@ -1799,11 +1945,19 @@ private final class TextFieldState {
     }
 
     func moveCaretLeft() -> Bool {
+        if let selectionRange = normalizedSelectionRange {
+            return moveCaret(to: selectionRange.lowerBound)
+        }
+
         let nextOffset = max(0, clampedCaretOffset - 1)
         return moveCaret(to: nextOffset)
     }
 
     func moveCaretRight() -> Bool {
+        if let selectionRange = normalizedSelectionRange {
+            return moveCaret(to: selectionRange.upperBound)
+        }
+
         let nextOffset = min(text.count, clampedCaretOffset + 1)
         return moveCaret(to: nextOffset)
     }
@@ -1845,8 +1999,10 @@ private final class TextFieldState {
 
     private func moveCaret(to offset: Int) -> Bool {
         let nextOffset = min(max(0, offset), text.count)
+        let hadSelection = selectionRange != nil
+        selectionRange = nil
         guard nextOffset != caretOffset else {
-            return false
+            return hadSelection
         }
 
         caretOffset = nextOffset
@@ -1855,6 +2011,38 @@ private final class TextFieldState {
 
     private var clampedCaretOffset: Int {
         min(max(0, caretOffset), text.count)
+    }
+
+    private var normalizedSelectionRange: Range<Int>? {
+        guard let selectionRange else {
+            return nil
+        }
+
+        let lowerBound = min(max(0, selectionRange.lowerBound), text.count)
+        let upperBound = min(max(lowerBound, selectionRange.upperBound), text.count)
+        guard lowerBound < upperBound else {
+            return nil
+        }
+
+        return lowerBound..<upperBound
+    }
+
+    private func removeSelection() -> Bool {
+        guard let selectionRange = normalizedSelectionRange else {
+            self.selectionRange = nil
+            return false
+        }
+
+        text.removeSubrange(stringRange(for: selectionRange))
+        caretOffset = selectionRange.lowerBound
+        self.selectionRange = nil
+        return true
+    }
+
+    private func stringRange(for range: Range<Int>) -> Range<String.Index> {
+        let lowerBound = text.index(text.startIndex, offsetBy: range.lowerBound)
+        let upperBound = text.index(text.startIndex, offsetBy: range.upperBound)
+        return lowerBound..<upperBound
     }
 
     private func lineRanges() -> [(start: Int, end: Int)] {

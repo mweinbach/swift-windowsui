@@ -248,6 +248,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTapGestureMapsToPointerActivation() async {
+        await MainActor.run {
+            var taps = 0
+            var doubleTaps = 0
+            let tapNode = makeNode(
+                Text("TAP")
+                    .onTapGesture {
+                        taps += 1
+                    }
+            )
+            let doubleTapNode = makeNode(
+                Text("DOUBLE")
+                    .onTapGesture(count: 2) {
+                        doubleTaps += 1
+                    }
+            )
+
+            XCTAssertTrue(tapNode.isHitTestVisible)
+            tapNode.onPointerUpInside?()
+            doubleTapNode.onPointerUpInside?()
+
+            XCTAssertEqual(taps, 1)
+            XCTAssertEqual(doubleTaps, 0)
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))

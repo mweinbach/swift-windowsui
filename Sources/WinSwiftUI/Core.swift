@@ -1377,6 +1377,22 @@ public extension View {
         }
     }
 
+    func onTapGesture(count: Int = 1, perform action: @escaping @MainActor () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHitTestVisible = true
+                childNode.onPointerUpInside = {
+                    if count <= 1 {
+                        action()
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
     func id(_ identifier: String) -> some View {

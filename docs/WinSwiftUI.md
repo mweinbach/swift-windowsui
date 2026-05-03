@@ -81,6 +81,7 @@ Modifiers:
 - `allowsHitTesting`
 - `onAppear`
 - `onDisappear`
+- `onTapGesture`
 - `tag`
 
 Compatibility helpers:
@@ -122,6 +123,7 @@ Surface direction:
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 - Lifecycle modifiers map to retained `onAppear` and `onDisappear` callbacks. Reconciliation refreshes node handlers in place so rebuilt declarative closures stay current without replacing the retained node.
+- `onTapGesture` maps to retained pointer-up-inside callbacks and makes the target node hit-test visible. The current compatibility surface supports single-tap activation; multi-tap counting is intentionally not wired until the runtime tracks click sequences.
 
 ## Observation Model
 

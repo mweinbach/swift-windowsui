@@ -2325,17 +2325,19 @@ public extension View {
         }
     }
 
-    func font(_ font: Font) -> some View {
+    func font(_ font: Font?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
-                updateTextStyles(in: node) { style in
-                    let preservesIconFont = style.fontFamily == "Segoe Fluent Icons"
-                    style.scale = font.resolvedScale
-                    style.weight = font.weight.textWeight
-                    if !preservesIconFont {
-                        style.fontFamily = font.resolvedFamily
+                if let font {
+                    updateTextStyles(in: node) { style in
+                        let preservesIconFont = style.fontFamily == "Segoe Fluent Icons"
+                        style.scale = font.resolvedScale
+                        style.weight = font.weight.textWeight
+                        if !preservesIconFont {
+                            style.fontFamily = font.resolvedFamily
+                        }
                     }
                 }
                 return node

@@ -183,7 +183,11 @@ public struct Text: View {
         foregroundColor(color)
     }
 
-    public func font(_ font: Font) -> Text {
+    public func font(_ font: Font?) -> Text {
+        guard let font else {
+            return self
+        }
+
         var copy = self
         copy.font = font
         copy.updateSpanStyles { style in
@@ -469,7 +473,11 @@ public struct Image: View {
         foregroundColor(color)
     }
 
-    public func font(_ font: Font) -> Image {
+    public func font(_ font: Font?) -> Image {
+        guard let font else {
+            return self
+        }
+
         var copy = self
         copy.font = font
         return copy
@@ -558,7 +566,11 @@ public struct Label: View {
         foregroundColor(color)
     }
 
-    public func font(_ font: Font) -> Label {
+    public func font(_ font: Font?) -> Label {
+        guard let font else {
+            return self
+        }
+
         var copy = self
         copy.font = font
         return copy

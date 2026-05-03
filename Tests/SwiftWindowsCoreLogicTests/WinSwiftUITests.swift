@@ -201,6 +201,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOptionalFontModifiersLeaveExistingTextStylesUnchanged() async {
+        await MainActor.run {
+            let textNode = makeNode(
+                Text("OPTIONAL")
+                    .font(.headline)
+                    .font(nil)
+                    .bold()
+            )
+
+            XCTAssertEqual(textNode.textStyle.scale, Font.headline.resolvedScale, accuracy: 0.001)
+            XCTAssertEqual(textNode.textStyle.weight, .bold)
+
+            let subtreeNode = makeNode(
+                HStack {
+                    Text("TITLE")
+                    Image(systemName: "star.fill")
+                }
+                .font(nil)
+                .foregroundColor(.green)
+            )
+
+            XCTAssertEqual(subtreeNode.children[0].textStyle.scale, 2, accuracy: 0.001)
+            XCTAssertEqual(subtreeNode.children[0].textStyle.color, .green)
+            XCTAssertEqual(subtreeNode.children[1].textStyle.fontFamily, "Segoe Fluent Icons")
+            XCTAssertEqual(subtreeNode.children[1].textStyle.color, .green)
+
+            let labelNode = makeNode(
+                Label("READY", systemImage: "checkmark")
+                    .font(nil)
+            )
+            XCTAssertTrue(allTextDescendants(in: labelNode) { !$0.textStyle.fontFamily.isEmpty })
+        }
+    }
+
     func testTextCaseStylesTextAndConcatenatedSpans() async {
         await MainActor.run {
             let node = makeNode(Text("case probe").textCase(.uppercase))

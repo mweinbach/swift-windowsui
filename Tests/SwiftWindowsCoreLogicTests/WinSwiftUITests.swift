@@ -413,6 +413,71 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentObjectSuppliesObservedModelToDescendants() async {
+        await MainActor.run {
+            final class SettingsModel: ObservableObject {
+                @Published var title = "ENV OBJECT"
+            }
+
+            struct SettingsView: View {
+                @EnvironmentObject var model: SettingsModel
+
+                var body: some View {
+                    Text(model.title)
+                }
+            }
+
+            let model = SettingsModel()
+            let node = makeNode(
+                SettingsView()
+                    .environmentObject(model)
+            )
+
+            XCTAssertTrue(containsText("ENV OBJECT", in: node))
+        }
+    }
+
+    func testEnvironmentObjectProjectedBindingFeedsControlsAndObservation() async {
+        await MainActor.run {
+            final class SettingsModel: ObservableObject {
+                @Published var enabled = false
+            }
+
+            struct SettingsView: View {
+                @EnvironmentObject var model: SettingsModel
+
+                var body: some View {
+                    Toggle("ENV ENABLED", isOn: $model.enabled)
+                }
+            }
+
+            let model = SettingsModel()
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            var didObserveModel = false
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 80) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    didObserveModel = object is SettingsModel
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            let node = SettingsView()
+                .environmentObject(model)
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+            node.children[1].onActivate?()
+
+            XCTAssertTrue(model.enabled)
+            XCTAssertTrue(didObserveModel)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testEnvironmentControlSizeTintAndIsEnabledAffectRetainedBuilds() async {
         await MainActor.run {
             let node = makeNode(

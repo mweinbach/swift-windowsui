@@ -724,6 +724,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("ENVIRONMENT VALUE") {
         failures.append("WinSwiftUI probe text samples are missing the Environment sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("ENVIRONMENT OBJECT") {
+        failures.append("WinSwiftUI probe text samples are missing the EnvironmentObject sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -826,6 +829,28 @@ private struct InspectorEnvironmentSample: View {
     }
 }
 
+private final class InspectorEnvironmentObjectModel: ObservableObject {
+    @Published var label = "ENVIRONMENT OBJECT"
+}
+
+private struct InspectorEnvironmentObjectReader: View {
+    @EnvironmentObject private var model: InspectorEnvironmentObjectModel
+
+    var body: some View {
+        Text(model.label)
+            .modifier(InspectorChipModifier())
+    }
+}
+
+private struct InspectorEnvironmentObjectSample: View {
+    @StateObject private var model = InspectorEnvironmentObjectModel()
+
+    var body: some View {
+        InspectorEnvironmentObjectReader()
+            .environmentObject(model)
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -919,6 +944,8 @@ private struct WinSwiftUIProbeView: View {
 
             InspectorEnvironmentSample()
                 .environment(\.inspectorEnvironmentLabel, "ENVIRONMENT VALUE")
+
+            InspectorEnvironmentObjectSample()
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

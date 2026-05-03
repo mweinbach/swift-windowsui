@@ -574,6 +574,7 @@ public struct EnvironmentValues {
     }
 
     private var storage: [ObjectIdentifier: Box] = [:]
+    private var environmentObjects: [ObjectIdentifier: any ObservableObject] = [:]
 
     public init() {}
 
@@ -592,6 +593,14 @@ public struct EnvironmentValues {
 
     func contains<Key: EnvironmentKey>(_ key: Key.Type) -> Bool {
         storage[ObjectIdentifier(key)] != nil
+    }
+
+    mutating func setEnvironmentObject<ObjectType: ObservableObject>(_ object: ObjectType) {
+        environmentObjects[ObjectIdentifier(ObjectType.self)] = object
+    }
+
+    func environmentObject<ObjectType: ObservableObject>(for type: ObjectType.Type) -> ObjectType? {
+        environmentObjects[ObjectIdentifier(type)] as? ObjectType
     }
 }
 
@@ -648,6 +657,36 @@ public struct Environment<Value> {
     public var wrappedValue: Value {
         let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
         return values[keyPath: keyPath]
+    }
+}
+
+@MainActor
+@dynamicMemberLookup
+@propertyWrapper
+public struct EnvironmentObject<ObjectType: ObservableObject> {
+    public init() {}
+
+    public var wrappedValue: ObjectType {
+        resolvedObject()
+    }
+
+    public var projectedValue: ObservedObject<ObjectType> {
+        ObservedObject(wrappedValue: resolvedObject())
+    }
+
+    public subscript<Value>(dynamicMember keyPath: ReferenceWritableKeyPath<ObjectType, Value>) -> Binding<Value> {
+        projectedValue[dynamicMember: keyPath]
+    }
+
+    private func resolvedObject() -> ObjectType {
+        guard let context = ViewBuildContextScope.current,
+              let object = context.environmentValues.environmentObject(for: ObjectType.self)
+        else {
+            fatalError("No EnvironmentObject of type \(ObjectType.self) was found in the current WinSwiftUI environment")
+        }
+
+        context.observe(object)
+        return object
     }
 }
 
@@ -4364,6 +4403,14 @@ public extension View {
         ModifiedView(content: self) { content, context in
             var values = context.environmentValues
             values[keyPath: keyPath] = value
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
+    func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values.setEnvironmentObject(object)
             return content.makeComponent(context: context.withEnvironmentValues(values))
         }
     }

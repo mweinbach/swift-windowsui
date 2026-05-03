@@ -120,6 +120,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextCaseStylesTextAndConcatenatedSpans() async {
+        await MainActor.run {
+            let node = makeNode(Text("case probe").textCase(.uppercase))
+
+            XCTAssertEqual(node.text, "CASE PROBE")
+
+            let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)
+            let spanNode = makeNode(
+                (
+                    Text("CPU ")
+                        .foregroundColor(accent)
+                    + Text("READY")
+                        .bold()
+                )
+                .textCase(.lowercase)
+            )
+
+            XCTAssertEqual(spanNode.text, "cpu ready")
+
+            guard let spans = spanNode.textStyle.spans else {
+                return XCTFail("Expected cased concatenated Text to carry text spans")
+            }
+
+            XCTAssertEqual(spans.map(\.text), ["cpu ", "ready"])
+            XCTAssertEqual(spans[0].style.color, accent)
+            XCTAssertEqual(spans[1].style.weight, .bold)
+
+            guard let text = spanNode.text,
+                  let firstRange = spans[0].range,
+                  let secondRange = spans[1].range else {
+                return XCTFail("Expected transformed spans to keep concrete text ranges")
+            }
+
+            XCTAssertEqual(String(text[firstRange]), "cpu ")
+            XCTAssertEqual(String(text[secondRange]), "ready")
+        }
+    }
+
     func testGenericTextStyleConvenienceModifiersStyleDescendants() async {
         await MainActor.run {
             let node = makeNode(
@@ -141,6 +179,23 @@ final class WinSwiftUITests: XCTestCase {
                     && child.textStyle.underline
                     && child.textStyle.strikethrough
             })
+        }
+    }
+
+    func testGenericTextCaseStylesDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("Alpha")
+                    Label("Beta", systemImage: "sparkles")
+                }
+                .textCase(.uppercase)
+            )
+
+            XCTAssertTrue(containsText("ALPHA", in: node))
+            XCTAssertTrue(containsText("BETA", in: node))
+            XCTAssertFalse(containsText("Alpha", in: node))
+            XCTAssertFalse(containsText("Beta", in: node))
         }
     }
 

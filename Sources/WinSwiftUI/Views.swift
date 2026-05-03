@@ -95,7 +95,12 @@ public extension ViewBuilder {
 public struct Text: View {
     public typealias Body = Never
 
-    private let content: String
+    public enum Case: Sendable, Equatable {
+        case uppercase
+        case lowercase
+    }
+
+    private var content: String
     private var color: Color
     private var font: Font
     private var alignment: TextAlignment
@@ -262,6 +267,16 @@ public struct Text: View {
         return copy
     }
 
+    public func textCase(_ textCase: Text.Case?) -> Text {
+        guard let textCase else {
+            return self
+        }
+
+        var copy = self
+        copy.applyTextCase(textCase)
+        return copy
+    }
+
     public static func + (lhs: Text, rhs: Text) -> Text {
         let content = lhs.content + rhs.content
         var combined = Text(content)
@@ -327,6 +342,19 @@ public struct Text: View {
             update(&spans[index].style)
         }
         self.spans = spans
+    }
+
+    private mutating func applyTextCase(_ textCase: Text.Case) {
+        guard spans != nil else {
+            content = transformedText(content, textCase: textCase)
+            return
+        }
+
+        let transformedSegments = segments.map { segment in
+            Segment(text: transformedText(segment.text, textCase: textCase), style: segment.style)
+        }
+        content = transformedSegments.map(\.text).joined()
+        spans = Self.spans(for: transformedSegments, in: content)
     }
 
     private static func spans(for segments: [Segment], in content: String) -> [TextSpan] {

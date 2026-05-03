@@ -1374,6 +1374,59 @@ private func updateTextStyles(in node: ViewNode, _ update: (inout PixelTextStyle
 }
 
 @MainActor
+private func updateTextCase(in node: ViewNode, _ textCase: Text.Case?) {
+    guard let textCase else {
+        return
+    }
+
+    if let text = node.text {
+        var style = node.textStyle
+        if let spans = style.spans, !spans.isEmpty {
+            let transformed = transformedTextSpans(spans, textCase: textCase)
+            node.text = transformed.text
+            style.spans = transformed.spans
+            node.textStyle = style
+        } else {
+            node.text = transformedText(text, textCase: textCase)
+        }
+    }
+
+    for child in node.children {
+        updateTextCase(in: child, textCase)
+    }
+}
+
+func transformedText(_ text: String, textCase: Text.Case) -> String {
+    switch textCase {
+    case .uppercase:
+        return text.uppercased()
+    case .lowercase:
+        return text.lowercased()
+    }
+}
+
+private func transformedTextSpans(_ spans: [TextSpan], textCase: Text.Case) -> (text: String, spans: [TextSpan]) {
+    let segments = spans.map { span in
+        (text: transformedText(span.text, textCase: textCase), style: span.style)
+    }
+    let text = segments.map(\.text).joined()
+    var cursor = text.startIndex
+    var transformedSpans: [TextSpan] = []
+    transformedSpans.reserveCapacity(segments.count)
+
+    for segment in segments {
+        guard !segment.text.isEmpty else {
+            continue
+        }
+        let nextCursor = text.index(cursor, offsetBy: segment.text.count)
+        transformedSpans.append(TextSpan(text: segment.text, style: segment.style, range: cursor..<nextCursor))
+        cursor = nextCursor
+    }
+
+    return (text, transformedSpans)
+}
+
+@MainActor
 private func suppressInteraction(in node: ViewNode) {
     node.isHitTestVisible = false
     node.isFocusable = false
@@ -2247,6 +2300,17 @@ public extension View {
                         }
                     }
                 }
+                return node
+            }
+        }
+    }
+
+    func textCase(_ textCase: Text.Case?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextCase(in: node, textCase)
                 return node
             }
         }

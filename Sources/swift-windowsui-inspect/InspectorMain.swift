@@ -730,6 +730,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("ENVIRONMENT OBJECT") {
         failures.append("WinSwiftUI probe text samples are missing the EnvironmentObject sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("APP STORAGE READY") {
+        failures.append("WinSwiftUI probe text samples are missing the AppStorage sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -854,6 +857,22 @@ private struct InspectorEnvironmentObjectSample: View {
     }
 }
 
+private struct InspectorAppStorageSample: View {
+    @AppStorage("swift-windowsui.inspect.app-storage") private var label = "APP STORAGE READY"
+
+    init() {
+        let key = "swift-windowsui.inspect.app-storage.label"
+        let store = UserDefaults(suiteName: "swift-windowsui.inspect") ?? .standard
+        store.set("APP STORAGE READY", forKey: key)
+        _label = AppStorage(wrappedValue: "APP STORAGE READY", key, store: store)
+    }
+
+    var body: some View {
+        Text(label)
+            .modifier(InspectorChipModifier())
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -959,6 +978,8 @@ private struct WinSwiftUIProbeView: View {
                 .environment(\.inspectorEnvironmentLabel, "ENVIRONMENT VALUE")
 
             InspectorEnvironmentObjectSample()
+
+            InspectorAppStorageSample()
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

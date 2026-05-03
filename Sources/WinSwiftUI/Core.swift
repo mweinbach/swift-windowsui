@@ -384,6 +384,89 @@ private final class StateBox<Value> {
 
 @MainActor
 @propertyWrapper
+public struct AppStorage<Value> {
+    private let key: String
+    private let defaultValue: Value
+    private let store: UserDefaults
+    private let box = AppStorageBox()
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
+        self.key = key
+        self.defaultValue = wrappedValue
+        self.store = store ?? .standard
+    }
+
+    public var wrappedValue: Value {
+        get {
+            bindToCurrentContext()
+            return readValue()
+        }
+        nonmutating set {
+            writeValue(newValue)
+            box.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        bindToCurrentContext()
+        return Binding<Value>(
+            get: {
+                readValue()
+            },
+            set: { newValue in
+                writeValue(newValue)
+                box.invalidate?()
+            },
+            invalidatesOnSet: true
+        )
+    }
+
+    private func bindToCurrentContext() {
+        guard let context = ViewBuildContextScope.current else {
+            return
+        }
+
+        box.invalidate = {
+            context.invalidate()
+        }
+    }
+
+    private func readValue() -> Value {
+        guard store.object(forKey: key) != nil else {
+            return defaultValue
+        }
+
+        if Value.self == Bool.self {
+            return store.bool(forKey: key) as! Value
+        }
+        if Value.self == Int.self {
+            return store.integer(forKey: key) as! Value
+        }
+        if Value.self == Double.self {
+            return store.double(forKey: key) as! Value
+        }
+        if Value.self == Float.self {
+            return store.float(forKey: key) as! Value
+        }
+        if Value.self == String.self {
+            return (store.string(forKey: key) ?? defaultValue as! String) as! Value
+        }
+
+        return store.object(forKey: key) as? Value ?? defaultValue
+    }
+
+    private func writeValue(_ value: Value) {
+        store.set(value, forKey: key)
+    }
+}
+
+@MainActor
+private final class AppStorageBox {
+    var invalidate: (() -> Void)?
+}
+
+@MainActor
+@propertyWrapper
 public struct FocusState<Value: Hashable> {
     private let box: FocusStateBox<Value>
 

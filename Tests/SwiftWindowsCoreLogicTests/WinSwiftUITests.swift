@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
@@ -4095,6 +4096,73 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(invalidationCount, 1)
             XCTAssertEqual(rebuiltNode.children[0].text, "Go")
+        }
+    }
+
+    func testAppStorageReadsStoredValueAndDefault() async {
+        await MainActor.run {
+            let suiteName = "WinSwiftUITests.AppStorage.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Expected suite-backed UserDefaults")
+                return
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            struct StoredLabelView: View {
+                @AppStorage("label") var label = "DEFAULT LABEL"
+
+                init(store: UserDefaults) {
+                    _label = AppStorage(wrappedValue: "DEFAULT LABEL", "label", store: store)
+                }
+
+                var body: some View {
+                    Text(label)
+                }
+            }
+
+            let defaultNode = makeNode(StoredLabelView(store: store))
+            XCTAssertTrue(containsText("DEFAULT LABEL", in: defaultNode))
+
+            store.set("SAVED LABEL", forKey: "label")
+            let storedNode = makeNode(StoredLabelView(store: store))
+            XCTAssertTrue(containsText("SAVED LABEL", in: storedNode))
+        }
+    }
+
+    func testAppStorageProjectedBindingWritesStoreAndInvalidates() async {
+        await MainActor.run {
+            let suiteName = "WinSwiftUITests.AppStorage.Binding.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                XCTFail("Expected suite-backed UserDefaults")
+                return
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            struct StoredToggleView: View {
+                @AppStorage("enabled") var enabled = false
+
+                init(store: UserDefaults) {
+                    _enabled = AppStorage(wrappedValue: false, "enabled", store: store)
+                }
+
+                var body: some View {
+                    Toggle("STORED ENABLED", isOn: $enabled)
+                }
+            }
+
+            var invalidationCount = 0
+            let node = makeNode(StoredToggleView(store: store)) {
+                invalidationCount += 1
+            }
+            XCTAssertGreaterThanOrEqual(node.children.count, 2)
+            node.children[1].onActivate?()
+
+            XCTAssertTrue(store.bool(forKey: "enabled"))
+            XCTAssertGreaterThanOrEqual(invalidationCount, 1)
         }
     }
 

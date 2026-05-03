@@ -204,6 +204,7 @@ Compatibility helpers:
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `FocusState`, with bool and optional hashable value bindings for retained focus targets
+- minimal `AppStorage`, with primitive `UserDefaults` reads/writes and projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 - minimal `Binding`, including `Binding.constant(_:)` and projected `@ObservedObject` and `@StateObject` bindings
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
@@ -275,6 +276,7 @@ Surface direction:
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, `ProgressView`, and `Gauge` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
 - `EnvironmentKey`, `EnvironmentValues`, `@Environment`, and `environment(_:_:)` support custom SwiftUI-shaped environment values. `@EnvironmentObject` and `environmentObject(_:)` store type-keyed observable models in the same retained build context, observe them when read, and expose projected bindings through the existing `ObservedObject` path. The built-in `tint`, `controlSize`, and `isEnabled` values are wired back into the retained build context so `environment(\.tint, ...)`, `environment(\.controlSize, ...)`, and `disabled(_:)` affect compatible descendant controls; the full SwiftUI environment catalog and object precedence rules are still future work.
+- `AppStorage` reads and writes primitive values through `UserDefaults`, exposes projected bindings for retained controls, and invalidates the retained host after writes. RawRepresentable conversion, URL/Data helpers, optional-value removal, and external defaults observation are still future work.
 - `onChange(of:initial:_:)` tracks equatable values by modifier callsite and retained-build occurrence, passing old and new values to the action when the value changes. The zero-argument modern closure and deprecated `onChange(of:perform:)` source shapes are also accepted. Actions run during the retained rebuild that observes the new value, so long-running work should still be dispatched out of the UI path.
 - `searchable` uses the supplied search text binding as the retained search field storage. Search suggestions, tokens, scopes, environment-driven dismissal, and native toolbar/sidebar placement are still future work.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
@@ -306,6 +308,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 - `@EnvironmentObject`
+- `@AppStorage`
 
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 

@@ -795,6 +795,14 @@ public struct Font: Sendable, Equatable {
         Font(size: size, weight: weight, design: design)
     }
 
+    public static func custom(_ name: String, size: Double) -> Font {
+        Font(size: size, family: name)
+    }
+
+    public static func custom(_ name: String, fixedSize: Double) -> Font {
+        Font(size: fixedSize, family: name)
+    }
+
     public static let largeTitle = Font(size: 34, weight: .regular)
     public static let title = Font(size: 28, weight: .regular)
     public static let title2 = Font(size: 22, weight: .regular)

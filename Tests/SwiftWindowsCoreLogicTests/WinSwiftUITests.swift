@@ -156,6 +156,18 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCustomFontsMapToRetainedTextStyle() async {
+        await MainActor.run {
+            let customNode = makeNode(Text("BRAND").font(.custom("Aptos", size: 20)))
+            let fixedNode = makeNode(Text("CODE").font(.custom("Cascadia Mono", fixedSize: 11)))
+
+            XCTAssertEqual(customNode.textStyle.scale, 2.0, accuracy: 0.001)
+            XCTAssertEqual(customNode.textStyle.fontFamily, "Aptos")
+            XCTAssertEqual(fixedNode.textStyle.scale, 1.1, accuracy: 0.001)
+            XCTAssertEqual(fixedNode.textStyle.fontFamily, "Cascadia Mono")
+        }
+    }
+
     func testVStackMapsToVerticalStackPanel() async {
         await MainActor.run {
             let node = makeNode(

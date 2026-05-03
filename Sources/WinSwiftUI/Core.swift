@@ -67,6 +67,37 @@ public struct Gradient: Sendable, Equatable {
     }
 }
 
+public protocol Shape: Sendable {}
+
+public struct FillStyle: Sendable, Equatable {
+    public var isEOFilled: Bool
+    public var isAntialiased: Bool
+
+    public init(eoFill: Bool = false, antialiased: Bool = true) {
+        self.isEOFilled = eoFill
+        self.isAntialiased = antialiased
+    }
+}
+
+public struct Rectangle: Shape, Equatable {
+    public init() {}
+}
+
+public enum RoundedCornerStyle: Sendable, Equatable {
+    case circular
+    case continuous
+}
+
+public struct RoundedRectangle: Shape, Equatable {
+    public var cornerRadius: Double
+    public var style: RoundedCornerStyle
+
+    public init(cornerRadius: Double, style: RoundedCornerStyle = .continuous) {
+        self.cornerRadius = cornerRadius
+        self.style = style
+    }
+}
+
 @MainActor
 public protocol ObservableObject: AnyObject {}
 
@@ -975,6 +1006,14 @@ extension Alignment {
     }
 }
 
+private func clipCornerRadius<S: Shape>(for shape: S) -> Double {
+    if let roundedRectangle = shape as? RoundedRectangle {
+        return max(0, roundedRectangle.cornerRadius)
+    }
+
+    return 0
+}
+
 public extension View {
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
@@ -1061,13 +1100,52 @@ public extension View {
         }
     }
 
-    func cornerRadius(_ radius: Double) -> some View {
-        ModifiedView(content: self) { content, context in
+    func cornerRadius(_ radius: Double, antialiased: Bool = true) -> some View {
+        _ = antialiased
+
+        return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
-                    cornerRadius: radius,
+                    cornerRadius: max(0, radius),
+                    clipsToBounds: true,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
+    func clipped(antialiased: Bool = false) -> some View {
+        _ = antialiased
+
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    clipsToBounds: true,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
+    func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View {
+        _ = style
+
+        let cornerRadius = clipCornerRadius(for: shape)
+
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    cornerRadius: cornerRadius,
                     clipsToBounds: true,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,

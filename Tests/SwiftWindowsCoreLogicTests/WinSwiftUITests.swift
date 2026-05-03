@@ -170,6 +170,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testClipModifiersMapToRetainedClipping() async {
+        await MainActor.run {
+            let clippedNode = makeNode(
+                Text("CLIP")
+                    .frame(width: 60, height: 24)
+                    .clipped(antialiased: true)
+            )
+            let cornerNode = makeNode(Text("CARD").cornerRadius(8, antialiased: false))
+            let roundedNode = makeNode(Text("ROUND").clipShape(RoundedRectangle(cornerRadius: 14)))
+            let rectNode = makeNode(Text("RECT").clipShape(Rectangle(), style: FillStyle(antialiased: false)))
+
+            XCTAssertTrue(clippedNode.clipsToBounds)
+            XCTAssertEqual(clippedNode.cornerRadius, 0)
+            XCTAssertEqual(clippedNode.children.count, 1)
+            XCTAssertTrue(cornerNode.clipsToBounds)
+            XCTAssertEqual(cornerNode.cornerRadius, 8)
+            XCTAssertTrue(roundedNode.clipsToBounds)
+            XCTAssertEqual(roundedNode.cornerRadius, 14)
+            XCTAssertTrue(rectNode.clipsToBounds)
+            XCTAssertEqual(rectNode.cornerRadius, 0)
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))

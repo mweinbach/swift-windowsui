@@ -68,8 +68,8 @@ Included today:
 - Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Section`, `HSplitView`, `VSplitView`
 - Controls: `Button`, `TextField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
-- Modifiers: `frame`, `padding`, `background`, `cornerRadius`, `border`, `shadow`, `opacity`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `tag`
-- Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`
+- Modifiers: `frame`, `padding`, `background`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `tag`
+- Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `Rectangle`, `RoundedRectangle`, `FillStyle`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 
@@ -79,6 +79,7 @@ Current gaps:
 - Observation support is intentionally small and tuned for retained-runtime invalidation
 - Text entry is single-line with caret-aware keyboard editing, but selection and multiline editing are still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
+- Shape clipping currently maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills
 
 ## Demo Source Compatibility
 

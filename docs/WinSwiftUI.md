@@ -66,6 +66,8 @@ Modifiers:
 - `padding`
 - `background`
 - `cornerRadius`
+- `clipped`
+- `clipShape`
 - `border`
 - `shadow`
 - `opacity`
@@ -85,6 +87,9 @@ Compatibility helpers:
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `Angle`
+- `Rectangle`
+- `RoundedRectangle`
+- `FillStyle`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, and `ObservedObject`
@@ -111,6 +116,7 @@ Surface direction:
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.
+- Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 
 ## Observation Model
 

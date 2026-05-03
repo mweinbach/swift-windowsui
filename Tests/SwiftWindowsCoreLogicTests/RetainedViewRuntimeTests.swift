@@ -345,6 +345,39 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testLargeScrollPanelCullsOffscreenRowsFromRenderFrame() async {
+        await MainActor.run {
+            let rows = (0..<500).map { index in
+                ViewNode(
+                    backgroundColor: index.isMultiple(of: 2) ? .white : .black,
+                    preferredSize: Size(width: 100, height: 20)
+                )
+            }
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                clipsToBounds: true,
+                layoutMode: .stack(.vertical(spacing: 2, alignment: .stretch)),
+                scrollAxis: .vertical,
+                scrollOffset: 4_000,
+                showsScrollIndicator: true,
+                isHitTestVisible: false,
+                children: rows
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 120),
+                isHitTestVisible: false,
+                children: [scrollPanel]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertLessThan(fills.count, 40)
+            XCTAssertGreaterThan(fills.count, 2)
+            XCTAssertTrue(fills.allSatisfy { $0.rect.intersected(with: scrollPanel.frame) != nil })
+        }
+    }
+
     func testScrollIndicatorHoverAndDragUpdateColorAndOffset() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

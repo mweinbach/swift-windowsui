@@ -1,3 +1,4 @@
+import Dispatch
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsRendererD3D11
@@ -27,6 +28,7 @@ struct SwiftWindowsUIInspector {
         let controlProbeRuntime = makeControlProbeRuntime()
         let controlProbeCounts = CommandCounts(controlProbeRuntime.renderFrame().commands)
         let controlProbeFocusableCount = countFocusableNodes(controlProbeRuntime.root)
+        let scrollStress = runScrollStressProbe()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
@@ -52,6 +54,7 @@ struct SwiftWindowsUIInspector {
         print("Text probe: \(textProbeCounts.drawText) drawText command")
         print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
         print("Control probe: \(controlProbeFocusableCount) focusable, \(controlProbeCounts.fillRect) fills, \(controlProbeCounts.drawBitmap) bitmaps")
+        print("Scroll stress: \(scrollStress.rowCount) rows -> \(scrollStress.commandCount) commands in \(formatMilliseconds(scrollStress.elapsedMilliseconds)) ms")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
@@ -251,6 +254,63 @@ private func makeControlProbeRuntime() -> RetainedViewRuntime {
 private func countFocusableNodes(_ node: ViewNode) -> Int {
     let ownCount = node.isFocusable ? 1 : 0
     return ownCount + node.children.reduce(0) { $0 + countFocusableNodes($1) }
+}
+
+private struct ScrollStressResult {
+    var rowCount: Int
+    var commandCount: Int
+    var elapsedMilliseconds: Double
+}
+
+@MainActor
+private func runScrollStressProbe(rowCount: Int = 500) -> ScrollStressResult {
+    let runtime = makeScrollStressRuntime(rowCount: rowCount)
+    let start = DispatchTime.now().uptimeNanoseconds
+    let frame = runtime.renderFrame()
+    let elapsed = DispatchTime.now().uptimeNanoseconds - start
+
+    return ScrollStressResult(
+        rowCount: rowCount,
+        commandCount: frame.commands.count,
+        elapsedMilliseconds: Double(elapsed) / 1_000_000
+    )
+}
+
+@MainActor
+private func makeScrollStressRuntime(rowCount: Int) -> RetainedViewRuntime {
+    let rows = (0..<rowCount).map { index in
+        Controls.panel(
+            preferredSize: Size(width: 0, height: 24),
+            backgroundColor: index.isMultiple(of: 2)
+                ? Color(red: 0.16, green: 0.20, blue: 0.28, alpha: 1.0)
+                : Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 1.0),
+            cornerRadius: 6,
+            isHitTestVisible: false
+        )
+    }
+
+    let scrollPanel = Controls.scrollPanel(
+        axis: .vertical,
+        frame: Rect(x: 0, y: 0, width: 320, height: 220),
+        stackLayout: .vertical(spacing: 2, alignment: .stretch),
+        scrollIndicatorThickness: 5,
+        isHitTestVisible: true,
+        children: rows
+    )
+    scrollPanel.scrollOffset = 6_000
+
+    let root = ViewNode(
+        frame: Rect(x: 0, y: 0, width: 320, height: 220),
+        isHitTestVisible: false,
+        children: [scrollPanel]
+    )
+
+    return RetainedViewRuntime(root: root, displayScale: 1.0)
+}
+
+private func formatMilliseconds(_ value: Double) -> String {
+    let rounded = (value * 1_000).rounded() / 1_000
+    return "\(rounded)"
 }
 
 private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {

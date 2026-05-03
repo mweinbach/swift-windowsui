@@ -104,6 +104,7 @@ Run from the repository root in PowerShell:
 swift test
 swift build --product swift-windowsui
 swift run swift-windowsui-inspect
+swift run swift-windowsui-inspect -- --verify
 swift run swift-windowsui
 ```
 

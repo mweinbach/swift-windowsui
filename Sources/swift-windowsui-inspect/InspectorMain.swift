@@ -66,6 +66,33 @@ struct SwiftWindowsUIInspector {
         print("Text input probe: \(textInputProbeValue)")
         print("Scroll stress: \(scrollStress.rowCount) rows -> \(scrollStress.commandCount) commands in \(formatMilliseconds(scrollStress.elapsedMilliseconds)) ms")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
+
+        if CommandLine.arguments.contains("--verify") {
+            let failures = verificationFailures(
+                batchBackendName: batchBackend?.backendDisplayName,
+                sampleCommandCounts: commandCounts,
+                bridgedScene: bridgedScene,
+                paintedScene: paintedScene,
+                pathProbeCounts: pathProbeCounts,
+                textProbeCounts: textProbeCounts,
+                blurProbeCounts: blurProbeCounts,
+                controlProbeFocusableCount: controlProbeFocusableCount,
+                winSwiftUIProbe: winSwiftUIProbe,
+                textInputProbeValue: textInputProbeValue,
+                scrollStress: scrollStress,
+                clipProbeScene: clipProbeScene
+            )
+
+            if failures.isEmpty {
+                print("Verification: passed")
+            } else {
+                print("Verification: failed")
+                for failure in failures {
+                    print("  - \(failure)")
+                }
+                fatalError("swift-windowsui-inspect verification failed")
+            }
+        }
     }
 }
 
@@ -356,6 +383,86 @@ private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {
     }
 
     return "x=\(clip.0) y=\(clip.1) w=\(clip.2) h=\(clip.3)"
+}
+
+private func verificationFailures(
+    batchBackendName: String?,
+    sampleCommandCounts: CommandCounts,
+    bridgedScene: GPUIScene,
+    paintedScene: GPUIScene,
+    pathProbeCounts: CommandCounts,
+    textProbeCounts: CommandCounts,
+    blurProbeCounts: CommandCounts,
+    controlProbeFocusableCount: Int,
+    winSwiftUIProbe: WinSwiftUIInspectionSnapshot,
+    textInputProbeValue: String,
+    scrollStress: ScrollStressResult,
+    clipProbeScene: GPUIScene
+) -> [String] {
+    var failures: [String] = []
+
+    if batchBackendName == nil {
+        failures.append("batch backend is unavailable")
+    }
+    if sampleCommandCounts.fillRect == 0 {
+        failures.append("sample retained tree emitted no fillRect commands")
+    }
+    if sampleCommandCounts.drawBitmap == 0 {
+        failures.append("sample retained tree emitted no bitmap text commands")
+    }
+    if bridgedScene.primitiveCount == 0 {
+        failures.append("RenderFrame -> GPUIScene bridge emitted no primitives")
+    }
+    if paintedScene.totalQuads == 0 {
+        failures.append("ScenePainter emitted no quads")
+    }
+    if pathProbeCounts.fillPath != 1 || pathProbeCounts.strokePath != 1 {
+        failures.append("path probe did not emit one fillPath and one strokePath command")
+    }
+    if textProbeCounts.drawText != 1 {
+        failures.append("text probe did not emit one drawText command")
+    }
+    if blurProbeCounts.applyBlur != 1 {
+        failures.append("blur probe did not emit one applyBlur command")
+    }
+    if controlProbeFocusableCount < 3 {
+        failures.append("retained control probe exposed fewer than three focusable controls")
+    }
+    if winSwiftUIProbe.nodeCount < 15 || winSwiftUIProbe.textNodeCount < 5 || winSwiftUIProbe.renderCommands.total == 0 {
+        failures.append("WinSwiftUI probe did not produce the expected retained tree/render frame")
+    }
+    if !winSwiftUIProbe.textSamples.contains("DECLARATIVE INSPECTOR") {
+        failures.append("WinSwiftUI probe text samples are missing the title")
+    }
+    if textInputProbeValue != "AxC" {
+        failures.append("text input probe expected AxC, got \(textInputProbeValue)")
+    }
+    if scrollStress.commandCount > 40 {
+        failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")
+    }
+    if !clipMatches(clipProbeScene.layers.first?.quads.first?.clipRect, x: 100, y: 50, width: 70, height: 70) {
+        failures.append("clip probe did not resolve to the expected intersection")
+    }
+
+    return failures
+}
+
+private func clipMatches(
+    _ clip: (Float, Float, Float, Float)?,
+    x: Float,
+    y: Float,
+    width: Float,
+    height: Float,
+    tolerance: Float = 0.001
+) -> Bool {
+    guard let clip else {
+        return false
+    }
+
+    return abs(clip.0 - x) <= tolerance
+        && abs(clip.1 - y) <= tolerance
+        && abs(clip.2 - width) <= tolerance
+        && abs(clip.3 - height) <= tolerance
 }
 
 @MainActor

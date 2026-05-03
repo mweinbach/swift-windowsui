@@ -35,6 +35,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLocalizedStringAliasesFeedStringBackedViews() async {
+        await MainActor.run {
+            let key: LocalizedStringKey = "LOCALIZED TITLE"
+            let resource: LocalizedStringResource = "RESOURCE ACTION"
+            let node = makeNode(
+                VStack {
+                    Text(key)
+                    Button(resource) {}
+                    Label(key, systemImage: "checkmark")
+                }
+            )
+
+            XCTAssertTrue(containsText("LOCALIZED TITLE", in: node))
+            XCTAssertTrue(containsText("RESOURCE ACTION", in: node))
+        }
+    }
+
     func testTextConcatenationPreservesSpanStyles() async {
         await MainActor.run {
             let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)

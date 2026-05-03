@@ -28,6 +28,8 @@ import WinSwiftUI
 #endif
 ```
 
+`LocalizedStringKey` and `LocalizedStringResource` are currently identity aliases to `String` for source compatibility. They preserve common SwiftUI call-site shapes, but they do not perform localization table lookup yet.
+
 ## Current Surface
 
 App/scene hosting:

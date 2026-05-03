@@ -1153,8 +1153,37 @@ public enum Controls {
                 applySelectionChange(state.extendSelection(toTextOffset: caretOffset(at: point)))
             }
             root.onKeyDown = { event in
-                if event.modifiers.contains(.control), event.keyCode == 0x41 {
-                    applySelectionChange(state.selectAll())
+                if event.modifiers.contains(.control) {
+                    switch event.keyCode {
+                    case 0x41:
+                        applySelectionChange(state.selectAll())
+                    case 0x43:
+                        if let clipboardText = state.selectedClipboardText(isSecure: isSecure) {
+                            runtime.textClipboard?.writeString(clipboardText)
+                        }
+                    case 0x58:
+                        guard let textClipboard = runtime.textClipboard else {
+                            break
+                        }
+
+                        if let clipboardText = state.cutSelectedText(isSecure: isSecure) {
+                            textClipboard.writeString(clipboardText)
+                            applyTextMutation(true)
+                        }
+                    case 0x56:
+                        guard let clipboardText = runtime.textClipboard?.readString() else {
+                            break
+                        }
+
+                        let sanitizedClipboardText = sanitizedTextInput(clipboardText, allowsNewlines: isMultiline)
+                        guard !sanitizedClipboardText.isEmpty else {
+                            break
+                        }
+
+                        applyTextMutation(state.insert(sanitizedClipboardText))
+                    default:
+                        break
+                    }
                     return
                 }
 
@@ -1870,6 +1899,14 @@ private final class TextFieldState {
         return isSecure ? String(repeating: "*", count: selectedText.count) : selectedText
     }
 
+    func selectedClipboardText(isSecure: Bool = false) -> String? {
+        guard !isSecure, let selectionRange = normalizedSelectionRange else {
+            return nil
+        }
+
+        return String(text.dropFirst(selectionRange.lowerBound).prefix(selectionRange.count))
+    }
+
     func lineIndexBeforeCaret() -> Int {
         let prefix = text.prefix(clampedCaretOffset)
         return prefix.reduce(0) { count, character in
@@ -1978,6 +2015,14 @@ private final class TextFieldState {
         text.removeSubrange(removeStart..<removeEnd)
         caretOffset = offset
         return true
+    }
+
+    func cutSelectedText(isSecure: Bool = false) -> String? {
+        guard let selectedText = selectedClipboardText(isSecure: isSecure), removeSelection() else {
+            return nil
+        }
+
+        return selectedText
     }
 
     func moveCaretLeft(extendSelection: Bool = false) -> Bool {

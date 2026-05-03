@@ -450,11 +450,16 @@ private func makeControlProbeRuntime() -> RetainedViewRuntime {
 @MainActor
 private func runTextInputProbe() -> String {
     var value = ""
+    var clipboard = ""
     let root = ViewNode(
         frame: Rect(x: 0, y: 0, width: 240, height: 60),
         isHitTestVisible: false
     )
     let runtime = RetainedViewRuntime(root: root, displayScale: 1.0)
+    runtime.textClipboard = TextClipboard(
+        readString: { clipboard },
+        writeString: { clipboard = $0 }
+    )
     let field = Controls.textField(
         runtime: runtime,
         text: "",
@@ -494,7 +499,12 @@ private func runTextInputProbe() -> String {
     runtime.pointerMoved(to: Point(x: dragEndX, y: 18))
     runtime.pointerUp(at: Point(x: dragEndX, y: 18))
     runtime.textInput("-")
-    return value
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue, modifiers: [.shift]))
+    runtime.keyDown(KeyboardEvent(keyCode: 0x43, modifiers: [.control]))
+    runtime.keyDown(KeyboardEvent(keyCode: 0x58, modifiers: [.control]))
+    let afterCut = value
+    runtime.keyDown(KeyboardEvent(keyCode: 0x56, modifiers: [.control]))
+    return "\(afterCut)->\(value)|\(clipboard)"
 }
 
 @MainActor
@@ -648,8 +658,8 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
         failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
     }
-    if textInputProbeValue != "Z-Q" {
-        failures.append("text input probe expected Z-Q after select-all, shift-selection, pointer-caret, and drag-selection replacement, got \(textInputProbeValue)")
+    if textInputProbeValue != "ZQ->Z-Q|-" {
+        failures.append("text input probe expected ZQ->Z-Q|- after select-all, selection replacement, pointer editing, and clipboard shortcuts, got \(textInputProbeValue)")
     }
     if scrollStress.commandCount > 40 {
         failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")

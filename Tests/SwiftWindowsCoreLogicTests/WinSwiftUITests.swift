@@ -1482,6 +1482,63 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldClipboardShortcutsCopyCutAndPasteSelection() async {
+        await MainActor.run {
+            var text = ""
+            var clipboard = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            runtime.textClipboard = TextClipboard(
+                readString: { clipboard },
+                writeString: { clipboard = $0 }
+            )
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("ABCD")
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue, modifiers: [.shift]))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue, modifiers: [.shift]))
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x43, modifiers: [.control]))
+            XCTAssertEqual(clipboard, "BC")
+            XCTAssertEqual(text, "ABCD")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x58, modifiers: [.control]))
+            XCTAssertEqual(clipboard, "BC")
+            XCTAssertEqual(text, "AD")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x56, modifiers: [.control]))
+            XCTAssertEqual(text, "ABCD")
+        }
+    }
+
+    func testTextFieldCutShortcutNoopsWithoutClipboardBridge() async {
+        await MainActor.run {
+            var text = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("ABCD")
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue, modifiers: [.shift]))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue, modifiers: [.shift]))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x58, modifiers: [.control]))
+
+            XCTAssertEqual(text, "ABCD")
+        }
+    }
+
     func testSecureFieldMasksDisplayWhileEditingBinding() async {
         await MainActor.run {
             var password = ""
@@ -1505,6 +1562,38 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(password, "P")
             XCTAssertEqual(node.children[0].text, "*")
             XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testSecureFieldClipboardShortcutsDoNotExposeSelectionButPaste() async {
+        await MainActor.run {
+            var password = ""
+            var clipboard = "!"
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            runtime.textClipboard = TextClipboard(
+                readString: { clipboard },
+                writeString: { clipboard = $0 }
+            )
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = SecureField("Password", text: Binding(get: { password }, set: { password = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("Secret")
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.control]))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x43, modifiers: [.control]))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x58, modifiers: [.control]))
+
+            XCTAssertEqual(clipboard, "!")
+            XCTAssertEqual(password, "Secret")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x56, modifiers: [.control]))
+
+            XCTAssertEqual(password, "Secret!")
+            XCTAssertEqual(node.children[0].text, "*******")
         }
     }
 

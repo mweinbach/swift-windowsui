@@ -1802,6 +1802,17 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
 }
 
 @MainActor
+public struct TextClipboard {
+    public var readString: () -> String?
+    public var writeString: (String) -> Void
+
+    public init(readString: @escaping () -> String?, writeString: @escaping (String) -> Void) {
+        self.readString = readString
+        self.writeString = writeString
+    }
+}
+
+@MainActor
 public final class RetainedViewRuntime {
     public let root: ViewNode
 
@@ -1840,6 +1851,10 @@ public final class RetainedViewRuntime {
 
     /// Optional text raster cache for scale-aware invalidation.
     public var textRasterCache: TextRasterCache?
+
+    /// Optional clipboard bridge used by retained text controls for editing
+    /// shortcuts without baking platform APIs into shared control state.
+    public var textClipboard: TextClipboard?
 
     // Gap/Fix: Frame pacing enforcement — minimum interval between renders.
     public var minimumFrameInterval: Double?

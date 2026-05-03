@@ -1181,6 +1181,33 @@ public extension View {
         }
     }
 
+    func multilineTextAlignment(_ alignment: TextAlignment) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.alignment = alignment.horizontalAlignment.textAlignment
+                }
+                return node
+            }
+        }
+    }
+
+    func lineLimit(_ lineLimit: Int?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.maximumNumberOfLines = lineLimit
+                    style.lineBreakMode = lineLimit == 1 ? .truncateTail : .wrap
+                }
+                return node
+            }
+        }
+    }
+
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

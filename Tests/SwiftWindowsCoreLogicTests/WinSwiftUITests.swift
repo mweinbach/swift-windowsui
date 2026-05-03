@@ -79,6 +79,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGenericTextAlignmentAndLineLimitStyleDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("ALPHA")
+                    Text("BETA")
+                }
+                .multilineTextAlignment(.trailing)
+                .lineLimit(2)
+            )
+
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.alignment, .trailing)
+                XCTAssertEqual(child.textStyle.maximumNumberOfLines, 2)
+                XCTAssertEqual(child.textStyle.lineBreakMode, .wrap)
+            }
+        }
+    }
+
     func testForEachExpandsRowsAndAssignsStableTags() async {
         await MainActor.run {
             struct Row: Identifiable {

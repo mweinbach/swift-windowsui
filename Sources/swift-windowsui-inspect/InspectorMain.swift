@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 80
+            maximumTextSamples: 96
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -673,6 +673,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("DOCS LINK") {
         failures.append("WinSwiftUI probe text samples are missing the Link control")
     }
+    if !winSwiftUIProbe.textSamples.contains("Value Detail") {
+        failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
+    }
     if !winSwiftUIProbe.textSamples.contains("FILTER INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the searchable field")
     }
@@ -900,6 +903,10 @@ private struct WinSwiftUIProbeView: View {
                 NavigationLink("Inspector Detail") {
                     Text("INSPECTOR DESTINATION")
                 }
+                NavigationLink("Value Detail", value: "metrics")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("INSPECTOR \(value.uppercased()) ROUTE")
             }
             .navigationTitle("Inspector")
             .toolbar {

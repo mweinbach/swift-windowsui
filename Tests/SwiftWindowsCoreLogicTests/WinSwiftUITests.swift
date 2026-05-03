@@ -3958,6 +3958,84 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationLinkPushesValueDestinations() async {
+        await MainActor.run {
+            var invalidationCount = 0
+            let view = NavigationStack {
+                NavigationLink("Report", value: 42)
+            }
+            .navigationDestination(for: Int.self) { value in
+                Text("REPORT \(value)")
+            }
+            let rootNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("Report", in: rootNode))
+            XCTAssertFalse(containsText("REPORT 42", in: rootNode))
+
+            firstFocusableNode(containing: "Report", in: rootNode)?.onActivate?()
+
+            let pushedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertTrue(containsText("REPORT", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("REPORT 42", in: pushedNode))
+        }
+    }
+
+    func testNavigationLinkValueInitializerSupportsCustomLabels() async {
+        await MainActor.run {
+            var invalidationCount = 0
+            let view = NavigationStack {
+                NavigationLink(value: "logs") {
+                    Label("Logs", systemImage: "bolt.fill")
+                }
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("DESTINATION \(value.uppercased())")
+            }
+            let rootNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("Logs", in: rootNode))
+            XCTAssertFalse(containsText("DESTINATION LOGS", in: rootNode))
+
+            firstFocusableNode(containing: "Logs", in: rootNode)?.onActivate?()
+
+            let pushedNode = makeNode(view)
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertTrue(containsText("LOGS", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("DESTINATION LOGS", in: pushedNode))
+        }
+    }
+
+    func testNavigationLinkValueWithoutDestinationIsDisabled() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationStack {
+                    NavigationLink("Missing", value: 7)
+                }
+            )
+
+            XCTAssertTrue(containsText("Missing", in: node))
+            XCTAssertNil(firstFocusableNode(containing: "Missing", in: node))
+        }
+    }
+
     func testLinkStringInitializerOpensDestinationURL() async {
         await MainActor.run {
             let destination = URL(string: "https://example.com/docs")!

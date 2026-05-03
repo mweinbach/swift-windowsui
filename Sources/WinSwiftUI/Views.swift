@@ -1947,7 +1947,9 @@ public struct NavigationLink: View {
     public typealias Body = Never
 
     private let label: [AnyView]
-    private let destination: [AnyView]
+    private let destination: [AnyView]?
+    private let destinationValue: AnyHashable?
+    private let destinationValueType: ObjectIdentifier?
     private let explicitTitle: String?
 
     public init(_ title: String, @ViewBuilder destination: () -> [AnyView]) {
@@ -1961,6 +1963,8 @@ public struct NavigationLink: View {
             )
         ]
         self.destination = destination()
+        self.destinationValue = nil
+        self.destinationValueType = nil
         self.explicitTitle = title
     }
 
@@ -1974,6 +1978,39 @@ public struct NavigationLink: View {
     ) {
         self.label = label()
         self.destination = destination()
+        self.destinationValue = nil
+        self.destinationValueType = nil
+        self.explicitTitle = nil
+    }
+
+    public init<Value: Hashable>(_ title: String, value: Value?) {
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.55, weight: .semibold))
+                    .foregroundColor(Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.94))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.destination = nil
+        self.destinationValue = value.map { AnyHashable($0) }
+        self.destinationValueType = ObjectIdentifier(Value.self)
+        self.explicitTitle = title
+    }
+
+    public init<S: StringProtocol, Value: Hashable>(_ title: S, value: Value?) {
+        self.init(String(title), value: value)
+    }
+
+    public init<Value: Hashable>(
+        value: Value?,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = nil
+        self.destinationValue = value.map { AnyHashable($0) }
+        self.destinationValueType = ObjectIdentifier(Value.self)
         self.explicitTitle = nil
     }
 
@@ -1992,20 +2029,28 @@ public struct NavigationLink: View {
         }
         .makeComponent(context: context)
         let push = NavigationStackScope.push
+        let resolvedDestination = destination ?? NavigationDestinationScope.resolve(
+            destinationValue,
+            typeID: destinationValueType
+        )
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let routeTitle = explicitTitle ?? firstText(in: labelNode) ?? "Detail"
+            let routeTitle = explicitTitle ?? firstNavigationTitleText(in: labelNode) ?? "Detail"
             return Controls.button(
                 runtime: runtime,
                 cornerRadius: 16,
                 palette: Self.linkPalette,
                 chrome: Self.linkChrome,
-                isEnabled: push != nil,
+                isEnabled: push != nil && resolvedDestination != nil,
                 clipsToBounds: true,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
                 action: {
-                    push?(NavigationRoute(title: routeTitle, destination: destination))
+                    guard let resolvedDestination else {
+                        return
+                    }
+
+                    push?(NavigationRoute(title: routeTitle, destination: resolvedDestination))
                 },
                 children: [labelNode]
             )
@@ -4243,6 +4288,26 @@ private struct NavigationRoute {
 }
 
 @MainActor
+private struct NavigationDestinationResolver {
+    let typeID: ObjectIdentifier
+    let resolve: (AnyHashable) -> [AnyView]?
+
+    init<Value: Hashable>(
+        type: Value.Type,
+        destination: @escaping (Value) -> [AnyView]
+    ) {
+        self.typeID = ObjectIdentifier(type)
+        self.resolve = { value in
+            guard let typedValue = value.base as? Value else {
+                return nil
+            }
+
+            return destination(typedValue)
+        }
+    }
+}
+
+@MainActor
 private enum NavigationStackScope {
     private static var currentPush: ((NavigationRoute) -> Void)?
 
@@ -4257,6 +4322,59 @@ private enum NavigationStackScope {
             currentPush = previousPush
         }
         return body()
+    }
+}
+
+@MainActor
+private enum NavigationDestinationScope {
+    private static var currentResolvers: [NavigationDestinationResolver] = []
+
+    static func resolve(_ value: AnyHashable?, typeID: ObjectIdentifier?) -> [AnyView]? {
+        guard let value, let typeID else {
+            return nil
+        }
+
+        for resolver in currentResolvers.reversed() where resolver.typeID == typeID {
+            if let destination = resolver.resolve(value) {
+                return destination
+            }
+        }
+
+        return nil
+    }
+
+    static func withResolver<Result>(
+        _ resolver: NavigationDestinationResolver,
+        _ body: () -> Result
+    ) -> Result {
+        currentResolvers.append(resolver)
+        defer {
+            _ = currentResolvers.popLast()
+        }
+        return body()
+    }
+}
+
+@MainActor
+private struct NavigationDestinationHost<Content: View, Value: Hashable>: View {
+    typealias Body = Never
+
+    let content: Content
+    let valueType: Value.Type
+    let destination: (Value) -> [AnyView]
+
+    var body: Never {
+        fatalError("NavigationDestinationHost has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let resolver = NavigationDestinationResolver(type: valueType, destination: destination)
+
+        return Component { runtime in
+            NavigationDestinationScope.withResolver(resolver) {
+                content.makeComponent(context: context).makeNode(runtime: runtime)
+            }
+        }
     }
 }
 
@@ -4321,6 +4439,13 @@ private struct NavigationTitleHost<Content: View>: View {
 }
 
 public extension View {
+    func navigationDestination<Value: Hashable>(
+        for data: Value.Type,
+        @ViewBuilder destination: @escaping (Value) -> [AnyView]
+    ) -> some View {
+        NavigationDestinationHost(content: self, valueType: data, destination: destination)
+    }
+
     func navigationTitle<S: StringProtocol>(_ title: S) -> some View {
         NavigationTitleHost(content: self, title: String(title))
     }
@@ -4518,6 +4643,24 @@ private func firstText(in node: ViewNode) -> String? {
 
     for child in node.children {
         if let text = firstText(in: child) {
+            return text
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func firstNavigationTitleText(in node: ViewNode) -> String? {
+    if let text = node.text,
+       !text.isEmpty,
+       text != ">",
+       node.textStyle.fontFamily != "Segoe Fluent Icons" {
+        return text
+    }
+
+    for child in node.children {
+        if let text = firstNavigationTitleText(in: child) {
             return text
         }
     }

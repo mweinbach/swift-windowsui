@@ -1521,10 +1521,10 @@ public struct ScrollView: View {
 public struct List: View {
     public typealias Body = Never
 
-    private let style: ScrollViewStyle
+    private let style: ScrollViewStyle?
     private let content: [AnyView]
 
-    public init(style: ScrollViewStyle = List.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+    public init(style: ScrollViewStyle? = nil, @ViewBuilder content: () -> [AnyView]) {
         self.style = style
         self.content = content()
     }
@@ -1534,22 +1534,14 @@ public struct List: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        ScrollView(.vertical, style: style) {
+        let resolvedStyle = style ?? context.listStyle?.scrollViewStyle ?? List.defaultStyle
+        return ScrollView(.vertical, style: resolvedStyle) {
             content
         }
         .makeComponent(context: context)
     }
 
-    public static let defaultStyle = ScrollViewStyle(
-        spacing: 6,
-        padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
-        alignment: .leading,
-        backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.54),
-        borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08),
-        borderWidth: 1,
-        cornerRadius: 16,
-        scrollStep: 44
-    )
+    public static let defaultStyle = ListStyle.automatic.scrollViewStyle
 }
 
 @MainActor

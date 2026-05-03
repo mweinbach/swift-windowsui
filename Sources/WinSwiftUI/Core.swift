@@ -458,6 +458,7 @@ public struct ViewBuildContext {
     private let observedObjectHandler: (any ObservableObject) -> Void
     var tintColor: Color?
     var buttonStyle: ButtonStyle?
+    var listStyle: ListStyle?
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -471,6 +472,7 @@ public struct ViewBuildContext {
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         tintColor: Color? = nil,
         buttonStyle: ButtonStyle? = nil,
+        listStyle: ListStyle? = nil,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -479,6 +481,7 @@ public struct ViewBuildContext {
         self.observedObjectHandler = observedObjectHandler
         self.tintColor = tintColor
         self.buttonStyle = buttonStyle
+        self.listStyle = listStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -498,6 +501,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             tintColor: color,
             buttonStyle: buttonStyle,
+            listStyle: listStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -510,6 +514,20 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
             buttonStyle: style,
+            listStyle: listStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withListStyle(_ style: ListStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -522,6 +540,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
+            listStyle: listStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -534,6 +553,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
+            listStyle: listStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1059,6 +1079,115 @@ public struct ButtonStyle: Sendable, Equatable {
             return .plain
         }
     }
+}
+
+public struct ListStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case plain
+        case inset
+        case grouped
+        case insetGrouped
+        case sidebar
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ListStyle(kind: .automatic)
+    public static let plain = ListStyle(kind: .plain)
+    public static let inset = ListStyle(kind: .inset)
+    public static let grouped = ListStyle(kind: .grouped)
+    public static let insetGrouped = ListStyle(kind: .insetGrouped)
+    public static let sidebar = ListStyle(kind: .sidebar)
+
+    var scrollViewStyle: ScrollViewStyle {
+        switch kind {
+        case .automatic, .insetGrouped:
+            return ScrollViewStyle(
+                spacing: 6,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+                alignment: .leading,
+                backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.54),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 16,
+                scrollStep: 44
+            )
+        case .plain:
+            return ScrollViewStyle(
+                spacing: 0,
+                padding: .zero,
+                alignment: .leading,
+                backgroundColor: nil,
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 0,
+                scrollStep: 44
+            )
+        case .inset:
+            return ScrollViewStyle(
+                spacing: 4,
+                padding: EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10),
+                alignment: .leading,
+                backgroundColor: nil,
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 0,
+                scrollStep: 44
+            )
+        case .grouped:
+            return ScrollViewStyle(
+                spacing: 8,
+                padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10),
+                alignment: .leading,
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.62),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.06),
+                borderWidth: 1,
+                cornerRadius: 18,
+                scrollStep: 44
+            )
+        case .sidebar:
+            return ScrollViewStyle(
+                spacing: 6,
+                padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                alignment: .leading,
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.38),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.06),
+                borderWidth: 1,
+                cornerRadius: 20,
+                scrollStep: 40,
+                indicatorThickness: 4
+            )
+        }
+    }
+}
+
+public struct DefaultListStyle: Sendable {
+    public init() {}
+}
+
+public struct PlainListStyle: Sendable {
+    public init() {}
+}
+
+public struct InsetListStyle: Sendable {
+    public init() {}
+}
+
+public struct GroupedListStyle: Sendable {
+    public init() {}
+}
+
+public struct InsetGroupedListStyle: Sendable {
+    public init() {}
+}
+
+public struct SidebarListStyle: Sendable {
+    public init() {}
 }
 
 public struct ScrollViewStyle: Sendable {
@@ -2348,6 +2477,36 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withButtonStyle(style))
         }
+    }
+
+    func listStyle(_ style: ListStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withListStyle(style))
+        }
+    }
+
+    func listStyle(_ style: DefaultListStyle) -> some View {
+        listStyle(.automatic)
+    }
+
+    func listStyle(_ style: PlainListStyle) -> some View {
+        listStyle(.plain)
+    }
+
+    func listStyle(_ style: InsetListStyle) -> some View {
+        listStyle(.inset)
+    }
+
+    func listStyle(_ style: GroupedListStyle) -> some View {
+        listStyle(.grouped)
+    }
+
+    func listStyle(_ style: InsetGroupedListStyle) -> some View {
+        listStyle(.insetGrouped)
+    }
+
+    func listStyle(_ style: SidebarListStyle) -> some View {
+        listStyle(.sidebar)
     }
 
     func onSubmit(_ action: @escaping @MainActor () -> Void) -> some View {

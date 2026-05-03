@@ -203,6 +203,7 @@ Surface direction:
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
+- `listStyle` supports `.automatic`, `.plain`, `.inset`, `.grouped`, `.insetGrouped`, and `.sidebar` style values plus common concrete style wrappers such as `PlainListStyle()`. List styles flow through the build context to descendant `List` values unless a list is created with an explicit retained `ScrollViewStyle`.
 - `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
 - `TabView` maps tagged pages into a retained segmented tab bar plus the selected content subtree. The `selection:` initializer supports typed `Binding` values, while unbound tabs keep local `@State` selection.
 - `NavigationStack` keeps a local retained route stack for simple drill-in flows. `NavigationLink` renders as an interactive retained row and pushes destination content when built inside a `NavigationStack`.

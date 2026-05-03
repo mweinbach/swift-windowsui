@@ -2945,6 +2945,76 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListStyleModifierMapsNamedStylesToScrollChrome() async {
+        await MainActor.run {
+            let plainNode = makeNode(
+                List {
+                    Text("ROW")
+                }
+                .listStyle(.plain)
+            )
+            let sidebarStyle = ListStyle.sidebar.scrollViewStyle
+            let sidebarNode = makeNode(
+                List {
+                    Text("ROW")
+                }
+                .listStyle(SidebarListStyle())
+            )
+
+            XCTAssertNil(plainNode.backgroundColor)
+            XCTAssertEqual(plainNode.borderColor, .clear)
+            XCTAssertEqual(plainNode.borderWidth, 0)
+            XCTAssertEqual(plainNode.cornerRadius, 0)
+            XCTAssertEqual(sidebarNode.backgroundColor, sidebarStyle.backgroundColor)
+            XCTAssertEqual(sidebarNode.cornerRadius, sidebarStyle.cornerRadius)
+            XCTAssertEqual(sidebarNode.scrollIndicatorThickness, sidebarStyle.indicatorThickness)
+        }
+    }
+
+    func testInheritedListStyleAppliesToDescendantLists() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    List {
+                        Text("ROW")
+                    }
+                }
+                .listStyle(.plain)
+            )
+            let listNode = node.children[0]
+
+            XCTAssertNil(listNode.backgroundColor)
+            XCTAssertEqual(listNode.borderColor, .clear)
+            XCTAssertEqual(listNode.cornerRadius, 0)
+        }
+    }
+
+    func testExplicitListScrollViewStyleOverridesInheritedListStyle() async {
+        await MainActor.run {
+            let customStyle = ScrollViewStyle(
+                spacing: 3,
+                padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4),
+                backgroundColor: .orange,
+                borderColor: .cyan,
+                borderWidth: 2,
+                cornerRadius: 12,
+                scrollStep: 28
+            )
+            let node = makeNode(
+                List(style: customStyle) {
+                    Text("ROW")
+                }
+                .listStyle(.plain)
+            )
+
+            XCTAssertEqual(node.backgroundColor, .orange)
+            XCTAssertEqual(node.borderColor, .cyan)
+            XCTAssertEqual(node.borderWidth, 2)
+            XCTAssertEqual(node.cornerRadius, 12)
+            XCTAssertEqual(node.scrollStep, 28)
+        }
+    }
+
     func testFormMapsToGroupedVerticalScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

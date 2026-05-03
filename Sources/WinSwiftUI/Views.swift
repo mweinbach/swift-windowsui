@@ -939,15 +939,15 @@ public struct ProgressView: View {
 }
 
 @MainActor
-public struct Picker: View {
+public struct Picker<SelectionValue: Hashable>: View {
     public typealias Body = Never
 
     private let title: String
-    private let selection: Binding<Int>
+    private let selection: Binding<SelectionValue>
     private let content: [AnyView]
     private var isEnabled: Bool
 
-    public init(_ title: String = "", selection: Binding<Int>, @ViewBuilder content: () -> [AnyView]) {
+    public init(_ title: String = "", selection: Binding<SelectionValue>, @ViewBuilder content: () -> [AnyView]) {
         self.title = title
         self.selection = selection
         self.content = content()
@@ -960,7 +960,7 @@ public struct Picker: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let options = pickerOptions(from: content, context: context, runtime: runtime)
+            let options: [PickerOption<SelectionValue>] = pickerOptions(from: content, context: context, runtime: runtime)
             let optionTitles = options.map(\.title)
             let selectedIndex = options.firstIndex { $0.value == selection.wrappedValue } ?? 0
             let dropdown = Controls.dropdown(
@@ -1181,20 +1181,45 @@ private func buildSplitComponent(
     }
 }
 
-private struct PickerOption {
+private struct PickerOption<Value: Hashable> {
     var title: String
-    var value: Int
+    var value: Value
 }
 
 @MainActor
-private func pickerOptions(from views: [AnyView], context: ViewBuildContext, runtime: RetainedViewRuntime) -> [PickerOption] {
-    views.enumerated().map { index, view in
+private func pickerOptions<Value: Hashable>(
+    from views: [AnyView],
+    context: ViewBuildContext,
+    runtime: RetainedViewRuntime
+) -> [PickerOption<Value>] {
+    views.enumerated().compactMap { index, view in
         let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+        guard let value = pickerSelectionValue(from: node, fallbackIndex: index, as: Value.self) else {
+            return nil
+        }
+
         return PickerOption(
             title: firstText(in: node) ?? node.nodeTag ?? "Option \(index + 1)",
-            value: Int(node.nodeTag ?? "") ?? index
+            value: value
         )
     }
+}
+
+@MainActor
+private func pickerSelectionValue<Value: Hashable>(
+    from node: ViewNode,
+    fallbackIndex: Int,
+    as type: Value.Type
+) -> Value? {
+    if let taggedValue = node.selectionTag?.base as? Value {
+        return taggedValue
+    }
+
+    if let nodeTag = node.nodeTag, let intTag = Int(nodeTag), let value = intTag as? Value {
+        return value
+    }
+
+    return fallbackIndex as? Value
 }
 
 @MainActor

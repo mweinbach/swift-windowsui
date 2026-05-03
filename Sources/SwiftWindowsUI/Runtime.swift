@@ -203,6 +203,10 @@ public final class ViewNode {
     /// rather than being torn down and recreated.
     public var nodeTag: String?
 
+    /// Optional typed selection value used by SwiftUI-shaped controls such as
+    /// `Picker` without overloading the string identity tag.
+    public var selectionTag: AnyHashable?
+
     /// Snapshot of previous property values for animation interpolation.
     /// When an animation context is active and a property changes, the old
     /// value is recorded here so that the runtime can interpolate between old

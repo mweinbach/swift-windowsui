@@ -139,7 +139,7 @@ Surface direction:
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked.
 - `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
-- `Picker` maps tagged `Text` options into the retained dropdown control; the current compatibility layer supports integer tags.
+- `Picker` maps tagged `Text` options into the retained dropdown control and supports hashable selection tags, including integers, strings, and enum values.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.

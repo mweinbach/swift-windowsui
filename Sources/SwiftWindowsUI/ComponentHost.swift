@@ -143,6 +143,7 @@ public final class ComponentHost {
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
+        if target.selectionTag != source.selectionTag { target.selectionTag = source.selectionTag }
 
         // Transfer layout mode -- compare via the tag helper since ViewLayoutMode
         // doesn't conform to Equatable.

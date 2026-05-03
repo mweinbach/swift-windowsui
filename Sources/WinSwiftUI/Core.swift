@@ -1028,6 +1028,7 @@ struct ModifiedView<Content: View>: View {
     /// resulting ViewNode so the diffing algorithm can match nodes across
     /// rebuilds by identity rather than position alone.
     var id: String?
+    var selectionTag: AnyHashable?
 
     var body: Never {
         fatalError("ModifiedView has no body")
@@ -1035,15 +1036,19 @@ struct ModifiedView<Content: View>: View {
 
     func makeComponent(context: ViewBuildContext) -> Component {
         let inner = transform(content, context)
-        guard let id else {
+        guard id != nil || selectionTag != nil else {
             return inner
         }
 
-        // Wrap the inner component so the resulting node carries the id.
+        // Wrap the inner component so the resulting node carries metadata.
         let capturedID = id
+        let capturedSelectionTag = selectionTag
         return Component { runtime in
             let node = inner.makeNode(runtime: runtime)
-            node.nodeTag = capturedID
+            if let capturedID {
+                node.nodeTag = capturedID
+            }
+            node.selectionTag = capturedSelectionTag
             return node
         }
     }
@@ -2170,13 +2175,15 @@ public extension View {
         return modified
     }
 
-    /// Attach a SwiftUI-style integer selection tag. `Picker` currently uses
-    /// these tags to map declarative options into retained dropdown rows.
-    func tag(_ value: Int) -> some View {
+    /// Attach a SwiftUI-style selection tag. `Picker` uses the typed value to
+    /// map declarative options into retained dropdown rows while the string
+    /// tag remains available for retained-node reconciliation.
+    func tag<Value: Hashable>(_ value: Value) -> some View {
         var modified = ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
         }
-        modified.id = String(value)
+        modified.id = String(describing: value)
+        modified.selectionTag = AnyHashable(value)
         return modified
     }
 

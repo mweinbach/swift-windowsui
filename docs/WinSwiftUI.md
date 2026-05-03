@@ -52,6 +52,9 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+- `Toggle`
+- `Slider`
+- `ProgressView`
 
 Modifiers:
 
@@ -72,10 +75,12 @@ Compatibility helpers:
 - `UnitPoint`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `ObservableObject`, `Published`, and `ObservedObject`
+- minimal `Binding`, including projected `@ObservedObject` bindings
 
 Surface direction:
 
 - default retained buttons now use lighter rounded chrome with hover, focus, press, and activation transitions
+- bindings now cover direct `Binding(get:set:)` values and projected `@ObservedObject` members for controls such as `Toggle` and `Slider`
 - the demo’s cards and chips are built from shared-source-friendly layered gradients and translucent strokes rather than WinSwiftUI-only styling hooks
 
 ## Mapping Notes
@@ -84,6 +89,7 @@ Surface direction:
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.

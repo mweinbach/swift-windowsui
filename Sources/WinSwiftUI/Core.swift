@@ -136,6 +136,46 @@ public struct Published<Value> {
 }
 
 @MainActor
+@dynamicMemberLookup
+@propertyWrapper
+public struct Binding<Value> {
+    private let getter: @MainActor () -> Value
+    private let setter: @MainActor (Value) -> Void
+
+    public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
+        self.getter = get
+        self.setter = set
+    }
+
+    public var wrappedValue: Value {
+        get {
+            getter()
+        }
+        nonmutating set {
+            setter(newValue)
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        self
+    }
+
+    public subscript<Subject>(dynamicMember keyPath: WritableKeyPath<Value, Subject>) -> Binding<Subject> {
+        Binding<Subject>(
+            get: {
+                wrappedValue[keyPath: keyPath]
+            },
+            set: { newValue in
+                var value = wrappedValue
+                value[keyPath: keyPath] = newValue
+                wrappedValue = value
+            }
+        )
+    }
+}
+
+@MainActor
+@dynamicMemberLookup
 @propertyWrapper
 public struct ObservedObject<ObjectType: ObservableObject> {
     private var object: ObjectType
@@ -155,7 +195,19 @@ public struct ObservedObject<ObjectType: ObservableObject> {
     }
 
     public var projectedValue: ObservedObject<ObjectType> {
-        self
+        ViewBuildContextScope.current?.observe(object)
+        return self
+    }
+
+    public subscript<Value>(dynamicMember keyPath: ReferenceWritableKeyPath<ObjectType, Value>) -> Binding<Value> {
+        Binding<Value>(
+            get: {
+                object[keyPath: keyPath]
+            },
+            set: { newValue in
+                object[keyPath: keyPath] = newValue
+            }
+        )
     }
 }
 

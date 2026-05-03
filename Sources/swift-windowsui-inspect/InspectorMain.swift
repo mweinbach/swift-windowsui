@@ -24,6 +24,9 @@ struct SwiftWindowsUIInspector {
         let pathProbePath = makePathProbePath()
         let textProbeCounts = CommandCounts(makeTextProbeFrame().commands)
         let blurProbeCounts = CommandCounts(makeBlurProbeFrame().commands)
+        let controlProbeRuntime = makeControlProbeRuntime()
+        let controlProbeCounts = CommandCounts(controlProbeRuntime.renderFrame().commands)
+        let controlProbeFocusableCount = countFocusableNodes(controlProbeRuntime.root)
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
@@ -48,6 +51,7 @@ struct SwiftWindowsUIInspector {
         print("Path probe: \(pathProbeCounts.fillPath) fill, \(pathProbeCounts.strokePath) stroke, \(pathProbePath.segments.count) segments")
         print("Text probe: \(textProbeCounts.drawText) drawText command")
         print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
+        print("Control probe: \(controlProbeFocusableCount) focusable, \(controlProbeCounts.fillRect) fills, \(controlProbeCounts.drawBitmap) bitmaps")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
@@ -214,6 +218,39 @@ private func makeBlurProbeFrame() -> RenderFrame {
             .applyBlur(BlurCommand(region: Rect(x: 24, y: 20, width: 132, height: 72), radius: 10)),
         ]
     )
+}
+
+@MainActor
+private func makeControlProbeRuntime() -> RetainedViewRuntime {
+    let root = ViewNode(
+        frame: Rect(x: 0, y: 0, width: 260, height: 140),
+        backgroundColor: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 1.0),
+        layoutMode: .stack(
+            .vertical(
+                spacing: 12,
+                padding: EdgeInsets(top: 16, leading: 18, bottom: 16, trailing: 18),
+                alignment: .stretch
+            )
+        ),
+        isHitTestVisible: false
+    )
+    let runtime = RetainedViewRuntime(
+        clearColor: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 1.0),
+        root: root,
+        displayScale: 1.0
+    )
+
+    root.addChild(Controls.toggle(runtime: runtime, isOn: true))
+    root.addChild(Controls.slider(runtime: runtime, value: 0.42, preferredSize: Size(width: 220, height: 28)))
+    root.addChild(Controls.progressBar(value: 0.64, preferredSize: Size(width: 220, height: 8)))
+
+    return runtime
+}
+
+@MainActor
+private func countFocusableNodes(_ node: ViewNode) -> Int {
+    let ownCount = node.isFocusable ? 1 : 0
+    return ownCount + node.children.reduce(0) { $0 + countFocusableNodes($1) }
 }
 
 private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {

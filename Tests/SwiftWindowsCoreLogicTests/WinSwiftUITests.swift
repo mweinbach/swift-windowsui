@@ -65,6 +65,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToggleUsesBindingAndInvalidates() async {
+        await MainActor.run {
+            var isOn = false
+            var didInvalidate = false
+
+            let node = makeNode(
+                Toggle("POWER", isOn: Binding(get: { isOn }, set: { isOn = $0 })),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            let switchNode = node.children[1]
+            XCTAssertTrue(switchNode.isFocusable)
+
+            switchNode.onActivate?()
+
+            XCTAssertTrue(isOn)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testSliderUpdatesBindingFromDrag() async {
+        await MainActor.run {
+            var value = 0.25
+            var invalidationCount = 0
+
+            let node = makeNode(
+                Slider(value: Binding(get: { value }, set: { value = $0 }), in: 0...1),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            node.onDragStart?(Point(x: 0, y: 0))
+            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 0.75, accuracy: 0.01)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testProgressViewMapsToProgressBar() async {
+        await MainActor.run {
+            let node = makeNode(ProgressView(value: 0.4, total: 1.0))
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame.size.width, 200)
+            XCTAssertEqual(node.children[1].frame.size.width, 80)
+            XCTAssertFalse(node.isHitTestVisible)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(
@@ -118,6 +173,36 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertGreaterThan(bitmapRect.size.width, 0)
             XCTAssertGreaterThan(bitmapRect.size.height, 0)
+        }
+    }
+
+    func testObservedObjectProjectedBindingFeedsToggle() async {
+        await MainActor.run {
+            final class SettingsModel: ObservableObject {
+                @Published var enabled = false
+            }
+
+            struct SettingsView: View {
+                @ObservedObject var model: SettingsModel
+
+                var body: some View {
+                    Toggle("ENABLED", isOn: $model.enabled)
+                }
+            }
+
+            let model = SettingsModel()
+            var didInvalidate = false
+            let node = makeNode(
+                SettingsView(model: model),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            node.children[1].onActivate?()
+
+            XCTAssertTrue(model.enabled)
+            XCTAssertTrue(didInvalidate)
         }
     }
 

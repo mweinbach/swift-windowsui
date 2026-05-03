@@ -524,6 +524,177 @@ public struct Button: View {
 }
 
 @MainActor
+public struct Toggle: View {
+    public typealias Body = Never
+
+    private let isOn: Binding<Bool>
+    private let label: [AnyView]
+    private var isEnabled: Bool
+    private var onColor: Color
+    private var offColor: Color
+
+    public init(_ title: String, isOn: Binding<Bool>) {
+        self.isOn = isOn
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.isEnabled = true
+        self.onColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
+    }
+
+    public init(isOn: Binding<Bool>, @ViewBuilder label: () -> [AnyView]) {
+        self.isOn = isOn
+        self.label = label()
+        self.isEnabled = true
+        self.onColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
+    }
+
+    public var body: Never {
+        fatalError("Toggle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let switchNode = Controls.toggle(
+                runtime: runtime,
+                isOn: isOn.wrappedValue,
+                isEnabled: isEnabled,
+                onColor: onColor,
+                offColor: offColor,
+                onToggle: { newValue in
+                    isOn.wrappedValue = newValue
+                    context.invalidate()
+                }
+            )
+
+            guard !label.isEmpty else {
+                return switchNode
+            }
+
+            let labelNode = composeComponent(
+                from: label,
+                context: context,
+                fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+            ).makeNode(runtime: runtime)
+            labelNode.layoutPriority = 1
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 10, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, switchNode]
+            )
+        }
+    }
+
+    public func disabled(_ disabled: Bool) -> Toggle {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func tint(_ color: Color) -> Toggle {
+        var copy = self
+        copy.onColor = color
+        return copy
+    }
+}
+
+@MainActor
+public struct Slider: View {
+    public typealias Body = Never
+
+    private let value: Binding<Double>
+    private let bounds: ClosedRange<Double>
+    private var isEnabled: Bool
+    private var trackColor: Color
+    private var filledColor: Color
+
+    public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1) {
+        self.value = value
+        self.bounds = bounds
+        self.isEnabled = true
+        self.trackColor = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0)
+        self.filledColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+    }
+
+    public var body: Never {
+        fatalError("Slider has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            Controls.slider(
+                runtime: runtime,
+                value: value.wrappedValue,
+                range: bounds,
+                isEnabled: isEnabled,
+                trackColor: trackColor,
+                filledColor: filledColor,
+                onValueChanged: { newValue in
+                    value.wrappedValue = newValue
+                    context.invalidate()
+                }
+            )
+        }
+    }
+
+    public func disabled(_ disabled: Bool) -> Slider {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func tint(_ color: Color) -> Slider {
+        var copy = self
+        copy.filledColor = color
+        return copy
+    }
+}
+
+@MainActor
+public struct ProgressView: View {
+    public typealias Body = Never
+
+    private let value: Double?
+    private let total: Double
+    private var tintColor: Color
+
+    public init(value: Double? = nil, total: Double = 1.0) {
+        self.value = value
+        self.total = total
+        self.tintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+    }
+
+    public var body: Never {
+        fatalError("ProgressView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.progressBar(
+                value: value ?? 0,
+                total: total,
+                filledColor: tintColor
+            )
+        }
+    }
+
+    public func tint(_ color: Color) -> ProgressView {
+        var copy = self
+        copy.tintColor = color
+        return copy
+    }
+}
+
+@MainActor
 public struct HSplitView: View {
     public typealias Body = Never
 

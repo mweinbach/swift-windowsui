@@ -67,10 +67,10 @@ Included today:
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`
-- Controls: `Button`
+- Controls: `Button`, `Toggle`, `Slider`, `ProgressView`
 - Modifiers: `frame`, `padding`, `background`, `cornerRadius`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`
-- Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `ObservableObject` / `Published` / `ObservedObject`
+- Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `Binding` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 
 Current gaps:

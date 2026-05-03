@@ -15,4 +15,12 @@ The batch scene types expose lightweight inspection helpers:
 
 Use these helpers in tests and diagnostics when checking primitive emission, layer splitting, clipping, and batch renderer readiness.
 
+For a quick console smoke check, run:
+
+```powershell
+swift run swift-windowsui-inspect
+```
+
+The inspector builds a small retained tree, reports backend/text capabilities, and prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts without opening a window.
+
 Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths. Newer renderer-neutral commands such as paths, blur, first-class text, and clip-stack commands need backend implementation before they can be considered active visual features on the default renderer.

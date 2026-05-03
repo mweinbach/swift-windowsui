@@ -1586,6 +1586,19 @@ extension Font.TextStyle {
     }
 }
 
+extension Text.TruncationMode {
+    var lineBreakMode: TextLineBreakMode {
+        switch self {
+        case .head:
+            return .truncateHead
+        case .tail:
+            return .truncateTail
+        case .middle:
+            return .truncateMiddle
+        }
+    }
+}
+
 public extension SwiftWindowsCore.Color {
     init(red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
@@ -2427,6 +2440,19 @@ public extension View {
                 updateTextStyles(in: node) { style in
                     style.maximumNumberOfLines = lineLimit
                     style.lineBreakMode = lineLimit == 1 ? .truncateTail : .wrap
+                }
+                return node
+            }
+        }
+    }
+
+    func truncationMode(_ mode: Text.TruncationMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.lineBreakMode = mode.lineBreakMode
                 }
                 return node
             }

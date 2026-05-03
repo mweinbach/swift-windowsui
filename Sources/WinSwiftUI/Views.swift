@@ -100,11 +100,18 @@ public struct Text: View {
         case lowercase
     }
 
+    public enum TruncationMode: Sendable, Equatable {
+        case head
+        case tail
+        case middle
+    }
+
     private var content: String
     private var color: Color
     private var font: Font
     private var alignment: TextAlignment
     private var lineLimit: Int?
+    private var truncationMode: TruncationMode
     private var letterSpacing: Double
     private var lineSpacing: Double
     private var underline: Bool
@@ -118,6 +125,7 @@ public struct Text: View {
         self.font = .system(size: 2)
         self.alignment = .center
         self.lineLimit = nil
+        self.truncationMode = .tail
         self.letterSpacing = 1
         self.lineSpacing = 2
         self.underline = false
@@ -191,9 +199,20 @@ public struct Text: View {
     public func lineLimit(_ lineLimit: Int?) -> Text {
         var copy = self
         copy.lineLimit = lineLimit
+        let lineBreakMode = copy.resolvedLineBreakMode
         copy.updateSpanStyles { style in
             style.maximumNumberOfLines = lineLimit
-            style.lineBreakMode = lineLimit == 1 ? .truncateTail : .wrap
+            style.lineBreakMode = lineBreakMode
+        }
+        return copy
+    }
+
+    public func truncationMode(_ mode: Text.TruncationMode) -> Text {
+        var copy = self
+        copy.truncationMode = mode
+        let lineBreakMode = copy.resolvedLineBreakMode
+        copy.updateSpanStyles { style in
+            style.lineBreakMode = lineBreakMode
         }
         return copy
     }
@@ -296,6 +315,7 @@ public struct Text: View {
         combined.font = lhs.font
         combined.alignment = lhs.alignment
         combined.lineLimit = lhs.lineLimit ?? rhs.lineLimit
+        combined.truncationMode = lhs.truncationMode
         combined.letterSpacing = lhs.letterSpacing
         combined.lineSpacing = lhs.lineSpacing
         combined.underline = lhs.underline
@@ -307,7 +327,7 @@ public struct Text: View {
 
     private var resolvedLineBreakMode: TextLineBreakMode {
         if let lineLimit, lineLimit == 1 {
-            return .truncateTail
+            return truncationMode.lineBreakMode
         }
 
         return .wrap

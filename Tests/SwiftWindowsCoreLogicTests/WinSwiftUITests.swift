@@ -236,6 +236,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTruncationModeMapsToRetainedLineBreakMode() async {
+        await MainActor.run {
+            let headNode = makeNode(
+                Text("TRUNCATE")
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            )
+            let middleNode = makeNode(
+                Text("TRUNCATE")
+                    .truncationMode(.middle)
+                    .lineLimit(1)
+            )
+
+            XCTAssertEqual(headNode.textStyle.maximumNumberOfLines, 1)
+            XCTAssertEqual(headNode.textStyle.lineBreakMode, .truncateHead)
+            XCTAssertEqual(middleNode.textStyle.maximumNumberOfLines, 1)
+            XCTAssertEqual(middleNode.textStyle.lineBreakMode, .truncateMiddle)
+
+            let spanNode = makeNode(
+                (
+                    Text("LEFT")
+                    + Text(" RIGHT")
+                )
+                .lineLimit(1)
+                .truncationMode(.middle)
+            )
+
+            XCTAssertEqual(spanNode.textStyle.spans?.map(\.style.lineBreakMode), [.truncateMiddle, .truncateMiddle])
+        }
+    }
+
+    func testGenericTruncationModeStylesDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("ALPHA")
+                    Text("BETA")
+                }
+                .lineLimit(1)
+                .truncationMode(.middle)
+            )
+
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.maximumNumberOfLines, 1)
+                XCTAssertEqual(child.textStyle.lineBreakMode, .truncateMiddle)
+            }
+        }
+    }
+
     func testVStackMapsToVerticalStackPanel() async {
         await MainActor.run {
             let node = makeNode(

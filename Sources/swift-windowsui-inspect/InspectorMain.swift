@@ -730,6 +730,7 @@ private struct WinSwiftUIProbeView: View {
                 .fontDesign(.monospaced)
                 .tracking(1.6)
                 .lineSpacing(4)
+                .truncationMode(.tail)
                 .lineLimit(1)
 
             HStack(spacing: 8) {

@@ -107,6 +107,7 @@ swift test
 swift build --product swift-windowsui
 swift run swift-windowsui-inspect
 swift run swift-windowsui-inspect -- --verify
+swift run swift-windowsui-inspect -- --json --verify
 swift run swift-windowsui
 ```
 

@@ -1,4 +1,5 @@
 import Dispatch
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsRendererD3D11
@@ -37,38 +38,10 @@ struct SwiftWindowsUIInspector {
         let scrollStress = runScrollStressProbe()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
-
-        print("Swift Windows UI Inspector")
-        print("Render backend: \(renderBackend.backendStatusDescription)")
-        print("Batch backend: \(batchBackend?.backendDisplayName ?? "unavailable")")
-        print("Text backend: \(textCapabilities.renderingLabel)")
-        print("RenderFrame commands: \(frame.commands.count)")
-        print("  fillRect: \(commandCounts.fillRect)")
-        print("  drawBitmap: \(commandCounts.drawBitmap)")
-        print("  fillPath: \(commandCounts.fillPath)")
-        print("  strokePath: \(commandCounts.strokePath)")
-        print("  applyBlur: \(commandCounts.applyBlur)")
-        print("  drawText: \(commandCounts.drawText)")
-        print("  clip ops: \(commandCounts.clipOperations)")
-        print("GPUIScene bridge: \(bridgedScene.layers.count) layers, \(bridgedScene.primitiveCount) primitives")
-        print("ScenePainter batch: \(paintedScene.layers.count) layers, \(paintedScene.primitiveCount) primitives")
-        print("  quads: \(paintedScene.totalQuads)")
-        print("  shadows: \(paintedScene.totalShadows)")
-        print("  glyphs: \(paintedScene.totalGlyphs)")
-        print("  images: \(paintedScene.totalImages)")
-        print("Path probe: \(pathProbeCounts.fillPath) fill, \(pathProbeCounts.strokePath) stroke, \(pathProbePath.segments.count) segments")
-        print("Text probe: \(textProbeCounts.drawText) drawText command")
-        print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
-        print("Control probe: \(controlProbeFocusableCount) focusable, \(controlProbeCounts.fillRect) fills, \(controlProbeCounts.drawBitmap) bitmaps")
-        print("WinSwiftUI probe: \(winSwiftUIProbe.nodeCount) nodes, \(winSwiftUIProbe.textNodeCount) text, \(winSwiftUIProbe.focusableNodeCount) focusable")
-        print("  layout: \(winSwiftUIProbe.rootLayoutKind), depth: \(winSwiftUIProbe.maxDepth), commands: \(winSwiftUIProbe.renderCommands.total)")
-        print("  text: \(winSwiftUIProbe.textSamples.joined(separator: ", "))")
-        print("Text input probe: \(textInputProbeValue)")
-        print("Scroll stress: \(scrollStress.rowCount) rows -> \(scrollStress.commandCount) commands in \(formatMilliseconds(scrollStress.elapsedMilliseconds)) ms")
-        print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
-
-        if CommandLine.arguments.contains("--verify") {
-            let failures = verificationFailures(
+        let wantsJSON = CommandLine.arguments.contains("--json")
+        let wantsVerification = CommandLine.arguments.contains("--verify")
+        let failures = wantsVerification
+            ? verificationFailures(
                 batchBackendName: batchBackend?.backendDisplayName,
                 sampleCommandCounts: commandCounts,
                 bridgedScene: bridgedScene,
@@ -82,13 +55,57 @@ struct SwiftWindowsUIInspector {
                 scrollStress: scrollStress,
                 clipProbeScene: clipProbeScene
             )
+            : []
+        let report = InspectorReport(
+            renderBackend: renderBackend.backendStatusDescription,
+            batchBackend: batchBackend?.backendDisplayName,
+            textBackend: textCapabilities.renderingLabel,
+            renderFrame: CommandSummary(total: frame.commands.count, counts: commandCounts),
+            gpuSceneBridge: SceneSummary(layers: bridgedScene.layers.count, primitives: bridgedScene.primitiveCount),
+            scenePainter: ScenePainterSummary(
+                layers: paintedScene.layers.count,
+                primitives: paintedScene.primitiveCount,
+                quads: paintedScene.totalQuads,
+                shadows: paintedScene.totalShadows,
+                glyphs: paintedScene.totalGlyphs,
+                images: paintedScene.totalImages
+            ),
+            pathProbe: PathProbeSummary(fillPath: pathProbeCounts.fillPath, strokePath: pathProbeCounts.strokePath, segments: pathProbePath.segments.count),
+            textProbe: TextProbeSummary(drawText: textProbeCounts.drawText),
+            blurProbe: BlurProbeSummary(applyBlur: blurProbeCounts.applyBlur),
+            controlProbe: ControlProbeSummary(focusable: controlProbeFocusableCount, fillRect: controlProbeCounts.fillRect, drawBitmap: controlProbeCounts.drawBitmap),
+            winSwiftUIProbe: WinSwiftUIProbeSummary(
+                nodes: winSwiftUIProbe.nodeCount,
+                textNodes: winSwiftUIProbe.textNodeCount,
+                focusableNodes: winSwiftUIProbe.focusableNodeCount,
+                rootLayoutKind: winSwiftUIProbe.rootLayoutKind,
+                maxDepth: winSwiftUIProbe.maxDepth,
+                renderCommands: winSwiftUIProbe.renderCommands.total,
+                textSamples: winSwiftUIProbe.textSamples
+            ),
+            textInputProbe: textInputProbeValue,
+            scrollStress: scrollStress,
+            clipStackProbe: clipSummary(clipProbeScene.layers.first?.quads.first?.clipRect),
+            verification: wantsVerification ? VerificationSummary(passed: failures.isEmpty, failures: failures) : nil
+        )
 
+        if wantsJSON {
+            printJSON(report)
+        } else {
+            printHumanReport(report)
+        }
+
+        if wantsVerification {
             if failures.isEmpty {
-                print("Verification: passed")
+                if !wantsJSON {
+                    print("Verification: passed")
+                }
             } else {
-                print("Verification: failed")
-                for failure in failures {
-                    print("  - \(failure)")
+                if !wantsJSON {
+                    print("Verification: failed")
+                    for failure in failures {
+                        print("  - \(failure)")
+                    }
                 }
                 fatalError("swift-windowsui-inspect verification failed")
             }
@@ -179,6 +196,147 @@ private struct CommandCounts {
             }
         }
     }
+}
+
+private struct InspectorReport: Encodable {
+    var renderBackend: String
+    var batchBackend: String?
+    var textBackend: String
+    var renderFrame: CommandSummary
+    var gpuSceneBridge: SceneSummary
+    var scenePainter: ScenePainterSummary
+    var pathProbe: PathProbeSummary
+    var textProbe: TextProbeSummary
+    var blurProbe: BlurProbeSummary
+    var controlProbe: ControlProbeSummary
+    var winSwiftUIProbe: WinSwiftUIProbeSummary
+    var textInputProbe: String
+    var scrollStress: ScrollStressResult
+    var clipStackProbe: ClipSummary?
+    var verification: VerificationSummary?
+}
+
+private struct CommandSummary: Encodable {
+    var total: Int
+    var fillRect: Int
+    var drawBitmap: Int
+    var fillPath: Int
+    var strokePath: Int
+    var applyBlur: Int
+    var drawText: Int
+    var clipOperations: Int
+
+    init(total: Int, counts: CommandCounts) {
+        self.total = total
+        self.fillRect = counts.fillRect
+        self.drawBitmap = counts.drawBitmap
+        self.fillPath = counts.fillPath
+        self.strokePath = counts.strokePath
+        self.applyBlur = counts.applyBlur
+        self.drawText = counts.drawText
+        self.clipOperations = counts.clipOperations
+    }
+}
+
+private struct SceneSummary: Encodable {
+    var layers: Int
+    var primitives: Int
+}
+
+private struct ScenePainterSummary: Encodable {
+    var layers: Int
+    var primitives: Int
+    var quads: Int
+    var shadows: Int
+    var glyphs: Int
+    var images: Int
+}
+
+private struct PathProbeSummary: Encodable {
+    var fillPath: Int
+    var strokePath: Int
+    var segments: Int
+}
+
+private struct TextProbeSummary: Encodable {
+    var drawText: Int
+}
+
+private struct BlurProbeSummary: Encodable {
+    var applyBlur: Int
+}
+
+private struct ControlProbeSummary: Encodable {
+    var focusable: Int
+    var fillRect: Int
+    var drawBitmap: Int
+}
+
+private struct WinSwiftUIProbeSummary: Encodable {
+    var nodes: Int
+    var textNodes: Int
+    var focusableNodes: Int
+    var rootLayoutKind: String
+    var maxDepth: Int
+    var renderCommands: Int
+    var textSamples: [String]
+}
+
+private struct ClipSummary: Encodable {
+    var x: Float
+    var y: Float
+    var width: Float
+    var height: Float
+}
+
+private struct VerificationSummary: Encodable {
+    var passed: Bool
+    var failures: [String]
+}
+
+private func printJSON(_ report: InspectorReport) {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    do {
+        let data = try encoder.encode(report)
+        guard let json = String(data: data, encoding: .utf8) else {
+            fatalError("swift-windowsui-inspect could not encode UTF-8 JSON")
+        }
+        print(json)
+    } catch {
+        fatalError("swift-windowsui-inspect JSON encoding failed: \(error)")
+    }
+}
+
+private func printHumanReport(_ report: InspectorReport) {
+    print("Swift Windows UI Inspector")
+    print("Render backend: \(report.renderBackend)")
+    print("Batch backend: \(report.batchBackend ?? "unavailable")")
+    print("Text backend: \(report.textBackend)")
+    print("RenderFrame commands: \(report.renderFrame.total)")
+    print("  fillRect: \(report.renderFrame.fillRect)")
+    print("  drawBitmap: \(report.renderFrame.drawBitmap)")
+    print("  fillPath: \(report.renderFrame.fillPath)")
+    print("  strokePath: \(report.renderFrame.strokePath)")
+    print("  applyBlur: \(report.renderFrame.applyBlur)")
+    print("  drawText: \(report.renderFrame.drawText)")
+    print("  clip ops: \(report.renderFrame.clipOperations)")
+    print("GPUIScene bridge: \(report.gpuSceneBridge.layers) layers, \(report.gpuSceneBridge.primitives) primitives")
+    print("ScenePainter batch: \(report.scenePainter.layers) layers, \(report.scenePainter.primitives) primitives")
+    print("  quads: \(report.scenePainter.quads)")
+    print("  shadows: \(report.scenePainter.shadows)")
+    print("  glyphs: \(report.scenePainter.glyphs)")
+    print("  images: \(report.scenePainter.images)")
+    print("Path probe: \(report.pathProbe.fillPath) fill, \(report.pathProbe.strokePath) stroke, \(report.pathProbe.segments) segments")
+    print("Text probe: \(report.textProbe.drawText) drawText command")
+    print("Blur probe: \(report.blurProbe.applyBlur) applyBlur command")
+    print("Control probe: \(report.controlProbe.focusable) focusable, \(report.controlProbe.fillRect) fills, \(report.controlProbe.drawBitmap) bitmaps")
+    print("WinSwiftUI probe: \(report.winSwiftUIProbe.nodes) nodes, \(report.winSwiftUIProbe.textNodes) text, \(report.winSwiftUIProbe.focusableNodes) focusable")
+    print("  layout: \(report.winSwiftUIProbe.rootLayoutKind), depth: \(report.winSwiftUIProbe.maxDepth), commands: \(report.winSwiftUIProbe.renderCommands)")
+    print("  text: \(report.winSwiftUIProbe.textSamples.joined(separator: ", "))")
+    print("Text input probe: \(report.textInputProbe)")
+    print("Scroll stress: \(report.scrollStress.rowCount) rows -> \(report.scrollStress.commandCount) commands in \(formatMilliseconds(report.scrollStress.elapsedMilliseconds)) ms")
+    print("Clip stack probe: \(formatClip(report.clipStackProbe))")
 }
 
 private func makeClipProbeFrame() -> RenderFrame {
@@ -320,7 +478,7 @@ private func countFocusableNodes(_ node: ViewNode) -> Int {
     return ownCount + node.children.reduce(0) { $0 + countFocusableNodes($1) }
 }
 
-private struct ScrollStressResult {
+private struct ScrollStressResult: Encodable {
     var rowCount: Int
     var commandCount: Int
     var elapsedMilliseconds: Double
@@ -383,6 +541,22 @@ private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {
     }
 
     return "x=\(clip.0) y=\(clip.1) w=\(clip.2) h=\(clip.3)"
+}
+
+private func formatClip(_ clip: ClipSummary?) -> String {
+    guard let clip else {
+        return "none"
+    }
+
+    return "x=\(clip.x) y=\(clip.y) w=\(clip.width) h=\(clip.height)"
+}
+
+private func clipSummary(_ clip: (Float, Float, Float, Float)?) -> ClipSummary? {
+    guard let clip else {
+        return nil
+    }
+
+    return ClipSummary(x: clip.0, y: clip.1, width: clip.2, height: clip.3)
 }
 
 private func verificationFailures(

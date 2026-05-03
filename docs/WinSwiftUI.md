@@ -171,7 +171,7 @@ This is intentionally small. It exists to support shared app source and runtime 
 
 ## Inspection
 
-`WinSwiftUIInspection.snapshot(of:)` builds any `WinSwiftUI.View` into the retained runtime and returns a lightweight diagnostic summary: retained node counts, text/focus/hit-test counts, root layout kind, text samples, invalidations during build, and render-command counts. The `swift-windowsui-inspect` executable uses this alongside lower-level retained/runtime probes so compatibility work can be checked from the console without launching the GUI demo.
+`WinSwiftUIInspection.snapshot(of:)` builds any `WinSwiftUI.View` into the retained runtime and returns a lightweight diagnostic summary: retained node counts, text/focus/hit-test counts, root layout kind, text samples, invalidations during build, and render-command counts. The `swift-windowsui-inspect` executable uses this alongside lower-level retained/runtime probes so compatibility work can be checked from the console without launching the GUI demo, and `swift run swift-windowsui-inspect -- --json --verify` emits those diagnostics as structured JSON for automation.
 
 ## Demo Contract
 

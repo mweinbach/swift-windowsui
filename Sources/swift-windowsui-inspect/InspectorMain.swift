@@ -44,6 +44,7 @@ struct SwiftWindowsUIInspector {
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
+        let textScrollStress = runTextScrollStressProbe()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
         let wantsJSON = CommandLine.arguments.contains("--json")
@@ -65,6 +66,7 @@ struct SwiftWindowsUIInspector {
                 winSwiftUIProbe: winSwiftUIProbe,
                 textInputProbeValue: textInputProbeValue,
                 scrollStress: scrollStress,
+                textScrollStress: textScrollStress,
                 clipProbeScene: clipProbeScene
             )
             : []
@@ -114,6 +116,7 @@ struct SwiftWindowsUIInspector {
             ),
             textInputProbe: textInputProbeValue,
             scrollStress: scrollStress,
+            textScrollStress: textScrollStress,
             clipStackProbe: clipSummary(clipProbeScene.layers.first?.quads.first?.clipRect),
             verification: wantsVerification ? VerificationSummary(passed: failures.isEmpty, failures: failures) : nil
         )
@@ -246,6 +249,7 @@ private struct InspectorReport: Encodable {
     var winSwiftUIProbe: WinSwiftUIProbeSummary
     var textInputProbe: String
     var scrollStress: ScrollStressResult
+    var textScrollStress: TextScrollStressResult
     var clipStackProbe: ClipSummary?
     var verification: VerificationSummary?
 }
@@ -448,6 +452,7 @@ private func printHumanReport(_ report: InspectorReport) {
     print("  text: \(report.winSwiftUIProbe.textSamples.joined(separator: ", "))")
     print("Text input probe: \(report.textInputProbe)")
     print("Scroll stress: \(report.scrollStress.rowCount) rows, \(report.scrollStress.sampleCount) offsets -> max \(report.scrollStress.commandCount) commands, avg \(formatMilliseconds(report.scrollStress.averageElapsedMilliseconds)) ms, max \(formatMilliseconds(report.scrollStress.elapsedMilliseconds)) ms")
+    print("Text scroll stress: \(report.textScrollStress.rowCount) rows, \(report.textScrollStress.sampleCount) offsets -> max \(report.textScrollStress.commandCount) commands, max \(report.textScrollStress.bitmapCommandCount) bitmaps, cache \(report.textScrollStress.cacheCount) bitmaps / \(report.textScrollStress.measurementCacheCount) measures / \(report.textScrollStress.cacheMemoryBytes) bytes, cold avg \(formatMilliseconds(report.textScrollStress.averageElapsedMilliseconds)) ms, warm avg \(formatMilliseconds(report.textScrollStress.warmAverageElapsedMilliseconds)) ms")
     print("Clip stack probe: \(formatClip(report.clipStackProbe))")
 }
 
@@ -673,6 +678,29 @@ private struct ScrollStressSample: Encodable {
     var elapsedMilliseconds: Double
 }
 
+private struct TextScrollStressResult: Encodable {
+    var rowCount: Int
+    var sampleCount: Int
+    var commandCount: Int
+    var bitmapCommandCount: Int
+    var cacheCount: Int
+    var measurementCacheCount: Int
+    var cacheMemoryBytes: Int
+    var elapsedMilliseconds: Double
+    var averageElapsedMilliseconds: Double
+    var warmElapsedMilliseconds: Double
+    var warmAverageElapsedMilliseconds: Double
+    var samples: [TextScrollStressSample]
+    var warmSamples: [TextScrollStressSample]
+}
+
+private struct TextScrollStressSample: Encodable {
+    var scrollOffset: Double
+    var commandCount: Int
+    var bitmapCommandCount: Int
+    var elapsedMilliseconds: Double
+}
+
 @MainActor
 private func runScrollStressProbe(rowCount: Int = 500) -> ScrollStressResult {
     let (runtime, scrollPanel, maxOffset) = makeScrollStressRuntime(rowCount: rowCount)
@@ -749,6 +777,107 @@ private func scrollStressOffsets(maxOffset: Double) -> [Double] {
     return [0, maxOffset * 0.25, maxOffset * 0.5, maxOffset * 0.75, maxOffset]
 }
 
+@MainActor
+private func runTextScrollStressProbe(rowCount: Int = 240) -> TextScrollStressResult {
+    let (runtime, scrollPanel, maxOffset) = makeTextScrollStressRuntime(rowCount: rowCount)
+    let offsets = scrollStressOffsets(maxOffset: maxOffset)
+    let samples = textScrollStressSamples(offsets: offsets, runtime: runtime, scrollPanel: scrollPanel)
+    let warmSamples = textScrollStressSamples(offsets: offsets, runtime: runtime, scrollPanel: scrollPanel)
+    let maxCommandCount = samples.map(\.commandCount).max() ?? 0
+    let maxBitmapCommandCount = samples.map(\.bitmapCommandCount).max() ?? 0
+    let maxElapsedMilliseconds = samples.map(\.elapsedMilliseconds).max() ?? 0
+    let averageElapsedMilliseconds = samples.isEmpty
+        ? 0
+        : samples.reduce(0) { $0 + $1.elapsedMilliseconds } / Double(samples.count)
+    let maxWarmElapsedMilliseconds = warmSamples.map(\.elapsedMilliseconds).max() ?? 0
+    let averageWarmElapsedMilliseconds = warmSamples.isEmpty
+        ? 0
+        : warmSamples.reduce(0) { $0 + $1.elapsedMilliseconds } / Double(warmSamples.count)
+
+    return TextScrollStressResult(
+        rowCount: rowCount,
+        sampleCount: samples.count,
+        commandCount: maxCommandCount,
+        bitmapCommandCount: maxBitmapCommandCount,
+        cacheCount: runtime.textRasterCache?.count ?? 0,
+        measurementCacheCount: runtime.textRasterCache?.measurementCount ?? 0,
+        cacheMemoryBytes: runtime.textRasterCache?.currentMemoryBytes ?? 0,
+        elapsedMilliseconds: maxElapsedMilliseconds,
+        averageElapsedMilliseconds: averageElapsedMilliseconds,
+        warmElapsedMilliseconds: maxWarmElapsedMilliseconds,
+        warmAverageElapsedMilliseconds: averageWarmElapsedMilliseconds,
+        samples: samples,
+        warmSamples: warmSamples
+    )
+}
+
+@MainActor
+private func textScrollStressSamples(
+    offsets: [Double],
+    runtime: RetainedViewRuntime,
+    scrollPanel: ViewNode
+) -> [TextScrollStressSample] {
+    offsets.map { offset in
+        scrollPanel.scrollOffset = offset
+        let start = DispatchTime.now().uptimeNanoseconds
+        let frame = runtime.renderFrame()
+        let elapsed = DispatchTime.now().uptimeNanoseconds - start
+        let counts = CommandCounts(frame.commands)
+        return TextScrollStressSample(
+            scrollOffset: offset,
+            commandCount: frame.commands.count,
+            bitmapCommandCount: counts.drawBitmap,
+            elapsedMilliseconds: Double(elapsed) / 1_000_000
+        )
+    }
+}
+
+@MainActor
+private func makeTextScrollStressRuntime(rowCount: Int) -> (RetainedViewRuntime, ViewNode, Double) {
+    let rows = (0..<rowCount).map { index in
+        let label = Controls.label(
+            "ROW \(index) NATIVE TEXT CACHE",
+            color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 1.0),
+            scale: 1.45,
+            alignment: .leading,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+        return Controls.panel(
+            preferredSize: Size(width: 0, height: 28),
+            backgroundColor: index.isMultiple(of: 2)
+                ? Color(red: 0.15, green: 0.20, blue: 0.29, alpha: 1.0)
+                : Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 1.0),
+            cornerRadius: 7,
+            layoutMode: .stack(.vertical(padding: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10), alignment: .leading)),
+            isHitTestVisible: false,
+            children: [label]
+        )
+    }
+    let rowHeight = 28.0
+    let rowSpacing = 3.0
+    let viewportHeight = 220.0
+    let contentHeight = Double(rowCount) * rowHeight + Double(max(0, rowCount - 1)) * rowSpacing
+    let maxOffset = max(0, contentHeight - viewportHeight)
+
+    let scrollPanel = Controls.scrollPanel(
+        axis: .vertical,
+        frame: Rect(x: 0, y: 0, width: 360, height: 220),
+        stackLayout: .vertical(spacing: rowSpacing, alignment: .stretch),
+        scrollIndicatorThickness: 5,
+        isHitTestVisible: true,
+        children: rows
+    )
+
+    let root = ViewNode(
+        frame: Rect(x: 0, y: 0, width: 360, height: 220),
+        isHitTestVisible: false,
+        children: [scrollPanel]
+    )
+
+    return (RetainedViewRuntime(root: root, displayScale: 1.0), scrollPanel, maxOffset)
+}
+
 private func formatMilliseconds(_ value: Double) -> String {
     let rounded = (value * 1_000).rounded() / 1_000
     return "\(rounded)"
@@ -806,6 +935,7 @@ private func verificationFailures(
     winSwiftUIProbe: WinSwiftUIInspectionSnapshot,
     textInputProbeValue: String,
     scrollStress: ScrollStressResult,
+    textScrollStress: TextScrollStressResult,
     clipProbeScene: GPUIScene
 ) -> [String] {
     var failures: [String] = []
@@ -997,6 +1127,18 @@ private func verificationFailures(
     }
     if scrollStress.commandCount > 40 {
         failures.append("scroll stress sweep emitted up to \(scrollStress.commandCount) commands; expected culling to keep every sample at or below 40")
+    }
+    if textScrollStress.bitmapCommandCount == 0 {
+        failures.append("text scroll stress emitted no bitmap text commands")
+    }
+    if textScrollStress.cacheCount == 0 || textScrollStress.measurementCacheCount == 0 || textScrollStress.cacheMemoryBytes == 0 {
+        failures.append("text scroll stress did not populate text raster and measurement caches")
+    }
+    if textScrollStress.commandCount >= textScrollStress.rowCount {
+        failures.append("text scroll stress did not cull offscreen text rows")
+    }
+    if textScrollStress.warmAverageElapsedMilliseconds > max(textScrollStress.averageElapsedMilliseconds * 1.25, textScrollStress.averageElapsedMilliseconds + 1.0) {
+        failures.append("text scroll stress warm-cache pass was slower than the cold raster pass")
     }
     if !clipMatches(clipProbeScene.layers.first?.quads.first?.clipRect, x: 100, y: 50, width: 70, height: 70) {
         failures.append("clip probe did not resolve to the expected intersection")

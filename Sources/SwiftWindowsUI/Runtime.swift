@@ -1381,8 +1381,20 @@ public final class ViewNode {
 
         let displayScale = runtime?.displayScale ?? 1.0
         let maxWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : nil
-        return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
+        let measurementKey = TextMeasurementCacheKey(
+            text: text,
+            style: textStyle,
+            maxWidth: maxWidth,
+            displayScale: displayScale
+        )
+        if let cachedSize = runtime?.textRasterCache?.measurement(for: measurementKey) {
+            return cachedSize
+        }
+
+        let measuredSize = NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
             ?? PixelFont.measure(text, style: textStyle, maxWidth: maxWidth)
+        runtime?.textRasterCache?.insertMeasurement(measuredSize, for: measurementKey)
+        return measuredSize
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {

@@ -581,6 +581,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             }
 
             XCTAssertEqual(runtime.textRasterCache?.count, 1)
+            XCTAssertEqual(runtime.textRasterCache?.measurementCount, 1)
 
             root.backgroundColor = .clear
             let secondFrame = runtime.renderFrame()
@@ -589,6 +590,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             }
 
             XCTAssertEqual(runtime.textRasterCache?.count, 1)
+            XCTAssertEqual(runtime.textRasterCache?.measurementCount, 1)
             XCTAssertEqual(secondBitmap, firstBitmap)
         }
     }

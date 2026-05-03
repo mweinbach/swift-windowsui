@@ -685,6 +685,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("ENVIRONMENT VALUE") {
         failures.append("WinSwiftUI probe text samples are missing the Environment sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
+        failures.append("WinSwiftUI probe text samples are missing the onChange sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -851,6 +854,9 @@ private struct WinSwiftUIProbeView: View {
 
             InspectorEnvironmentSample()
                 .environment(\.inspectorEnvironmentLabel, "ENVIRONMENT VALUE")
+
+            Text("ONCHANGE READY")
+                .onChange(of: "ready", initial: true) { _, _ in }
 
             Toggle("LIVE SWITCH", isOn: .constant(true))
 

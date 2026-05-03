@@ -2703,6 +2703,125 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnChangeTracksOldAndNewValuesAcrossRebuilds() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var changes: [String] = []
+
+            _ = rebuilder.rebuild(TestOnChangePairView(value: 1) { oldValue, newValue in
+                changes.append("\(oldValue)->\(newValue)")
+            })
+            _ = rebuilder.rebuild(TestOnChangePairView(value: 1) { oldValue, newValue in
+                changes.append("\(oldValue)->\(newValue)")
+            })
+            _ = rebuilder.rebuild(TestOnChangePairView(value: 3) { oldValue, newValue in
+                changes.append("\(oldValue)->\(newValue)")
+            })
+            _ = rebuilder.rebuild(TestOnChangePairView(value: 3) { oldValue, newValue in
+                changes.append("\(oldValue)->\(newValue)")
+            })
+            _ = rebuilder.rebuild(TestOnChangePairView(value: 4) { oldValue, newValue in
+                changes.append("\(oldValue)->\(newValue)")
+            })
+
+            XCTAssertEqual(changes, ["1->3", "3->4"])
+        }
+    }
+
+    func testOnChangeInitialAndZeroArgumentOverload() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var callCount = 0
+
+            _ = rebuilder.rebuild(TestOnChangeInitialZeroView(value: "ready") {
+                callCount += 1
+            })
+            _ = rebuilder.rebuild(TestOnChangeInitialZeroView(value: "ready") {
+                callCount += 1
+            })
+            _ = rebuilder.rebuild(TestOnChangeInitialZeroView(value: "done") {
+                callCount += 1
+            })
+
+            XCTAssertEqual(callCount, 2)
+        }
+    }
+
+    func testOnChangePerformCompatibilityReceivesNewValue() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var values: [String] = []
+
+            _ = rebuilder.rebuild(TestOnChangePerformView(value: "idle") { value in
+                values.append(value)
+            })
+            _ = rebuilder.rebuild(TestOnChangePerformView(value: "running") { value in
+                values.append(value)
+            })
+
+            XCTAssertEqual(values, ["running"])
+        }
+    }
+
+    func testOnChangeRunsFromComposedRootAcrossComponentReloads() async {
+        await MainActor.run {
+            var value = 1
+            var changes: [String] = []
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 160, height: 80) }, invalidateHandler: {})
+            let binding = Binding<Int>(
+                get: {
+                    value
+                },
+                set: { newValue in
+                    value = newValue
+                }
+            )
+            let component = composeComponent(
+                from: [
+                    AnyView(TestOnChangeBindingView(value: binding) { oldValue, newValue in
+                        changes.append("\(oldValue)->\(newValue)")
+                    })
+                ],
+                context: context
+            )
+
+            _ = component.makeNode(runtime: runtime)
+            value = 2
+            _ = component.makeNode(runtime: runtime)
+            _ = component.makeNode(runtime: runtime)
+            value = 5
+            _ = component.makeNode(runtime: runtime)
+
+            XCTAssertEqual(changes, ["1->2", "2->5"])
+        }
+    }
+
+    func testOnChangeStateIsScopedToBuildContext() async {
+        await MainActor.run {
+            let firstRebuilder = TestViewRebuilder()
+            let secondRebuilder = TestViewRebuilder()
+            var firstChanges: [String] = []
+            var secondChanges: [String] = []
+
+            _ = firstRebuilder.rebuild(TestOnChangePairView(value: 1) { oldValue, newValue in
+                firstChanges.append("\(oldValue)->\(newValue)")
+            })
+            _ = secondRebuilder.rebuild(TestOnChangePairView(value: 100) { oldValue, newValue in
+                secondChanges.append("\(oldValue)->\(newValue)")
+            })
+            _ = firstRebuilder.rebuild(TestOnChangePairView(value: 2) { oldValue, newValue in
+                firstChanges.append("\(oldValue)->\(newValue)")
+            })
+            _ = secondRebuilder.rebuild(TestOnChangePairView(value: 101) { oldValue, newValue in
+                secondChanges.append("\(oldValue)->\(newValue)")
+            })
+
+            XCTAssertEqual(firstChanges, ["1->2"])
+            XCTAssertEqual(secondChanges, ["100->101"])
+        }
+    }
+
     func testTapGestureMapsToPointerActivation() async {
         await MainActor.run {
             var taps = 0
@@ -4976,6 +5095,67 @@ private struct TestEnvironmentControlReader: View {
             Text(tint == .mint ? "MINT TINT" : "OTHER TINT")
             Text(isEnabled ? "ENABLED ENV" : "DISABLED ENV")
         }
+    }
+}
+
+private struct TestOnChangePairView: View {
+    let value: Int
+    let onChange: @MainActor (Int, Int) -> Void
+
+    var body: some View {
+        Text("PAIR \(value)")
+            .onChange(of: value) { oldValue, newValue in
+                onChange(oldValue, newValue)
+            }
+    }
+}
+
+private struct TestOnChangeInitialZeroView: View {
+    let value: String
+    let onChange: @MainActor () -> Void
+
+    var body: some View {
+        Text("INITIAL \(value)")
+            .onChange(of: value, initial: true) {
+                onChange()
+            }
+    }
+}
+
+private struct TestOnChangePerformView: View {
+    let value: String
+    let onChange: @MainActor (String) -> Void
+
+    var body: some View {
+        Text("PERFORM \(value)")
+            .onChange(of: value, perform: onChange)
+    }
+}
+
+private struct TestOnChangeBindingView: View {
+    let value: Binding<Int>
+    let onChange: @MainActor (Int, Int) -> Void
+
+    var body: some View {
+        Text("BOUND \(value.wrappedValue)")
+            .onChange(of: value.wrappedValue) { oldValue, newValue in
+                onChange(oldValue, newValue)
+            }
+    }
+}
+
+@MainActor
+private final class TestViewRebuilder {
+    private let runtime = RetainedViewRuntime(root: ViewNode())
+    private let context: ViewBuildContext
+
+    init(size: Size = Size(width: 800, height: 600)) {
+        self.context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+    }
+
+    func rebuild<V: View>(_ view: V) -> ViewNode {
+        context.beginDynamicBuild()
+        return view.makeComponent(context: context).makeNode(runtime: runtime)
     }
 }
 

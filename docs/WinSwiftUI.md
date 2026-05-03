@@ -160,6 +160,7 @@ Modifiers:
 - `layoutPriority`
 - `allowsHitTesting`
 - `disabled`
+- `onChange`
 - `onAppear`
 - `onDisappear`
 - `onSubmit`
@@ -264,6 +265,7 @@ Surface direction:
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, `ProgressView`, and `Gauge` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
 - `EnvironmentKey`, `EnvironmentValues`, `@Environment`, and `environment(_:_:)` support custom SwiftUI-shaped environment values. The built-in `tint`, `controlSize`, and `isEnabled` values are wired back into the retained build context so `environment(\.tint, ...)`, `environment(\.controlSize, ...)`, and `disabled(_:)` affect compatible descendant controls; the full SwiftUI environment catalog is still future work.
+- `onChange(of:initial:_:)` tracks equatable values by modifier callsite and retained-build occurrence, passing old and new values to the action when the value changes. The zero-argument modern closure and deprecated `onChange(of:perform:)` source shapes are also accepted. Actions run during the retained rebuild that observes the new value, so long-running work should still be dispatched out of the UI path.
 - `searchable` uses the supplied search text binding as the retained search field storage. Search suggestions, tokens, scopes, environment-driven dismissal, and native toolbar/sidebar placement are still future work.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `progressViewStyle` and `gaugeStyle` are carried through the build context so descendant progress and gauge controls can share linear or circular retained indicators unless they set explicit styles.

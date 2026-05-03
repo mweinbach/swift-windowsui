@@ -551,10 +551,37 @@ public struct Environment<Value> {
 }
 
 @MainActor
+final class ViewBuildDynamicState {
+    private var callsiteOccurrences: [String: Int] = [:]
+    private var onChangeValues: [String: Any] = [:]
+
+    func beginRootBuild() {
+        callsiteOccurrences.removeAll()
+    }
+
+    func onChangeKey(fileID: StaticString, line: UInt) -> String {
+        let callsite = "\(String(describing: fileID)):\(line)"
+        let occurrence = callsiteOccurrences[callsite, default: 0]
+        callsiteOccurrences[callsite] = occurrence + 1
+        return "\(callsite):\(occurrence)"
+    }
+
+    func previousOnChangeValue<Value>(for key: String, as type: Value.Type) -> Value? {
+        _ = type
+        return onChangeValues[key] as? Value
+    }
+
+    func setOnChangeValue<Value>(_ value: Value, for key: String) {
+        onChangeValues[key] = value
+    }
+}
+
+@MainActor
 public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
+    private let dynamicState: ViewBuildDynamicState
     var environmentValues: EnvironmentValues
     var tintColor: Color?
     var buttonStyle: ButtonStyle?
@@ -581,6 +608,7 @@ public struct ViewBuildContext {
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
+        dynamicState: ViewBuildDynamicState? = nil,
         environmentValues: EnvironmentValues = EnvironmentValues(),
         tintColor: Color? = nil,
         buttonStyle: ButtonStyle? = nil,
@@ -613,6 +641,13 @@ public struct ViewBuildContext {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
+        if let dynamicState {
+            self.dynamicState = dynamicState
+        } else {
+            let rootDynamicState = ViewBuildDynamicState()
+            rootDynamicState.beginRootBuild()
+            self.dynamicState = rootDynamicState
+        }
         self.environmentValues = resolvedEnvironmentValues
         self.tintColor = resolvedEnvironmentValues.contains(TintEnvironmentKey.self) ? resolvedEnvironmentValues.tint : tintColor
         self.buttonStyle = buttonStyle
@@ -640,11 +675,35 @@ public struct ViewBuildContext {
         observedObjectHandler(object)
     }
 
+    func beginDynamicBuild() {
+        dynamicState.beginRootBuild()
+    }
+
+    func observeChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool,
+        fileID: StaticString,
+        line: UInt,
+        action: @MainActor (Value, Value) -> Void
+    ) {
+        let key = dynamicState.onChangeKey(fileID: fileID, line: line)
+        if let oldValue = dynamicState.previousOnChangeValue(for: key, as: Value.self) {
+            if oldValue != value {
+                action(oldValue, value)
+            }
+        } else if initial {
+            action(value, value)
+        }
+
+        dynamicState.setOnChangeValue(value, for: key)
+    }
+
     func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
         return ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: values,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -673,6 +732,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: values,
             tintColor: color,
             buttonStyle: buttonStyle,
@@ -698,6 +758,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: style,
@@ -723,6 +784,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -748,6 +810,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -773,6 +836,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -798,6 +862,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -823,6 +888,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -848,6 +914,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -876,6 +943,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: values,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -901,6 +969,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -926,6 +995,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -951,6 +1021,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -976,6 +1047,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -1001,6 +1073,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -1026,6 +1099,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: environmentValues,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -1054,6 +1128,7 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
+            dynamicState: dynamicState,
             environmentValues: values,
             tintColor: tintColor,
             buttonStyle: buttonStyle,
@@ -2906,12 +2981,14 @@ func composeComponent(
     fallbackLayout: ViewLayoutMode = .absolute,
     isHitTestVisible: Bool = false
 ) -> Component {
-    if views.count == 1, let view = views.first {
-        return view.makeComponent(context: context)
-    }
-
     return Component { runtime in
-        Controls.panel(
+        context.beginDynamicBuild()
+
+        if views.count == 1, let view = views.first {
+            return view.makeComponent(context: context).makeNode(runtime: runtime)
+        }
+
+        return Controls.panel(
             layoutMode: fallbackLayout,
             isHitTestVisible: isHitTestVisible,
             children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
@@ -5058,6 +5135,42 @@ public extension View {
                 childNode.onDragEndAt = nil
                 return childNode
             }
+        }
+    }
+
+    func onChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool = false,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ action: @escaping @MainActor (Value, Value) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            context.observeChange(of: value, initial: initial, fileID: fileID, line: line, action: action)
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func onChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool = false,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        _ action: @escaping @MainActor () -> Void
+    ) -> some View {
+        onChange(of: value, initial: initial, fileID: fileID, line: line) { _, _ in
+            action()
+        }
+    }
+
+    func onChange<Value: Equatable>(
+        of value: Value,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        perform action: @escaping @MainActor (Value) -> Void
+    ) -> some View {
+        onChange(of: value, initial: false, fileID: fileID, line: line) { _, newValue in
+            action(newValue)
         }
     }
 

@@ -196,6 +196,7 @@ public enum SymbolIcon: String, Sendable {
     case activity = "\u{E7C3}"
     case document = "\u{E8A5}"
     case split = "\u{E7FD}"
+    case trash = "\u{E74D}"
     case checkmark = "\u{E73E}"
     case chevronDown = "\u{E70D}"
     case radioSelected = "\u{E915}"

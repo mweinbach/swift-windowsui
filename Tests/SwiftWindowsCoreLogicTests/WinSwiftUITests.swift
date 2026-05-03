@@ -399,6 +399,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonSystemImageInitializerBuildsLabelAndUsesRole() async {
+        await MainActor.run {
+            let node = makeNode(
+                Button("DELETE", systemImage: "trash", role: .destructive) {}
+            )
+
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+
+            guard let labelNode = node.children.first else {
+                return XCTFail("Expected button label node")
+            }
+
+            XCTAssertEqual(labelNode.children.count, 2)
+            XCTAssertEqual(labelNode.children[0].text, SymbolIcon.trash.rawValue)
+            XCTAssertEqual(labelNode.children[1].text, "DELETE")
+            XCTAssertEqual(labelNode.children[0].textStyle.fontFamily, "Segoe Fluent Icons")
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25

@@ -774,6 +774,20 @@ public struct Button: View {
         self.isEnabled = true
     }
 
+    public init(_ title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(
+                Label(title, systemImage: systemImage)
+                    .font(.system(size: 1.8, weight: .semibold))
+            )
+        ]
+        self.role = role
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.isEnabled = true
+    }
+
     public var body: Never {
         fatalError("Button has no body")
     }
@@ -1334,6 +1348,8 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
         return .document
     case "rectangle.split.3x1", "rectangle.split.3x1.fill":
         return .split
+    case "trash", "trash.fill", "delete.left", "delete.left.fill":
+        return .trash
     default:
         return .sparkle
     }

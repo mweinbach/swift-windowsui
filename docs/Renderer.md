@@ -15,12 +15,14 @@ The batch scene types expose lightweight inspection helpers:
 
 Use these helpers in tests and diagnostics when checking primitive emission, layer splitting, clipping, and batch renderer readiness.
 
+`RenderClipStack` is the shared clip resolver for renderers that currently expose rectangular scissor-style clipping. `pushClip` and `popClip` are honored by the `RenderFrame -> GPUIScene` bridge and by the default `D3D11Renderer`/Direct2D frame path for rect clips, ellipse bounds, and path bounds. Rounded, elliptical, and arbitrary path clips are approximated to rectangular bounds until the backend grows a true mask/stencil clip path.
+
 For a quick console smoke check, run:
 
 ```powershell
 swift run swift-windowsui-inspect
 ```
 
-The inspector builds a small retained tree, reports backend/text capabilities, and prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts without opening a window.
+The inspector builds a small retained tree, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes a clip-stack probe without opening a window.
 
-Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths. Newer renderer-neutral commands such as paths, blur, first-class text, and clip-stack commands need backend implementation before they can be considered active visual features on the default renderer.
+Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths. Newer renderer-neutral commands such as paths, blur, and first-class text need backend implementation before they can be considered active visual features on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.

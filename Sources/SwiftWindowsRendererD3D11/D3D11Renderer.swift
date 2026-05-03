@@ -183,6 +183,7 @@ public final class D3D11Renderer: RenderBackend {
 
         let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
         let scaleFactor = currentScaleFactor()
+        let logicalSurfaceSize = makeLogicalSurfaceSize(pixelSize: surface.pixelSize, scaleFactor: scaleFactor)
 
         if
             isDirect2DEnabled,
@@ -194,6 +195,7 @@ public final class D3D11Renderer: RenderBackend {
                     frame: frame,
                     clearColor: clearColor,
                     scaleFactor: scaleFactor,
+                    surfaceSize: logicalSurfaceSize,
                     deviceContext: direct2DDeviceContext,
                     targetBitmap: direct2DTargetBitmap
                 )
@@ -273,20 +275,45 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
+        var clipStack = RenderClipStack(surfaceSize: logicalSurfaceSize)
         for command in frame.commands {
-            try draw(
-                command,
-                surfaceSize: surface.pixelSize,
-                scaleFactor: scaleFactor,
-                deviceContext: deviceContext,
-                rectangleVertexShader: vertexShader,
-                rectanglePixelShader: pixelShader,
-                rectangleConstantBuffer: constantBuffer,
-                bitmapVertexShader: bitmapVertexShader,
-                bitmapPixelShader: bitmapPixelShader,
-                bitmapConstantBuffer: bitmapConstantBuffer,
-                bitmapSamplerState: bitmapSamplerState
-            )
+            switch command {
+            case .pushClip(let clipCommand):
+                clipStack.push(clipCommand)
+            case .popClip:
+                clipStack.pop()
+            case .fillRect(let fillRectCommand):
+                try draw(
+                    .fillRect(resolved(fillRect: fillRectCommand, clipStack: clipStack)),
+                    surfaceSize: surface.pixelSize,
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext,
+                    rectangleVertexShader: vertexShader,
+                    rectanglePixelShader: pixelShader,
+                    rectangleConstantBuffer: constantBuffer,
+                    bitmapVertexShader: bitmapVertexShader,
+                    bitmapPixelShader: bitmapPixelShader,
+                    bitmapConstantBuffer: bitmapConstantBuffer,
+                    bitmapSamplerState: bitmapSamplerState
+                )
+            case .drawBitmap(let drawBitmapCommand):
+                try draw(
+                    .drawBitmap(resolved(bitmap: drawBitmapCommand, clipStack: clipStack)),
+                    surfaceSize: surface.pixelSize,
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext,
+                    rectangleVertexShader: vertexShader,
+                    rectanglePixelShader: pixelShader,
+                    rectangleConstantBuffer: constantBuffer,
+                    bitmapVertexShader: bitmapVertexShader,
+                    bitmapPixelShader: bitmapPixelShader,
+                    bitmapConstantBuffer: bitmapConstantBuffer,
+                    bitmapSamplerState: bitmapSamplerState
+                )
+            case .fillPath, .strokePath, .applyBlur, .drawText:
+                // TODO: implement D3D11 path for new render commands.
+                break
+            }
         }
 
         let syncInterval: UINT = vsyncEnabled ? 1 : 0
@@ -712,6 +739,7 @@ public final class D3D11Renderer: RenderBackend {
         frame: RenderFrame,
         clearColor: Color,
         scaleFactor: Double,
+        surfaceSize: Size,
         deviceContext: UnsafeMutableRawPointer,
         targetBitmap: UnsafeMutableRawPointer
     ) throws {
@@ -733,13 +761,25 @@ public final class D3D11Renderer: RenderBackend {
 
         SWU_D2DClear(deviceContext, clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha)
 
+        var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         for command in frame.commands {
             switch command {
             case .fillRect(let fillRectCommand):
-                try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
+                try drawWithDirect2D(
+                    fillRect: resolved(fillRect: fillRectCommand, clipStack: clipStack),
+                    deviceContext: deviceContext
+                )
             case .drawBitmap(let drawBitmapCommand):
-                try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
-            case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
+                try drawWithDirect2D(
+                    bitmap: resolved(bitmap: drawBitmapCommand, clipStack: clipStack),
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext
+                )
+            case .pushClip(let clipCommand):
+                clipStack.push(clipCommand)
+            case .popClip:
+                clipStack.pop()
+            case .fillPath, .strokePath, .applyBlur, .drawText:
                 // TODO: implement Direct2D path for new render commands
                 break
             }
@@ -1279,6 +1319,35 @@ private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_REC
     return D3D11_RECT(left: left, top: top, right: right, bottom: bottom)
 }
 
+func makeLogicalSurfaceSize(pixelSize: IntSize, scaleFactor: Double) -> Size {
+    let safeScale = max(scaleFactor, 1.0)
+    return Size(
+        width: Double(max(pixelSize.width, 0)) / safeScale,
+        height: Double(max(pixelSize.height, 0)) / safeScale
+    )
+}
+
+func resolved(fillRect command: FillRectCommand, clipStack: RenderClipStack) -> FillRectCommand {
+    FillRectCommand(
+        rect: command.rect,
+        color: command.color,
+        cornerRadius: command.cornerRadius,
+        clipRect: clipStack.resolvedClip(commandClip: command.clipRect),
+        gradient: command.gradient,
+        blendMode: command.blendMode
+    )
+}
+
+func resolved(bitmap command: DrawBitmapCommand, clipStack: RenderClipStack) -> DrawBitmapCommand {
+    DrawBitmapCommand(
+        rect: command.rect,
+        bitmap: command.bitmap,
+        opacity: command.opacity,
+        clipRect: clipStack.resolvedClip(commandClip: command.clipRect),
+        blendMode: command.blendMode
+    )
+}
+
 private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRectCommand {
     FillRectCommand(
         rect: command.rect.scaled(by: factor),
@@ -1299,7 +1368,8 @@ private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBi
         ),
         bitmap: command.bitmap,
         opacity: command.opacity,
-        clipRect: command.clipRect?.scaled(by: factor)
+        clipRect: command.clipRect?.scaled(by: factor),
+        blendMode: command.blendMode
     )
 }
 

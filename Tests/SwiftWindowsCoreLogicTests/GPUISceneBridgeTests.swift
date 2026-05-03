@@ -258,6 +258,27 @@ struct GPUISceneBridgeTests {
         #expect(quad.clipHeight == 150)
     }
 
+    @Test("replace clip command updates bridge clip state")
+    func replaceClipUpdatesBridgeClipState() {
+        let outerClip = Rect(x: 0, y: 0, width: 100, height: 100)
+        let replacementClip = Rect(x: 240, y: 220, width: 80, height: 70)
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .rect(outerClip, cornerRadius: 0))),
+            .pushClip(ClipCommand(shape: .rect(replacementClip, cornerRadius: 0), operation: .replace)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 400, height: 400), color: .white)),
+            .popClip,
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.clipX == Float(replacementClip.origin.x))
+        #expect(quad.clipY == Float(replacementClip.origin.y))
+        #expect(quad.clipWidth == Float(replacementClip.size.width))
+        #expect(quad.clipHeight == Float(replacementClip.size.height))
+    }
+
     // MARK: - Image Conversion
 
     @Test("drawBitmap produces ImagePrimitive with correct fields")

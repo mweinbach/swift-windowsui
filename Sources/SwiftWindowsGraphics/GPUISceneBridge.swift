@@ -27,7 +27,7 @@ extension GPUIScene {
         self.clearColor = frame.clearColor
         self.layers = [GPUILayer()]
 
-        var clipStack: [Rect] = []
+        var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         var lastKind: LastPrimitiveKind = .none
 
         for command in frame.commands {
@@ -49,19 +49,10 @@ extension GPUIScene {
                 self.layers[self.layers.count - 1].images.append(image)
 
             case .pushClip(let cmd):
-                switch cmd.shape {
-                case .rect(let r, _):
-                    clipStack.append(r)
-                case .ellipse, .path:
-                    // Non-rect clips are not supported in the batch pipeline yet.
-                    // Push the bounding rect of the surface as a no-op clip.
-                    clipStack.append(Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height))
-                }
+                clipStack.push(cmd)
 
             case .popClip:
-                if !clipStack.isEmpty {
-                    clipStack.removeLast()
-                }
+                clipStack.pop()
 
             case .drawText, .fillPath, .strokePath, .applyBlur:
                 // Not handled by the batch pipeline yet; skip.
@@ -75,23 +66,17 @@ extension GPUIScene {
     /// Resolves the effective clip rect from the stack and any per-command clip.
     private static func resolveClip(
         commandClip: Rect?,
-        clipStack: [Rect],
+        clipStack: RenderClipStack,
         surfaceSize: Size
     ) -> Rect {
         let fullSurface = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
-        var effective = clipStack.last ?? fullSurface
-
-        if let cmdClip = commandClip {
-            effective = effective.intersected(with: cmdClip) ?? Rect.zero
-        }
-
-        return effective
+        return clipStack.resolvedClip(commandClip: commandClip) ?? fullSurface
     }
 
     /// Converts a `FillRectCommand` to a `QuadPrimitive`.
     private static func makeQuad(
         from cmd: FillRectCommand,
-        clipStack: [Rect],
+        clipStack: RenderClipStack,
         surfaceSize: Size
     ) -> QuadPrimitive {
         let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)
@@ -143,7 +128,7 @@ extension GPUIScene {
     /// Converts a `DrawBitmapCommand` to an `ImagePrimitive`.
     private static func makeImage(
         from cmd: DrawBitmapCommand,
-        clipStack: [Rect],
+        clipStack: RenderClipStack,
         surfaceSize: Size
     ) -> ImagePrimitive {
         let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)

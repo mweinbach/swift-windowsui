@@ -19,6 +19,7 @@ struct SwiftWindowsUIInspector {
             clearColor: runtime.clearColor,
             surfaceSize: runtime.root.frame.size
         )
+        let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
         print("Swift Windows UI Inspector")
@@ -39,6 +40,7 @@ struct SwiftWindowsUIInspector {
         print("  shadows: \(paintedScene.totalShadows)")
         print("  glyphs: \(paintedScene.totalGlyphs)")
         print("  images: \(paintedScene.totalImages)")
+        print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
 
@@ -125,6 +127,34 @@ private struct CommandCounts {
             }
         }
     }
+}
+
+private func makeClipProbeFrame() -> RenderFrame {
+    RenderFrame(
+        clearColor: .black,
+        commands: [
+            .pushClip(ClipCommand(shape: .rect(Rect(x: 0, y: 0, width: 120, height: 120), cornerRadius: 0))),
+            .pushClip(ClipCommand(
+                shape: .rect(Rect(x: 80, y: 40, width: 90, height: 80), cornerRadius: 0),
+                operation: .replace
+            )),
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 240, height: 180),
+                color: Color(red: 0.45, green: 0.74, blue: 0.98, alpha: 1.0),
+                clipRect: Rect(x: 100, y: 50, width: 80, height: 80)
+            )),
+            .popClip,
+            .popClip,
+        ]
+    )
+}
+
+private func formatClip(_ clip: (Float, Float, Float, Float)?) -> String {
+    guard let clip else {
+        return "none"
+    }
+
+    return "x=\(clip.0) y=\(clip.1) w=\(clip.2) h=\(clip.3)"
 }
 
 private extension GPUIScene {

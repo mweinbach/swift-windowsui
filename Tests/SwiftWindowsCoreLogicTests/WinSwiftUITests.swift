@@ -1262,6 +1262,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonStyleModifierAppliesToDescendantButtons() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Button("SAVE") {}
+                    Button("RUN") {}
+                }
+                .buttonStyle(.borderedProminent)
+            )
+
+            let saveButton = firstFocusableNode(containing: "SAVE", in: node)
+            let runButton = firstFocusableNode(containing: "RUN", in: node)
+
+            XCTAssertEqual(saveButton?.backgroundColor, ButtonSurfaceStyle.prominent.palette.idle)
+            XCTAssertEqual(saveButton?.borderColor, ButtonSurfaceStyle.prominent.chrome.borderColor)
+            XCTAssertEqual(runButton?.backgroundColor, ButtonSurfaceStyle.prominent.palette.idle)
+        }
+    }
+
+    func testExplicitButtonStyleOverridesInheritedButtonStyle() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Button("LOUD") {}
+                    Button("QUIET") {}
+                        .buttonStyle(.borderless)
+                }
+                .buttonStyle(.borderedProminent)
+            )
+
+            let inheritedButton = firstFocusableNode(containing: "LOUD", in: node)
+            let explicitButton = firstFocusableNode(containing: "QUIET", in: node)
+
+            XCTAssertEqual(inheritedButton?.backgroundColor, ButtonSurfaceStyle.prominent.palette.idle)
+            XCTAssertEqual(explicitButton?.backgroundColor, .clear)
+            XCTAssertEqual(explicitButton?.borderColor, .clear)
+            XCTAssertFalse(explicitButton?.clipsToBounds ?? true)
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25

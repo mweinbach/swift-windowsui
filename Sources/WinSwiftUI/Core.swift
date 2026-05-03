@@ -457,6 +457,7 @@ public struct ViewBuildContext {
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
     var tintColor: Color?
+    var buttonStyle: ButtonStyle?
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -469,6 +470,7 @@ public struct ViewBuildContext {
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         tintColor: Color? = nil,
+        buttonStyle: ButtonStyle? = nil,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -476,6 +478,7 @@ public struct ViewBuildContext {
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
         self.tintColor = tintColor
+        self.buttonStyle = buttonStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -494,6 +497,19 @@ public struct ViewBuildContext {
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
             tintColor: color,
+            buttonStyle: buttonStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withButtonStyle(_ style: ButtonStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -505,6 +521,7 @@ public struct ViewBuildContext {
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
+            buttonStyle: buttonStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -516,6 +533,7 @@ public struct ViewBuildContext {
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
+            buttonStyle: buttonStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -2324,6 +2342,12 @@ public extension View {
 
     func accentColor(_ color: Color?) -> some View {
         tint(color)
+    }
+
+    func buttonStyle(_ style: ButtonStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withButtonStyle(style))
+        }
     }
 
     func onSubmit(_ action: @escaping @MainActor () -> Void) -> some View {

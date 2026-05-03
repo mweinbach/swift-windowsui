@@ -2404,7 +2404,7 @@ public struct Button: View {
     private let label: [AnyView]
     private let role: ButtonRole?
     private var style: ButtonSurfaceStyle
-    private var resolvedButtonStyle: ButtonStyle
+    private var resolvedButtonStyle: ButtonStyle?
     private var isEnabled: Bool
 
     public init(role: ButtonRole? = nil, action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
@@ -2412,7 +2412,7 @@ public struct Button: View {
         self.label = label()
         self.role = role
         self.style = .default
-        self.resolvedButtonStyle = .automatic
+        self.resolvedButtonStyle = nil
         self.isEnabled = true
     }
 
@@ -2428,7 +2428,7 @@ public struct Button: View {
         ]
         self.role = role
         self.style = .default
-        self.resolvedButtonStyle = .automatic
+        self.resolvedButtonStyle = nil
         self.isEnabled = true
     }
 
@@ -2446,7 +2446,7 @@ public struct Button: View {
         ]
         self.role = role
         self.style = .default
-        self.resolvedButtonStyle = .automatic
+        self.resolvedButtonStyle = nil
         self.isEnabled = true
     }
 
@@ -2467,7 +2467,7 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let surfaceStyle = resolvedSurfaceStyle()
+            let surfaceStyle = resolvedSurfaceStyle(inheritedStyle: context.buttonStyle)
             return Controls.button(
                 runtime: runtime,
                 cornerRadius: surfaceStyle.cornerRadius,
@@ -2486,12 +2486,13 @@ public struct Button: View {
         }
     }
 
-    private func resolvedSurfaceStyle() -> ButtonSurfaceStyle {
-        if role == .destructive, resolvedButtonStyle == .automatic {
+    private func resolvedSurfaceStyle(inheritedStyle: ButtonStyle?) -> ButtonSurfaceStyle {
+        let effectiveButtonStyle = resolvedButtonStyle ?? inheritedStyle ?? .automatic
+        if role == .destructive, effectiveButtonStyle == .automatic {
             return .destructive
         }
 
-        return resolvedButtonStyle == .automatic ? style : resolvedButtonStyle.surfaceStyle
+        return effectiveButtonStyle == .automatic ? style : effectiveButtonStyle.surfaceStyle
     }
 
     public func buttonSurface(_ style: ButtonSurfaceStyle) -> Button {

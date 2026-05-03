@@ -305,6 +305,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testHiddenModifierPreservesLayoutAndSuppressesRendering() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 160, height: 80) }, invalidateHandler: {})
+            let node = VStack(alignment: .leading, spacing: 4) {
+                Text("HIDDEN")
+                    .frame(width: 80, height: 20)
+                    .hidden()
+                Text("VISIBLE")
+                    .frame(width: 80, height: 20)
+            }
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 160, height: 80))
+            let frame = runtime.renderFrame()
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 80, height: 20))
+            XCTAssertEqual(node.children[1].resolvedFrame, Rect(x: 0, y: 24, width: 80, height: 20))
+            XCTAssertEqual(drawBitmapCommands(in: frame).count, 1)
+        }
+    }
+
+    func testHiddenModifierSuppressesDescendantInteraction() async {
+        await MainActor.run {
+            var taps = 0
+            let node = makeNode(
+                VStack {
+                    Button("Tap") {
+                        taps += 1
+                    }
+                }
+                .hidden()
+            )
+
+            XCTAssertFalse(hasInteractiveNode(in: node))
+            node.children[0].onActivate?()
+            XCTAssertEqual(taps, 0)
+        }
+    }
+
     func testClipModifiersMapToRetainedClipping() async {
         await MainActor.run {
             let clippedNode = makeNode(
@@ -825,4 +868,23 @@ private func laidOutNode<V: View>(
     runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
     _ = runtime.renderFrame()
     return node
+}
+
+private func drawBitmapCommands(in frame: RenderFrame) -> [DrawBitmapCommand] {
+    frame.commands.compactMap { command in
+        guard case .drawBitmap(let drawBitmap) = command else {
+            return nil
+        }
+
+        return drawBitmap
+    }
+}
+
+@MainActor
+private func hasInteractiveNode(in node: ViewNode) -> Bool {
+    if node.isHitTestVisible || node.isFocusable || node.onActivate != nil || node.onPointerUpInside != nil {
+        return true
+    }
+
+    return node.children.contains { hasInteractiveNode(in: $0) }
 }

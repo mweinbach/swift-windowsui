@@ -80,6 +80,7 @@ Modifiers:
 - `border`
 - `shadow`
 - `opacity`
+- `hidden`
 - `blur`
 - `offset`
 - `scaleEffect`
@@ -139,6 +140,7 @@ Surface direction:
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
 - `onSubmit` is carried through the build context and currently routes the retained `TextField` enter-key submit hook.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer. Opacity is inherited and resolved into renderer-neutral command alpha/bitmap opacity during frame generation.
+- `hidden()` uses zero retained opacity plus recursive interaction suppression, so the view keeps its layout slot while emitting no render commands and taking no pointer/keyboard activation.
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 - Lifecycle modifiers map to retained `onAppear` and `onDisappear` callbacks. Reconciliation refreshes node handlers in place so rebuilt declarative closures stay current without replacing the retained node.
 - `onTapGesture` maps to retained pointer-up-inside callbacks and makes the target node hit-test visible. The current compatibility surface supports single-tap activation; multi-tap counting is intentionally not wired until the runtime tracks click sequences.

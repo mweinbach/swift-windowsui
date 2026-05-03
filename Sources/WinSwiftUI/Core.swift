@@ -941,6 +941,29 @@ private func updateTextStyles(in node: ViewNode, _ update: (inout PixelTextStyle
     }
 }
 
+@MainActor
+private func suppressInteraction(in node: ViewNode) {
+    node.isHitTestVisible = false
+    node.isFocusable = false
+    node.onPointerEnter = nil
+    node.onPointerExit = nil
+    node.onPointerDown = nil
+    node.onPointerUpInside = nil
+    node.onPointerUpOutside = nil
+    node.onFocusEnter = nil
+    node.onFocusExit = nil
+    node.onKeyDown = nil
+    node.onTextInput = nil
+    node.onActivate = nil
+    node.onDragStart = nil
+    node.onDragChange = nil
+    node.onDragEnd = nil
+
+    for child in node.children {
+        suppressInteraction(in: child)
+    }
+}
+
 extension HorizontalAlignment {
     var stackAlignment: StackCrossAlignment {
         switch self {
@@ -1470,6 +1493,18 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.opacity = min(max(opacity, 0), 1)
+                return childNode
+            }
+        }
+    }
+
+    func hidden() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.opacity = 0
+                suppressInteraction(in: childNode)
                 return childNode
             }
         }

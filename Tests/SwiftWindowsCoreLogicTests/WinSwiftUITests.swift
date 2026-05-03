@@ -96,6 +96,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFlexibleFrameMaxWidthFillsVerticalStackCrossAxis() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                VStack(alignment: .leading) {
+                    Color.orange
+                        .frame(width: 20, height: 10)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                },
+                size: Size(width: 100, height: 30)
+            )
+            let frameNode = node.children[0]
+            let colorFrame = frameNode.children[0]
+
+            XCTAssertEqual(frameNode.resolvedFrame, Rect(x: 0, y: 0, width: 100, height: 10))
+            XCTAssertEqual(colorFrame.resolvedFrame, Rect(x: 80, y: 0, width: 20, height: 10))
+        }
+    }
+
+    func testFlexibleFrameMaxWidthSharesHorizontalStackSpace() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                HStack(spacing: 0) {
+                    Color.orange
+                        .frame(width: 20, height: 10)
+                        .frame(maxWidth: .infinity)
+                    Color.cyan
+                        .frame(width: 20, height: 10)
+                        .frame(maxWidth: .infinity)
+                }
+                .frame(width: 100, height: 20),
+                size: Size(width: 100, height: 20)
+            )
+            let stackNode = node.children[0]
+
+            XCTAssertEqual(stackNode.children[0].resolvedFrame, Rect(x: 0, y: 5, width: 50, height: 10))
+            XCTAssertEqual(stackNode.children[1].resolvedFrame, Rect(x: 50, y: 5, width: 50, height: 10))
+        }
+    }
+
+    func testFrameMinAndMaxClampRetainedSize() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                Color.orange
+                    .frame(width: 120, height: 30)
+                    .frame(minWidth: 40, maxWidth: 80, minHeight: 12, maxHeight: 20),
+                size: Size(width: 160, height: 60)
+            )
+
+            XCTAssertEqual(node.resolvedFrame.size, Size(width: 80, height: 20))
+            XCTAssertEqual(node.children[0].resolvedFrame.size, Size(width: 80, height: 20))
+        }
+    }
+
     func testGenericForegroundColorStylesTextDescendants() async {
         await MainActor.run {
             let color = Color(red: 0.3, green: 0.8, blue: 0.7, alpha: 1)

@@ -1469,6 +1469,43 @@ private func materialComponent(_ material: Material) -> Component {
     }
 }
 
+private func finiteFrameExtent(_ extent: Double?) -> Double? {
+    guard let extent, extent.isFinite else {
+        return nil
+    }
+
+    return extent
+}
+
+private func frameConstraintSize(width: Double?, height: Double?, unconstrainedFallback: Double = 0) -> Size? {
+    guard width != nil || height != nil else {
+        return nil
+    }
+
+    return Size(width: width ?? unconstrainedFallback, height: height ?? unconstrainedFallback)
+}
+
+private func framePreferredSize(
+    idealWidth: Double?,
+    idealHeight: Double?,
+    minWidth: Double?,
+    minHeight: Double?,
+    maxWidth: Double?,
+    maxHeight: Double?
+) -> Size? {
+    let preferredWidth = idealWidth ?? fixedFrameExtent(min: minWidth, max: maxWidth)
+    let preferredHeight = idealHeight ?? fixedFrameExtent(min: minHeight, max: maxHeight)
+    return frameConstraintSize(width: preferredWidth, height: preferredHeight)
+}
+
+private func fixedFrameExtent(min minimum: Double?, max maximum: Double?) -> Double? {
+    guard let minimum, let maximum, minimum == maximum, maximum.isFinite else {
+        return nil
+    }
+
+    return minimum
+}
+
 public extension View {
     func foregroundColor(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
@@ -1566,6 +1603,60 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+            }
+        }
+    }
+
+    func frame(
+        minWidth: Double? = nil,
+        idealWidth: Double? = nil,
+        maxWidth: Double? = nil,
+        minHeight: Double? = nil,
+        idealHeight: Double? = nil,
+        maxHeight: Double? = nil,
+        alignment: Alignment = .center
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let fillsWidth = maxWidth?.isInfinite == true
+            let fillsHeight = maxHeight?.isInfinite == true
+            let expandsAlongContainerAxis = (
+                (fillsWidth && context.containerAxis == .horizontal) ||
+                (fillsHeight && context.containerAxis == .vertical)
+            )
+            let preferredSize = framePreferredSize(
+                idealWidth: idealWidth,
+                idealHeight: idealHeight,
+                minWidth: minWidth,
+                minHeight: minHeight,
+                maxWidth: maxWidth,
+                maxHeight: maxHeight
+            )
+            let minimumSize = frameConstraintSize(width: minWidth, height: minHeight)
+            let maximumSize = frameConstraintSize(
+                width: finiteFrameExtent(maxWidth),
+                height: finiteFrameExtent(maxHeight),
+                unconstrainedFallback: .infinity
+            )
+
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let node = Controls.stackPanel(
+                    preferredSize: preferredSize,
+                    layoutPriority: expandsAlongContainerAxis ? 1 : 0,
+                    stackLayout: .vertical(
+                        padding: .zero,
+                        alignment: alignment.horizontal.stackAlignment,
+                        mainAlignment: alignment.vertical.mainAlignment
+                    ),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+                node.minimumSize = minimumSize
+                node.maximumSize = maximumSize
+                node.fillsAvailableWidth = fillsWidth
+                node.fillsAvailableHeight = fillsHeight
+                return node
             }
         }
     }

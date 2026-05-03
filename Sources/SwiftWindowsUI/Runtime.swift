@@ -98,6 +98,22 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var minimumSize: Size? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var maximumSize: Size? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var fillsAvailableWidth: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var fillsAvailableHeight: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var layoutPriority: Double {
         didSet { invalidateRuntime(.layout) }
     }
@@ -244,6 +260,10 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
+        minimumSize: Size? = nil,
+        maximumSize: Size? = nil,
+        fillsAvailableWidth: Bool = false,
+        fillsAvailableHeight: Bool = false,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
@@ -281,6 +301,10 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
+        self.minimumSize = minimumSize
+        self.maximumSize = maximumSize
+        self.fillsAvailableWidth = fillsAvailableWidth
+        self.fillsAvailableHeight = fillsAvailableHeight
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
@@ -1136,12 +1160,24 @@ public final class ViewNode {
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
-        let measuredWidth = explicitWidth ?? size.width
-        let measuredHeight = explicitHeight ?? size.height
+        var measuredWidth = explicitWidth ?? size.width
+        var measuredHeight = explicitHeight ?? size.height
+        let resolvedMinimumWidth = max(constraints.minWidth, minimumSize?.width ?? 0)
+        let resolvedMinimumHeight = max(constraints.minHeight, minimumSize?.height ?? 0)
+        let resolvedMaximumWidth = minimumFiniteExtent(constraints.maxWidth, maximumSize?.width)
+        let resolvedMaximumHeight = minimumFiniteExtent(constraints.maxHeight, maximumSize?.height)
+
+        if fillsAvailableWidth, constraints.maxWidth.isFinite {
+            measuredWidth = max(measuredWidth, constraints.maxWidth)
+        }
+
+        if fillsAvailableHeight, constraints.maxHeight.isFinite {
+            measuredHeight = max(measuredHeight, constraints.maxHeight)
+        }
 
         return Size(
-            width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
-            height: clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
+            width: clampedExtent(measuredWidth, min: resolvedMinimumWidth, max: resolvedMaximumWidth),
+            height: clampedExtent(measuredHeight, min: resolvedMinimumHeight, max: resolvedMaximumHeight)
         )
     }
 
@@ -1502,6 +1538,18 @@ private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> D
     }
 
     return max(0, maxExtent - offset)
+}
+
+private func minimumFiniteExtent(_ first: Double, _ second: Double?) -> Double {
+    guard let second, second.isFinite else {
+        return first
+    }
+
+    guard first.isFinite else {
+        return second
+    }
+
+    return min(first, second)
 }
 
 private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: Double) -> Double {

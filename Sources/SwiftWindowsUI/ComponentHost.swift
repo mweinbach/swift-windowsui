@@ -134,6 +134,10 @@ public final class ComponentHost {
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+        if target.minimumSize != source.minimumSize { target.minimumSize = source.minimumSize }
+        if target.maximumSize != source.maximumSize { target.maximumSize = source.maximumSize }
+        if target.fillsAvailableWidth != source.fillsAvailableWidth { target.fillsAvailableWidth = source.fillsAvailableWidth }
+        if target.fillsAvailableHeight != source.fillsAvailableHeight { target.fillsAvailableHeight = source.fillsAvailableHeight }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }

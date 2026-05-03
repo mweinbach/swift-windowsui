@@ -26,8 +26,8 @@ public enum ShadowPipeline {
         var psBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShadowShader(
             entryPoint: pixelShaderEntryPoint, profile: "ps_5_0"
         )
-        releaseCOM(&psBlob)
-        releaseCOM(&vsBlob)
+        shadowReleaseCOM(&psBlob)
+        shadowReleaseCOM(&vsBlob)
     }
 
     private static func compileShadowShader(entryPoint: String, profile: String) throws -> UnsafeMutablePointer<ID3DBlob> {
@@ -57,11 +57,11 @@ public enum ShadowPipeline {
 
         if hr < 0 {
             let details = shaderCompilerDetails(from: errorBlob)
-            releaseCOM(&errorBlob)
+            shadowReleaseCOM(&errorBlob)
             throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: hr, details: details)
         }
 
-        releaseCOM(&errorBlob)
+        shadowReleaseCOM(&errorBlob)
 
         guard let shaderBlob else {
             throw D3D11RendererError(operation: "D3DCompile(\(entryPoint))", hresult: HRESULT(bitPattern: 0x80070006))
@@ -82,7 +82,7 @@ public enum ShadowPipeline {
     }
 }
 
-private func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
+private func shadowReleaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     guard let rawPointer = pointer else {
         return
     }

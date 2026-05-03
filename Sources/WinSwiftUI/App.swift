@@ -1,4 +1,6 @@
+import Foundation
 import SwiftWindowsCore
+import WinSDK
 import SwiftWindowsGraphics
 import SwiftWindowsPlatform
 import SwiftWindowsRendererD3D11
@@ -149,15 +151,41 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     func windowDidCreate(_ window: Win32Window) {
         do {
             guard let surface = surfaceDescriptorProvider(window) else {
+                "No surface".withCString(encodedAs: UTF16.self) { msg in
+                    "Debug".withCString(encodedAs: UTF16.self) { title in
+                        MessageBoxW(nil, msg, title, UINT(MB_OK))
+                    }
+                }
                 return
             }
 
             try renderer.attach(to: surface)
             isRendererReady = true
             textClipboard.ownerWindow = window.nativeHandle
+
+            let debugMsg = "Renderer attached! size=\(surface.pixelSize.width)x\(surface.pixelSize.height) scale=\(surface.scaleFactor)"
+            debugMsg.withCString(encodedAs: UTF16.self) { msg in
+                "Debug".withCString(encodedAs: UTF16.self) { title in
+                    MessageBoxW(nil, msg, title, UINT(MB_OK))
+                }
+            }
+
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
+
+            // DEBUG: Add a test rectangle to verify rendering pipeline
+            let testNode = ViewNode()
+            testNode.frame = Rect(x: 50, y: 50, width: 200, height: 100)
+            testNode.backgroundColor = Color(red: 1.0, green: 0.2, blue: 0.2, alpha: 1.0)
+            testNode.cornerRadius = 8
+            runtime.root.addChild(testNode)
+
+            let testLabel = ViewNode()
+            testLabel.frame = Rect(x: 50, y: 170, width: 300, height: 30)
+            testLabel.backgroundColor = Color(red: 0.2, green: 0.6, blue: 1.0, alpha: 1.0)
+            runtime.root.addChild(testLabel)
+
             syncAnimationDriver(for: window)
             renderCurrentFrame(in: window)
         } catch {
@@ -331,6 +359,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
+    private var debugFrameCount = 0
     private func renderCurrentFrame(in window: Win32Window) {
         guard isRendererReady else {
             if runtime.isDirty {
@@ -340,9 +369,32 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
 
         do {
-            try renderer.render(frame: runtime.renderFrame())
+            let frame = runtime.renderFrame()
+            debugFrameCount += 1
+            if debugFrameCount <= 3 {
+                var msg = "[DEBUG] Frame \(debugFrameCount): \(frame.commands.count) commands, clear=\(frame.clearColor)"
+                msg += ", rootChildren=\(runtime.root.children.count)"
+                msg += ", rootFrame=\(runtime.root.frame)"
+                if let firstChild = runtime.root.children.first {
+                    msg += ", child0.bg=\(String(describing: firstChild.backgroundColor))"
+                    msg += ", child0.frame=\(firstChild.frame)"
+                    msg += ", child0.children=\(firstChild.children.count)"
+                }
+                Self.debugLog(msg)
+            }
+            try renderer.render(frame: frame)
         } catch {
             report(error)
+        }
+    }
+    private static func debugLog(_ msg: String) {
+        let path = "C:\\Users\\maxw6\\AppData\\Local\\Temp\\swift-windowsui-debug.log"
+        if let handle = FileHandle(forWritingAtPath: path) {
+            handle.seekToEndOfFile()
+            handle.write(Data((msg + "\n").utf8))
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: path, contents: Data((msg + "\n").utf8))
         }
     }
 

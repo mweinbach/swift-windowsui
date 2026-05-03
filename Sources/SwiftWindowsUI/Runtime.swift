@@ -207,6 +207,11 @@ public final class ViewNode {
     /// `Picker` without overloading the string identity tag.
     public var selectionTag: AnyHashable?
 
+    /// Optional title supplied by WinSwiftUI's `.tabItem` modifier. Controls
+    /// such as `TabView` read it while lowering SwiftUI-shaped containers into
+    /// retained nodes.
+    public var tabItemTitle: String?
+
     /// Snapshot of previous property values for animation interpolation.
     /// When an animation context is active and a property changes, the old
     /// value is recorded here so that the runtime can interpolate between old

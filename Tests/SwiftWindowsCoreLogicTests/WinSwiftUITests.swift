@@ -1363,6 +1363,99 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTabViewMapsTaggedTabsAndSelectionBinding() async {
+        await MainActor.run {
+            var selection = "metrics"
+            var invalidationCount = 0
+            let node = makeNode(
+                TabView(selection: Binding(get: { selection }, set: { selection = $0 })) {
+                    Text("OVERVIEW PANEL")
+                        .tabItem {
+                            Label("Overview", systemImage: "star.fill")
+                        }
+                        .tag("overview")
+                    Text("METRICS PANEL")
+                        .tabItem {
+                            Text("Metrics")
+                        }
+                        .tag("metrics")
+                },
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(containsText("OVERVIEW", in: node.children[0]))
+            XCTAssertTrue(containsText("METRICS", in: node.children[0]))
+            XCTAssertFalse(containsText("OVERVIEW PANEL", in: node))
+            XCTAssertTrue(containsText("METRICS PANEL", in: node))
+
+            node.children[0].children[0].onActivate?()
+
+            XCTAssertEqual(selection, "overview")
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testTabViewWithoutSelectionRendersFirstTab() async {
+        await MainActor.run {
+            var invalidationCount = 0
+            let view = TabView {
+                Text("FIRST PAGE")
+                    .tabItem {
+                        Text("First")
+                    }
+                Text("SECOND PAGE")
+                    .tabItem {
+                        Text("Second")
+                    }
+            }
+            let firstNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(firstNode.children.count, 2)
+            XCTAssertTrue(containsText("FIRST", in: firstNode.children[0]))
+            XCTAssertTrue(containsText("SECOND", in: firstNode.children[0]))
+            XCTAssertTrue(containsText("FIRST PAGE", in: firstNode))
+            XCTAssertFalse(containsText("SECOND PAGE", in: firstNode))
+
+            firstNode.children[0].children[1].onActivate?()
+
+            let secondNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertFalse(containsText("FIRST PAGE", in: secondNode))
+            XCTAssertTrue(containsText("SECOND PAGE", in: secondNode))
+        }
+    }
+
+    func testTabViewWithoutTabItemsFallsBackToContentText() async {
+        await MainActor.run {
+            let node = makeNode(
+                TabView {
+                    Text("FIRST PAGE")
+                    Text("SECOND PAGE")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(containsText("FIRST PAGE", in: node.children[0]))
+            XCTAssertTrue(containsText("SECOND PAGE", in: node.children[0]))
+            XCTAssertTrue(containsText("FIRST PAGE", in: node.children[1]))
+            XCTAssertFalse(containsText("SECOND PAGE", in: node.children[1]))
+        }
+    }
+
     func testGroupBoxMapsTitleAndCustomLabelToRetainedSection() async {
         await MainActor.run {
             let titledNode = makeNode(

@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 24
+            maximumTextSamples: 28
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -679,6 +679,20 @@ private struct WinSwiftUIProbeView: View {
                 }
             }
             .frame(height: 126)
+
+            TabView(selection: Binding(get: { "summary" }, set: { _ in })) {
+                Text("TAB SUMMARY")
+                    .tabItem {
+                        Text("Summary")
+                    }
+                    .tag("summary")
+                Text("TAB DETAIL")
+                    .tabItem {
+                        Label("Detail", systemImage: "bolt.fill")
+                    }
+                    .tag("detail")
+            }
+            .frame(height: 86)
 
             NavigationSplitView {
                 Text("NAV SIDEBAR")

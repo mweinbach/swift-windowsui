@@ -758,6 +758,200 @@ public struct Form: View {
 }
 
 @MainActor
+public struct TabView: View {
+    public typealias Body = Never
+
+    @State private var unboundSelection = 0
+
+    private let selection: AnyTabSelectionBinding?
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.selection = nil
+        self.content = content()
+    }
+
+    public init<SelectionValue: Hashable>(
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.selection = AnyTabSelectionBinding(selection)
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("TabView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let tabs = makeTabs(context: context, runtime: runtime)
+            guard !tabs.isEmpty else {
+                return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+            }
+
+            let selectedValue = selection?.wrappedValue ?? AnyHashable(unboundSelection)
+            let selectedIndex = tabs.firstIndex { $0.selectionValue == selectedValue } ?? 0
+            let resolvedSelectedIndex = tabs.indices.contains(selectedIndex) ? selectedIndex : 0
+            let selectedNode = tabs[resolvedSelectedIndex].contentNode
+            selectedNode.layoutPriority = 1
+            selectedNode.fillsAvailableWidth = true
+            selectedNode.fillsAvailableHeight = true
+
+            let tabButtons = tabs.enumerated().map { index, tab in
+                makeTabButton(
+                    tab: tab,
+                    isSelected: index == resolvedSelectedIndex,
+                    context: context,
+                    runtime: runtime
+                )
+            }
+            let tabBar = Controls.stackPanel(
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.58),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 18,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 6,
+                    padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: tabButtons
+            )
+
+            return Controls.stackPanel(
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.16, alpha: 0.76),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.16),
+                shadowOffset: Point(x: 0, y: 16),
+                shadowSpread: 10,
+                cornerRadius: 24,
+                clipsToBounds: true,
+                stackLayout: .vertical(
+                    spacing: 12,
+                    padding: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: [tabBar, selectedNode]
+            )
+        }
+    }
+
+    private func makeTabs(context: ViewBuildContext, runtime: RetainedViewRuntime) -> [TabDescriptor] {
+        content.enumerated().map { index, view in
+            let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+            let selectionValue = node.selectionTag ?? AnyHashable(index)
+            return TabDescriptor(
+                index: index,
+                selectionValue: selectionValue,
+                title: node.tabItemTitle ?? firstText(in: node) ?? node.nodeTag ?? "Tab \(index + 1)",
+                contentNode: node
+            )
+        }
+    }
+
+    private func makeTabButton(
+        tab: TabDescriptor,
+        isSelected: Bool,
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime
+    ) -> ViewNode {
+        let label = Controls.label(
+            tab.title.uppercased(),
+            color: isSelected
+                ? Color(red: 0.94, green: 0.98, blue: 1.0, alpha: 0.98)
+                : Color(red: 0.72, green: 0.80, blue: 0.90, alpha: 0.78),
+            scale: 1.25,
+            weight: isSelected ? .semibold : .regular,
+            alignment: .center,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+        let labelHost = Controls.stackPanel(
+            stackLayout: .horizontal(
+                spacing: 0,
+                padding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
+                alignment: .center,
+                mainAlignment: .center
+            ),
+            isHitTestVisible: false,
+            children: [label]
+        )
+        let surfaceStyle = isSelected ? Self.selectedTabSurface : Self.inactiveTabSurface
+        let button = Controls.button(
+            runtime: runtime,
+            cornerRadius: surfaceStyle.cornerRadius,
+            palette: surfaceStyle.palette,
+            chrome: surfaceStyle.chrome,
+            clipsToBounds: true,
+            layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+            animation: surfaceStyle.animation,
+            action: {
+                if let selection {
+                    selection.update(to: tab.selectionValue, context: context)
+                } else {
+                    unboundSelection = tab.index
+                    context.invalidate()
+                }
+            },
+            children: [labelHost]
+        )
+        button.nodeTag = "tab:\(String(describing: tab.selectionValue.base))"
+        return button
+    }
+
+    private static let selectedTabSurface = ButtonSurfaceStyle(
+        cornerRadius: 14,
+        palette: SurfacePalette(
+            idle: Color(red: 0.23, green: 0.34, blue: 0.48, alpha: 0.84),
+            hovered: Color(red: 0.27, green: 0.40, blue: 0.56, alpha: 0.90),
+            focused: Color(red: 0.30, green: 0.46, blue: 0.64, alpha: 0.94),
+            pressed: Color(red: 0.36, green: 0.54, blue: 0.72, alpha: 0.98),
+            activated: Color(red: 0.42, green: 0.62, blue: 0.82, alpha: 1.0)
+        ),
+        chrome: SurfaceChrome(
+            borderColor: Color(red: 0.90, green: 0.96, blue: 1.0, alpha: 0.20),
+            borderHoveredColor: Color(red: 0.94, green: 0.98, blue: 1.0, alpha: 0.30),
+            borderFocusedColor: Color(red: 0.96, green: 0.99, blue: 1.0, alpha: 0.40),
+            borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.46),
+            borderWidth: 1,
+            focusRingColor: Color(red: 0.62, green: 0.80, blue: 1.0, alpha: 0.34),
+            focusRingWidth: 2,
+            shadowColor: Color(red: 0.02, green: 0.08, blue: 0.16, alpha: 0.16),
+            shadowHoveredColor: Color(red: 0.02, green: 0.10, blue: 0.20, alpha: 0.22),
+            shadowFocusedColor: Color(red: 0.04, green: 0.14, blue: 0.26, alpha: 0.26),
+            shadowPressedColor: Color(red: 0.02, green: 0.06, blue: 0.12, alpha: 0.12),
+            shadowOffset: Point(x: 0, y: 8),
+            shadowSpread: 6
+        )
+    )
+
+    private static let inactiveTabSurface = ButtonSurfaceStyle(
+        cornerRadius: 14,
+        palette: SurfacePalette(
+            idle: Color(red: 0.12, green: 0.16, blue: 0.23, alpha: 0.16),
+            hovered: Color(red: 0.18, green: 0.24, blue: 0.34, alpha: 0.44),
+            focused: Color(red: 0.22, green: 0.30, blue: 0.42, alpha: 0.56),
+            pressed: Color(red: 0.26, green: 0.36, blue: 0.50, alpha: 0.66),
+            activated: Color(red: 0.28, green: 0.40, blue: 0.56, alpha: 0.72)
+        ),
+        chrome: SurfaceChrome(
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.04),
+            borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+            borderFocusedColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.20),
+            borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.24),
+            borderWidth: 1,
+            focusRingColor: Color(red: 0.62, green: 0.80, blue: 1.0, alpha: 0.24),
+            focusRingWidth: 2
+        )
+    )
+}
+
+@MainActor
 public struct NavigationSplitView: View {
     public typealias Body = Never
 
@@ -1769,6 +1963,75 @@ private struct NavigationSplitColumn: View {
 }
 
 @MainActor
+private struct AnyTabSelectionBinding {
+    var wrappedValue: AnyHashable {
+        getter()
+    }
+
+    private let getter: @MainActor () -> AnyHashable
+    private let setter: @MainActor (AnyHashable, ViewBuildContext) -> Void
+
+    init<Value: Hashable>(_ binding: Binding<Value>) {
+        self.getter = {
+            AnyHashable(binding.wrappedValue)
+        }
+        self.setter = { value, context in
+            guard let typedValue = value.base as? Value else {
+                return
+            }
+
+            binding.wrappedValue = typedValue
+            binding.invalidateContextIfNeeded(context)
+        }
+    }
+
+    func update(to value: AnyHashable, context: ViewBuildContext) {
+        setter(value, context)
+    }
+}
+
+private struct TabDescriptor {
+    var index: Int
+    var selectionValue: AnyHashable
+    var title: String
+    var contentNode: ViewNode
+}
+
+@MainActor
+private struct TabItemView<Content: View>: View {
+    typealias Body = Never
+
+    let content: Content
+    let label: [AnyView]
+
+    var body: Never {
+        fatalError("TabItemView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let contentComponent = content.makeComponent(context: context)
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 6, alignment: .center))
+        )
+
+        return Component { runtime in
+            let node = contentComponent.makeNode(runtime: runtime)
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            node.tabItemTitle = lastText(in: labelNode) ?? firstText(in: labelNode)
+            return node
+        }
+    }
+}
+
+public extension View {
+    func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {
+        TabItemView(content: self, label: label())
+    }
+}
+
+@MainActor
 private func buildSplitComponent(
     content: [AnyView],
     axis: SplitAxis,
@@ -1866,6 +2129,21 @@ private func firstText(in node: ViewNode) -> String? {
         if let text = firstText(in: child) {
             return text
         }
+    }
+
+    return nil
+}
+
+@MainActor
+private func lastText(in node: ViewNode) -> String? {
+    for child in node.children.reversed() {
+        if let text = lastText(in: child) {
+            return text
+        }
+    }
+
+    if let text = node.text, !text.isEmpty {
+        return text
     }
 
     return nil

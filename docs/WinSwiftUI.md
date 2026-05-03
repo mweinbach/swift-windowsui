@@ -60,6 +60,7 @@ Views and containers:
 - `ScrollView`
 - `List`
 - `Form`
+- `TabView`
 - `NavigationSplitView`
 - `GroupBox`
 - `DisclosureGroup`
@@ -107,6 +108,7 @@ Modifiers:
 - `onSubmit`
 - `onTapGesture`
 - `gesture` with `DragGesture`
+- `tabItem`
 - `id`
 - `tag`
 
@@ -155,6 +157,7 @@ Surface direction:
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
+- `TabView` maps tagged pages into a retained segmented tab bar plus the selected content subtree. The `selection:` initializer supports typed `Binding` values, while unbound tabs keep local `@State` selection.
 - `NavigationSplitView` maps the common two- and three-column closure forms onto retained nested `HSplitView`s with styled sidebar/content/detail columns.
 - `GroupBox` maps title and custom-label call sites into retained `Section`-style rounded panels for settings and dashboard groups.
 - `DisclosureGroup` maps expanded-state bindings into retained stack content with a button-backed header; collapsed groups keep only the header in the retained tree.

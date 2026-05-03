@@ -190,6 +190,22 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachSupportsIntegerRanges() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    ForEach(0..<3) { index in
+                        Text("ROW \(index)")
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children.map(\.text), ["ROW 0", "ROW 1", "ROW 2"].map(Optional.some))
+            XCTAssertEqual(node.children[2].nodeTag, "2:0")
+        }
+    }
+
     func testButtonRunsActionAndInvalidates() async {
         await MainActor.run {
             var didRunAction = false

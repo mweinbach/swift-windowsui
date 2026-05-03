@@ -136,7 +136,7 @@ Surface direction:
 - `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
 - `Picker` maps tagged `Text` options into the retained dropdown control; the current compatibility layer supports integer tags.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
-- `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity.
+- `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, and integer ranges are supported.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.

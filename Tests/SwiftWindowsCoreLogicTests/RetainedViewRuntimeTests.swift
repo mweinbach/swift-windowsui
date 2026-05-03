@@ -525,6 +525,76 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testOpacityPropagatesIntoRenderFrameCommands() async {
+        await MainActor.run {
+            let child = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 30, height: 20),
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.8)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 0.6),
+                opacity: 0.5,
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills.count, 2)
+            XCTAssertEqual(fills[0].color.alpha, 0.3, accuracy: 0.001)
+            XCTAssertEqual(fills[1].color.alpha, 0.4, accuracy: 0.001)
+        }
+    }
+
+    func testOpacityPropagatesIntoGradientStops() async {
+        await MainActor.run {
+            let gradient = LinearGradient(
+                startColor: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                endColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 0.8),
+                axis: .horizontal
+            )
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: gradient.startColor,
+                backgroundGradient: gradient,
+                opacity: 0.5
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills.count, 1)
+            XCTAssertEqual(fills[0].color.alpha, 0.5, accuracy: 0.001)
+            guard case .linear(let resolvedGradient)? = fills[0].gradient else {
+                return XCTFail("Expected linear gradient")
+            }
+            XCTAssertEqual(resolvedGradient.startColor.alpha, 0.5, accuracy: 0.001)
+            XCTAssertEqual(resolvedGradient.endColor.alpha, 0.4, accuracy: 0.001)
+        }
+    }
+
+    func testZeroOpacityPreservesLayoutButSkipsRenderCommands() async {
+        await MainActor.run {
+            let child = ViewNode(
+                backgroundColor: .white,
+                preferredSize: Size(width: 30, height: 20)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                layoutMode: .stack(.vertical(alignment: .leading)),
+                opacity: 0,
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let frame = runtime.renderFrame()
+
+            XCTAssertTrue(frame.commands.isEmpty)
+            XCTAssertEqual(child.resolvedFrame, Rect(x: 0, y: 0, width: 30, height: 20))
+        }
+    }
+
     func testSplitViewLaysOutAndDragsDivider() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

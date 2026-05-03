@@ -657,7 +657,12 @@ public final class ViewNode {
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
     }
 
-    fileprivate func appendCommands(into commands: inout [RenderCommand], parentOrigin: Point, inheritedClip: Rect?) {
+    fileprivate func appendCommands(
+        into commands: inout [RenderCommand],
+        parentOrigin: Point,
+        inheritedClip: Rect?,
+        inheritedOpacity: Double
+    ) {
         if isHidden {
             return
         }
@@ -690,6 +695,11 @@ public final class ViewNode {
         }
         previousFrame = absoluteFrame
 
+        let effectiveOpacity = clampedOpacity(inheritedOpacity * opacity)
+        guard effectiveOpacity > 0 else {
+            return
+        }
+
         var effectiveClip = inheritedClip
         if clipsToBounds {
             if let inheritedClip {
@@ -719,7 +729,8 @@ public final class ViewNode {
             y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
 
-        if shadowColor.alpha > 0 {
+        let resolvedShadowColor = applyingOpacity(effectiveOpacity, to: shadowColor)
+        if resolvedShadowColor.alpha > 0 {
             let shadowRect = absoluteFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
@@ -729,7 +740,7 @@ public final class ViewNode {
                     .fillRect(
                         FillRectCommand(
                             rect: shadowRect,
-                            color: shadowColor,
+                            color: resolvedShadowColor,
                             cornerRadius: cornerRadius + max(0, shadowSpread),
                             clipRect: inheritedClip
                         )
@@ -738,14 +749,15 @@ public final class ViewNode {
             }
         }
 
-        if outlineColor.alpha > 0, outlineWidth > 0 {
+        let resolvedOutlineColor = applyingOpacity(effectiveOpacity, to: outlineColor)
+        if resolvedOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = absoluteFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: outlineRect,
-                            color: outlineColor,
+                            color: resolvedOutlineColor,
                             cornerRadius: cornerRadius + outlineWidth,
                             clipRect: inheritedClip
                         )
@@ -754,12 +766,13 @@ public final class ViewNode {
             }
         }
 
-        if borderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+        let resolvedBorderColor = applyingOpacity(effectiveOpacity, to: borderColor)
+        if resolvedBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             commands.append(
                 .fillRect(
                     FillRectCommand(
                         rect: absoluteFrame,
-                        color: borderColor,
+                        color: resolvedBorderColor,
                         cornerRadius: cornerRadius,
                         clipRect: effectiveClip
                     )
@@ -777,10 +790,10 @@ public final class ViewNode {
                     .fillRect(
                         FillRectCommand(
                             rect: fillRect,
-                            color: resolvedBackgroundColor,
+                            color: applyingOpacity(effectiveOpacity, to: resolvedBackgroundColor),
                             cornerRadius: fillCornerRadius,
                             clipRect: effectiveClip,
-                            gradient: backgroundGradient
+                            gradient: backgroundGradient.map { applyingOpacity(effectiveOpacity, to: $0) }
                         )
                     )
                 )
@@ -789,6 +802,7 @@ public final class ViewNode {
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             let displayScale = runtime?.displayScale ?? 1.0
+            let textCommandStartIndex = commands.count
             if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(
                     for: text,
@@ -798,6 +812,7 @@ public final class ViewNode {
                     into: &commands
                 )
             }
+            applyOpacity(to: &commands, from: textCommandStartIndex, opacity: effectiveOpacity)
         }
 
         // Gap/Fix: Emit blur render command — apply Gaussian blur over
@@ -835,15 +850,21 @@ public final class ViewNode {
         }
 
         for child in sortedChildren {
-            child.appendCommands(into: &commands, parentOrigin: childOrigin, inheritedClip: effectiveClip)
+            child.appendCommands(
+                into: &commands,
+                parentOrigin: childOrigin,
+                inheritedClip: effectiveClip,
+                inheritedOpacity: effectiveOpacity
+            )
         }
 
-        if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame) {
+        let resolvedScrollIndicatorColor = applyingOpacity(effectiveOpacity, to: scrollIndicatorColor)
+        if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame), resolvedScrollIndicatorColor.alpha > 0 {
             commands.append(
                 .fillRect(
                     FillRectCommand(
                         rect: scrollIndicator,
-                        color: scrollIndicatorColor,
+                        color: resolvedScrollIndicatorColor,
                         cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
                         clipRect: effectiveClip
                     )
@@ -1566,7 +1587,7 @@ public final class RetainedViewRuntime {
         updateResolvedLayout()
 
         var commands: [RenderCommand] = []
-        root.appendCommands(into: &commands, parentOrigin: .zero, inheritedClip: nil)
+        root.appendCommands(into: &commands, parentOrigin: .zero, inheritedClip: nil, inheritedOpacity: 1.0)
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         cachedFrame = frame
@@ -2015,6 +2036,83 @@ private final class ViewColorAnimation {
 
 private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
+}
+
+private func clampedOpacity(_ opacity: Double) -> Double {
+    min(max(opacity, 0), 1)
+}
+
+private func applyingOpacity(_ opacity: Double, to color: Color) -> Color {
+    Color(
+        red: color.red,
+        green: color.green,
+        blue: color.blue,
+        alpha: color.alpha * Float(clampedOpacity(opacity))
+    )
+}
+
+private func applyingOpacity(_ opacity: Double, to gradient: LinearGradient) -> LinearGradient {
+    var gradient = gradient
+    gradient.stops = gradient.stops.map { stop in
+        GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
+    }
+    return gradient
+}
+
+private func applyingOpacity(_ opacity: Double, to gradient: GradientType?) -> GradientType? {
+    guard let gradient else {
+        return nil
+    }
+
+    switch gradient {
+    case .linear(let linear):
+        return .linear(applyingOpacity(opacity, to: linear))
+    case .radial(var radial):
+        radial.stops = radial.stops.map { stop in
+            GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
+        }
+        return .radial(radial)
+    case .conic(var conic):
+        conic.stops = conic.stops.map { stop in
+            GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
+        }
+        return .conic(conic)
+    }
+}
+
+private func applyOpacity(to commands: inout [RenderCommand], from startIndex: Int, opacity: Double) {
+    let opacity = clampedOpacity(opacity)
+    guard opacity < 1, startIndex < commands.count else {
+        return
+    }
+
+    for index in startIndex..<commands.count {
+        commands[index] = renderCommand(commands[index], applyingOpacity: opacity)
+    }
+}
+
+private func renderCommand(_ command: RenderCommand, applyingOpacity opacity: Double) -> RenderCommand {
+    switch command {
+    case .fillRect(var fillRect):
+        fillRect.color = applyingOpacity(opacity, to: fillRect.color)
+        fillRect.gradient = applyingOpacity(opacity, to: fillRect.gradient)
+        return .fillRect(fillRect)
+    case .drawBitmap(var drawBitmap):
+        drawBitmap.opacity *= Float(clampedOpacity(opacity))
+        return .drawBitmap(drawBitmap)
+    case .fillPath(var fillPath):
+        fillPath.color = applyingOpacity(opacity, to: fillPath.color)
+        fillPath.gradient = applyingOpacity(opacity, to: fillPath.gradient)
+        return .fillPath(fillPath)
+    case .strokePath(var strokePath):
+        strokePath.color = applyingOpacity(opacity, to: strokePath.color)
+        return .strokePath(strokePath)
+    case .drawText(var drawText):
+        drawText.color = applyingOpacity(opacity, to: drawText.color)
+        return .drawText(drawText)
+    case .applyBlur, .pushClip, .popClip:
+        return command
+    }
 }
 
 // MARK: - Animation interpolation support

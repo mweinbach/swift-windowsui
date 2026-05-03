@@ -17,6 +17,8 @@ Use these helpers in tests and diagnostics when checking primitive emission, lay
 
 `RenderClipStack` is the shared clip resolver for renderers that currently expose rectangular scissor-style clipping. `pushClip` and `popClip` are honored by the `RenderFrame -> GPUIScene` bridge and by the default `D3D11Renderer`/Direct2D frame path for rect clips, ellipse bounds, and path bounds. Rounded, elliptical, and arbitrary path clips are approximated to rectangular bounds until the backend grows a true mask/stencil clip path.
 
+Retained-node opacity is resolved in `RetainedViewRuntime.renderFrame()` before commands reach a backend. Fill colors, gradient stops, path/text colors, bitmap opacity, and scroll-indicator fills inherit parent opacity in the renderer-neutral command stream; zero-opacity nodes still lay out but skip command emission.
+
 The D3D11 fallback path activates per-command blend states for `.normal`, `.additive`, `.multiply`, and `.screen` on `fillRect` and `drawBitmap`. `.overlay` is still mapped to normal blending until the renderer has shader/effect composition for it, and the Direct2D path currently uses normal source-over blending.
 
 When Direct2D interop is active, the default renderer also translates `fillPath` and `strokePath` commands into native Direct2D path geometries with per-primitive antialiasing. Path fills currently use a solid color; path gradients fall back to the first gradient stop. Stroke width, dash pattern, cap, and join are forwarded to Direct2D. The pure D3D11 shader fallback still skips path commands.

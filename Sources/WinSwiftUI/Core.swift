@@ -744,6 +744,12 @@ public enum Axis: Sendable {
     case vertical
 }
 
+public enum ScrollIndicatorVisibility: Sendable, Equatable {
+    case automatic
+    case visible
+    case hidden
+}
+
 public struct PinnedScrollableViews: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -1599,6 +1605,24 @@ private func suppressInteraction(in node: ViewNode) {
 
     for child in node.children {
         suppressInteraction(in: child)
+    }
+}
+
+@MainActor
+private func updateScrollIndicatorVisibility(in node: ViewNode, visibility: ScrollIndicatorVisibility) {
+    if node.scrollAxis != nil {
+        switch visibility {
+        case .automatic:
+            break
+        case .visible:
+            node.showsScrollIndicator = true
+        case .hidden:
+            node.showsScrollIndicator = false
+        }
+    }
+
+    for child in node.children {
+        updateScrollIndicatorVisibility(in: child, visibility: visibility)
     }
 }
 
@@ -2507,6 +2531,17 @@ public extension View {
 
     func listStyle(_ style: SidebarListStyle) -> some View {
         listStyle(.sidebar)
+    }
+
+    func scrollIndicators(_ visibility: ScrollIndicatorVisibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateScrollIndicatorVisibility(in: node, visibility: visibility)
+                return node
+            }
+        }
     }
 
     func onSubmit(_ action: @escaping @MainActor () -> Void) -> some View {

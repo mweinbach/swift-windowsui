@@ -2736,6 +2736,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollIndicatorsModifierUpdatesScrollContainers() async {
+        await MainActor.run {
+            let hiddenNode = makeNode(
+                ScrollView {
+                    Text("ONE")
+                }
+                .scrollIndicators(.hidden)
+            )
+            let visibleNode = makeNode(
+                ScrollView {
+                    Text("ONE")
+                }
+                .scrollIndicators(.hidden)
+                .scrollIndicators(.visible)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    List {
+                        Text("ROW")
+                    }
+                }
+                .scrollIndicators(.hidden)
+            )
+
+            XCTAssertFalse(hiddenNode.showsScrollIndicator)
+            XCTAssertTrue(visibleNode.showsScrollIndicator)
+            XCTAssertFalse(inheritedNode.children[0].showsScrollIndicator)
+        }
+    }
+
+    func testScrollIndicatorsAutomaticLeavesRetainedDefaultVisibility() async {
+        await MainActor.run {
+            let node = makeNode(
+                ScrollView {
+                    Text("ONE")
+                }
+                .scrollIndicators(.automatic)
+            )
+
+            XCTAssertTrue(node.showsScrollIndicator)
+        }
+    }
+
     func testLazyStacksMapToRetainedStackLayouts() async {
         await MainActor.run {
             let verticalNode = makeNode(

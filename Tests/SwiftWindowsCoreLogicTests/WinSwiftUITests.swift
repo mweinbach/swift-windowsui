@@ -52,6 +52,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStringProtocolTitlesFeedCommonTitleViews() async {
+        await MainActor.run {
+            var isOn = true
+            var count = 1
+            var amount = 0.5
+            var selection = "one"
+            var isExpanded = false
+
+            let node = makeNode(
+                VStack {
+                    Button("PREFIX-BUTTON".suffix(6)) {}
+                    Button("PREFIX-SAVE".suffix(4), systemImage: "checkmark") {}
+                    Label("PREFIX-LABEL".suffix(5), systemImage: "checkmark")
+                    LabeledContent("PREFIX-LABELED".suffix(7), value: "PREFIX-VALUE".suffix(5))
+                    NavigationLink("PREFIX-DETAIL".suffix(6)) {
+                        Text("DESTINATION")
+                    }
+                    GroupBox("PREFIX-GROUP".suffix(5)) {
+                        Text("GROUP ROW")
+                    }
+                    DisclosureGroup("PREFIX-DISCLOSE".suffix(8), isExpanded: Binding(get: { isExpanded }, set: { isExpanded = $0 })) {
+                        Text("DISCLOSED")
+                    }
+                    Section("PREFIX-SECTION".suffix(7)) {
+                        Text("SECTION ROW")
+                    }
+                    Menu("PREFIX-MENU".suffix(4)) {
+                        Button("ACTION") {}
+                    }
+                    Menu("PREFIX-ACTIONS".suffix(7), systemImage: "gearshape") {
+                        Button("MORE") {}
+                    }
+                    Toggle("PREFIX-TOGGLE".suffix(6), isOn: Binding(get: { isOn }, set: { isOn = $0 }))
+                    Stepper("PREFIX-COUNT".suffix(5), value: Binding(get: { count }, set: { count = $0 }), in: 0...5)
+                    Stepper("PREFIX-AMOUNT".suffix(6), value: Binding(get: { amount }, set: { amount = $0 }), in: 0...1, step: 0.25)
+                    ProgressView("PREFIX-PROGRESS".suffix(8), value: 0.4)
+                    Picker("PREFIX-PICKER".suffix(6), selection: Binding(get: { selection }, set: { selection = $0 })) {
+                        Text("ONE").tag("one")
+                    }
+                }
+            )
+
+            for expectedText in [
+                "BUTTON", "SAVE", "LABEL", "LABELED", "VALUE", "DETAIL", "GROUP",
+                "DISCLOSE", "SECTION", "MENU", "ACTIONS", "TOGGLE", "COUNT",
+                "AMOUNT", "PROGRESS", "PICKER"
+            ] {
+                XCTAssertTrue(containsText(expectedText, in: node), "Expected retained tree to contain \(expectedText)")
+            }
+        }
+    }
+
     func testTextConcatenationPreservesSpanStyles() async {
         await MainActor.run {
             let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)

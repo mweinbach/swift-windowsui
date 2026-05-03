@@ -481,6 +481,10 @@ public struct Label: View {
         self.spacing = 10
     }
 
+    public init<S: StringProtocol>(_ title: S, systemImage: String) {
+        self.init(String(title), systemImage: systemImage)
+    }
+
     public init(@ViewBuilder title: () -> [AnyView], @ViewBuilder icon: () -> [AnyView]) {
         self.content = .custom(title: title(), icon: icon())
         self.color = .white
@@ -638,6 +642,10 @@ public struct LabeledContent: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
     public init(_ title: String, value: String) {
         self.init(title) {
             Text(value)
@@ -646,6 +654,10 @@ public struct LabeledContent: View {
                 .multilineTextAlignment(.trailing)
                 .lineLimit(1)
         }
+    }
+
+    public init<Title: StringProtocol, Value: StringProtocol>(_ title: Title, value: Value) {
+        self.init(String(title), value: String(value))
     }
 
     public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
@@ -1866,6 +1878,10 @@ public struct NavigationLink: View {
         self.explicitTitle = title
     }
 
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder destination: () -> [AnyView]) {
+        self.init(String(title), destination: destination)
+    }
+
     public init(
         @ViewBuilder destination: () -> [AnyView],
         @ViewBuilder label: () -> [AnyView]
@@ -2077,6 +2093,10 @@ public struct GroupBox: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(_ title: S, style: SectionStyle = GroupBox.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), style: style, content: content)
+    }
+
     public init(style: SectionStyle = GroupBox.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
         self.title = nil
         self.style = style
@@ -2160,6 +2180,10 @@ public struct DisclosureGroup: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(_ title: S, isExpanded: Binding<Bool>, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), isExpanded: isExpanded, content: content)
+    }
+
     public init(
         isExpanded: Binding<Bool>,
         @ViewBuilder content: () -> [AnyView],
@@ -2216,6 +2240,10 @@ public struct Section: View {
         self.header = []
         self.content = content()
         self.footer = []
+    }
+
+    public init<S: StringProtocol>(_ title: S, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), style: style, content: content)
     }
 
     public init(
@@ -2342,6 +2370,10 @@ public struct Button: View {
         self.isEnabled = true
     }
 
+    public init<S: StringProtocol>(_ title: S, role: ButtonRole? = nil, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), role: role, action: action)
+    }
+
     public init(_ title: String, systemImage: String, role: ButtonRole? = nil, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -2354,6 +2386,10 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.isEnabled = true
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, role: ButtonRole? = nil, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), systemImage: systemImage, role: role, action: action)
     }
 
     public var body: Never {
@@ -2437,6 +2473,10 @@ public struct Menu: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
     public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
         self.label = [
             AnyView(
@@ -2445,6 +2485,10 @@ public struct Menu: View {
             )
         ]
         self.content = content()
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), systemImage: systemImage, content: content)
     }
 
     public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
@@ -2514,6 +2558,10 @@ public struct Toggle: View {
         self.isEnabled = true
         self.tintColor = nil
         self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
+    }
+
+    public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) {
+        self.init(String(title), isOn: isOn)
     }
 
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> [AnyView]) {
@@ -2601,6 +2649,10 @@ public struct Stepper<Value: Comparable>: View {
         )
     }
 
+    public init<S: StringProtocol>(_ title: S, value: Binding<Int>, in bounds: ClosedRange<Int> = Int.min...Int.max, step: Int = 1) where Value == Int {
+        self.init(String(title), value: value, in: bounds, step: step)
+    }
+
     public init(value: Binding<Int>, in bounds: ClosedRange<Int> = Int.min...Int.max, step: Int = 1, @ViewBuilder label: () -> [AnyView]) where Value == Int {
         let normalizedStep = step > 0 ? step : 1
         self.value = value
@@ -2631,6 +2683,10 @@ public struct Stepper<Value: Comparable>: View {
                     .lineLimit(1)
             }
         )
+    }
+
+    public init<S: StringProtocol>(_ title: S, value: Binding<Double>, in bounds: ClosedRange<Double>, step: Double = 1.0) where Value == Double {
+        self.init(String(title), value: value, in: bounds, step: step)
     }
 
     public init(value: Binding<Double>, in bounds: ClosedRange<Double>, step: Double = 1.0, @ViewBuilder label: () -> [AnyView]) where Value == Double {
@@ -2790,6 +2846,10 @@ public struct ProgressView: View {
         self.tintColor = nil
     }
 
+    public init<S: StringProtocol>(_ title: S, value: Double? = nil, total: Double = 1.0) {
+        self.init(String(title), value: value, total: total)
+    }
+
     public var body: Never {
         fatalError("ProgressView has no body")
     }
@@ -2846,6 +2906,10 @@ public struct Picker<SelectionValue: Hashable>: View {
         self.selection = selection
         self.content = content()
         self.isEnabled = true
+    }
+
+    public init<S: StringProtocol>(_ title: S, selection: Binding<SelectionValue>, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), selection: selection, content: content)
     }
 
     public var body: Never {

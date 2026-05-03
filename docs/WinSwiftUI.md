@@ -30,6 +30,8 @@ import WinSwiftUI
 
 `LocalizedStringKey` and `LocalizedStringResource` are currently identity aliases to `String` for source compatibility. They preserve common SwiftUI call-site shapes, but they do not perform localization table lookup yet.
 
+Common title-bearing views and controls accept `StringProtocol` title values so shared source can pass `String`, `Substring`, and the current localization aliases without pre-converting to `String`.
+
 ## Current Surface
 
 App/scene hosting:

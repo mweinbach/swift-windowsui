@@ -661,10 +661,12 @@ public struct Button: View {
 public struct Toggle: View {
     public typealias Body = Never
 
+    private static let defaultTintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+
     private let isOn: Binding<Bool>
     private let label: [AnyView]
     private var isEnabled: Bool
-    private var onColor: Color
+    private var tintColor: Color?
     private var offColor: Color
 
     public init(_ title: String, isOn: Binding<Bool>) {
@@ -679,7 +681,7 @@ public struct Toggle: View {
             )
         ]
         self.isEnabled = true
-        self.onColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.tintColor = nil
         self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
     }
 
@@ -687,7 +689,7 @@ public struct Toggle: View {
         self.isOn = isOn
         self.label = label()
         self.isEnabled = true
-        self.onColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.tintColor = nil
         self.offColor = Color(red: 0.31, green: 0.35, blue: 0.42, alpha: 1.0)
     }
 
@@ -701,7 +703,7 @@ public struct Toggle: View {
                 runtime: runtime,
                 isOn: isOn.wrappedValue,
                 isEnabled: isEnabled,
-                onColor: onColor,
+                onColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
                 offColor: offColor,
                 onToggle: { newValue in
                     isOn.wrappedValue = newValue
@@ -736,7 +738,7 @@ public struct Toggle: View {
 
     public func tint(_ color: Color) -> Toggle {
         var copy = self
-        copy.onColor = color
+        copy.tintColor = color
         return copy
     }
 }
@@ -745,18 +747,20 @@ public struct Toggle: View {
 public struct Slider: View {
     public typealias Body = Never
 
+    private static let defaultTintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+
     private let value: Binding<Double>
     private let bounds: ClosedRange<Double>
     private var isEnabled: Bool
     private var trackColor: Color
-    private var filledColor: Color
+    private var tintColor: Color?
 
     public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1) {
         self.value = value
         self.bounds = bounds
         self.isEnabled = true
         self.trackColor = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0)
-        self.filledColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.tintColor = nil
     }
 
     public var body: Never {
@@ -771,7 +775,7 @@ public struct Slider: View {
                 range: bounds,
                 isEnabled: isEnabled,
                 trackColor: trackColor,
-                filledColor: filledColor,
+                filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
                 onValueChanged: { newValue in
                     value.wrappedValue = newValue
                     value.invalidateContextIfNeeded(context)
@@ -788,7 +792,7 @@ public struct Slider: View {
 
     public func tint(_ color: Color) -> Slider {
         var copy = self
-        copy.filledColor = color
+        copy.tintColor = color
         return copy
     }
 }
@@ -797,14 +801,16 @@ public struct Slider: View {
 public struct ProgressView: View {
     public typealias Body = Never
 
+    private static let defaultTintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+
     private let value: Double?
     private let total: Double
-    private var tintColor: Color
+    private var tintColor: Color?
 
     public init(value: Double? = nil, total: Double = 1.0) {
         self.value = value
         self.total = total
-        self.tintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+        self.tintColor = nil
     }
 
     public var body: Never {
@@ -816,7 +822,7 @@ public struct ProgressView: View {
             Controls.progressBar(
                 value: value ?? 0,
                 total: total,
-                filledColor: tintColor
+                filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
             )
         }
     }

@@ -396,6 +396,7 @@ public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
+    var tintColor: Color?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -404,11 +405,13 @@ public struct ViewBuildContext {
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
-        observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in }
+        observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
+        tintColor: Color? = nil
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
+        self.tintColor = tintColor
     }
 
     func invalidate() {
@@ -417,6 +420,15 @@ public struct ViewBuildContext {
 
     func observe(_ object: any ObservableObject) {
         observedObjectHandler(object)
+    }
+
+    func withTint(_ color: Color) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: color
+        )
     }
 }
 
@@ -1179,6 +1191,12 @@ public extension View {
 
     func foregroundStyle(_ color: Color) -> some View {
         foregroundColor(color)
+    }
+
+    func tint(_ color: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTint(color))
+        }
     }
 
     func font(_ font: Font) -> some View {

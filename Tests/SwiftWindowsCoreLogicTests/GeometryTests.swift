@@ -34,4 +34,11 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(midpoint.blue, 0.5, accuracy: 0.0001)
         XCTAssertEqual(midpoint.alpha, 0.5, accuracy: 0.0001)
     }
+
+    func testNamedChannelColorsKeepInstanceChannelsAccessible() {
+        XCTAssertEqual(Color.red.red, 1.0, accuracy: 0.0001)
+        XCTAssertEqual(Color.red.green, 0.23, accuracy: 0.0001)
+        XCTAssertEqual(Color.green.green, 0.78, accuracy: 0.0001)
+        XCTAssertEqual(Color.blue.blue, 1.0, accuracy: 0.0001)
+    }
 }

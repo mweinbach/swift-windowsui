@@ -458,6 +458,12 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.textStyle.color, .accentColor)
             XCTAssertEqual(Color.secondary.opacity(0.5).alpha, 0.5, accuracy: 0.001)
+
+            let warningNode = makeNode(Text("WARN").foregroundColor(.red))
+            XCTAssertEqual(warningNode.textStyle.color, .red)
+            XCTAssertEqual(Color.red.red, 1.0, accuracy: 0.001)
+            XCTAssertEqual(Color.green.green, 0.78, accuracy: 0.001)
+            XCTAssertEqual(Color.blue, .accentColor)
         }
     }
 

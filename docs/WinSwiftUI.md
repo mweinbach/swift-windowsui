@@ -146,7 +146,7 @@ Modifiers:
 Compatibility helpers:
 
 - `Color(red:green:blue:opacity:)`
-- common non-channel named `Color` values such as `primary`, `secondary`, `accentColor`, `gray`, `orange`, and `purple`
+- common named `Color` values such as `primary`, `secondary`, `accentColor`, `red`, `green`, `blue`, `gray`, `orange`, and `purple`
 - `Color.opacity(_:)`
 - `Material` presets such as `ultraThinMaterial`, `thinMaterial`, `regularMaterial`, `thickMaterial`, `ultraThickMaterial`, and `bar`
 - `LinearGradient(colors:startPoint:endPoint)`

@@ -207,6 +207,9 @@ public struct Color: Equatable, Sendable {
     public static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     public static let white = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let clear = Color(red: 0, green: 0, blue: 0, alpha: 0)
+    public static let red = Color(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0)
+    public static let green = Color(red: 0.20, green: 0.78, blue: 0.35, alpha: 1.0)
+    public static let blue = Color(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)
 
     public var rgba: (Float, Float, Float, Float) {
         (red, green, blue, alpha)

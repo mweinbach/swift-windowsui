@@ -462,6 +462,7 @@ public struct ViewBuildContext {
     var labelStyle: LabelStyle?
     var toggleStyle: ToggleStyle?
     var pickerStyle: PickerStyle?
+    var controlGroupStyle: ControlGroupStyle
     var controlSize: ControlSize
     var textFieldStyle: TextFieldStyle
     var progressViewStyle: ProgressViewStyle
@@ -483,6 +484,7 @@ public struct ViewBuildContext {
         labelStyle: LabelStyle? = nil,
         toggleStyle: ToggleStyle? = nil,
         pickerStyle: PickerStyle? = nil,
+        controlGroupStyle: ControlGroupStyle = .automatic,
         controlSize: ControlSize = .regular,
         textFieldStyle: TextFieldStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
@@ -499,6 +501,7 @@ public struct ViewBuildContext {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.pickerStyle = pickerStyle
+        self.controlGroupStyle = controlGroupStyle
         self.controlSize = controlSize
         self.textFieldStyle = textFieldStyle
         self.progressViewStyle = progressViewStyle
@@ -526,6 +529,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -546,6 +550,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -566,6 +571,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -586,6 +592,7 @@ public struct ViewBuildContext {
             labelStyle: style,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -606,6 +613,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: style,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -626,6 +634,28 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: style,
+            controlGroupStyle: controlGroupStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withControlGroupStyle(_ style: ControlGroupStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlGroupStyle: style,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -646,6 +676,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: size,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -666,6 +697,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: style,
             progressViewStyle: progressViewStyle,
@@ -686,6 +718,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: style,
@@ -706,6 +739,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -726,6 +760,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -746,6 +781,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
@@ -1483,6 +1519,137 @@ public struct AccessoryCircularGaugeStyle: Sendable {
 }
 
 public struct AccessoryCircularCapacityGaugeStyle: Sendable {
+    public init() {}
+}
+
+struct ControlGroupStyleMetrics: Sendable {
+    var backgroundColor: Color
+    var borderColor: Color
+    var borderWidth: Double
+    var shadowColor: Color
+    var shadowOffset: Point
+    var shadowSpread: Double
+    var cornerRadius: Double
+    var clipsToBounds: Bool
+    var spacing: Double
+    var padding: EdgeInsets
+    var childButtonStyle: ButtonStyle?
+}
+
+public struct ControlGroupStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case navigation
+        case palette
+        case menu
+        case compactMenu
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ControlGroupStyle(kind: .automatic)
+    public static let navigation = ControlGroupStyle(kind: .navigation)
+    public static let palette = ControlGroupStyle(kind: .palette)
+    public static let menu = ControlGroupStyle(kind: .menu)
+    public static let compactMenu = ControlGroupStyle(kind: .compactMenu)
+
+    var metrics: ControlGroupStyleMetrics {
+        switch kind {
+        case .automatic:
+            return ControlGroupStyleMetrics(
+                backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.58),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.12),
+                shadowOffset: Point(x: 0, y: 10),
+                shadowSpread: 6,
+                cornerRadius: 18,
+                clipsToBounds: true,
+                spacing: 4,
+                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                childButtonStyle: nil
+            )
+        case .navigation:
+            return ControlGroupStyleMetrics(
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                shadowColor: .clear,
+                shadowOffset: .zero,
+                shadowSpread: 0,
+                cornerRadius: 0,
+                clipsToBounds: false,
+                spacing: 6,
+                padding: .zero,
+                childButtonStyle: .borderless
+            )
+        case .palette:
+            return ControlGroupStyleMetrics(
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.82),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.14),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.18),
+                shadowOffset: Point(x: 0, y: 12),
+                shadowSpread: 8,
+                cornerRadius: 16,
+                clipsToBounds: true,
+                spacing: 3,
+                padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
+                childButtonStyle: .borderless
+            )
+        case .menu:
+            return ControlGroupStyleMetrics(
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.21, alpha: 0.88),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.12),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.20),
+                shadowOffset: Point(x: 0, y: 14),
+                shadowSpread: 8,
+                cornerRadius: 16,
+                clipsToBounds: true,
+                spacing: 2,
+                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                childButtonStyle: .borderless
+            )
+        case .compactMenu:
+            return ControlGroupStyleMetrics(
+                backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.23, alpha: 0.72),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.14),
+                shadowOffset: Point(x: 0, y: 8),
+                shadowSpread: 5,
+                cornerRadius: 14,
+                clipsToBounds: true,
+                spacing: 1,
+                padding: EdgeInsets(top: 2, leading: 2, bottom: 2, trailing: 2),
+                childButtonStyle: .borderless
+            )
+        }
+    }
+}
+
+public struct AutomaticControlGroupStyle: Sendable {
+    public init() {}
+}
+
+public struct NavigationControlGroupStyle: Sendable {
+    public init() {}
+}
+
+public struct PaletteControlGroupStyle: Sendable {
+    public init() {}
+}
+
+public struct MenuControlGroupStyle: Sendable {
+    public init() {}
+}
+
+public struct CompactMenuControlGroupStyle: Sendable {
     public init() {}
 }
 
@@ -3275,6 +3442,32 @@ public extension View {
 
     func gaugeStyle(_ style: AccessoryCircularCapacityGaugeStyle) -> some View {
         gaugeStyle(.accessoryCircularCapacity)
+    }
+
+    func controlGroupStyle(_ style: ControlGroupStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withControlGroupStyle(style))
+        }
+    }
+
+    func controlGroupStyle(_ style: AutomaticControlGroupStyle) -> some View {
+        controlGroupStyle(.automatic)
+    }
+
+    func controlGroupStyle(_ style: NavigationControlGroupStyle) -> some View {
+        controlGroupStyle(.navigation)
+    }
+
+    func controlGroupStyle(_ style: PaletteControlGroupStyle) -> some View {
+        controlGroupStyle(.palette)
+    }
+
+    func controlGroupStyle(_ style: MenuControlGroupStyle) -> some View {
+        controlGroupStyle(.menu)
+    }
+
+    func controlGroupStyle(_ style: CompactMenuControlGroupStyle) -> some View {
+        controlGroupStyle(.compactMenu)
     }
 
     func buttonStyle(_ style: ButtonStyle) -> some View {

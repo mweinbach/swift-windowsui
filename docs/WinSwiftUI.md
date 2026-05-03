@@ -121,6 +121,7 @@ Modifiers:
 - `textFieldStyle`
 - `progressViewStyle`
 - `gaugeStyle`
+- `controlGroupStyle`
 - `buttonStyle`
 - `labelStyle`
 - `toggleStyle`
@@ -176,7 +177,7 @@ Compatibility helpers:
 - `FillStyle`
 - `DragGesture`
 - `ControlSize`
-- common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
+- common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `ControlGroupStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -195,7 +196,7 @@ Surface direction:
 - `Label` maps system-image labels and custom `title`/`icon` builder labels into retained horizontal stacks. Label-level `foregroundColor`, `foregroundStyle(Color)`, and `font` modifiers style descendant text while preserving the icon font family. `labelStyle` supports `.automatic`, `.titleAndIcon`, `.titleOnly`, and `.iconOnly` style values plus common concrete wrappers such as `IconOnlyLabelStyle()`, flowing through the build context to descendant labels.
 - `ContentUnavailableView` maps common empty-state and search-empty call sites into centered retained stacks with title/icon, optional description, and optional action content.
 - `LabeledContent` maps common settings rows into retained horizontal stacks with leading labels and trailing value/content views.
-- `ControlGroup` maps grouped controls into a rounded retained horizontal stack with translucent chrome while preserving each child control's focus and activation behavior.
+- `ControlGroup` maps grouped controls into a rounded retained horizontal stack with translucent chrome while preserving each child control's focus and activation behavior. `controlGroupStyle` supports `.automatic`, `.navigation`, `.palette`, `.menu`, and `.compactMenu` style values plus common concrete wrappers such as `PaletteControlGroupStyle()`, flowing through the build context to descendant groups.
 - `Divider` maps into a thin retained panel and uses the nearest stack axis to choose a horizontal or vertical separator.
 - `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, and `Capsule` map into passive retained panels. Shape fills set panel backgrounds or gradients; shape strokes set retained border color and width.
 - `RoundedRectangle` carries its corner radius into the retained node so fills, strokes, overlays, and clipping stay aligned. `Circle`, `Ellipse`, and `Capsule` use the retained rounded-rect renderer's maximum capsule radius until path-backed shape views provide true vector ellipse masking.
@@ -239,6 +240,7 @@ Surface direction:
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `progressViewStyle` and `gaugeStyle` are carried through the build context so descendant progress and gauge controls can share linear or circular retained indicators unless they set explicit styles.
+- `controlGroupStyle` is carried through the build context so toolbar and menu control clusters can share retained group chrome unless a descendant group sets an explicit style.
 - `labelsHidden()` is supported on `Toggle` and `Picker`; it removes the retained label/title wrapper while preserving the interactive switch, dropdown, segmented control, or radio rows.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
 - `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and the current implementation is an in-window overlay rather than a separate native dialog surface.

@@ -756,20 +756,25 @@ public struct ControlGroup: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let childContext = context.withContainerAxis(.horizontal)
+        let metrics = context.controlGroupStyle.metrics
+        var childContext = context.withContainerAxis(.horizontal)
+        if let childButtonStyle = metrics.childButtonStyle {
+            childContext = childContext.withButtonStyle(childButtonStyle)
+        }
+
         return Component { runtime in
             Controls.stackPanel(
-                backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.58),
-                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
-                borderWidth: 1,
-                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.12),
-                shadowOffset: Point(x: 0, y: 10),
-                shadowSpread: 6,
-                cornerRadius: 18,
-                clipsToBounds: true,
+                backgroundColor: metrics.backgroundColor,
+                borderColor: metrics.borderColor,
+                borderWidth: metrics.borderWidth,
+                shadowColor: metrics.shadowColor,
+                shadowOffset: metrics.shadowOffset,
+                shadowSpread: metrics.shadowSpread,
+                cornerRadius: metrics.cornerRadius,
+                clipsToBounds: metrics.clipsToBounds,
                 stackLayout: .horizontal(
-                    spacing: 4,
-                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    spacing: metrics.spacing,
+                    padding: metrics.padding,
                     alignment: .center
                 ),
                 isHitTestVisible: false,

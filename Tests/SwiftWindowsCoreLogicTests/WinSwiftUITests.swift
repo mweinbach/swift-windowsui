@@ -1012,6 +1012,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlGroupStylePaletteMapsToRetainedPaletteChrome() async {
+        await MainActor.run {
+            let node = makeNode(
+                ControlGroup {
+                    Button("ONE") {}
+                    Button("TWO") {}
+                }
+                .controlGroupStyle(.palette)
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected ControlGroup to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .horizontal(spacing: 3, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .center))
+            XCTAssertEqual(node.backgroundColor, Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.82))
+            XCTAssertEqual(node.cornerRadius, 16)
+            XCTAssertEqual(node.borderWidth, 1)
+            XCTAssertEqual(node.children[0].backgroundColor, .clear)
+            XCTAssertEqual(node.children[1].backgroundColor, .clear)
+        }
+    }
+
+    func testInheritedControlGroupStyleAppliesToDescendantGroups() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    ControlGroup {
+                        Button("BACK") {}
+                        Button("NEXT") {}
+                    }
+
+                    ControlGroup {
+                        Button("TOOLS") {}
+                    }
+                    .controlGroupStyle(.automatic)
+                }
+                .controlGroupStyle(NavigationControlGroupStyle())
+            )
+
+            let inheritedGroup = node.children[0]
+            let explicitGroup = node.children[1]
+
+            XCTAssertEqual(inheritedGroup.backgroundColor, .clear)
+            XCTAssertEqual(inheritedGroup.borderWidth, 0)
+            XCTAssertEqual(inheritedGroup.cornerRadius, 0)
+            XCTAssertEqual(inheritedGroup.children[0].backgroundColor, .clear)
+            XCTAssertEqual(explicitGroup.cornerRadius, 18)
+            XCTAssertEqual(explicitGroup.borderWidth, 1)
+            XCTAssertEqual(explicitGroup.children[0].backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+        }
+    }
+
     func testInspectionSnapshotSummarizesWinSwiftUIViewTree() async {
         await MainActor.run {
             let snapshot = WinSwiftUIInspection.snapshot(

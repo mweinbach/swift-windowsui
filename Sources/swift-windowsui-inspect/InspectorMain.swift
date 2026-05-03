@@ -797,6 +797,7 @@ private struct WinSwiftUIProbeView: View {
                             Button("MENU ACTION") {}
                         }
                     }
+                    .controlGroupStyle(.palette)
                     DisclosureGroup("MORE DETAIL", isExpanded: Binding(get: { true }, set: { _ in })) {
                         Text("DISCLOSED ROW")
                     }

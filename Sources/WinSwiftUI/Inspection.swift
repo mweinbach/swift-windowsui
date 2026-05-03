@@ -148,6 +148,8 @@ public enum WinSwiftUIInspection {
             case .horizontal:
                 return "stack.horizontal"
             }
+        case .grid(let grid):
+            return "grid.\(grid.columns)"
         case .flex:
             return "flex"
         }

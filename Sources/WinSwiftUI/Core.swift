@@ -715,6 +715,24 @@ public struct PinnedScrollableViews: OptionSet, Sendable {
     public static let sectionFooters = PinnedScrollableViews(rawValue: 1 << 1)
 }
 
+public struct GridItem: Sendable {
+    public enum Size: Sendable {
+        case fixed(Double)
+        case flexible(minimum: Double = 10, maximum: Double = .infinity)
+        case adaptive(minimum: Double, maximum: Double = .infinity)
+    }
+
+    public var size: Size
+    public var spacing: Double?
+    public var alignment: Alignment?
+
+    public init(_ size: Size = .flexible(), spacing: Double? = nil, alignment: Alignment? = nil) {
+        self.size = size
+        self.spacing = spacing
+        self.alignment = alignment
+    }
+}
+
 public enum Edge {
     case top
     case leading

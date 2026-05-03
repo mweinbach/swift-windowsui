@@ -24,6 +24,7 @@ public struct DirtyFlags: OptionSet, Sendable {
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
+    case grid(GridLayout)
     case flex(FlexStyle)
 }
 
@@ -650,6 +651,54 @@ public final class ViewNode {
                 )
             }
 
+        case .grid(let gridLayout):
+            let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: gridLayout.padding)
+            let visibleChildren = children.filter { !$0.isHidden }
+            let columnCount = max(1, gridLayout.columns)
+            let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
+            let columnWidth = max(0, (contentRect.size.width - columnSpacingTotal) / Double(columnCount))
+            let childConstraints = LayoutConstraints(maxWidth: columnWidth)
+            let desiredSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
+            var rowHeights = Array(repeating: 0.0, count: rowCount)
+
+            for (index, desiredSize) in desiredSizes.enumerated() {
+                rowHeights[index / columnCount] = max(rowHeights[index / columnCount], desiredSize.height)
+            }
+
+            var visibleIndex = 0
+            for child in children {
+                if child.isHidden {
+                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
+                    continue
+                }
+
+                let row = visibleIndex / columnCount
+                let column = visibleIndex % columnCount
+                let rowOffset = rowHeights.prefix(row).reduce(0, +) + gridLayout.rowSpacing * Double(row)
+                child.resolvedFrame = Rect(
+                    x: contentRect.origin.x + Double(column) * (columnWidth + gridLayout.columnSpacing),
+                    y: contentRect.origin.y + rowOffset,
+                    width: columnWidth,
+                    height: rowHeights[row]
+                )
+                child.layoutSubtree()
+                visibleIndex += 1
+            }
+
+            let contentHeight = rowHeights.reduce(0, +)
+                + gridLayout.rowSpacing * Double(max(0, rowCount - 1))
+                + gridLayout.padding.top
+                + gridLayout.padding.bottom
+            let contentWidth = columnWidth * Double(columnCount)
+                + columnSpacingTotal
+                + gridLayout.padding.leading
+                + gridLayout.padding.trailing
+            resolvedContentSize = Size(
+                width: max(resolvedFrame.size.width, contentWidth),
+                height: max(resolvedFrame.size.height, contentHeight)
+            )
+
         case .flex(let flexStyle):
             let visibleChildren = children.filter { !$0.isHidden }
 
@@ -1125,6 +1174,35 @@ public final class ViewNode {
                 width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
                 height: stackLayout.axis == .vertical ? mainExtent : crossExtent
             )
+
+        case .grid(let gridLayout):
+            let contentConstraints = insetConstraints(constraints, by: gridLayout.padding)
+            let visibleChildren = children.filter { !$0.isHidden }
+            let columnCount = max(1, gridLayout.columns)
+            let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
+            let finiteColumnWidth: Double? = contentConstraints.maxWidth.isFinite
+                ? max(0, (contentConstraints.maxWidth - columnSpacingTotal) / Double(columnCount))
+                : nil
+            let childConstraints = LayoutConstraints(maxWidth: finiteColumnWidth ?? .infinity)
+            let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
+            let inferredColumnWidth = finiteColumnWidth ?? (childSizes.map(\.width).max() ?? 0)
+            let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
+            var rowHeights = Array(repeating: 0.0, count: rowCount)
+
+            for (index, childSize) in childSizes.enumerated() {
+                rowHeights[index / columnCount] = max(rowHeights[index / columnCount], childSize.height)
+            }
+
+            let measuredGridWidth = inferredColumnWidth * Double(columnCount)
+                + columnSpacingTotal
+                + gridLayout.padding.leading
+                + gridLayout.padding.trailing
+            let measuredGridHeight = rowHeights.reduce(0, +)
+                + gridLayout.rowSpacing * Double(max(0, rowCount - 1))
+                + gridLayout.padding.top
+                + gridLayout.padding.bottom
+
+            measuredSize = Size(width: measuredGridWidth, height: measuredGridHeight)
 
         case .flex(let flexStyle):
             let visibleChildren = children.filter { !$0.isHidden }

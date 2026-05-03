@@ -1343,6 +1343,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLazyVGridMapsColumnsToRetainedGridLayout() async {
+        await MainActor.run {
+            let node = makeNode(
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 6),
+                        GridItem(.fixed(48)),
+                    ],
+                    alignment: .leading,
+                    spacing: 8,
+                    pinnedViews: [.sectionHeaders]
+                ) {
+                    Text("A")
+                    Text("B")
+                    Text("C")
+                }
+            )
+
+            guard case .grid(let gridLayout) = node.layoutMode else {
+                XCTFail("Expected LazyVGrid to lower to a retained grid layout")
+                return
+            }
+
+            XCTAssertEqual(gridLayout.columns, 2)
+            XCTAssertEqual(gridLayout.rowSpacing, 8)
+            XCTAssertEqual(gridLayout.columnSpacing, 6)
+            XCTAssertEqual(node.children.map(\.text), ["A", "B", "C"].map(Optional.some))
+        }
+    }
+
     func testListMapsToVerticalScrollPanelAndFlattensForEachRows() async {
         await MainActor.run {
             let rows = ["ONE", "TWO", "THREE"]

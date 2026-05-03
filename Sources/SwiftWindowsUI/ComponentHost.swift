@@ -109,6 +109,10 @@ public final class ComponentHost {
             case .horizontal:
                 return "stack.h"
             }
+        case .grid(let layout):
+            return "grid.\(layout.columns).\(layout.rowSpacing).\(layout.columnSpacing)"
+        case .flex:
+            return "flex"
         }
     }
 

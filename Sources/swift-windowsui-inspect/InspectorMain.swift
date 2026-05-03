@@ -689,8 +689,21 @@ private struct WinSwiftUIProbeView: View {
                     Text("LAZY ROW 2")
                     Text("LAZY ROW 3")
                 }
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible()),
+                        GridItem(.flexible()),
+                    ],
+                    spacing: 4
+                ) {
+                    Text("GRID A")
+                    Text("GRID B")
+                    Text("GRID C")
+                    Text("GRID D")
+                }
             }
-            .frame(height: 64)
+            .frame(height: 96)
 
             TabView(selection: Binding(get: { "summary" }, set: { _ in })) {
                 Text("TAB SUMMARY")

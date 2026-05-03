@@ -289,6 +289,40 @@ public enum Controls {
         )
     }
 
+    public static func gridPanel(
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        backgroundColor: Color? = nil,
+        borderColor: Color = .clear,
+        borderWidth: Double = 0,
+        shadowColor: Color = .clear,
+        shadowOffset: Point = .zero,
+        shadowSpread: Double = 0,
+        cornerRadius: Double = 0,
+        clipsToBounds: Bool = false,
+        gridLayout: GridLayout,
+        isHitTestVisible: Bool = true,
+        children: [ViewNode] = []
+    ) -> ViewNode {
+        panel(
+            frame: frame,
+            preferredSize: preferredSize,
+            layoutPriority: layoutPriority,
+            backgroundColor: backgroundColor,
+            borderColor: borderColor,
+            borderWidth: borderWidth,
+            shadowColor: shadowColor,
+            shadowOffset: shadowOffset,
+            shadowSpread: shadowSpread,
+            cornerRadius: cornerRadius,
+            clipsToBounds: clipsToBounds,
+            layoutMode: .grid(gridLayout),
+            isHitTestVisible: isHitTestVisible,
+            children: children
+        )
+    }
+
     public static func scrollPanel(
         axis: ScrollAxis,
         frame: Rect = .zero,

@@ -643,6 +643,56 @@ public struct LazyHStack: View {
 }
 
 @MainActor
+public struct LazyVGrid: View {
+    public typealias Body = Never
+
+    private let columns: [GridItem]
+    private let alignment: HorizontalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        columns: [GridItem],
+        alignment: HorizontalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.columns = columns
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyVGrid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let childContext = context.withContainerAxis(.vertical)
+        let columnCount = max(1, columns.count)
+        let columnSpacing = columns.compactMap(\.spacing).first ?? spacing
+        let gridLayout = GridLayout(
+            columns: columnCount,
+            rowSpacing: spacing,
+            columnSpacing: columnSpacing
+        )
+
+        return Component { runtime in
+            _ = alignment
+            _ = pinnedViews
+            return Controls.gridPanel(
+                gridLayout: gridLayout,
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct ZStack: View {
     public typealias Body = Never
 

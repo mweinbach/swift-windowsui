@@ -404,6 +404,32 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testGridLayoutPlacesChildrenInRowsAndColumns() async {
+        await MainActor.run {
+            let children = [
+                ViewNode(backgroundColor: .white, preferredSize: Size(width: 20, height: 10)),
+                ViewNode(backgroundColor: .black, preferredSize: Size(width: 20, height: 30)),
+                ViewNode(
+                    backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                    preferredSize: Size(width: 20, height: 15)
+                ),
+            ]
+            let grid = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 110, height: 80),
+                layoutMode: .grid(GridLayout(columns: 2, rowSpacing: 5, columnSpacing: 10)),
+                children: children
+            )
+            let runtime = RetainedViewRuntime(root: grid)
+
+            runtime.setRootSize(IntSize(width: 110, height: 80))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(children[0].resolvedFrame, Rect(x: 0, y: 0, width: 50, height: 30))
+            XCTAssertEqual(children[1].resolvedFrame, Rect(x: 60, y: 0, width: 50, height: 30))
+            XCTAssertEqual(children[2].resolvedFrame, Rect(x: 0, y: 35, width: 50, height: 15))
+        }
+    }
+
     func testScrollIndicatorHoverAndDragUpdateColorAndOffset() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

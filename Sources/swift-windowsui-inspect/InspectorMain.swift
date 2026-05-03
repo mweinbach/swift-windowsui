@@ -663,6 +663,7 @@ private struct WinSwiftUIProbeView: View {
 
             Form {
                 Section("FORM STATUS") {
+                    LabeledContent("ROW MODE", value: "INSPECTED")
                     Toggle("INSPECTED ROW", isOn: Binding(get: { true }, set: { _ in }))
                     Stepper("STEP COUNT", value: Binding(get: { 2 }, set: { _ in }), in: 0...5)
                 }

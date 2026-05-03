@@ -215,6 +215,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabeledContentMapsTitleValueAndCustomRows() async {
+        await MainActor.run {
+            let valueNode = makeNode(
+                LabeledContent("STATUS", value: "READY")
+            )
+
+            XCTAssertEqual(valueNode.children.count, 3)
+            XCTAssertEqual(valueNode.children[0].text, "STATUS")
+            XCTAssertEqual(valueNode.children[2].text, "READY")
+            XCTAssertEqual(valueNode.children[2].textStyle.alignment, .trailing)
+
+            let customNode = makeNode(
+                LabeledContent {
+                    Toggle("", isOn: Binding(get: { true }, set: { _ in }))
+                } label: {
+                    Label("NETWORK", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertTrue(containsText("NETWORK", in: customNode))
+            XCTAssertGreaterThanOrEqual(customNode.children.count, 3)
+            XCTAssertTrue(hasInteractiveNode(in: customNode.children[2]))
+        }
+    }
+
     func testInspectionSnapshotSummarizesWinSwiftUIViewTree() async {
         await MainActor.run {
             let snapshot = WinSwiftUIInspection.snapshot(

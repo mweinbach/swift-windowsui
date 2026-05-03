@@ -270,6 +270,55 @@ public struct Label: View {
 }
 
 @MainActor
+public struct LabeledContent: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.5, weight: .regular))
+                    .foregroundColor(Color(red: 0.82, green: 0.88, blue: 1.0, alpha: 0.74))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.content = content()
+    }
+
+    public init(_ title: String, value: String) {
+        self.init(title) {
+            Text(value)
+                .font(.system(size: 1.5, weight: .semibold))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+        }
+    }
+
+    public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LabeledContent has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        HStack(spacing: 12) {
+            label
+            Spacer()
+            content
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct TextField: View {
     public typealias Body = Never
 

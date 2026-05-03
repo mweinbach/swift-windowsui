@@ -228,15 +228,25 @@ public struct Image: View {
 public struct Label: View {
     public typealias Body = Never
 
-    private let title: String
-    private let systemImage: String
+    private enum Content {
+        case system(title: String, systemImage: String)
+        case custom(title: [AnyView], icon: [AnyView])
+    }
+
+    private let content: Content
     private var color: Color
     private var font: Font
     private var spacing: Double
 
     public init(_ title: String, systemImage: String) {
-        self.title = title
-        self.systemImage = systemImage
+        self.content = .system(title: title, systemImage: systemImage)
+        self.color = .white
+        self.font = .system(size: 1.6, weight: .semibold)
+        self.spacing = 10
+    }
+
+    public init(@ViewBuilder title: () -> [AnyView], @ViewBuilder icon: () -> [AnyView]) {
+        self.content = .custom(title: title(), icon: icon())
         self.color = .white
         self.font = .system(size: 1.6, weight: .semibold)
         self.spacing = 10
@@ -247,16 +257,32 @@ public struct Label: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        HStack(spacing: spacing) {
-            Image(systemName: systemImage)
-                .foregroundColor(color)
-                .font(font)
-            Text(title)
-                .foregroundColor(color)
-                .font(font)
-                .multilineTextAlignment(.leading)
-                .lineLimit(1)
+        let icon: [AnyView]
+        let title: [AnyView]
+
+        switch content {
+        case .system(let labelTitle, let systemImage):
+            icon = [
+                AnyView(Image(systemName: systemImage))
+            ]
+            title = [
+                AnyView(
+                    Text(labelTitle)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
+                )
+            ]
+        case .custom(let customTitle, let customIcon):
+            icon = customIcon
+            title = customTitle
         }
+
+        return HStack(spacing: spacing) {
+            icon
+            title
+        }
+        .foregroundColor(color)
+        .font(font)
         .makeComponent(context: context)
     }
 

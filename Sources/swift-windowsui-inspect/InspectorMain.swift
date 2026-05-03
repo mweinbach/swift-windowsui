@@ -661,6 +661,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("PROMPT SEARCH") {
         failures.append("WinSwiftUI probe text samples are missing the prompt-backed text field")
     }
+    if !winSwiftUIProbe.textSamples.contains("CUSTOM LABEL") {
+        failures.append("WinSwiftUI probe text samples are missing the custom Label builder")
+    }
     if textInputProbeValue != "ZQ->Z-Q|-" {
         failures.append("text input probe expected ZQ->Z-Q|- after select-all, selection replacement, pointer editing, and clipboard shortcuts, got \(textInputProbeValue)")
     }
@@ -704,6 +707,12 @@ private struct WinSwiftUIProbeView: View {
                 Image(systemName: "bolt.fill")
                 Text("WINSWIFTUI TO RETAINED TREE")
                     .lineLimit(1)
+            }
+
+            Label {
+                Text("CUSTOM LABEL")
+            } icon: {
+                Image(systemName: "sparkles")
             }
 
             Button("DISABLED ACTION") {}

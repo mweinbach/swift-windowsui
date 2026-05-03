@@ -215,6 +215,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelSupportsCustomTitleAndIconBuilders() async {
+        await MainActor.run {
+            let accent = Color(red: 0.24, green: 0.72, blue: 1.0, alpha: 1.0)
+            let node = makeNode(
+                Label {
+                    Text("CUSTOM LABEL")
+                } icon: {
+                    Image(systemName: "sparkles")
+                }
+                .foregroundColor(accent)
+                .font(.system(size: 2.4, weight: .bold))
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertNotNil(node.children[0].text)
+            XCTAssertTrue(containsText("CUSTOM LABEL", in: node.children[1]))
+            XCTAssertEqual(node.children[0].textStyle.color, accent)
+            XCTAssertEqual(node.children[1].textStyle.color, accent)
+            XCTAssertEqual(node.children[0].textStyle.fontFamily, "Segoe Fluent Icons")
+            XCTAssertEqual(node.children[1].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[0].textStyle.scale, 2.4, accuracy: 0.001)
+            XCTAssertEqual(node.children[1].textStyle.scale, 2.4, accuracy: 0.001)
+        }
+    }
+
     func testLabeledContentMapsTitleValueAndCustomRows() async {
         await MainActor.run {
             let valueNode = makeNode(

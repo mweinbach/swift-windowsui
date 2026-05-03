@@ -462,6 +462,7 @@ public struct ViewBuildContext {
     var labelStyle: LabelStyle?
     var toggleStyle: ToggleStyle?
     var pickerStyle: PickerStyle?
+    var menuStyle: MenuStyle
     var controlGroupStyle: ControlGroupStyle
     var controlSize: ControlSize
     var textFieldStyle: TextFieldStyle
@@ -485,6 +486,7 @@ public struct ViewBuildContext {
         labelStyle: LabelStyle? = nil,
         toggleStyle: ToggleStyle? = nil,
         pickerStyle: PickerStyle? = nil,
+        menuStyle: MenuStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         controlSize: ControlSize = .regular,
         textFieldStyle: TextFieldStyle = .automatic,
@@ -503,6 +505,7 @@ public struct ViewBuildContext {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.pickerStyle = pickerStyle
+        self.menuStyle = menuStyle
         self.controlGroupStyle = controlGroupStyle
         self.controlSize = controlSize
         self.textFieldStyle = textFieldStyle
@@ -532,6 +535,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -554,6 +558,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -576,6 +581,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -598,6 +604,7 @@ public struct ViewBuildContext {
             labelStyle: style,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -620,6 +627,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: style,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -642,6 +650,30 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: style,
+            menuStyle: menuStyle,
+            controlGroupStyle: controlGroupStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withMenuStyle(_ style: MenuStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            menuStyle: style,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -664,6 +696,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: style,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -686,6 +719,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: size,
             textFieldStyle: textFieldStyle,
@@ -708,6 +742,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: style,
@@ -730,6 +765,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -752,6 +788,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -774,6 +811,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -796,6 +834,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -818,6 +857,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            menuStyle: menuStyle,
             controlGroupStyle: controlGroupStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
@@ -1947,6 +1987,95 @@ public struct ButtonStyle: Sendable, Equatable {
             return .plain
         }
     }
+}
+
+struct MenuStyleMetrics: Sendable {
+    var buttonStyle: ButtonStyle
+    var showsDisclosureIndicator: Bool
+    var indicatorColor: Color
+    var contentBackgroundColor: Color
+    var contentBorderColor: Color
+    var contentBorderWidth: Double
+    var contentCornerRadius: Double
+    var contentPadding: EdgeInsets
+    var contentSpacing: Double
+}
+
+public struct MenuStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case button
+        case borderedButton
+        case borderlessButton
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = MenuStyle(kind: .automatic)
+    public static let button = MenuStyle(kind: .button)
+    public static let borderedButton = MenuStyle(kind: .borderedButton)
+    public static let borderlessButton = MenuStyle(kind: .borderlessButton)
+
+    var metrics: MenuStyleMetrics {
+        switch kind {
+        case .automatic, .borderedButton:
+            return MenuStyleMetrics(
+                buttonStyle: .bordered,
+                showsDisclosureIndicator: true,
+                indicatorColor: Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88),
+                contentBackgroundColor: Color(red: 0.08, green: 0.12, blue: 0.19, alpha: 0.82),
+                contentBorderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                contentBorderWidth: 1,
+                contentCornerRadius: 16,
+                contentPadding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                contentSpacing: 6
+            )
+        case .button:
+            return MenuStyleMetrics(
+                buttonStyle: .bordered,
+                showsDisclosureIndicator: false,
+                indicatorColor: Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88),
+                contentBackgroundColor: Color(red: 0.10, green: 0.14, blue: 0.21, alpha: 0.86),
+                contentBorderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.12),
+                contentBorderWidth: 1,
+                contentCornerRadius: 16,
+                contentPadding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                contentSpacing: 6
+            )
+        case .borderlessButton:
+            return MenuStyleMetrics(
+                buttonStyle: .borderless,
+                showsDisclosureIndicator: true,
+                indicatorColor: Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88),
+                contentBackgroundColor: Color(red: 0.08, green: 0.12, blue: 0.19, alpha: 0.82),
+                contentBorderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                contentBorderWidth: 1,
+                contentCornerRadius: 16,
+                contentPadding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                contentSpacing: 6
+            )
+        }
+    }
+}
+
+public struct DefaultMenuStyle: Sendable {
+    public init() {}
+}
+
+public struct ButtonMenuStyle: Sendable {
+    public init() {}
+}
+
+public struct BorderedButtonMenuStyle: Sendable {
+    public init() {}
+}
+
+public struct BorderlessButtonMenuStyle: Sendable {
+    public init() {}
 }
 
 public struct ListStyle: Sendable, Equatable {
@@ -3629,6 +3758,28 @@ public extension View {
 
     func datePickerStyle(_ style: WheelDatePickerStyle) -> some View {
         datePickerStyle(.wheel)
+    }
+
+    func menuStyle(_ style: MenuStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withMenuStyle(style))
+        }
+    }
+
+    func menuStyle(_ style: DefaultMenuStyle) -> some View {
+        menuStyle(.automatic)
+    }
+
+    func menuStyle(_ style: ButtonMenuStyle) -> some View {
+        menuStyle(.button)
+    }
+
+    func menuStyle(_ style: BorderedButtonMenuStyle) -> some View {
+        menuStyle(.borderedButton)
+    }
+
+    func menuStyle(_ style: BorderlessButtonMenuStyle) -> some View {
+        menuStyle(.borderlessButton)
     }
 
     func controlGroupStyle(_ style: ControlGroupStyle) -> some View {

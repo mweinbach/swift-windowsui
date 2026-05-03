@@ -2606,30 +2606,34 @@ public struct Menu: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        VStack(alignment: .leading, spacing: 8) {
+        let metrics = context.menuStyle.metrics
+
+        return VStack(alignment: .leading, spacing: metrics.contentSpacing) {
             Button(action: {
                 isExpanded = !isExpanded
             }) {
                 HStack(spacing: 8) {
                     label
-                    Text(isExpanded ? "^" : "v")
-                        .font(.system(size: 1.1, weight: .semibold))
-                        .foregroundColor(Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88))
-                        .frame(width: 14)
+                    if metrics.showsDisclosureIndicator {
+                        Text(isExpanded ? "^" : "v")
+                            .font(.system(size: 1.1, weight: .semibold))
+                            .foregroundColor(metrics.indicatorColor)
+                            .frame(width: 14)
+                    }
                 }
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(metrics.buttonStyle)
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: metrics.contentSpacing) {
                     content
                 }
-                .padding(8)
-                .background(Color(red: 0.08, green: 0.12, blue: 0.19, alpha: 0.82))
-                .cornerRadius(16)
+                .padding(metrics.contentPadding)
+                .background(metrics.contentBackgroundColor)
+                .cornerRadius(metrics.contentCornerRadius)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: metrics.contentCornerRadius)
+                        .stroke(metrics.contentBorderColor, lineWidth: metrics.contentBorderWidth)
                 )
             }
         }

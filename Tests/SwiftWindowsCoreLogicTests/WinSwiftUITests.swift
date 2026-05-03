@@ -4039,6 +4039,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuStyleBorderlessMapsTriggerChrome() async {
+        await MainActor.run {
+            let node = makeNode(
+                Menu("Tools") {
+                    Button("Run") {}
+                }
+                .menuStyle(.borderlessButton)
+            )
+
+            let trigger = firstFocusableNode(containing: "Tools", in: node)
+
+            XCTAssertEqual(trigger?.backgroundColor, .clear)
+            XCTAssertEqual(trigger?.borderColor, .clear)
+            XCTAssertFalse(trigger?.clipsToBounds ?? true)
+        }
+    }
+
+    func testInheritedMenuStyleAppliesToDescendantMenus() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Menu("Inherited") {
+                        Button("One") {}
+                    }
+
+                    Menu("Explicit") {
+                        Button("Two") {}
+                    }
+                    .menuStyle(BorderedButtonMenuStyle())
+                }
+                .menuStyle(BorderlessButtonMenuStyle())
+            )
+
+            let inheritedTrigger = firstFocusableNode(containing: "Inherited", in: node)
+            let explicitTrigger = firstFocusableNode(containing: "Explicit", in: node)
+
+            XCTAssertEqual(inheritedTrigger?.backgroundColor, .clear)
+            XCTAssertEqual(explicitTrigger?.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(explicitTrigger?.borderColor, ButtonSurfaceStyle.default.chrome.borderColor)
+        }
+    }
+
     func testEmptyToolbarDoesNotWrapContent() async {
         await MainActor.run {
             let node = makeNode(

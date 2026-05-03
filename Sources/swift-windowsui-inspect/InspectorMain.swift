@@ -820,6 +820,7 @@ private struct WinSwiftUIProbeView: View {
                         Menu("ACTIONS", systemImage: "ellipsis") {
                             Button("MENU ACTION") {}
                         }
+                        .menuStyle(.borderlessButton)
                     }
                     .controlGroupStyle(.palette)
                     DisclosureGroup("MORE DETAIL", isExpanded: Binding(get: { true }, set: { _ in })) {

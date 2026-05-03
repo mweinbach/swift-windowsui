@@ -82,6 +82,7 @@ Modifiers:
 - `onAppear`
 - `onDisappear`
 - `onTapGesture`
+- `gesture` with `DragGesture`
 - `tag`
 
 Compatibility helpers:
@@ -94,6 +95,7 @@ Compatibility helpers:
 - `Rectangle`
 - `RoundedRectangle`
 - `FillStyle`
+- `DragGesture`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, and `ObservedObject`
@@ -124,6 +126,7 @@ Surface direction:
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 - Lifecycle modifiers map to retained `onAppear` and `onDisappear` callbacks. Reconciliation refreshes node handlers in place so rebuilt declarative closures stay current without replacing the retained node.
 - `onTapGesture` maps to retained pointer-up-inside callbacks and makes the target node hit-test visible. The current compatibility surface supports single-tap activation; multi-tap counting is intentionally not wired until the runtime tracks click sequences.
+- `gesture(DragGesture(...))` maps to retained drag start/change/end callbacks with `minimumDistance`, `onChanged`, and `onEnded` support. Coordinate spaces are accepted for call-site compatibility but currently resolve through the runtime's logical window coordinates.
 
 ## Observation Model
 

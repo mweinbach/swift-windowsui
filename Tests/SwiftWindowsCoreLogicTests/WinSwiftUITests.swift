@@ -274,6 +274,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDragGestureMapsToRetainedDragCallbacks() async {
+        await MainActor.run {
+            var changedTranslations: [Size] = []
+            var endedTranslation: Size?
+            let gesture = DragGesture(minimumDistance: 5)
+                .onChanged { value in
+                    changedTranslations.append(value.translation)
+                }
+                .onEnded { value in
+                    endedTranslation = value.translation
+                }
+            let node = makeNode(Text("DRAG").gesture(gesture))
+
+            XCTAssertTrue(node.isHitTestVisible)
+            node.onDragStart?(Point(x: 10, y: 20))
+            node.onDragChange?(Point(x: 13, y: 20), Point(x: 3, y: 0))
+            XCTAssertTrue(changedTranslations.isEmpty)
+
+            node.onDragChange?(Point(x: 18, y: 24), Point(x: 5, y: 4))
+            node.onDragEnd?(Point(x: 20, y: 25), Point(x: 2, y: 1))
+
+            XCTAssertEqual(changedTranslations.count, 1)
+            XCTAssertEqual(changedTranslations[0].width, 8, accuracy: 0.001)
+            XCTAssertEqual(changedTranslations[0].height, 4, accuracy: 0.001)
+            guard let endedTranslation else {
+                return XCTFail("Expected drag end translation")
+            }
+            XCTAssertEqual(endedTranslation.width, 10, accuracy: 0.001)
+            XCTAssertEqual(endedTranslation.height, 5, accuracy: 0.001)
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))

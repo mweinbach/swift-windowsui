@@ -98,6 +98,63 @@ public struct RoundedRectangle: Shape, Equatable {
     }
 }
 
+public enum CoordinateSpace: Sendable, Equatable {
+    case local
+    case global
+}
+
+public protocol Gesture {}
+
+public struct DragGesture: Gesture {
+    public struct Value: Sendable, Equatable {
+        public var time: Date
+        public var location: Point
+        public var startLocation: Point
+        public var translation: Size
+        public var predictedEndLocation: Point
+        public var predictedEndTranslation: Size
+
+        public init(
+            time: Date = Date(),
+            location: Point,
+            startLocation: Point,
+            translation: Size,
+            predictedEndLocation: Point? = nil,
+            predictedEndTranslation: Size? = nil
+        ) {
+            self.time = time
+            self.location = location
+            self.startLocation = startLocation
+            self.translation = translation
+            self.predictedEndLocation = predictedEndLocation ?? location
+            self.predictedEndTranslation = predictedEndTranslation ?? translation
+        }
+    }
+
+    public var minimumDistance: Double
+    public var coordinateSpace: CoordinateSpace
+
+    var onChangedHandler: (@MainActor (Value) -> Void)?
+    var onEndedHandler: (@MainActor (Value) -> Void)?
+
+    public init(minimumDistance: Double = 10, coordinateSpace: CoordinateSpace = .local) {
+        self.minimumDistance = minimumDistance
+        self.coordinateSpace = coordinateSpace
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
+        var copy = self
+        copy.onChangedHandler = action
+        return copy
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
+        var copy = self
+        copy.onEndedHandler = action
+        return copy
+    }
+}
+
 @MainActor
 public protocol ObservableObject: AnyObject {}
 
@@ -1014,6 +1071,21 @@ private func clipCornerRadius<S: Shape>(for shape: S) -> Double {
     return 0
 }
 
+private func dragValue(start: Point, current: Point) -> DragGesture.Value {
+    let translation = Size(width: current.x - start.x, height: current.y - start.y)
+    return DragGesture.Value(
+        location: current,
+        startLocation: start,
+        translation: translation
+    )
+}
+
+private func dragDistance(from start: Point, to current: Point) -> Double {
+    let dx = current.x - start.x
+    let dy = current.y - start.y
+    return (dx * dx + dy * dy).squareRoot()
+}
+
 private enum LayerPlacement: Equatable {
     case behind
     case above
@@ -1387,6 +1459,54 @@ public extension View {
                     if count <= 1 {
                         action()
                     }
+                }
+                return childNode
+            }
+        }
+    }
+
+    func gesture(_ gesture: DragGesture) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let minimumDistance = max(0, gesture.minimumDistance)
+                var startPoint: Point?
+                var didRecognize = false
+
+                childNode.isHitTestVisible = true
+                childNode.onDragStart = { point in
+                    startPoint = point
+                    didRecognize = minimumDistance == 0
+                    if didRecognize {
+                        gesture.onChangedHandler?(dragValue(start: point, current: point))
+                    }
+                }
+                childNode.onDragChange = { point, _ in
+                    guard let start = startPoint else {
+                        return
+                    }
+
+                    if !didRecognize {
+                        guard dragDistance(from: start, to: point) >= minimumDistance else {
+                            return
+                        }
+                        didRecognize = true
+                    }
+
+                    gesture.onChangedHandler?(dragValue(start: start, current: point))
+                }
+                childNode.onDragEnd = { point, _ in
+                    defer {
+                        startPoint = nil
+                        didRecognize = false
+                    }
+
+                    guard let start = startPoint, didRecognize else {
+                        return
+                    }
+
+                    gesture.onEndedHandler?(dragValue(start: start, current: point))
                 }
                 return childNode
             }

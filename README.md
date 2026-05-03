@@ -68,8 +68,8 @@ Included today:
 - Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Section`, `HSplitView`, `VSplitView`
 - Controls: `Button`, `TextField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
-- Modifiers: `frame`, `padding`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `onAppear`, `onDisappear`, `onTapGesture`, `tag`
-- Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `Rectangle`, `RoundedRectangle`, `FillStyle`
+- Modifiers: `frame`, `padding`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `onAppear`, `onDisappear`, `onTapGesture`, `gesture`, `tag`
+- Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `Rectangle`, `RoundedRectangle`, `FillStyle`, `DragGesture`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 

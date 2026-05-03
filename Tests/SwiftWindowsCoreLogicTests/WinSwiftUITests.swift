@@ -120,6 +120,50 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTagModifierSetsSelectionTag() async {
+        await MainActor.run {
+            let node = makeNode(Text("TAGGED").tag(7))
+
+            XCTAssertEqual(node.nodeTag, "7")
+            XCTAssertEqual(node.text, "TAGGED")
+        }
+    }
+
+    func testPickerUsesTaggedTextOptionsAndBinding() async {
+        await MainActor.run {
+            var selection = 1
+            var didInvalidate = false
+
+            let node = makeNode(
+                Picker("MODE", selection: Binding(get: { selection }, set: { selection = $0 })) {
+                    Text("Layout").tag(0)
+                    Text("Input").tag(1)
+                    Text("Render").tag(2)
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "MODE")
+
+            let dropdown = node.children[1]
+            XCTAssertTrue(dropdown.isFocusable)
+            XCTAssertEqual(dropdown.children[0].children.first?.text, "Input")
+
+            let optionsList = dropdown.children[1]
+            XCTAssertTrue(optionsList.isHidden)
+            dropdown.onActivate?()
+            XCTAssertFalse(optionsList.isHidden)
+
+            optionsList.children[2].onActivate?()
+            XCTAssertEqual(selection, 2)
+            XCTAssertTrue(didInvalidate)
+            XCTAssertTrue(optionsList.isHidden)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(

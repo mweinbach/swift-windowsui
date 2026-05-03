@@ -695,6 +695,76 @@ public struct ProgressView: View {
 }
 
 @MainActor
+public struct Picker: View {
+    public typealias Body = Never
+
+    private let title: String
+    private let selection: Binding<Int>
+    private let content: [AnyView]
+    private var isEnabled: Bool
+
+    public init(_ title: String = "", selection: Binding<Int>, @ViewBuilder content: () -> [AnyView]) {
+        self.title = title
+        self.selection = selection
+        self.content = content()
+        self.isEnabled = true
+    }
+
+    public var body: Never {
+        fatalError("Picker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let options = pickerOptions(from: content, context: context, runtime: runtime)
+            let optionTitles = options.map(\.title)
+            let selectedIndex = options.firstIndex { $0.value == selection.wrappedValue } ?? 0
+            let dropdown = Controls.dropdown(
+                runtime: runtime,
+                options: optionTitles,
+                selectedIndex: selectedIndex,
+                isEnabled: isEnabled,
+                onSelect: { selectedOptionIndex in
+                    guard options.indices.contains(selectedOptionIndex) else {
+                        return
+                    }
+
+                    selection.wrappedValue = options[selectedOptionIndex].value
+                    context.invalidate()
+                }
+            )
+
+            guard !title.isEmpty else {
+                return dropdown
+            }
+
+            let label = Controls.label(
+                title,
+                layoutPriority: 1,
+                color: Color(red: 0.85, green: 0.90, blue: 0.98, alpha: 0.92),
+                scale: 1.5,
+                weight: .semibold,
+                alignment: .leading,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 12, alignment: .center),
+                isHitTestVisible: false,
+                children: [label, dropdown]
+            )
+        }
+    }
+
+    public func disabled(_ disabled: Bool) -> Picker {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+}
+
+@MainActor
 public struct HSplitView: View {
     public typealias Body = Never
 
@@ -865,6 +935,37 @@ private func buildSplitComponent(
             secondary: [secondaryNode]
         )
     }
+}
+
+private struct PickerOption {
+    var title: String
+    var value: Int
+}
+
+@MainActor
+private func pickerOptions(from views: [AnyView], context: ViewBuildContext, runtime: RetainedViewRuntime) -> [PickerOption] {
+    views.enumerated().map { index, view in
+        let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+        return PickerOption(
+            title: firstText(in: node) ?? node.nodeTag ?? "Option \(index + 1)",
+            value: Int(node.nodeTag ?? "") ?? index
+        )
+    }
+}
+
+@MainActor
+private func firstText(in node: ViewNode) -> String? {
+    if let text = node.text, !text.isEmpty {
+        return text
+    }
+
+    for child in node.children {
+        if let text = firstText(in: child) {
+            return text
+        }
+    }
+
+    return nil
 }
 
 private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {

@@ -1215,6 +1215,7 @@ public enum Controls {
 
         var rootChildren: [ViewNode] = [headerRow]
 
+        weak var optionsListReference: ViewNode?
         let optionNodes: [ViewNode] = options.enumerated().map { index, option in
             let isCurrentSelection = index == selectedIndex
             let optionColor = isCurrentSelection
@@ -1235,6 +1236,7 @@ public enum Controls {
                 titleWeight: isCurrentSelection ? .semibold : .regular,
                 action: {
                     dropdownState.isOpen = false
+                    optionsListReference?.isHidden = true
                     onSelect?(index)
                 }
             )
@@ -1251,6 +1253,7 @@ public enum Controls {
             children: optionNodes
         )
         optionsList.isHidden = !dropdownState.isOpen
+        optionsListReference = optionsList
 
         rootChildren.append(optionsList)
 
@@ -1274,9 +1277,9 @@ public enum Controls {
             clipsToBounds: false,
             layoutMode: .stack(.vertical(spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
             animation: animation,
-            action: isEnabled ? {
+            action: isEnabled ? { [weak optionsList] in
                 dropdownState.isOpen = !dropdownState.isOpen
-                optionsList.isHidden = !dropdownState.isOpen
+                optionsList?.isHidden = !dropdownState.isOpen
             } : nil,
             children: rootChildren
         )

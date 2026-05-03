@@ -1051,6 +1051,16 @@ public extension View {
         return modified
     }
 
+    /// Attach a SwiftUI-style integer selection tag. `Picker` currently uses
+    /// these tags to map declarative options into retained dropdown rows.
+    func tag(_ value: Int) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.id = String(value)
+        return modified
+    }
+
     /// Attach an animation context to this view.  When properties (opacity,
     /// background color) change between rebuilds, the runtime will
     /// interpolate between the old and new values over the given duration

@@ -55,6 +55,7 @@ Views and containers:
 - `Toggle`
 - `Slider`
 - `ProgressView`
+- `Picker`
 
 Modifiers:
 
@@ -66,6 +67,7 @@ Modifiers:
 - `shadow`
 - `layoutPriority`
 - `allowsHitTesting`
+- `tag`
 
 Compatibility helpers:
 
@@ -90,6 +92,7 @@ Surface direction:
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
+- `Picker` maps tagged `Text` options into the retained dropdown control; the current compatibility layer supports integer tags.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.

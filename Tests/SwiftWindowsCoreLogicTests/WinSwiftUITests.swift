@@ -4036,6 +4036,74 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationStackPathBindingShowsProgrammaticDestinationAndPops() async {
+        await MainActor.run {
+            var path = [42]
+            var invalidationCount = 0
+            let view = NavigationStack(
+                path: Binding(get: { path }, set: { path = $0 })
+            ) {
+                NavigationLink("Report", value: 7)
+            }
+            .navigationDestination(for: Int.self) { value in
+                Text("REPORT \(value)")
+            }
+            let pushedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("42", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("REPORT 42", in: pushedNode))
+
+            firstFocusableNode(in: pushedNode)?.onActivate?()
+
+            XCTAssertEqual(path, [])
+            XCTAssertEqual(invalidationCount, 1)
+
+            let rootNode = makeNode(view)
+
+            XCTAssertTrue(containsText("Report", in: rootNode))
+            XCTAssertFalse(containsText("REPORT 42", in: rootNode))
+        }
+    }
+
+    func testNavigationLinkValueAppendsToBoundNavigationPath() async {
+        await MainActor.run {
+            var path: [String] = []
+            var invalidationCount = 0
+            let view = NavigationStack(
+                path: Binding(get: { path }, set: { path = $0 })
+            ) {
+                NavigationLink("Logs", value: "logs")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("DESTINATION \(value.uppercased())")
+            }
+            let rootNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(path, [])
+            XCTAssertTrue(containsText("Logs", in: rootNode))
+
+            firstFocusableNode(containing: "Logs", in: rootNode)?.onActivate?()
+
+            XCTAssertEqual(path, ["logs"])
+            XCTAssertEqual(invalidationCount, 1)
+
+            let pushedNode = makeNode(view)
+
+            XCTAssertTrue(containsText("LOGS", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("DESTINATION LOGS", in: pushedNode))
+        }
+    }
+
     func testLinkStringInitializerOpensDestinationURL() async {
         await MainActor.run {
             let destination = URL(string: "https://example.com/docs")!

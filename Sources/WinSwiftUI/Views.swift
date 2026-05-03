@@ -1815,9 +1815,16 @@ public struct NavigationStack: View {
     @State private var routes: [NavigationRoute] = []
 
     private let root: [AnyView]
+    private let pathBinding: AnyNavigationPathBinding?
 
     public init(@ViewBuilder root: () -> [AnyView]) {
         self.root = root()
+        self.pathBinding = nil
+    }
+
+    public init<Value: Hashable>(path: Binding<[Value]>, @ViewBuilder root: () -> [AnyView]) {
+        self.root = root()
+        self.pathBinding = AnyNavigationPathBinding(path)
     }
 
     public var body: Never {
@@ -1826,11 +1833,16 @@ public struct NavigationStack: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            let activeRoute = routes.last
+            let pathRoutes = pathBinding?.values.compactMap { NavigationDestinationScope.route(for: $0) } ?? []
+            let activeRoute = pathRoutes.last ?? routes.last
             let activeViews = activeRoute?.destination ?? root
             let contentNode = NavigationStackScope.withPush({ route in
-                routes.append(route)
-                context.invalidate()
+                if let pathBinding, let pathValue = route.pathValue {
+                    pathBinding.append(pathValue, context: context)
+                } else {
+                    routes.append(route)
+                    context.invalidate()
+                }
             }) {
                 composeComponent(
                     from: activeViews,
@@ -1888,7 +1900,9 @@ public struct NavigationStack: View {
             clipsToBounds: true,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             action: {
-                if !routes.isEmpty {
+                if let pathBinding, !pathBinding.isEmpty {
+                    pathBinding.removeLast(context: context)
+                } else if !routes.isEmpty {
                     _ = routes.removeLast()
                     context.invalidate()
                 }
@@ -2050,7 +2064,11 @@ public struct NavigationLink: View {
                         return
                     }
 
-                    push?(NavigationRoute(title: routeTitle, destination: resolvedDestination))
+                    push?(NavigationRoute(
+                        title: routeTitle,
+                        destination: resolvedDestination,
+                        pathValue: destinationValue
+                    ))
                 },
                 children: [labelNode]
             )
@@ -4285,6 +4303,56 @@ private struct TabDescriptor {
 private struct NavigationRoute {
     var title: String
     var destination: [AnyView]
+    var pathValue: AnyHashable? = nil
+}
+
+@MainActor
+private struct AnyNavigationPathBinding {
+    private let valuesProvider: () -> [AnyHashable]
+    private let appendValue: (AnyHashable, ViewBuildContext) -> Void
+    private let removeLastValue: (ViewBuildContext) -> Void
+
+    init<Value: Hashable>(_ binding: Binding<[Value]>) {
+        self.valuesProvider = {
+            binding.wrappedValue.map { AnyHashable($0) }
+        }
+        self.appendValue = { value, context in
+            guard let typedValue = value.base as? Value else {
+                return
+            }
+
+            var path = binding.wrappedValue
+            path.append(typedValue)
+            binding.wrappedValue = path
+            binding.invalidateContextIfNeeded(context)
+        }
+        self.removeLastValue = { context in
+            var path = binding.wrappedValue
+            guard !path.isEmpty else {
+                return
+            }
+
+            _ = path.removeLast()
+            binding.wrappedValue = path
+            binding.invalidateContextIfNeeded(context)
+        }
+    }
+
+    var values: [AnyHashable] {
+        valuesProvider()
+    }
+
+    var isEmpty: Bool {
+        valuesProvider().isEmpty
+    }
+
+    func append(_ value: AnyHashable, context: ViewBuildContext) {
+        appendValue(value, context)
+    }
+
+    func removeLast(context: ViewBuildContext) {
+        removeLastValue(context)
+    }
 }
 
 @MainActor
@@ -4328,6 +4396,19 @@ private enum NavigationStackScope {
 @MainActor
 private enum NavigationDestinationScope {
     private static var currentResolvers: [NavigationDestinationResolver] = []
+
+    static func route(for value: AnyHashable) -> NavigationRoute? {
+        let typeID = ObjectIdentifier(type(of: value.base))
+        guard let destination = resolve(value, typeID: typeID) else {
+            return nil
+        }
+
+        return NavigationRoute(
+            title: String(describing: value.base),
+            destination: destination,
+            pathValue: value
+        )
+    }
 
     static func resolve(_ value: AnyHashable?, typeID: ObjectIdentifier?) -> [AnyView]? {
         guard let value, let typeID else {

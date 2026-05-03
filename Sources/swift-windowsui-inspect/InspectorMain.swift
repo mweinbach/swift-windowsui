@@ -621,6 +621,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR POPOVER") {
         failures.append("WinSwiftUI probe text samples are missing the popover overlay")
     }
+    if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
+        failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
+    }
     if textInputProbeValue != "AxC" {
         failures.append("text input probe expected AxC, got \(textInputProbeValue)")
     }
@@ -672,6 +675,9 @@ private struct WinSwiftUIProbeView: View {
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 
             ProgressView(value: 0.68)
+
+            TextEditor(text: Binding(get: { "EDITOR LINE A\nEDITOR LINE B" }, set: { _ in }))
+                .frame(height: 74)
 
             Form {
                 Section("FORM STATUS") {

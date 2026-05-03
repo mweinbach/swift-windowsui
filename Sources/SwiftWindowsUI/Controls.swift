@@ -901,6 +901,7 @@ public enum Controls {
         placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
         animation: ControlAnimationStyle = .default,
         isSecure: Bool = false,
+        isMultiline: Bool = false,
         onTextChanged: ((String) -> Void)? = nil,
         onSubmit: (() -> Void)? = nil
     ) -> ViewNode {
@@ -914,8 +915,8 @@ public enum Controls {
             alignment: .leading,
             fontFamily: "Segoe UI",
             weight: .regular,
-            lineBreakMode: .truncateTail,
-            maximumNumberOfLines: 1
+            lineBreakMode: isMultiline ? .wrap : .truncateTail,
+            maximumNumberOfLines: isMultiline ? nil : 1
         )
 
         let textLabel = label(
@@ -925,8 +926,8 @@ public enum Controls {
             scale: 1.6,
             weight: .regular,
             alignment: .leading,
-            lineBreakMode: .truncateTail,
-            maximumNumberOfLines: 1
+            lineBreakMode: isMultiline ? .wrap : .truncateTail,
+            maximumNumberOfLines: isMultiline ? nil : 1
         )
 
         let caret = panel(
@@ -938,7 +939,7 @@ public enum Controls {
         caret.isHidden = true
 
         let root = panel(
-            preferredSize: preferredSize ?? Size(width: 220, height: 38),
+            preferredSize: preferredSize ?? Size(width: isMultiline ? 320 : 220, height: isMultiline ? 120 : 38),
             layoutPriority: layoutPriority,
             backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
             borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
@@ -960,7 +961,7 @@ public enum Controls {
         }
 
         func measuredPrefixWidth() -> Double {
-            let prefix = state.prefixBeforeCaret(isSecure: isSecure)
+            let prefix = state.prefixBeforeCaret(isSecure: isSecure, currentLineOnly: isMultiline)
             guard !prefix.isEmpty else {
                 return 0
             }
@@ -974,16 +975,27 @@ public enum Controls {
             let contentY = contentInsets.top
             let contentWidth = max(0, bounds.size.width - contentInsets.leading - contentInsets.trailing)
             let contentHeight = max(0, bounds.size.height - contentInsets.top - contentInsets.bottom)
-            textLabel.frame = Rect(x: contentX, y: 0, width: contentWidth, height: bounds.size.height)
+            textLabel.frame = isMultiline
+                ? Rect(x: contentX, y: contentY, width: contentWidth, height: contentHeight)
+                : Rect(x: contentX, y: 0, width: contentWidth, height: bounds.size.height)
 
             let caretX = min(contentX + measuredPrefixWidth(), contentX + contentWidth)
             let caretHeight = min(18, max(0, contentHeight))
+            let lineHeight = measuredLineHeight()
+            let caretY = isMultiline
+                ? contentY + min(max(0, contentHeight - caretHeight), Double(state.lineIndexBeforeCaret()) * lineHeight)
+                : contentY + max(0, (contentHeight - caretHeight) * 0.5)
             caret.frame = Rect(
                 x: caretX,
-                y: contentY + max(0, (contentHeight - caretHeight) * 0.5),
+                y: caretY,
                 width: 1.5,
                 height: caretHeight
             )
+        }
+
+        func measuredLineHeight() -> Double {
+            NativeTextRenderer.measure("M", style: textStyle, scaleFactor: runtime.displayScale)?.height
+                ?? PixelFont.measure("M", style: textStyle).height
         }
 
         func applyTextMutation(_ didMutate: Bool) {
@@ -1045,10 +1057,7 @@ public enum Controls {
                 animate(.outline, root, in: runtime, to: .clear, duration: animation.focusDuration)
             }
             root.onTextInput = { input in
-                var sanitizedInput = ""
-                for scalar in input.unicodeScalars where scalar.value >= 0x20 && scalar.value != 0x7F {
-                    sanitizedInput.unicodeScalars.append(scalar)
-                }
+                let sanitizedInput = sanitizedTextInput(input, allowsNewlines: isMultiline)
                 guard !sanitizedInput.isEmpty else {
                     return
                 }
@@ -1070,7 +1079,11 @@ public enum Controls {
                 case .end:
                     applyCaretMove(state.moveCaretToEnd())
                 case .enter:
-                    onSubmit?()
+                    if isMultiline {
+                        applyTextMutation(state.insert("\n"))
+                    } else {
+                        onSubmit?()
+                    }
                 default:
                     break
                 }
@@ -1078,6 +1091,32 @@ public enum Controls {
         }
 
         return root
+    }
+
+    public static func textEditor(
+        runtime: RetainedViewRuntime,
+        text: String,
+        isEnabled: Bool = true,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        textColor: Color = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0),
+        placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
+        animation: ControlAnimationStyle = .default,
+        onTextChanged: ((String) -> Void)? = nil
+    ) -> ViewNode {
+        textField(
+            runtime: runtime,
+            text: text,
+            placeholder: "",
+            isEnabled: isEnabled,
+            preferredSize: preferredSize ?? Size(width: 320, height: 120),
+            layoutPriority: layoutPriority,
+            textColor: textColor,
+            placeholderColor: placeholderColor,
+            animation: animation,
+            isMultiline: true,
+            onTextChanged: onTextChanged
+        )
     }
 
     // MARK: - Checkbox
@@ -1687,9 +1726,18 @@ private final class TextFieldState {
         return isSecure ? String(repeating: "*", count: text.count) : text
     }
 
-    func prefixBeforeCaret(isSecure: Bool = false) -> String {
+    func prefixBeforeCaret(isSecure: Bool = false, currentLineOnly: Bool = false) -> String {
         let prefixLength = clampedCaretOffset
-        return isSecure ? String(repeating: "*", count: prefixLength) : String(text.prefix(prefixLength))
+        let prefix = String(text.prefix(prefixLength))
+        let currentPrefix = currentLineOnly ? String(prefix.split(separator: "\n", omittingEmptySubsequences: false).last ?? "") : prefix
+        return isSecure ? String(repeating: "*", count: currentPrefix.count) : currentPrefix
+    }
+
+    func lineIndexBeforeCaret() -> Int {
+        let prefix = text.prefix(clampedCaretOffset)
+        return prefix.reduce(0) { count, character in
+            character == "\n" ? count + 1 : count
+        }
     }
 
     func replace(with newText: String) -> Bool {
@@ -1771,6 +1819,31 @@ private final class TextFieldState {
     private var clampedCaretOffset: Int {
         min(max(0, caretOffset), text.count)
     }
+}
+
+private func sanitizedTextInput(_ input: String, allowsNewlines: Bool) -> String {
+    var sanitizedInput = ""
+    var previousWasCarriageReturn = false
+
+    for scalar in input.unicodeScalars {
+        switch scalar.value {
+        case 0x0D where allowsNewlines:
+            sanitizedInput.append("\n")
+            previousWasCarriageReturn = true
+        case 0x0A where allowsNewlines:
+            if !previousWasCarriageReturn {
+                sanitizedInput.append("\n")
+            }
+            previousWasCarriageReturn = false
+        case 0x20...0x10FFFF where scalar.value != 0x7F:
+            sanitizedInput.unicodeScalars.append(scalar)
+            previousWasCarriageReturn = false
+        default:
+            previousWasCarriageReturn = false
+        }
+    }
+
+    return sanitizedInput
 }
 
 private final class SliderDragState {

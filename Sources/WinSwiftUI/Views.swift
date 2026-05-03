@@ -458,6 +458,52 @@ public struct SecureField: View {
 }
 
 @MainActor
+public struct TextEditor: View {
+    public typealias Body = Never
+
+    private let text: Binding<String>
+    private var isEnabled: Bool
+    private var textColor: Color
+
+    public init(text: Binding<String>) {
+        self.text = text
+        self.isEnabled = true
+        self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public var body: Never {
+        fatalError("TextEditor has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            Controls.textEditor(
+                runtime: runtime,
+                text: text.wrappedValue,
+                isEnabled: isEnabled,
+                textColor: textColor,
+                onTextChanged: { newText in
+                    text.wrappedValue = newText
+                    text.invalidateContextIfNeeded(context)
+                }
+            )
+        }
+    }
+
+    public func disabled(_ disabled: Bool) -> TextEditor {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func foregroundColor(_ color: Color) -> TextEditor {
+        var copy = self
+        copy.textColor = color
+        return copy
+    }
+}
+
+@MainActor
 public struct Spacer: View {
     public typealias Body = Never
 

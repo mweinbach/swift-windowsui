@@ -68,7 +68,7 @@ Included today:
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Core views: `Text`, `Image(systemName:)`, `Label`, `LabeledContent`, `ControlGroup`, `Spacer`, `Divider`, `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, `Capsule`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `LazyVStack`, `LazyHStack`, `LazyVGrid`, `LazyHGrid`, `ForEach`, `ScrollView`, `List`, `Form`, `TabView`, `NavigationStack`, `NavigationLink`, `NavigationSplitView`, `ToolbarItem`, `ToolbarItemGroup`, `GroupBox`, `DisclosureGroup`, `Section` with header/footer builders, `HSplitView`, `VSplitView`
-- Controls: `Button` with role, `systemImage`, and common style variants, `Menu`, `TextField`, `SecureField`, `Toggle`, `Stepper`, stepped `Slider`, labeled `ProgressView`, `Picker` with hashable selection tags
+- Controls: `Button` with role, `systemImage`, and common style variants, `Menu`, `TextField`, `SecureField`, `TextEditor`, `Toggle`, `Stepper`, stepped `Slider`, labeled `ProgressView`, `Picker` with hashable selection tags
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `alert`, `sheet`, `popover`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `hidden`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `navigationTitle`, `toolbar`, `tabItem`, `tag`
 - Shape styling: `fill(_:)` for colors and linear gradients, plus `stroke(_:lineWidth:)`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `Material`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `FillStyle`, `DragGesture`
@@ -79,7 +79,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text entry is single-line with caret-aware keyboard editing, but selection and multiline editing are still future work
+- Text entry includes caret-aware single-line fields and a basic multiline `TextEditor`, but selection and rich editing are still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
 - `Rectangle` and `RoundedRectangle` are renderable shape views. Fills and strokes lower into retained panels, with `RoundedRectangle` carrying its corner radius into the retained node.
 - Shape clipping maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills and overlays.

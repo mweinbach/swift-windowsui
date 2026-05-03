@@ -1390,6 +1390,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextEditorSupportsMultilineEditingAndBinding() async {
+        await MainActor.run {
+            var text = "First"
+            var invalidationCount = 0
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 360, height: 180) },
+                invalidateHandler: {
+                    invalidationCount += 1
+                }
+            )
+            let node = TextEditor(text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 360, height: 180))
+            _ = runtime.renderFrame()
+            let firstLineCaretY = node.children[1].frame.origin.y
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.preferredSize, Size(width: 320, height: 120))
+            XCTAssertEqual(node.children[0].text, "First")
+
+            node.onFocusEnter?()
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            node.onTextInput?("Second")
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(text, "First\nSecond")
+            XCTAssertEqual(node.children[0].text, "First\nSecond")
+            XCTAssertGreaterThan(node.children[1].frame.origin.y, firstLineCaretY)
+            XCTAssertGreaterThanOrEqual(invalidationCount, 2)
+        }
+    }
+
     func testParentOnSubmitRoutesToTextFieldDescendant() async {
         await MainActor.run {
             var text = ""

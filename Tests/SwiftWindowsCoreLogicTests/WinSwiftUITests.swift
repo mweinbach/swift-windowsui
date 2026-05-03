@@ -224,6 +224,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStateBindingPersistsAcrossRebuilds() async {
+        await MainActor.run {
+            struct SearchView: View {
+                @State var query = ""
+
+                var body: some View {
+                    TextField("Search", text: $query)
+                }
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 80) },
+                invalidateHandler: {
+                    invalidationCount += 1
+                }
+            )
+            let view = AnyView(SearchView())
+
+            let firstNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            firstNode.onTextInput?("Go")
+
+            let rebuiltNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertEqual(rebuiltNode.children[0].text, "Go")
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(

@@ -79,13 +79,14 @@ Compatibility helpers:
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
+- minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, and `ObservedObject`
 - minimal `Binding`, including projected `@ObservedObject` bindings
 
 Surface direction:
 
 - default retained buttons now use lighter rounded chrome with hover, focus, press, and activation transitions
-- bindings now cover direct `Binding(get:set:)` values and projected `@ObservedObject` members for controls such as `TextField`, `Toggle`, and `Slider`
+- bindings now cover direct `Binding(get:set:)`, projected `@State`, and projected `@ObservedObject` members for controls such as `TextField`, `Toggle`, and `Slider`
 - the demo’s cards and chips are built from shared-source-friendly layered gradients and translucent strokes rather than WinSwiftUI-only styling hooks
 
 ## Mapping Notes

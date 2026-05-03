@@ -283,7 +283,7 @@ public struct TextField: View {
                 textColor: textColor,
                 onTextChanged: { newText in
                     text.wrappedValue = newText
-                    context.invalidate()
+                    text.invalidateContextIfNeeded(context)
                 }
             )
         }
@@ -695,7 +695,7 @@ public struct Toggle: View {
                 offColor: offColor,
                 onToggle: { newValue in
                     isOn.wrappedValue = newValue
-                    context.invalidate()
+                    isOn.invalidateContextIfNeeded(context)
                 }
             )
 
@@ -764,7 +764,7 @@ public struct Slider: View {
                 filledColor: filledColor,
                 onValueChanged: { newValue in
                     value.wrappedValue = newValue
-                    context.invalidate()
+                    value.invalidateContextIfNeeded(context)
                 }
             )
         }
@@ -854,7 +854,7 @@ public struct Picker: View {
                     }
 
                     selection.wrappedValue = options[selectedOptionIndex].value
-                    context.invalidate()
+                    selection.invalidateContextIfNeeded(context)
                 }
             )
 

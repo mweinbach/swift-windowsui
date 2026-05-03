@@ -141,10 +141,20 @@ public struct Published<Value> {
 public struct Binding<Value> {
     private let getter: @MainActor () -> Value
     private let setter: @MainActor (Value) -> Void
+    private let invalidatesOnSet: Bool
 
     public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
+        self.init(get: get, set: set, invalidatesOnSet: false)
+    }
+
+    init(
+        get: @escaping @MainActor () -> Value,
+        set: @escaping @MainActor (Value) -> Void,
+        invalidatesOnSet: Bool
+    ) {
         self.getter = get
         self.setter = set
+        self.invalidatesOnSet = invalidatesOnSet
     }
 
     public var wrappedValue: Value {
@@ -169,8 +179,70 @@ public struct Binding<Value> {
                 var value = wrappedValue
                 value[keyPath: keyPath] = newValue
                 wrappedValue = value
-            }
+            },
+            invalidatesOnSet: invalidatesOnSet
         )
+    }
+
+    func invalidateContextIfNeeded(_ context: ViewBuildContext) {
+        if !invalidatesOnSet {
+            context.invalidate()
+        }
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct State<Value> {
+    private let box: StateBox<Value>
+
+    public init(wrappedValue: Value) {
+        self.box = StateBox(value: wrappedValue)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            bindToCurrentContext()
+            return box.value
+        }
+        nonmutating set {
+            box.value = newValue
+            box.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        bindToCurrentContext()
+        return Binding<Value>(
+            get: {
+                box.value
+            },
+            set: { newValue in
+                box.value = newValue
+                box.invalidate?()
+            },
+            invalidatesOnSet: true
+        )
+    }
+
+    private func bindToCurrentContext() {
+        guard let context = ViewBuildContextScope.current else {
+            return
+        }
+
+        box.invalidate = {
+            context.invalidate()
+        }
+    }
+}
+
+@MainActor
+private final class StateBox<Value> {
+    var value: Value
+    var invalidate: (() -> Void)?
+
+    init(value: Value) {
+        self.value = value
     }
 }
 

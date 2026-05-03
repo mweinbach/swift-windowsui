@@ -1,7 +1,12 @@
 #include "CDirect2DInterop.h"
 
+#ifdef DrawText
+#undef DrawText
+#endif
+
 #include <d2d1_1.h>
 #include <d3d11_1.h>
+#include <dwrite.h>
 #include <dxgi1_2.h>
 
 static D2D1_MATRIX_3X2_F swu_identity_matrix() {
@@ -626,6 +631,100 @@ cleanup:
     swu_release_unknown(brush);
     swu_release_unknown(geometry);
     swu_release_unknown(factory);
+    return hr;
+}
+
+extern "C" HRESULT SWU_D2DDrawTextUTF16(
+    void *context_raw,
+    const wchar_t *text,
+    int32_t text_length,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    const wchar_t *font_family,
+    float font_size,
+    int32_t font_weight,
+    float red,
+    float green,
+    float blue,
+    float alpha
+) {
+    auto context = static_cast<ID2D1DeviceContext *>(context_raw);
+    IDWriteFactory *write_factory = nullptr;
+    IDWriteTextFormat *text_format = nullptr;
+    ID2D1SolidColorBrush *brush = nullptr;
+    D2D1_BRUSH_PROPERTIES brush_properties{};
+    D2D1_RECT_F layout_rect{};
+    HRESULT hr = S_OK;
+
+    if (
+        context == nullptr ||
+        text == nullptr ||
+        text_length <= 0 ||
+        right <= left ||
+        bottom <= top ||
+        font_size <= 0.0f
+    ) {
+        return E_INVALIDARG;
+    }
+
+    hr = DWriteCreateFactory(
+        DWRITE_FACTORY_TYPE_SHARED,
+        __uuidof(IDWriteFactory),
+        reinterpret_cast<IUnknown **>(&write_factory)
+    );
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    hr = write_factory->CreateTextFormat(
+        font_family != nullptr ? font_family : L"Segoe UI",
+        nullptr,
+        static_cast<DWRITE_FONT_WEIGHT>(font_weight),
+        DWRITE_FONT_STYLE_NORMAL,
+        DWRITE_FONT_STRETCH_NORMAL,
+        font_size,
+        L"",
+        &text_format
+    );
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    text_format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    text_format->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+    text_format->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+
+    brush_properties.opacity = 1.0f;
+    brush_properties.transform = swu_identity_matrix();
+    {
+        auto color = swu_color(red, green, blue, alpha);
+        hr = context->CreateSolidColorBrush(&color, &brush_properties, &brush);
+    }
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    layout_rect.left = left;
+    layout_rect.top = top;
+    layout_rect.right = right;
+    layout_rect.bottom = bottom;
+    context->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    context->DrawText(
+        text,
+        static_cast<UINT32>(text_length),
+        text_format,
+        &layout_rect,
+        brush,
+        D2D1_DRAW_TEXT_OPTIONS_CLIP,
+        DWRITE_MEASURING_MODE_NATURAL
+    );
+
+cleanup:
+    swu_release_unknown(brush);
+    swu_release_unknown(text_format);
+    swu_release_unknown(write_factory);
     return hr;
 }
 

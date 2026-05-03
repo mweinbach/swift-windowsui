@@ -22,6 +22,7 @@ struct SwiftWindowsUIInspector {
         let pathProbeFrame = makePathProbeFrame()
         let pathProbeCounts = CommandCounts(pathProbeFrame.commands)
         let pathProbePath = makePathProbePath()
+        let textProbeCounts = CommandCounts(makeTextProbeFrame().commands)
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
@@ -44,6 +45,7 @@ struct SwiftWindowsUIInspector {
         print("  glyphs: \(paintedScene.totalGlyphs)")
         print("  images: \(paintedScene.totalImages)")
         print("Path probe: \(pathProbeCounts.fillPath) fill, \(pathProbeCounts.strokePath) stroke, \(pathProbePath.segments.count) segments")
+        print("Text probe: \(textProbeCounts.drawText) drawText command")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
@@ -177,6 +179,23 @@ private func makePathProbeFrame() -> RenderFrame {
                 path: path,
                 color: Color(red: 0.94, green: 0.98, blue: 1.0, alpha: 1.0),
                 style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )),
+        ]
+    )
+}
+
+private func makeTextProbeFrame() -> RenderFrame {
+    RenderFrame(
+        clearColor: .black,
+        commands: [
+            .drawText(DrawTextCommand(
+                text: "DIRECTWRITE COMMAND",
+                position: Point(x: 24, y: 24),
+                fontName: "Segoe UI",
+                fontSize: 18,
+                fontWeight: .semibold,
+                color: Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 1.0),
+                maxWidth: 240
             )),
         ]
     )

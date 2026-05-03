@@ -812,11 +812,17 @@ public final class D3D11Renderer: RenderBackend {
                     clipRect: clipStack.resolvedClip(commandClip: nil),
                     deviceContext: deviceContext
                 )
+            case .drawText(let drawTextCommand):
+                try drawWithDirect2D(
+                    text: drawTextCommand,
+                    clipRect: clipStack.resolvedClip(commandClip: drawTextCommand.clipRect),
+                    deviceContext: deviceContext
+                )
             case .pushClip(let clipCommand):
                 clipStack.push(clipCommand)
             case .popClip:
                 clipStack.pop()
-            case .applyBlur, .drawText:
+            case .applyBlur:
                 // TODO: implement Direct2D path for new render commands
                 break
             }
@@ -1002,6 +1008,52 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         try throwIfFailed(hr, operation: "Draw Direct2D strokePath")
+    }
+
+    private func drawWithDirect2D(
+        text command: DrawTextCommand,
+        clipRect: Rect?,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        guard !command.text.isEmpty, command.fontSize > 0, command.color.alpha > 0 else {
+            return
+        }
+
+        let layoutRect = directWriteLayoutRect(for: command)
+        guard layoutRect.size.width > 0, layoutRect.size.height > 0 else {
+            return
+        }
+
+        if let clipRect, clipRect.intersected(with: layoutRect) == nil {
+            return
+        }
+
+        let fontFamily = command.fontName.isEmpty ? "Segoe UI" : command.fontName
+        let textLength = Int32(command.text.utf16.count)
+        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
+            command.text.withCString(encodedAs: UTF16.self) { textPointer in
+                fontFamily.withCString(encodedAs: UTF16.self) { fontPointer in
+                    SWU_D2DDrawTextUTF16(
+                        deviceContext,
+                        textPointer,
+                        textLength,
+                        Float(layoutRect.minX),
+                        Float(layoutRect.minY),
+                        Float(layoutRect.maxX),
+                        Float(layoutRect.maxY),
+                        fontPointer,
+                        Float(command.fontSize),
+                        directWriteFontWeight(command.fontWeight),
+                        command.color.red,
+                        command.color.green,
+                        command.color.blue,
+                        command.color.alpha
+                    )
+                }
+            }
+        }
+
+        try throwIfFailed(hr, operation: "Draw Direct2D drawText")
     }
 
     private func draw(
@@ -1569,6 +1621,38 @@ func solidPathFillColor(for command: FillPathCommand) -> Color {
         return radialGradient.stops.first?.color ?? command.color
     case .conic(let conicGradient):
         return conicGradient.stops.first?.color ?? command.color
+    }
+}
+
+func directWriteLayoutRect(for command: DrawTextCommand) -> Rect {
+    let width = max(command.maxWidth ?? 4096, 1)
+    let height = max(command.fontSize * 4, 4096)
+    return Rect(
+        x: command.position.x,
+        y: command.position.y,
+        width: width,
+        height: height
+    )
+}
+
+func directWriteFontWeight(_ weight: DrawTextCommand.FontWeight) -> Int32 {
+    switch weight {
+    case .thin:
+        return 100
+    case .light:
+        return 300
+    case .regular:
+        return 400
+    case .medium:
+        return 500
+    case .semibold:
+        return 600
+    case .bold:
+        return 700
+    case .heavy:
+        return 800
+    case .black:
+        return 900
     }
 }
 

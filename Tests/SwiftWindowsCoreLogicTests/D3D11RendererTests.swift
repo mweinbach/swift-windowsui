@@ -148,4 +148,26 @@ final class D3D11RendererTests: XCTestCase {
 
         XCTAssertEqual(solidPathFillColor(for: command), color)
     }
+
+    func testDirectWriteLayoutRectUsesMaxWidthAndLargeHeight() {
+        let command = DrawTextCommand(
+            text: "Hello",
+            position: Point(x: 12, y: 34),
+            fontSize: 18,
+            maxWidth: 240
+        )
+
+        XCTAssertEqual(directWriteLayoutRect(for: command), Rect(x: 12, y: 34, width: 240, height: 4096))
+    }
+
+    func testDirectWriteFontWeightMapping() {
+        XCTAssertEqual(directWriteFontWeight(.thin), 100)
+        XCTAssertEqual(directWriteFontWeight(.light), 300)
+        XCTAssertEqual(directWriteFontWeight(.regular), 400)
+        XCTAssertEqual(directWriteFontWeight(.medium), 500)
+        XCTAssertEqual(directWriteFontWeight(.semibold), 600)
+        XCTAssertEqual(directWriteFontWeight(.bold), 700)
+        XCTAssertEqual(directWriteFontWeight(.heavy), 800)
+        XCTAssertEqual(directWriteFontWeight(.black), 900)
+    }
 }

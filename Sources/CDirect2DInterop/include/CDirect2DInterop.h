@@ -108,6 +108,23 @@ HRESULT SWU_D2DStrokePathSolid(
     int32_t line_join
 );
 
+HRESULT SWU_D2DDrawTextUTF16(
+    void *context,
+    const wchar_t *text,
+    int32_t text_length,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    const wchar_t *font_family,
+    float font_size,
+    int32_t font_weight,
+    float red,
+    float green,
+    float blue,
+    float alpha
+);
+
 HRESULT SWU_D2DDrawBitmapBGRA(
     void *context,
     const void *pixels,

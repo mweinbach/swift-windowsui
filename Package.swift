@@ -40,6 +40,7 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedLibrary("D2d1"),
+                .linkedLibrary("Dwrite"),
             ]
         ),
         .target(

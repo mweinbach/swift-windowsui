@@ -21,6 +21,8 @@ The D3D11 fallback path activates per-command blend states for `.normal`, `.addi
 
 When Direct2D interop is active, the default renderer also translates `fillPath` and `strokePath` commands into native Direct2D path geometries with per-primitive antialiasing. Path fills currently use a solid color; path gradients fall back to the first gradient stop. Stroke width, dash pattern, cap, and join are forwarded to Direct2D. The pure D3D11 shader fallback still skips path commands.
 
+When Direct2D interop is active, `drawText` commands are rendered through DirectWrite directly into the Direct2D target with grayscale text antialiasing. The retained UI still normally emits text as bitmap commands through `NativeTextRenderer`; `drawText` is available for renderer-neutral callers and future GPU text work. The pure D3D11 shader fallback still skips `drawText`.
+
 For a quick console smoke check, run:
 
 ```powershell
@@ -29,4 +31,4 @@ swift run swift-windowsui-inspect
 
 The inspector builds a small retained tree, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes a clip-stack probe without opening a window.
 
-Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath` and `strokePath`. Newer renderer-neutral commands such as blur and first-class text need backend implementation before they can be considered active visual features on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.
+Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, and `drawText`. Blur still needs backend implementation before it can be considered an active visual feature on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.

@@ -44,6 +44,7 @@ public final class ComponentHost {
         let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
 
         reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
+        runtime.applyPendingFocusRequest()
     }
 
     /// Basic view-diffing reconciliation.  Walk old and new child lists in
@@ -152,6 +153,10 @@ public final class ComponentHost {
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         if target.selectionTag != source.selectionTag { target.selectionTag = source.selectionTag }
+        if target.requestsFocus != source.requestsFocus { target.requestsFocus = source.requestsFocus }
+        if target.clearsFocusWhenBindingInactive != source.clearsFocusWhenBindingInactive {
+            target.clearsFocusWhenBindingInactive = source.clearsFocusWhenBindingInactive
+        }
 
         // Transfer layout mode -- compare via the tag helper since ViewLayoutMode
         // doesn't conform to Equatable.

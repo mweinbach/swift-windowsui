@@ -384,6 +384,107 @@ private final class StateBox<Value> {
 
 @MainActor
 @propertyWrapper
+public struct FocusState<Value: Hashable> {
+    private let box: FocusStateBox<Value>
+
+    private init(storageValue: Value) {
+        self.box = FocusStateBox(value: storageValue)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            bindToCurrentContext()
+            return box.value
+        }
+        nonmutating set {
+            box.setValue(newValue)
+        }
+    }
+
+    public var projectedValue: Binding {
+        bindToCurrentContext()
+        return Binding(
+            get: {
+                box.value
+            },
+            set: { newValue in
+                box.setValue(newValue)
+            }
+        )
+    }
+
+    private func bindToCurrentContext() {
+        guard let context = ViewBuildContextScope.current else {
+            return
+        }
+
+        box.invalidate = {
+            context.invalidate()
+        }
+    }
+
+    @MainActor
+    public struct Binding {
+        private let getter: @MainActor () -> Value
+        private let setter: @MainActor (Value) -> Void
+
+        fileprivate init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
+            self.getter = get
+            self.setter = set
+        }
+
+        public var wrappedValue: Value {
+            get {
+                getter()
+            }
+            nonmutating set {
+                setter(newValue)
+            }
+        }
+    }
+}
+
+public extension FocusState where Value == Bool {
+    init() {
+        self.init(storageValue: false)
+    }
+
+    init(wrappedValue: Bool) {
+        self.init(storageValue: wrappedValue)
+    }
+}
+
+public extension FocusState where Value: ExpressibleByNilLiteral {
+    init() {
+        self.init(storageValue: nil)
+    }
+
+    init(wrappedValue: Value) {
+        self.init(storageValue: wrappedValue)
+    }
+}
+
+@MainActor
+private final class FocusStateBox<Value: Hashable> {
+    var value: Value
+    var invalidate: (() -> Void)?
+
+    init(value: Value) {
+        self.value = value
+    }
+
+    func setValue(_ newValue: Value) {
+        guard value != newValue else {
+            return
+        }
+
+        value = newValue
+        invalidate?()
+    }
+}
+
+@MainActor
+@propertyWrapper
 public struct StateObject<ObjectType: ObservableObject> {
     private let box: StateObjectBox<ObjectType>
 
@@ -5268,6 +5369,31 @@ public extension View {
         }
     }
 
+    func focused(_ binding: FocusState<Bool>.Binding) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                applyBoolFocusBinding(binding, to: childNode)
+                return childNode
+            }
+        }
+    }
+
+    func focused<Value: Hashable>(
+        _ binding: FocusState<Value?>.Binding,
+        equals value: Value
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                applyValueFocusBinding(binding, equals: value, to: childNode)
+                return childNode
+            }
+        }
+    }
+
     func preference<Key: PreferenceKey>(key: Key.Type = Key.self, value: Key.Value) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -5486,4 +5612,67 @@ public extension View {
             }
         }
     }
+}
+
+@MainActor
+private func applyBoolFocusBinding(_ binding: FocusState<Bool>.Binding, to node: ViewNode) {
+    guard let focusableNode = firstFocusableDescendant(in: node) else {
+        return
+    }
+
+    let previousFocusEnter = focusableNode.onFocusEnter
+    let previousFocusExit = focusableNode.onFocusExit
+    let isFocused = binding.wrappedValue
+    focusableNode.requestsFocus = isFocused
+    focusableNode.clearsFocusWhenBindingInactive = !isFocused
+    focusableNode.onFocusEnter = {
+        previousFocusEnter?()
+        binding.wrappedValue = true
+    }
+    focusableNode.onFocusExit = {
+        previousFocusExit?()
+        binding.wrappedValue = false
+    }
+}
+
+@MainActor
+private func applyValueFocusBinding<Value: Hashable>(
+    _ binding: FocusState<Value?>.Binding,
+    equals value: Value,
+    to node: ViewNode
+) {
+    guard let focusableNode = firstFocusableDescendant(in: node) else {
+        return
+    }
+
+    let previousFocusEnter = focusableNode.onFocusEnter
+    let previousFocusExit = focusableNode.onFocusExit
+    let isFocused = binding.wrappedValue == value
+    focusableNode.requestsFocus = isFocused
+    focusableNode.clearsFocusWhenBindingInactive = !isFocused
+    focusableNode.onFocusEnter = {
+        previousFocusEnter?()
+        binding.wrappedValue = value
+    }
+    focusableNode.onFocusExit = {
+        previousFocusExit?()
+        if binding.wrappedValue == value {
+            binding.wrappedValue = nil
+        }
+    }
+}
+
+@MainActor
+private func firstFocusableDescendant(in node: ViewNode) -> ViewNode? {
+    if node.isFocusable {
+        return node
+    }
+
+    for child in node.children {
+        if let focusableNode = firstFocusableDescendant(in: child) {
+            return focusableNode
+        }
+    }
+
+    return nil
 }

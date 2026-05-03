@@ -162,6 +162,7 @@ Modifiers:
 - `layoutPriority`
 - `allowsHitTesting`
 - `disabled`
+- `focused`
 - `onChange`
 - `onAppear`
 - `onDisappear`
@@ -201,6 +202,7 @@ Compatibility helpers:
 - minimal `NavigationPath` with mixed hashable values, `count`, `isEmpty`, `append(_:)`, and `removeLast(_:)`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
+- minimal `FocusState`, with bool and optional hashable value bindings for retained focus targets
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 - minimal `Binding`, including `Binding.constant(_:)` and projected `@ObservedObject` and `@StateObject` bindings
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
@@ -227,6 +229,7 @@ Surface direction:
 - `Button` maps into retained button controls and preserves focus/press/activate animation state. SwiftUI-shaped role and `systemImage` initializers are available; `.destructive` maps to a red-tinted retained button surface while `.cancel` currently keeps the automatic surface.
 - `buttonStyle` supports `.automatic`, `.bordered`, `.borderedProminent`, `.borderless`, and `.plain` on both individual `Button` values and ancestor views. Descendant buttons inherit the style through the build context unless they set their own explicit button style. `.borderedProminent` maps to a blue translucent retained surface; `.borderless` and `.plain` map to transparent chrome.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `FocusState` and `focused(_:)` map SwiftUI-shaped bool bindings to retained focus requests and focus enter/exit updates. `focused(_:equals:)` supports optional hashable values so a group of controls can share one focused value. Requested focus is applied after retained reconciliation, while full focus scopes, default focus, and platform focus rings beyond the retained control chrome are still future work.
 - `Menu` maps common title, `systemImage`, and custom-label call sites into a retained disclosure-style action cluster. `menuStyle` supports `.automatic`, `.button`, `.borderedButton`, and `.borderlessButton` style values plus common concrete wrappers such as `BorderlessButtonMenuStyle()`, flowing through the build context to descendant menus. Expanded content is currently rendered inline rather than through a native popup surface, but child controls keep their normal retained focus and activation behavior.
 - `TextField` maps into a retained single-line editable control. StringProtocol title and `prompt: Text` initializer shapes are accepted, with prompt text used as the retained placeholder. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while pointer clicks/drags, arrows, shift-selection, home/end, backspace, delete, `Ctrl+A`, and injected clipboard shortcuts update the retained caret/editing state. `textFieldStyle` supports `.automatic`, `.roundedBorder`, and `.plain` style values plus common concrete wrappers such as `PlainTextFieldStyle()`, flowing through the build context to descendant text fields.
 - `searchable(text:placement:prompt:)` wraps the view with a retained inline search field that reuses the same `TextField` editing, focus, submit, and binding behavior. `SearchFieldPlacement` accepts `.automatic`, `.toolbar`, `.sidebar`, `.navigationBarDrawer`, and `.navigationBarDrawer(displayMode:)` call sites for source compatibility, but placement is advisory for now and lowers to an inline retained field above the modified content.

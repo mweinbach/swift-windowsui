@@ -2822,6 +2822,122 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFocusStateBoolModifierRequestsRuntimeFocusAndSyncsExit() async {
+        await MainActor.run {
+            let focus = FocusState<Bool>(wrappedValue: true)
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 160, height: 80) }, invalidateHandler: {})
+            let node = Button("FOCUS ME") {}
+                .focused(focus.projectedValue)
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+            runtime.root.addChild(node)
+
+            runtime.applyPendingFocusRequest()
+
+            let focusable = firstFocusableNode(containing: "FOCUS ME", in: runtime.root)
+            XCTAssertTrue(runtime.focusedViewNode === focusable)
+            XCTAssertEqual(focus.wrappedValue, true)
+
+            runtime.focus(nil)
+
+            XCTAssertNil(runtime.focusedViewNode)
+            XCTAssertEqual(focus.wrappedValue, false)
+        }
+    }
+
+    func testFocusStateValueModifierTracksFocusedControl() async {
+        await MainActor.run {
+            let focusedField = FocusState<String?>(wrappedValue: "email")
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 240, height: 80) }, invalidateHandler: {})
+            let node = HStack {
+                Button("EMAIL") {}
+                    .focused(focusedField.projectedValue, equals: "email")
+                Button("PASSWORD") {}
+                    .focused(focusedField.projectedValue, equals: "password")
+            }
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+            runtime.root.addChild(node)
+
+            runtime.applyPendingFocusRequest()
+
+            let emailNode = firstFocusableNode(containing: "EMAIL", in: runtime.root)
+            let passwordNode = firstFocusableNode(containing: "PASSWORD", in: runtime.root)
+            XCTAssertTrue(runtime.focusedViewNode === emailNode)
+            XCTAssertEqual(focusedField.wrappedValue, "email")
+
+            runtime.focus(passwordNode)
+
+            XCTAssertTrue(runtime.focusedViewNode === passwordNode)
+            XCTAssertEqual(focusedField.wrappedValue, "password")
+
+            runtime.focus(nil)
+
+            XCTAssertNil(runtime.focusedViewNode)
+            XCTAssertNil(focusedField.wrappedValue)
+        }
+    }
+
+    func testFocusStateRequestSurvivesComponentHostReconciliation() async {
+        await MainActor.run {
+            let focus = FocusState<Bool>(wrappedValue: true)
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 180, height: 80) }, invalidateHandler: {})
+            let host = ComponentHost(runtime: runtime)
+            host.setContent(
+                composeComponent(
+                    from: [
+                        AnyView(
+                            Button("HOST FOCUS") {}
+                                .focused(focus.projectedValue)
+                        )
+                    ],
+                    context: context
+                )
+            )
+
+            host.reload()
+
+            let focusable = firstFocusableNode(containing: "HOST FOCUS", in: runtime.root)
+            XCTAssertTrue(runtime.focusedViewNode === focusable)
+            XCTAssertNotNil(runtime.focusedViewNode?.parent)
+            XCTAssertEqual(focus.wrappedValue, true)
+        }
+    }
+
+    func testFocusStateClearsDetachedFocusAfterComponentHostReconciliation() async {
+        await MainActor.run {
+            let focus = FocusState<Bool>(wrappedValue: true)
+            var showFocusedButton = true
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 180, height: 80) }, invalidateHandler: {})
+            let host = ComponentHost(runtime: runtime)
+            host.setComponents {
+                if showFocusedButton {
+                    return [
+                        Button("REMOVE FOCUS") {}
+                            .focused(focus.projectedValue)
+                            .makeComponent(context: context),
+                    ]
+                }
+
+                return []
+            }
+
+            let focusable = firstFocusableNode(containing: "REMOVE FOCUS", in: runtime.root)
+            XCTAssertTrue(runtime.focusedViewNode === focusable)
+            XCTAssertEqual(focus.wrappedValue, true)
+
+            showFocusedButton = false
+            host.reload()
+
+            XCTAssertNil(runtime.focusedViewNode)
+            XCTAssertEqual(focus.wrappedValue, false)
+        }
+    }
+
     func testPreferenceKeyReducesChildValuesAndNotifiesAncestor() async {
         await MainActor.run {
             let rebuilder = TestViewRebuilder()

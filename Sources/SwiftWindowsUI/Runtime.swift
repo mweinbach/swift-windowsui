@@ -232,6 +232,14 @@ public final class ViewNode {
     /// `Picker` without overloading the string identity tag.
     public var selectionTag: AnyHashable?
 
+    /// Set by SwiftUI-shaped focus modifiers when a rebuilt node should become
+    /// the active keyboard focus target after reconciliation.
+    public var requestsFocus: Bool = false
+
+    /// Set by SwiftUI-shaped focus modifiers when a focused node should release
+    /// focus after its bound focus value changes away from this control.
+    public var clearsFocusWhenBindingInactive: Bool = false
+
     /// Optional title supplied by WinSwiftUI's `.tabItem` modifier. Controls
     /// such as `TabView` read it while lowering SwiftUI-shaped containers into
     /// retained nodes.
@@ -1941,6 +1949,24 @@ public final class RetainedViewRuntime {
         }
     }
 
+    public var focusedViewNode: ViewNode? {
+        focusedNode
+    }
+
+    public func focus(_ node: ViewNode?) {
+        updateFocusTarget(to: node)
+    }
+
+    public func applyPendingFocusRequest() {
+        if let requestedNode = firstRequestedFocusNode(in: root) {
+            updateFocusTarget(to: requestedNode)
+        } else if let focusedNode, !containsNode(focusedNode, in: root) {
+            updateFocusTarget(to: nil)
+        } else if focusedNode?.clearsFocusWhenBindingInactive == true {
+            updateFocusTarget(to: nil)
+        }
+    }
+
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
         if let cachedFrame, !isDirty {
             return cachedFrame
@@ -2252,6 +2278,38 @@ public final class RetainedViewRuntime {
         }
 
         return result
+    }
+
+    private func firstRequestedFocusNode(in node: ViewNode) -> ViewNode? {
+        if node.isHidden {
+            return nil
+        }
+
+        if node.requestsFocus, node.isFocusable {
+            return node
+        }
+
+        for child in node.children {
+            if let requestedNode = firstRequestedFocusNode(in: child) {
+                return requestedNode
+            }
+        }
+
+        return nil
+    }
+
+    private func containsNode(_ candidate: ViewNode, in node: ViewNode) -> Bool {
+        if node === candidate {
+            return true
+        }
+
+        for child in node.children {
+            if containsNode(candidate, in: child) {
+                return true
+            }
+        }
+
+        return false
     }
 
     private func nearestFocusableNode(from node: ViewNode?) -> ViewNode? {

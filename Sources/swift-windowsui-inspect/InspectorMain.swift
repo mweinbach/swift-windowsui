@@ -730,6 +730,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("PREFERENCE VALUE") {
         failures.append("WinSwiftUI probe text samples are missing the PreferenceKey sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("FOCUS BINDING") {
+        failures.append("WinSwiftUI probe text samples are missing the FocusState sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -831,6 +834,15 @@ private struct InspectorPreferenceKey: PreferenceKey {
     }
 }
 
+private struct InspectorFocusSample: View {
+    @FocusState private var isFocused: Bool = true
+
+    var body: some View {
+        Button("FOCUS BINDING") {}
+            .focused($isFocused)
+    }
+}
+
 @MainActor
 private struct WinSwiftUIProbeView: View {
     private var sampleDate: Date {
@@ -914,6 +926,8 @@ private struct WinSwiftUIProbeView: View {
             Text("PREFERENCE VALUE")
                 .preference(key: InspectorPreferenceKey.self, value: "PREFERENCE VALUE")
                 .onPreferenceChange(InspectorPreferenceKey.self) { _ in }
+
+            InspectorFocusSample()
 
             Toggle("LIVE SWITCH", isOn: .constant(true))
 

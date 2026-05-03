@@ -104,6 +104,7 @@ Compatibility helpers:
 - `Color(red:green:blue:opacity:)`
 - common non-channel named `Color` values such as `primary`, `secondary`, `accentColor`, `gray`, `orange`, and `purple`
 - `Color.opacity(_:)`
+- `Material` presets such as `ultraThinMaterial`, `thinMaterial`, `regularMaterial`, `thickMaterial`, `ultraThickMaterial`, and `bar`
 - `LinearGradient(colors:startPoint:endPoint)`
 - shape `fill(_:)` for colors and linear gradients
 - shape `stroke(_:lineWidth:)`
@@ -142,7 +143,8 @@ Surface direction:
 - `GeometryReader` uses the current build context canvas size.
 - Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `multilineTextAlignment`, and `lineLimit`) walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
-- View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, and stroked `RoundedRectangle` fill the base bounds by default.
+- View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
+- `Material` presets lower to passive retained layers with translucent fills, blur radius, border, rounded corners, and soft shadow values for macOS-style glass surfaces.
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
 - `onSubmit` is carried through the build context and currently routes the retained `TextField` enter-key submit hook.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer. Opacity is inherited and resolved into renderer-neutral command alpha/bitmap opacity during frame generation.

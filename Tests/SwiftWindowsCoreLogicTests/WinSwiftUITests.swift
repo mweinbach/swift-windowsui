@@ -501,6 +501,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMaterialBackgroundAndOverlayMapToBlurredRetainedLayers() async {
+        await MainActor.run {
+            let backgroundNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .background(.ultraThinMaterial)
+            )
+            let overlayNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .overlay(.bar, alignment: .bottom)
+            )
+
+            let materialLayer = backgroundNode.children[0]
+            let barLayer = overlayNode.children[1]
+
+            XCTAssertEqual(materialLayer.frame, Rect(x: 0, y: 0, width: 100, height: 50))
+            XCTAssertEqual(materialLayer.backgroundColor, Material.ultraThinMaterial.backgroundColor)
+            XCTAssertEqual(materialLayer.blurRadius, Material.ultraThinMaterial.blurRadius)
+            XCTAssertEqual(materialLayer.cornerRadius, Material.ultraThinMaterial.cornerRadius)
+            XCTAssertFalse(materialLayer.isHitTestVisible)
+            XCTAssertEqual(barLayer.frame, Rect(x: 0, y: 0, width: 100, height: 50))
+            XCTAssertEqual(barLayer.backgroundColor, Material.bar.backgroundColor)
+            XCTAssertEqual(barLayer.blurRadius, Material.bar.blurRadius)
+            XCTAssertEqual(barLayer.borderColor, Material.bar.borderColor)
+        }
+    }
+
     func testLifecycleModifiersRouteToRetainedCallbacks() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

@@ -741,6 +741,67 @@ public struct Font: Sendable, Equatable {
     }
 }
 
+public struct Material: Sendable, Equatable {
+    public var backgroundColor: Color
+    public var borderColor: Color
+    public var borderWidth: Double
+    public var cornerRadius: Double
+    public var blurRadius: Double
+    public var shadowColor: Color
+    public var shadowOffset: Point
+    public var shadowSpread: Double
+
+    public init(
+        backgroundColor: Color,
+        borderColor: Color = Color(red: 1, green: 1, blue: 1, alpha: 0.16),
+        borderWidth: Double = 1,
+        cornerRadius: Double = 18,
+        blurRadius: Double = 18,
+        shadowColor: Color = Color(red: 0, green: 0, blue: 0, alpha: 0.18),
+        shadowOffset: Point = Point(x: 0, y: 12),
+        shadowSpread: Double = 18
+    ) {
+        self.backgroundColor = backgroundColor
+        self.borderColor = borderColor
+        self.borderWidth = borderWidth
+        self.cornerRadius = cornerRadius
+        self.blurRadius = blurRadius
+        self.shadowColor = shadowColor
+        self.shadowOffset = shadowOffset
+        self.shadowSpread = shadowSpread
+    }
+
+    public static let ultraThinMaterial = Material(
+        backgroundColor: Color(red: 0.95, green: 0.97, blue: 1.0, alpha: 0.12),
+        blurRadius: 26
+    )
+    public static let thinMaterial = Material(
+        backgroundColor: Color(red: 0.92, green: 0.95, blue: 1.0, alpha: 0.18),
+        blurRadius: 22
+    )
+    public static let regularMaterial = Material(
+        backgroundColor: Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 0.26),
+        blurRadius: 18
+    )
+    public static let thickMaterial = Material(
+        backgroundColor: Color(red: 0.82, green: 0.88, blue: 0.96, alpha: 0.36),
+        blurRadius: 14
+    )
+    public static let ultraThickMaterial = Material(
+        backgroundColor: Color(red: 0.76, green: 0.84, blue: 0.94, alpha: 0.46),
+        blurRadius: 10
+    )
+    public static let bar = Material(
+        backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.23, alpha: 0.72),
+        borderColor: Color(red: 1, green: 1, blue: 1, alpha: 0.10),
+        cornerRadius: 14,
+        blurRadius: 20,
+        shadowColor: Color(red: 0, green: 0, blue: 0, alpha: 0.12),
+        shadowOffset: Point(x: 0, y: 8),
+        shadowSpread: 12
+    )
+}
+
 public struct ButtonSurfaceStyle: Sendable {
     public var cornerRadius: Double
     public var palette: SurfacePalette
@@ -1377,6 +1438,25 @@ private func layeredComponent(
     }
 }
 
+@MainActor
+private func materialComponent(_ material: Material) -> Component {
+    Component { _ in
+        let node = Controls.panel(
+            backgroundColor: material.backgroundColor,
+            borderColor: material.borderColor,
+            borderWidth: max(0, material.borderWidth),
+            shadowColor: material.shadowColor,
+            shadowOffset: material.shadowOffset,
+            shadowSpread: max(0, material.shadowSpread),
+            cornerRadius: max(0, material.cornerRadius),
+            clipsToBounds: true,
+            isHitTestVisible: false
+        )
+        node.blurRadius = max(0, material.blurRadius)
+        return node
+    }
+}
+
 public extension View {
     func foregroundColor(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
@@ -1537,6 +1617,17 @@ public extension View {
         }
     }
 
+    func background(_ material: Material) -> some View {
+        ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: materialComponent(material),
+                alignment: .center,
+                placement: .behind
+            )
+        }
+    }
+
     func background<V: View>(_ background: V, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { baseContent, context in
             layeredComponent(
@@ -1557,6 +1648,17 @@ public extension View {
                 layer: composeComponent(from: backgroundViews, context: context),
                 alignment: alignment,
                 placement: .behind
+            )
+        }
+    }
+
+    func overlay(_ material: Material, alignment: Alignment = .center) -> some View {
+        ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: materialComponent(material),
+                alignment: alignment,
+                placement: .above
             )
         }
     }

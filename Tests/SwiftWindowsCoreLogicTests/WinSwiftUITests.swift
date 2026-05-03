@@ -4104,6 +4104,54 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationPathSupportsMixedValuesAndStackBinding() async {
+        await MainActor.run {
+            var path = NavigationPath()
+            path.append(42)
+            path.append("logs")
+
+            XCTAssertEqual(path.count, 2)
+            XCTAssertFalse(path.isEmpty)
+
+            var invalidationCount = 0
+            let view = NavigationStack(
+                path: Binding(get: { path }, set: { path = $0 })
+            ) {
+                Text("ROOT")
+            }
+            .navigationDestination(for: Int.self) { value in
+                Text("REPORT \(value)")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("DESTINATION \(value.uppercased())")
+            }
+            let pushedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("LOGS", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("DESTINATION LOGS", in: pushedNode))
+            XCTAssertFalse(containsText("REPORT 42", in: pushedNode))
+
+            firstFocusableNode(in: pushedNode)?.onActivate?()
+
+            XCTAssertEqual(path.count, 1)
+            XCTAssertEqual(invalidationCount, 1)
+
+            let intNode = makeNode(view)
+
+            XCTAssertTrue(containsText("42", in: intNode.children[0]))
+            XCTAssertTrue(containsText("REPORT 42", in: intNode))
+
+            path.removeLast(path.count)
+
+            XCTAssertTrue(path.isEmpty)
+        }
+    }
+
     func testLinkStringInitializerOpensDestinationURL() async {
         await MainActor.run {
             let destination = URL(string: "https://example.com/docs")!

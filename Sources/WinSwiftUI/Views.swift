@@ -1808,6 +1808,43 @@ public struct TabView: View {
     )
 }
 
+public struct NavigationPath: Equatable {
+    var values: [AnyHashable]
+
+    public init() {
+        self.values = []
+    }
+
+    public var isEmpty: Bool {
+        values.isEmpty
+    }
+
+    public var count: Int {
+        values.count
+    }
+
+    public mutating func append<Value: Hashable>(_ value: Value) {
+        values.append(AnyHashable(value))
+    }
+
+    public mutating func removeLast() {
+        removeLast(1)
+    }
+
+    public mutating func removeLast(_ count: Int) {
+        guard count > 0 else {
+            return
+        }
+
+        let removalCount = min(count, values.count)
+        values.removeLast(removalCount)
+    }
+
+    mutating func appendAnyHashable(_ value: AnyHashable) {
+        values.append(value)
+    }
+}
+
 @MainActor
 public struct NavigationStack: View {
     public typealias Body = Never
@@ -1823,6 +1860,11 @@ public struct NavigationStack: View {
     }
 
     public init<Value: Hashable>(path: Binding<[Value]>, @ViewBuilder root: () -> [AnyView]) {
+        self.root = root()
+        self.pathBinding = AnyNavigationPathBinding(path)
+    }
+
+    public init(path: Binding<NavigationPath>, @ViewBuilder root: () -> [AnyView]) {
         self.root = root()
         self.pathBinding = AnyNavigationPathBinding(path)
     }
@@ -4333,6 +4375,28 @@ private struct AnyNavigationPathBinding {
             }
 
             _ = path.removeLast()
+            binding.wrappedValue = path
+            binding.invalidateContextIfNeeded(context)
+        }
+    }
+
+    init(_ binding: Binding<NavigationPath>) {
+        self.valuesProvider = {
+            binding.wrappedValue.values
+        }
+        self.appendValue = { value, context in
+            var path = binding.wrappedValue
+            path.appendAnyHashable(value)
+            binding.wrappedValue = path
+            binding.invalidateContextIfNeeded(context)
+        }
+        self.removeLastValue = { context in
+            var path = binding.wrappedValue
+            guard !path.isEmpty else {
+                return
+            }
+
+            path.removeLast()
             binding.wrappedValue = path
             binding.invalidateContextIfNeeded(context)
         }

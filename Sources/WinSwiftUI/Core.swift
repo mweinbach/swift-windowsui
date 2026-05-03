@@ -459,6 +459,7 @@ public struct ViewBuildContext {
     var tintColor: Color?
     var buttonStyle: ButtonStyle?
     var listStyle: ListStyle?
+    var labelStyle: LabelStyle?
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -473,6 +474,7 @@ public struct ViewBuildContext {
         tintColor: Color? = nil,
         buttonStyle: ButtonStyle? = nil,
         listStyle: ListStyle? = nil,
+        labelStyle: LabelStyle? = nil,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -482,6 +484,7 @@ public struct ViewBuildContext {
         self.tintColor = tintColor
         self.buttonStyle = buttonStyle
         self.listStyle = listStyle
+        self.labelStyle = labelStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -502,6 +505,7 @@ public struct ViewBuildContext {
             tintColor: color,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
+            labelStyle: labelStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -515,6 +519,7 @@ public struct ViewBuildContext {
             tintColor: tintColor,
             buttonStyle: style,
             listStyle: listStyle,
+            labelStyle: labelStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -528,6 +533,21 @@ public struct ViewBuildContext {
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: style,
+            labelStyle: labelStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withLabelStyle(_ style: LabelStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -541,6 +561,7 @@ public struct ViewBuildContext {
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
+            labelStyle: labelStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -554,6 +575,7 @@ public struct ViewBuildContext {
             tintColor: tintColor,
             buttonStyle: buttonStyle,
             listStyle: listStyle,
+            labelStyle: labelStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1193,6 +1215,60 @@ public struct InsetGroupedListStyle: Sendable {
 }
 
 public struct SidebarListStyle: Sendable {
+    public init() {}
+}
+
+public struct LabelStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case titleAndIcon
+        case titleOnly
+        case iconOnly
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = LabelStyle(kind: .automatic)
+    public static let titleAndIcon = LabelStyle(kind: .titleAndIcon)
+    public static let titleOnly = LabelStyle(kind: .titleOnly)
+    public static let iconOnly = LabelStyle(kind: .iconOnly)
+
+    var showsTitle: Bool {
+        switch kind {
+        case .automatic, .titleAndIcon, .titleOnly:
+            return true
+        case .iconOnly:
+            return false
+        }
+    }
+
+    var showsIcon: Bool {
+        switch kind {
+        case .automatic, .titleAndIcon, .iconOnly:
+            return true
+        case .titleOnly:
+            return false
+        }
+    }
+}
+
+public struct DefaultLabelStyle: Sendable {
+    public init() {}
+}
+
+public struct TitleAndIconLabelStyle: Sendable {
+    public init() {}
+}
+
+public struct TitleOnlyLabelStyle: Sendable {
+    public init() {}
+}
+
+public struct IconOnlyLabelStyle: Sendable {
     public init() {}
 }
 
@@ -2531,6 +2607,28 @@ public extension View {
 
     func listStyle(_ style: SidebarListStyle) -> some View {
         listStyle(.sidebar)
+    }
+
+    func labelStyle(_ style: LabelStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLabelStyle(style))
+        }
+    }
+
+    func labelStyle(_ style: DefaultLabelStyle) -> some View {
+        labelStyle(.automatic)
+    }
+
+    func labelStyle(_ style: TitleAndIconLabelStyle) -> some View {
+        labelStyle(.titleAndIcon)
+    }
+
+    func labelStyle(_ style: TitleOnlyLabelStyle) -> some View {
+        labelStyle(.titleOnly)
+    }
+
+    func labelStyle(_ style: IconOnlyLabelStyle) -> some View {
+        labelStyle(.iconOnly)
     }
 
     func scrollIndicators(_ visibility: ScrollIndicatorVisibility) -> some View {

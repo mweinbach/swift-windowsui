@@ -873,6 +873,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelStyleModifierChoosesRetainedLabelContent() async {
+        await MainActor.run {
+            let titleOnlyNode = makeNode(
+                Label("READY", systemImage: "checkmark")
+                    .labelStyle(.titleOnly)
+            )
+            let iconOnlyNode = makeNode(
+                Label("READY", systemImage: "checkmark")
+                    .labelStyle(IconOnlyLabelStyle())
+            )
+            let titleAndIconNode = makeNode(
+                Label("READY", systemImage: "checkmark")
+                    .labelStyle(TitleAndIconLabelStyle())
+            )
+
+            XCTAssertEqual(titleOnlyNode.children.count, 1)
+            XCTAssertEqual(titleOnlyNode.children[0].text, "READY")
+            XCTAssertEqual(iconOnlyNode.children.count, 1)
+            XCTAssertEqual(iconOnlyNode.children[0].text, SymbolIcon.checkmark.rawValue)
+            XCTAssertEqual(titleAndIconNode.children.count, 2)
+            XCTAssertEqual(titleAndIconNode.children[0].text, SymbolIcon.checkmark.rawValue)
+            XCTAssertEqual(titleAndIconNode.children[1].text, "READY")
+        }
+    }
+
+    func testInheritedLabelStyleAppliesToDescendantLabels() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Label("NETWORK", systemImage: "bolt.fill")
+                    Label {
+                        Text("CUSTOM")
+                    } icon: {
+                        Image(systemName: "sparkles")
+                    }
+                }
+                .labelStyle(.iconOnly)
+            )
+
+            XCTAssertEqual(node.children[0].children.count, 1)
+            XCTAssertEqual(node.children[0].children[0].text, SymbolIcon.lightning.rawValue)
+            XCTAssertEqual(node.children[1].children.count, 1)
+            XCTAssertEqual(node.children[1].children[0].text, SymbolIcon.sparkle.rawValue)
+        }
+    }
+
     func testContentUnavailableViewMapsStringSearchAndBuilderForms() async {
         await MainActor.run {
             let titledNode = makeNode(

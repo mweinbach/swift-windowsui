@@ -555,9 +555,21 @@ public struct Label: View {
             title = customTitle
         }
 
+        let resolvedStyle = context.labelStyle ?? .automatic
+        let labelContent: [AnyView]
+        switch (resolvedStyle.showsIcon, resolvedStyle.showsTitle) {
+        case (true, true):
+            labelContent = icon + title
+        case (true, false):
+            labelContent = icon
+        case (false, true):
+            labelContent = title
+        case (false, false):
+            labelContent = []
+        }
+
         return HStack(spacing: spacing) {
-            icon
-            title
+            labelContent
         }
         .foregroundColor(color)
         .font(font)

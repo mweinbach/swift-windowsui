@@ -113,6 +113,8 @@ swift run swift-windowsui
 
 The inspector includes renderer, retained-runtime, text-input, and multi-offset scroll-stress probes so performance-sensitive culling regressions can be caught without launching the GUI demo.
 
+To exercise the demo through the batch renderer, set `SWIFT_WINDOWSUI_RENDERER=batch` before launch. Unset it to return to the default D3D11 renderer.
+
 Renderer note: retained shadows are first-class `shadowRect` render commands. The batch scene bridge converts them into clipped `ShadowPrimitive` values for the instanced D3D11 path, while the default frame renderer still has a conservative expanded-fill fallback.
 
 Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad, shadow, and cached bitmap-backed image batches today; glyph primitives remain in `GPUIScene` for inspection and future atlas work, but they are reported as unsupported by the batch backend until glyph-atlas binding lands.

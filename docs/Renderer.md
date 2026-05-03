@@ -2,7 +2,7 @@
 
 `swift-windowsui` currently has two renderer-facing frame shapes:
 
-- `RenderFrame` is the active default path. `RetainedViewRuntime.renderFrame()` emits ordered `RenderCommand` values, and `DefaultRenderBackendFactory.make()` returns `D3D11Renderer`.
+- `RenderFrame` is the active default path. `RetainedViewRuntime.renderFrame()` emits ordered `RenderCommand` values, and `DefaultRenderBackendFactory.make()` returns `D3D11Renderer` unless `SWIFT_WINDOWSUI_RENDERER=batch` requests the batch renderer for demo/tool exercises.
 - `GPUIScene` is the batch-oriented path. It groups primitives into typed layer arrays for instanced rendering, and `DefaultRenderBackendFactory.makeBatchBackend()` returns `D3D11BatchRenderer` for tools or callers that want to exercise that path explicitly. `D3D11BatchRenderer` also conforms to `RenderBackend`, bridging `RenderFrame` into `GPUIScene`, so it can be used as a drop-in renderer-neutral backend as the batch path matures.
 
 The batch scene types expose lightweight inspection helpers:
@@ -47,6 +47,14 @@ For a quick console smoke check, run:
 swift run swift-windowsui-inspect
 swift run swift-windowsui-inspect -- --verify
 swift run swift-windowsui-inspect -- --json --verify
+```
+
+To launch the demo through the batch renderer without changing source:
+
+```powershell
+$env:SWIFT_WINDOWSUI_RENDERER = 'batch'
+swift run swift-windowsui
+Remove-Item Env:\SWIFT_WINDOWSUI_RENDERER
 ```
 
 The inspector builds small retained and `WinSwiftUI` declarative trees, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes path, text, blur, retained-control, `WinSwiftUI`, text-input, multi-offset scroll-stress, and clip-stack probes without opening a window.

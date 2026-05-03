@@ -23,6 +23,26 @@ final class D3D11BatchRendererTests: XCTestCase {
         }
     }
 
+    func testDefaultRendererFactoryCanSelectBatchRenderer() async throws {
+        await MainActor.run {
+            let defaultRenderer = DefaultRenderBackendFactory.make(preference: .defaultD3D11)
+            let automaticRenderer = DefaultRenderBackendFactory.make(preference: .automatic)
+            let batchRenderer = DefaultRenderBackendFactory.make(preference: .batchD3D11)
+
+            XCTAssertEqual(defaultRenderer.backendDisplayName, "2D RENDERER")
+            XCTAssertEqual(automaticRenderer.backendDisplayName, "2D RENDERER")
+            XCTAssertEqual(batchRenderer.backendDisplayName, "D3D11 BATCH")
+        }
+    }
+
+    func testRendererPreferenceParsesEnvironmentValues() {
+        XCTAssertEqual(DefaultRenderBackendFactory.RendererPreference(environmentValue: nil), .automatic)
+        XCTAssertEqual(DefaultRenderBackendFactory.RendererPreference(environmentValue: "batch"), .batchD3D11)
+        XCTAssertEqual(DefaultRenderBackendFactory.RendererPreference(environmentValue: " d3d11-batch "), .batchD3D11)
+        XCTAssertEqual(DefaultRenderBackendFactory.RendererPreference(environmentValue: "frame"), .defaultD3D11)
+        XCTAssertEqual(DefaultRenderBackendFactory.RendererPreference(environmentValue: "unknown"), .automatic)
+    }
+
     func testBatchRendererReportsCurrentPrimitiveCoverage() async throws {
         await MainActor.run {
             let capabilities = D3D11BatchRenderer().primitiveCapabilities

@@ -463,6 +463,7 @@ public struct ViewBuildContext {
     var toggleStyle: ToggleStyle?
     var pickerStyle: PickerStyle?
     var controlSize: ControlSize
+    var textFieldStyle: TextFieldStyle
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -481,6 +482,7 @@ public struct ViewBuildContext {
         toggleStyle: ToggleStyle? = nil,
         pickerStyle: PickerStyle? = nil,
         controlSize: ControlSize = .regular,
+        textFieldStyle: TextFieldStyle = .automatic,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -494,6 +496,7 @@ public struct ViewBuildContext {
         self.toggleStyle = toggleStyle
         self.pickerStyle = pickerStyle
         self.controlSize = controlSize
+        self.textFieldStyle = textFieldStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -518,6 +521,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -535,6 +539,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -552,6 +557,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -569,6 +575,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -586,6 +593,7 @@ public struct ViewBuildContext {
             toggleStyle: style,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -603,6 +611,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: style,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -620,6 +629,25 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: size,
+            textFieldStyle: textFieldStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withTextFieldStyle(_ style: TextFieldStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlSize: controlSize,
+            textFieldStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -637,6 +665,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -654,6 +683,7 @@ public struct ViewBuildContext {
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
             controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1187,6 +1217,89 @@ public struct ControlSize: Sendable, Equatable {
             )
         }
     }
+}
+
+struct TextFieldStyleMetrics: Sendable {
+    var palette: SurfacePalette
+    var chrome: SurfaceChrome
+    var cornerRadius: Double
+    var clipsToBounds: Bool
+}
+
+public struct TextFieldStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case roundedBorder
+        case plain
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TextFieldStyle(kind: .automatic)
+    public static let roundedBorder = TextFieldStyle(kind: .roundedBorder)
+    public static let plain = TextFieldStyle(kind: .plain)
+
+    var metrics: TextFieldStyleMetrics {
+        switch kind {
+        case .automatic, .roundedBorder:
+            return TextFieldStyleMetrics(
+                palette: SurfacePalette(
+                    idle: Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92),
+                    hovered: Color(red: 0.18, green: 0.23, blue: 0.32, alpha: 0.96),
+                    focused: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98),
+                    pressed: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98)
+                ),
+                chrome: SurfaceChrome(
+                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                    borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+                    borderFocusedColor: Color(red: 0.48, green: 0.72, blue: 1.0, alpha: 0.58),
+                    borderWidth: 1,
+                    focusRingColor: Color(red: 0.50, green: 0.74, blue: 1.0, alpha: 0.20),
+                    focusRingWidth: 2
+                ),
+                cornerRadius: 12,
+                clipsToBounds: true
+            )
+        case .plain:
+            return TextFieldStyleMetrics(
+                palette: SurfacePalette(
+                    idle: .clear,
+                    hovered: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.05),
+                    focused: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    pressed: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    disabledBackground: .clear,
+                    disabledBorder: .clear
+                ),
+                chrome: SurfaceChrome(
+                    borderColor: .clear,
+                    borderHoveredColor: .clear,
+                    borderFocusedColor: .clear,
+                    borderPressedColor: .clear,
+                    borderWidth: 0,
+                    focusRingColor: Color(red: 0.50, green: 0.74, blue: 1.0, alpha: 0.18),
+                    focusRingWidth: 2
+                ),
+                cornerRadius: 0,
+                clipsToBounds: false
+            )
+        }
+    }
+}
+
+public struct DefaultTextFieldStyle: Sendable {
+    public init() {}
+}
+
+public struct RoundedBorderTextFieldStyle: Sendable {
+    public init() {}
+}
+
+public struct PlainTextFieldStyle: Sendable {
+    public init() {}
 }
 
 public struct ButtonSurfaceStyle: Sendable {
@@ -2908,6 +3021,24 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withControlSize(size))
         }
+    }
+
+    func textFieldStyle(_ style: TextFieldStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTextFieldStyle(style))
+        }
+    }
+
+    func textFieldStyle(_ style: DefaultTextFieldStyle) -> some View {
+        textFieldStyle(.automatic)
+    }
+
+    func textFieldStyle(_ style: RoundedBorderTextFieldStyle) -> some View {
+        textFieldStyle(.roundedBorder)
+    }
+
+    func textFieldStyle(_ style: PlainTextFieldStyle) -> some View {
+        textFieldStyle(.plain)
     }
 
     func buttonStyle(_ style: ButtonStyle) -> some View {

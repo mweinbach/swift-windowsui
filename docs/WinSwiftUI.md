@@ -117,6 +117,7 @@ Modifiers:
 - `truncationMode`
 - `tint`
 - `controlSize`
+- `textFieldStyle`
 - `buttonStyle`
 - `labelStyle`
 - `toggleStyle`
@@ -172,7 +173,7 @@ Compatibility helpers:
 - `FillStyle`
 - `DragGesture`
 - `ControlSize`
-- common `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
+- common `TextFieldStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -199,8 +200,8 @@ Surface direction:
 - `buttonStyle` supports `.automatic`, `.bordered`, `.borderedProminent`, `.borderless`, and `.plain` on both individual `Button` values and ancestor views. Descendant buttons inherit the style through the build context unless they set their own explicit button style. `.borderedProminent` maps to a blue translucent retained surface; `.borderless` and `.plain` map to transparent chrome.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Menu` maps common title, `systemImage`, and custom-label call sites into a retained disclosure-style action cluster. Expanded content is currently rendered inline rather than through a native popup surface, but child controls keep their normal retained focus and activation behavior.
-- `TextField` maps into a retained single-line editable control. StringProtocol title and `prompt: Text` initializer shapes are accepted, with prompt text used as the retained placeholder. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while pointer clicks/drags, arrows, shift-selection, home/end, backspace, delete, `Ctrl+A`, and injected clipboard shortcuts update the retained caret/editing state.
-- `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked. It supports the same string-title and `prompt: Text` placeholder initializer shapes as `TextField`. Paste is allowed through the injected clipboard bridge, but copy/cut do not expose selected secure text.
+- `TextField` maps into a retained single-line editable control. StringProtocol title and `prompt: Text` initializer shapes are accepted, with prompt text used as the retained placeholder. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while pointer clicks/drags, arrows, shift-selection, home/end, backspace, delete, `Ctrl+A`, and injected clipboard shortcuts update the retained caret/editing state. `textFieldStyle` supports `.automatic`, `.roundedBorder`, and `.plain` style values plus common concrete wrappers such as `PlainTextFieldStyle()`, flowing through the build context to descendant text fields.
+- `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked. It supports the same string-title, `prompt: Text` placeholder initializer shapes, and inherited `textFieldStyle` chrome as `TextField`. Paste is allowed through the injected clipboard bridge, but copy/cut do not expose selected secure text.
 - `TextEditor(text:)` reuses the retained text-input path in multiline mode. Return/enter inserts newlines, text wraps inside the editor surface, and the caret tracks explicit line breaks with pointer clicks/drags plus up/down arrow movement across explicit lines. Keyboard and pointer range/select-all replacement/deletion plus injected clipboard shortcuts are supported, while rich text and full platform text services are still future work.
 - Clipboard shortcuts use the runtime-level `TextClipboard` injection point. `SwiftWindowsPlatform.Win32TextClipboard` provides `CF_UNICODETEXT` read/write with Windows CRLF normalization, and both `FoundationApp` and `WinSwiftUIWindowHost` install it for retained text controls.
 - `Toggle`, `Stepper`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `toggleStyle` supports `.automatic`, `.switch`, `.checkbox`, and `.button` style values plus common concrete wrappers such as `CheckboxToggleStyle()`; descendant toggles inherit the style through the build context unless they set their own explicit style. `Stepper` supports bounded integer and double values with title or custom-label call sites. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `ProgressView` also supports a string-title initializer that composes a retained label with the progress bar.
@@ -233,6 +234,7 @@ Surface direction:
 - `Font` supports `system(size:weight:design:)`, `system(_:design:weight:)`, `custom(_:size:)`, `custom(_:fixedSize:)`, and common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`. `font(nil)` is accepted for SwiftUI source compatibility and leaves retained text styles unchanged.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint. `tint(nil)` is accepted for SwiftUI source compatibility and leaves the current inherited or control-specific tint unchanged. `accentColor(_:)` is accepted as a source-compatibility alias for the same retained control accent pipeline; it does not yet provide full dynamic semantic color resolution for every `Color.accentColor` use.
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
+- `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `labelsHidden()` is supported on `Toggle` and `Picker`; it removes the retained label/title wrapper while preserving the interactive switch, dropdown, segmented control, or radio rows.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
 - `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and the current implementation is an in-window overlay rather than a separate native dialog surface.

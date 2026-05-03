@@ -823,13 +823,18 @@ public struct TextField: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.textField(
+            let style = context.textFieldStyle.metrics
+            return Controls.textField(
                 runtime: runtime,
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
                 isEnabled: isEnabled,
                 preferredSize: context.controlSize.metrics.textFieldPreferredSize,
+                palette: style.palette,
+                chrome: style.chrome,
                 textColor: textColor,
+                cornerRadius: style.cornerRadius,
+                clipsToBounds: style.clipsToBounds,
                 onTextChanged: { newText in
                     text.wrappedValue = newText
                     text.invalidateContextIfNeeded(context)
@@ -900,13 +905,18 @@ public struct SecureField: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.textField(
+            let style = context.textFieldStyle.metrics
+            return Controls.textField(
                 runtime: runtime,
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
                 isEnabled: isEnabled,
                 preferredSize: context.controlSize.metrics.textFieldPreferredSize,
+                palette: style.palette,
+                chrome: style.chrome,
                 textColor: textColor,
+                cornerRadius: style.cornerRadius,
+                clipsToBounds: style.clipsToBounds,
                 isSecure: true,
                 onTextChanged: { newText in
                     text.wrappedValue = newText

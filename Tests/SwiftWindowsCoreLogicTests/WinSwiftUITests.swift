@@ -2476,6 +2476,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldStyleVariantsMapToRetainedChrome() async {
+        await MainActor.run {
+            var text = ""
+            var secret = ""
+
+            let plainNode = makeNode(
+                TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                    .textFieldStyle(.plain)
+            )
+            let roundedNode = makeNode(
+                SecureField("Password", text: Binding(get: { secret }, set: { secret = $0 }))
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+            )
+
+            XCTAssertEqual(plainNode.backgroundColor, .clear)
+            XCTAssertEqual(plainNode.borderColor, .clear)
+            XCTAssertEqual(plainNode.borderWidth, 0)
+            XCTAssertEqual(plainNode.cornerRadius, 0)
+            XCTAssertFalse(plainNode.clipsToBounds)
+
+            XCTAssertEqual(roundedNode.backgroundColor, Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92))
+            XCTAssertEqual(roundedNode.borderColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14))
+            XCTAssertEqual(roundedNode.borderWidth, 1)
+            XCTAssertEqual(roundedNode.cornerRadius, 12)
+            XCTAssertTrue(roundedNode.clipsToBounds)
+        }
+    }
+
+    func testInheritedTextFieldStyleAppliesToDescendantFields() async {
+        await MainActor.run {
+            var text = ""
+            var secret = ""
+
+            let node = makeNode(
+                VStack {
+                    TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                    SecureField("Password", text: Binding(get: { secret }, set: { secret = $0 }))
+                        .textFieldStyle(.roundedBorder)
+                }
+                .textFieldStyle(PlainTextFieldStyle())
+            )
+
+            let inheritedPlainField = node.children[0]
+            let explicitRoundedField = node.children[1]
+
+            XCTAssertEqual(inheritedPlainField.backgroundColor, .clear)
+            XCTAssertEqual(inheritedPlainField.borderWidth, 0)
+            XCTAssertEqual(inheritedPlainField.cornerRadius, 0)
+
+            XCTAssertEqual(explicitRoundedField.backgroundColor, Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92))
+            XCTAssertEqual(explicitRoundedField.borderWidth, 1)
+            XCTAssertEqual(explicitRoundedField.cornerRadius, 12)
+        }
+    }
+
     func testTextFieldEditsAtCaretAndMovesCaret() async {
         await MainActor.run {
             var text = ""

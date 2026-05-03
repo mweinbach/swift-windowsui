@@ -305,6 +305,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStacksAcceptNilSpacingLikeSwiftUI() async {
+        await MainActor.run {
+            let verticalNode = makeNode(
+                VStack(alignment: .trailing, spacing: nil) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            let horizontalNode = makeNode(
+                HStack(alignment: .bottom, spacing: nil) {
+                    Text("THREE")
+                    Text("FOUR")
+                }
+            )
+
+            guard case .stack(let verticalLayout) = verticalNode.layoutMode else {
+                return XCTFail("Expected vertical stack layout")
+            }
+
+            guard case .stack(let horizontalLayout) = horizontalNode.layoutMode else {
+                return XCTFail("Expected horizontal stack layout")
+            }
+
+            XCTAssertEqual(verticalLayout, .vertical(spacing: 0, alignment: .trailing))
+            XCTAssertEqual(horizontalLayout, .horizontal(spacing: 0, alignment: .trailing))
+        }
+    }
+
     func testDividerUsesStackAxisForRuleDirection() async {
         await MainActor.run {
             let verticalStack = laidOutNode(

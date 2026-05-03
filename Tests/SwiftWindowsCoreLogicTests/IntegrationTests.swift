@@ -52,6 +52,12 @@ final class IntegrationTests: XCTestCase {
     }
 
     func testBridgePushesLayerOnPrimitiveTypeChange() {
+        let bitmap = BitmapSurface(
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            pixels: Data([255, 255, 255, 255])
+        )
         let commands: [RenderCommand] = [
             .fillRect(FillRectCommand(
                 rect: Rect(x: 0, y: 0, width: 50, height: 50),
@@ -59,8 +65,7 @@ final class IntegrationTests: XCTestCase {
             )),
             .drawBitmap(DrawBitmapCommand(
                 rect: Rect(x: 0, y: 0, width: 50, height: 50),
-                bitmap: BitmapSurface(width: 1, height: 1, bytesPerRow: 4,
-                                      pixels: Data([255, 255, 255, 255]))
+                bitmap: bitmap
             )),
             .fillRect(FillRectCommand(
                 rect: Rect(x: 60, y: 0, width: 50, height: 50),
@@ -75,6 +80,8 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(scene.layers[0].quads.count, 1)
         XCTAssertEqual(scene.layers[1].images.count, 1)
         XCTAssertEqual(scene.layers[2].quads.count, 1)
+        XCTAssertEqual(scene.layers[1].images[0].textureID, 0)
+        XCTAssertEqual(scene.imageResource(for: 0)?.bitmap, bitmap)
     }
 
     func testBridgePreservesClearColor() {

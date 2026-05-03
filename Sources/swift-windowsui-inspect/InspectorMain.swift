@@ -71,7 +71,11 @@ struct SwiftWindowsUIInspector {
             },
             textBackend: textCapabilities.renderingLabel,
             renderFrame: CommandSummary(total: frame.commands.count, counts: commandCounts),
-            gpuSceneBridge: SceneSummary(layers: bridgedScene.layers.count, primitives: bridgedScene.primitiveCount),
+            gpuSceneBridge: SceneSummary(
+                layers: bridgedScene.layers.count,
+                primitives: bridgedScene.primitiveCount,
+                imageResources: bridgedScene.imageResources.count
+            ),
             scenePainter: ScenePainterSummary(
                 layers: paintedScene.layers.count,
                 primitives: paintedScene.primitiveCount,
@@ -257,6 +261,7 @@ private struct CommandSummary: Encodable {
 private struct SceneSummary: Encodable {
     var layers: Int
     var primitives: Int
+    var imageResources: Int
 }
 
 private struct ScenePainterSummary: Encodable {
@@ -374,7 +379,7 @@ private func printHumanReport(_ report: InspectorReport) {
     print("  applyBlur: \(report.renderFrame.applyBlur)")
     print("  drawText: \(report.renderFrame.drawText)")
     print("  clip ops: \(report.renderFrame.clipOperations)")
-    print("GPUIScene bridge: \(report.gpuSceneBridge.layers) layers, \(report.gpuSceneBridge.primitives) primitives")
+    print("GPUIScene bridge: \(report.gpuSceneBridge.layers) layers, \(report.gpuSceneBridge.primitives) primitives, \(report.gpuSceneBridge.imageResources) image resources")
     print("ScenePainter batch: \(report.scenePainter.layers) layers, \(report.scenePainter.primitives) primitives")
     print("  quads: \(report.scenePainter.quads)")
     print("  shadows: \(report.scenePainter.shadows)")
@@ -738,6 +743,15 @@ private func verificationFailures(
     }
     if bridgedScene.primitiveCount == 0 {
         failures.append("RenderFrame -> GPUIScene bridge emitted no primitives")
+    }
+    if sampleCommandCounts.drawBitmap > 0 && bridgedScene.imageResources.isEmpty {
+        failures.append("RenderFrame -> GPUIScene bridge dropped bitmap image resources")
+    }
+    let imagePrimitivesWithoutResources = bridgedScene.layers.reduce(0) { count, layer in
+        count + layer.images.filter { bridgedScene.imageResource(for: $0.textureID) == nil }.count
+    }
+    if imagePrimitivesWithoutResources > 0 {
+        failures.append("RenderFrame -> GPUIScene bridge emitted \(imagePrimitivesWithoutResources) image primitives without resources")
     }
     if bridgedScene.totalShadows == 0 {
         failures.append("RenderFrame -> GPUIScene bridge emitted no shadow primitives")

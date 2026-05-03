@@ -153,6 +153,8 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[1].images.count == 1)
         #expect(scene.layers[2].quads.count == 1)
         #expect(scene.layers[2].images.isEmpty)
+        #expect(scene.imageResources.count == 1)
+        #expect(scene.layers[1].images[0].textureID == 0)
     }
 
     @Test("Consecutive same-type commands stay in the same layer")
@@ -167,6 +169,9 @@ struct GPUISceneBridgeTests {
 
         #expect(scene.layers.count == 1)
         #expect(scene.layers[0].images.count == 2)
+        #expect(scene.imageResources.count == 2)
+        #expect(scene.layers[0].images[0].textureID == 0)
+        #expect(scene.layers[0].images[1].textureID == 1)
     }
 
     @Test("shadowRect maps to clipped ShadowPrimitive")
@@ -368,7 +373,9 @@ struct GPUISceneBridgeTests {
         #expect(img.uvW == 1)
         #expect(img.uvH == 1)
         #expect(img.opacity == 0.8)
-        #expect(img.textureID == -1)
+        #expect(img.textureID == 0)
+        #expect(scene.imageResources.count == 1)
+        #expect(scene.imageResource(for: img.textureID)?.bitmap == bitmap)
     }
 
     // MARK: - Skipped Commands

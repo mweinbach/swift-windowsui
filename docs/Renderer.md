@@ -11,6 +11,8 @@ The batch scene types expose lightweight inspection helpers:
 - `GPUILayer.isEmpty`
 - `GPUIScene.primitiveCount`
 - `GPUIScene.totalPrimitiveCount`
+- `GPUIScene.imageResources`
+- `GPUIScene.imageResource(for:)`
 - `BatchRenderBackend.primitiveCapabilities`
 - `BatchPrimitiveCapabilities.supportedPrimitiveCounts(in:)`
 - `BatchPrimitiveCapabilities.unsupportedPrimitiveCounts(in:)`
@@ -19,7 +21,7 @@ The batch scene types expose lightweight inspection helpers:
 
 Use these helpers in tests and diagnostics when checking primitive emission, layer splitting, clipping, and batch renderer readiness.
 
-Current batch renderer coverage is intentionally explicit: `D3D11BatchRenderer` draws quad and shadow primitive batches. `GPUIScene` also carries glyph and image primitive arrays so the renderer-neutral bridge can preserve future work, but the D3D11 batch backend reports those families as unsupported until it owns real texture and glyph-atlas resources. The inspector prints supported/unsupported primitive families and per-scene unsupported counts so bitmap text or image regressions are visible instead of silently sampling an unbound texture.
+Current batch renderer coverage is intentionally explicit: `D3D11BatchRenderer` draws quad and shadow primitive batches. `GPUIScene` also carries glyph and image primitive arrays so the renderer-neutral bridge can preserve future work, and bitmap-backed `drawBitmap` commands now register their `BitmapSurface` payloads in `GPUIScene.imageResources` with matching `ImagePrimitive.textureID` values. The D3D11 batch backend still reports glyphs and images as unsupported until it owns real texture and glyph-atlas binding, and the inspector prints supported/unsupported primitive families plus per-scene unsupported/resource counts so bitmap text or image regressions are visible instead of silently sampling an unbound texture.
 
 `RenderClipStack` is the shared clip resolver for renderers that currently expose rectangular scissor-style clipping. `pushClip` and `popClip` are honored by the `RenderFrame -> GPUIScene` bridge and by the default `D3D11Renderer`/Direct2D frame path for rect clips, ellipse bounds, and path bounds. Rounded, elliptical, and arbitrary path clips are approximated to rectangular bounds until the backend grows a true mask/stencil clip path.
 

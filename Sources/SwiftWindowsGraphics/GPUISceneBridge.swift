@@ -27,6 +27,7 @@ extension GPUIScene {
     public init(from frame: RenderFrame, surfaceSize: Size) {
         self.clearColor = frame.clearColor
         self.layers = [GPUILayer()]
+        self.imageResources = []
 
         var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         var lastKind: LastPrimitiveKind = .none
@@ -54,7 +55,13 @@ extension GPUIScene {
                     self.pushLayer()
                 }
                 lastKind = .image
-                let image = Self.makeImage(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
+                let textureID = self.addImageResource(cmd.bitmap)
+                let image = Self.makeImage(
+                    from: cmd,
+                    textureID: textureID,
+                    clipStack: clipStack,
+                    surfaceSize: surfaceSize
+                )
                 self.layers[self.layers.count - 1].images.append(image)
 
             case .pushClip(let cmd):
@@ -165,6 +172,7 @@ extension GPUIScene {
     /// Converts a `DrawBitmapCommand` to an `ImagePrimitive`.
     private static func makeImage(
         from cmd: DrawBitmapCommand,
+        textureID: Int32,
         clipStack: RenderClipStack,
         surfaceSize: Size
     ) -> ImagePrimitive {
@@ -181,7 +189,7 @@ extension GPUIScene {
             clipY: Float(clip.origin.y),
             clipWidth: Float(clip.size.width),
             clipHeight: Float(clip.size.height),
-            textureID: -1
+            textureID: textureID
         )
     }
 }

@@ -43,6 +43,7 @@ final class GPUISceneTests: XCTestCase {
     func testSceneStartsWithOneEmptyLayer() {
         let scene = GPUIScene()
         XCTAssertEqual(scene.layers.count, 1)
+        XCTAssertTrue(scene.imageResources.isEmpty)
         XCTAssertTrue(scene.layers[0].quads.isEmpty)
         XCTAssertTrue(scene.layers[0].glyphs.isEmpty)
         XCTAssertTrue(scene.layers[0].images.isEmpty)
@@ -90,6 +91,33 @@ final class GPUISceneTests: XCTestCase {
 
         XCTAssertEqual(scene.layers[0].images.count, 1)
         XCTAssertEqual(scene.layers[0].images[0].textureID, 7)
+    }
+
+    func testAddImageResourceAssignsStableTextureIDs() {
+        let firstBitmap = BitmapSurface(
+            width: 1,
+            height: 1,
+            bytesPerRow: 4,
+            pixels: Data([255, 0, 0, 255])
+        )
+        let secondBitmap = BitmapSurface(
+            width: 2,
+            height: 1,
+            bytesPerRow: 8,
+            pixels: Data(repeating: 128, count: 8)
+        )
+        var scene = GPUIScene()
+
+        let firstID = scene.addImageResource(firstBitmap)
+        let secondID = scene.addImageResource(secondBitmap)
+
+        XCTAssertEqual(firstID, 0)
+        XCTAssertEqual(secondID, 1)
+        XCTAssertEqual(scene.imageResources.count, 2)
+        XCTAssertEqual(scene.imageResource(for: firstID)?.bitmap, firstBitmap)
+        XCTAssertEqual(scene.imageResource(for: secondID)?.bitmap, secondBitmap)
+        XCTAssertNil(scene.imageResource(for: -1))
+        XCTAssertNil(scene.imageResource(for: 12))
     }
 
     func testAddShadowAppendsToLastLayer() {

@@ -34,16 +34,28 @@ public struct GPUILayer: Equatable, Sendable {
 
 // MARK: - GPUIScene
 
+public struct GPUISceneImageResource: Equatable, Sendable {
+    public var id: Int32
+    public var bitmap: BitmapSurface
+
+    public init(id: Int32, bitmap: BitmapSurface) {
+        self.id = id
+        self.bitmap = bitmap
+    }
+}
+
 /// Top-level GPUI-style scene container that organizes primitives by type into
 /// contiguous arrays within layers. This structure replaces the flat
 /// `[RenderCommand]` list with typed arrays suitable for instanced draw calls.
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
+    public var imageResources: [GPUISceneImageResource]
 
     public init(clearColor: Color = .black) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
+        self.imageResources = []
     }
 
     /// Total primitive count across all layers.
@@ -80,5 +92,26 @@ public struct GPUIScene: Equatable, Sendable {
 
     public mutating func addShadow(_ shadow: ShadowPrimitive) {
         layers[layers.count - 1].shadows.append(shadow)
+    }
+
+    @discardableResult
+    public mutating func addImageResource(_ bitmap: BitmapSurface) -> Int32 {
+        let id = Int32(imageResources.count)
+        imageResources.append(GPUISceneImageResource(id: id, bitmap: bitmap))
+        return id
+    }
+
+    public func imageResource(for textureID: Int32) -> GPUISceneImageResource? {
+        guard textureID >= 0 else {
+            return nil
+        }
+
+        let index = Int(textureID)
+        guard imageResources.indices.contains(index) else {
+            return nil
+        }
+
+        let resource = imageResources[index]
+        return resource.id == textureID ? resource : nil
     }
 }

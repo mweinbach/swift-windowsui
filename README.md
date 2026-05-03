@@ -68,7 +68,7 @@ Included today:
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Section`, `HSplitView`, `VSplitView`
-- Controls: `Button`, `TextField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
+- Controls: `Button`, `TextField`, `SecureField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `tag`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `Rectangle`, `RoundedRectangle`, `FillStyle`, `DragGesture`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`

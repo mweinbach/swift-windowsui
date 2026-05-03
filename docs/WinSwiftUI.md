@@ -56,6 +56,7 @@ Views and containers:
 - `VSplitView`
 - `Button`
 - `TextField`
+- `SecureField`
 - `Toggle`
 - `Slider`
 - `ProgressView`
@@ -124,6 +125,7 @@ Surface direction:
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.
+- `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked.
 - `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers.
 - `Picker` maps tagged `Text` options into the retained dropdown control; the current compatibility layer supports integer tags.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.

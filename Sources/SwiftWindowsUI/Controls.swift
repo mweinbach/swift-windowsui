@@ -845,6 +845,7 @@ public enum Controls {
         textColor: Color = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0),
         placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
         animation: ControlAnimationStyle = .default,
+        isSecure: Bool = false,
         onTextChanged: ((String) -> Void)? = nil,
         onSubmit: (() -> Void)? = nil
     ) -> ViewNode {
@@ -863,7 +864,7 @@ public enum Controls {
         )
 
         let textLabel = label(
-            state.displayText(placeholder: placeholder),
+            state.displayText(placeholder: placeholder, isSecure: isSecure),
             layoutPriority: 1,
             color: state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor,
             scale: 1.6,
@@ -897,14 +898,14 @@ public enum Controls {
         )
 
         func refreshText() {
-            textLabel.text = state.displayText(placeholder: placeholder)
+            textLabel.text = state.displayText(placeholder: placeholder, isSecure: isSecure)
             var style = textLabel.textStyle
             style.color = state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor
             textLabel.textStyle = style
         }
 
         func measuredPrefixWidth() -> Double {
-            let prefix = state.prefixBeforeCaret
+            let prefix = state.prefixBeforeCaret(isSecure: isSecure)
             guard !prefix.isEmpty else {
                 return 0
             }
@@ -1623,12 +1624,17 @@ private final class TextFieldState {
         self.caretOffset = text.count
     }
 
-    func displayText(placeholder: String) -> String {
-        text.isEmpty ? placeholder : text
+    func displayText(placeholder: String, isSecure: Bool = false) -> String {
+        guard !text.isEmpty else {
+            return placeholder
+        }
+
+        return isSecure ? String(repeating: "*", count: text.count) : text
     }
 
-    var prefixBeforeCaret: String {
-        String(text.prefix(caretOffset))
+    func prefixBeforeCaret(isSecure: Bool = false) -> String {
+        let prefixLength = clampedCaretOffset
+        return isSecure ? String(repeating: "*", count: prefixLength) : String(text.prefix(prefixLength))
     }
 
     func replace(with newText: String) -> Bool {

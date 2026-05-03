@@ -569,6 +569,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSecureFieldMasksDisplayWhileEditingBinding() async {
+        await MainActor.run {
+            var password = ""
+            var invalidationCount = 0
+
+            let node = makeNode(
+                SecureField("Password", text: Binding(get: { password }, set: { password = $0 })),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.children[0].text, "Password")
+
+            node.onTextInput?("Pa")
+            XCTAssertEqual(password, "Pa")
+            XCTAssertEqual(node.children[0].text, "**")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            XCTAssertEqual(password, "P")
+            XCTAssertEqual(node.children[0].text, "*")
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
     func testTextFieldOnSubmitRunsFromEnterKey() async {
         await MainActor.run {
             var text = ""

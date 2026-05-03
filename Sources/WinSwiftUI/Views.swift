@@ -575,6 +575,74 @@ public struct HStack: View {
 }
 
 @MainActor
+public struct LazyVStack: View {
+    public typealias Body = Never
+
+    private let alignment: HorizontalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        alignment: HorizontalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyVStack has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = pinnedViews
+        return VStack(alignment: alignment, spacing: spacing) {
+            content
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct LazyHStack: View {
+    public typealias Body = Never
+
+    private let alignment: VerticalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        alignment: VerticalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyHStack has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = pinnedViews
+        return HStack(alignment: alignment, spacing: spacing) {
+            content
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct ZStack: View {
     public typealias Body = Never
 

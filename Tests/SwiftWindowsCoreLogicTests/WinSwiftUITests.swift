@@ -1277,6 +1277,72 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLazyStacksMapToRetainedStackLayouts() async {
+        await MainActor.run {
+            let verticalNode = makeNode(
+                LazyVStack(alignment: .trailing, spacing: 5, pinnedViews: [.sectionHeaders]) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            guard case .stack(let verticalLayout) = verticalNode.layoutMode else {
+                XCTFail("Expected LazyVStack to lower to a retained stack layout")
+                return
+            }
+
+            XCTAssertEqual(verticalLayout.axis, .vertical)
+            XCTAssertEqual(verticalLayout.spacing, 5)
+            XCTAssertEqual(verticalLayout.alignment, .trailing)
+            XCTAssertEqual(verticalNode.children.map(\.text), ["ONE", "TWO"].map(Optional.some))
+
+            let horizontalNode = makeNode(
+                LazyHStack(alignment: .bottom, spacing: 7, pinnedViews: [.sectionFooters]) {
+                    Text("LEFT")
+                    Text("RIGHT")
+                }
+            )
+
+            guard case .stack(let horizontalLayout) = horizontalNode.layoutMode else {
+                XCTFail("Expected LazyHStack to lower to a retained stack layout")
+                return
+            }
+
+            XCTAssertEqual(horizontalLayout.axis, .horizontal)
+            XCTAssertEqual(horizontalLayout.spacing, 7)
+            XCTAssertEqual(horizontalLayout.alignment, .trailing)
+            XCTAssertEqual(horizontalNode.children.map(\.text), ["LEFT", "RIGHT"].map(Optional.some))
+        }
+    }
+
+    func testLazyVStackComposesInsideScrollView() async {
+        await MainActor.run {
+            let node = makeNode(
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 4) {
+                        ForEach(0..<3) { index in
+                            Text("ROW \(index)")
+                        }
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.scrollAxis, .vertical)
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.children.count, 1)
+
+            let stackNode = node.children[0]
+            guard case .stack(let stackLayout) = stackNode.layoutMode else {
+                XCTFail("Expected LazyVStack content to remain on the retained stack path")
+                return
+            }
+
+            XCTAssertEqual(stackLayout.axis, .vertical)
+            XCTAssertEqual(stackLayout.spacing, 4)
+            XCTAssertEqual(stackNode.children.map(\.text), ["ROW 0", "ROW 1", "ROW 2"].map(Optional.some))
+        }
+    }
+
     func testListMapsToVerticalScrollPanelAndFlattensForEachRows() async {
         await MainActor.run {
             let rows = ["ONE", "TWO", "THREE"]

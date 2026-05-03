@@ -57,6 +57,8 @@ Views and containers:
 - `VStack`
 - `HStack`
 - `ZStack`
+- `LazyVStack`
+- `LazyHStack`
 - `ScrollView`
 - `List`
 - `Form`
@@ -80,6 +82,7 @@ Views and containers:
 - `Slider`
 - `ProgressView`
 - `Picker`
+- `PinnedScrollableViews`
 
 Modifiers:
 
@@ -161,6 +164,7 @@ Surface direction:
 - `Toggle`, `Stepper`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `Stepper` supports bounded integer and double values with title or custom-label call sites. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `ProgressView` also supports a string-title initializer that composes a retained label with the progress bar.
 - `Picker` maps tagged `Text` options into the retained dropdown control and supports hashable selection tags, including integers, strings, and enum values.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
+- `LazyVStack` and `LazyHStack` preserve common lazy-stack call sites and lower to the retained stack layout path. The runtime already clips and culls offscreen render commands inside scroll panels; child view construction is still eager, and pinned section headers/footers are accepted for compatibility but not pinned yet.
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.

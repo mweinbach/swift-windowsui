@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 36
+            maximumTextSamples: 40
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -682,6 +682,15 @@ private struct WinSwiftUIProbeView: View {
                 }
             }
             .frame(height: 126)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 4) {
+                    Text("LAZY ROW 1")
+                    Text("LAZY ROW 2")
+                    Text("LAZY ROW 3")
+                }
+            }
+            .frame(height: 64)
 
             TabView(selection: Binding(get: { "summary" }, set: { _ in })) {
                 Text("TAB SUMMARY")

@@ -744,19 +744,21 @@ public struct Button: View {
 
     private let action: @MainActor () -> Void
     private let label: [AnyView]
+    private let role: ButtonRole?
     private var style: ButtonSurfaceStyle
     private var resolvedButtonStyle: ButtonStyle
     private var isEnabled: Bool
 
-    public init(action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
+    public init(role: ButtonRole? = nil, action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
         self.action = action
         self.label = label()
+        self.role = role
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.isEnabled = true
     }
 
-    public init(_ title: String, action: @escaping @MainActor () -> Void) {
+    public init(_ title: String, role: ButtonRole? = nil, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
             AnyView(
@@ -766,6 +768,7 @@ public struct Button: View {
                     .lineLimit(1)
             )
         ]
+        self.role = role
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.isEnabled = true
@@ -784,7 +787,7 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let surfaceStyle = resolvedButtonStyle == .automatic ? style : resolvedButtonStyle.surfaceStyle
+            let surfaceStyle = resolvedSurfaceStyle()
             return Controls.button(
                 runtime: runtime,
                 cornerRadius: surfaceStyle.cornerRadius,
@@ -801,6 +804,14 @@ public struct Button: View {
                 children: [labelNode]
             )
         }
+    }
+
+    private func resolvedSurfaceStyle() -> ButtonSurfaceStyle {
+        if role == .destructive, resolvedButtonStyle == .automatic {
+            return .destructive
+        }
+
+        return resolvedButtonStyle == .automatic ? style : resolvedButtonStyle.surfaceStyle
     }
 
     public func buttonSurface(_ style: ButtonSurfaceStyle) -> Button {

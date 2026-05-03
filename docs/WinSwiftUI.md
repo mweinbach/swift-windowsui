@@ -134,7 +134,7 @@ Surface direction:
 - `Divider` maps into a thin retained panel and uses the nearest stack axis to choose a horizontal or vertical separator.
 - `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, and `Capsule` map into passive retained panels. Shape fills set panel backgrounds or gradients; shape strokes set retained border color and width.
 - `RoundedRectangle` carries its corner radius into the retained node so fills, strokes, overlays, and clipping stay aligned. `Circle`, `Ellipse`, and `Capsule` use the retained rounded-rect renderer's maximum capsule radius until path-backed shape views provide true vector ellipse masking.
-- `Button` maps into retained button controls and preserves focus/press/activate animation state.
+- `Button` maps into retained button controls and preserves focus/press/activate animation state. SwiftUI-shaped role initializers are available; `.destructive` maps to a red-tinted retained button surface while `.cancel` currently keeps the automatic surface.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked.

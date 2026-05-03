@@ -852,6 +852,34 @@ public struct ButtonSurfaceStyle: Sendable {
     }
 
     public static let `default` = ButtonSurfaceStyle()
+    public static let destructive = ButtonSurfaceStyle(
+        palette: SurfacePalette(
+            idle: Color(red: 0.50, green: 0.12, blue: 0.14, alpha: 0.82),
+            hovered: Color(red: 0.62, green: 0.16, blue: 0.18, alpha: 0.90),
+            focused: Color(red: 0.72, green: 0.20, blue: 0.22, alpha: 0.94),
+            pressed: Color(red: 0.84, green: 0.26, blue: 0.28, alpha: 0.98),
+            activated: Color(red: 0.92, green: 0.34, blue: 0.36, alpha: 1.0),
+            disabledBackground: Color(red: 0.28, green: 0.16, blue: 0.17, alpha: 0.56),
+            disabledForeground: Color(red: 0.72, green: 0.60, blue: 0.61, alpha: 0.70),
+            disabledBorder: Color(red: 0.56, green: 0.28, blue: 0.30, alpha: 0.32),
+            errorBorder: Color(red: 0.96, green: 0.28, blue: 0.30, alpha: 0.94)
+        ),
+        chrome: SurfaceChrome(
+            borderColor: Color(red: 1.0, green: 0.76, blue: 0.76, alpha: 0.18),
+            borderHoveredColor: Color(red: 1.0, green: 0.82, blue: 0.82, alpha: 0.30),
+            borderFocusedColor: Color(red: 1.0, green: 0.86, blue: 0.86, alpha: 0.40),
+            borderPressedColor: Color(red: 1.0, green: 0.90, blue: 0.90, alpha: 0.46),
+            borderWidth: 1,
+            focusRingColor: Color(red: 1.0, green: 0.62, blue: 0.62, alpha: 0.34),
+            focusRingWidth: 2,
+            shadowColor: Color(red: 0.18, green: 0.02, blue: 0.03, alpha: 0.18),
+            shadowHoveredColor: Color(red: 0.24, green: 0.03, blue: 0.04, alpha: 0.24),
+            shadowFocusedColor: Color(red: 0.30, green: 0.04, blue: 0.05, alpha: 0.30),
+            shadowPressedColor: Color(red: 0.12, green: 0.02, blue: 0.02, alpha: 0.16),
+            shadowOffset: Point(x: 0, y: 16),
+            shadowSpread: 10
+        )
+    )
     public static let plain = ButtonSurfaceStyle(
         cornerRadius: 0,
         palette: SurfacePalette(
@@ -873,6 +901,11 @@ public struct ButtonSurfaceStyle: Sendable {
         pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.94),
         activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
     )
+}
+
+public enum ButtonRole: Sendable, Equatable {
+    case cancel
+    case destructive
 }
 
 public struct ButtonStyle: Sendable, Equatable {

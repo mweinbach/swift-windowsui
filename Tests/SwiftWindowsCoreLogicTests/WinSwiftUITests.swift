@@ -359,6 +359,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonRoleDestructiveUsesDestructiveSurface() async {
+        await MainActor.run {
+            let node = makeNode(
+                Button("DELETE", role: .destructive) {}
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertEqual(node.borderColor, ButtonSurfaceStyle.destructive.chrome.borderColor)
+            XCTAssertEqual(node.outlineColor, .clear)
+            XCTAssertEqual(node.children.first?.text, "DELETE")
+        }
+    }
+
+    func testButtonRoleLabelInitializerRunsAction() async {
+        await MainActor.run {
+            var didRunAction = false
+            var didInvalidate = false
+
+            let node = makeNode(
+                Button(role: .cancel, action: {
+                    didRunAction = true
+                }) {
+                    Text("CANCEL")
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(node.children.first?.text, "CANCEL")
+
+            node.onActivate?()
+
+            XCTAssertTrue(didRunAction)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25

@@ -998,12 +998,12 @@ public enum Controls {
                 let selectedLineCount = selectedText.reduce(1) { count, character in
                     character == "\n" ? count + 1 : count
                 }
-                let selectionY = contentY + min(
+                let rawSelectionY = Double(state.lineIndexBeforeSelection()) * lineHeight
+                let selectionHeight = min(
                     max(0, contentHeight),
-                    Double(state.lineIndexBeforeSelection()) * lineHeight
+                    max(lineHeight, Double(selectedLineCount) * lineHeight)
                 )
-                let availableHeight = max(0, contentY + contentHeight - selectionY)
-                let selectionHeight = min(availableHeight, max(lineHeight, Double(selectedLineCount) * lineHeight))
+                let selectionY = contentY + min(max(0, contentHeight - selectionHeight), rawSelectionY)
                 selectionHighlight.frame = Rect(
                     x: contentX,
                     y: selectionY,
@@ -1151,23 +1151,23 @@ public enum Controls {
                 case .delete:
                     applyTextMutation(state.deleteForward())
                 case .leftArrow:
-                    applyCaretMove(state.moveCaretLeft())
+                    applyCaretMove(state.moveCaretLeft(extendSelection: event.modifiers.contains(.shift)))
                 case .rightArrow:
-                    applyCaretMove(state.moveCaretRight())
+                    applyCaretMove(state.moveCaretRight(extendSelection: event.modifiers.contains(.shift)))
                 case .upArrow:
                     guard isMultiline else {
                         break
                     }
-                    applyCaretMove(state.moveCaretUp())
+                    applyCaretMove(state.moveCaretUp(extendSelection: event.modifiers.contains(.shift)))
                 case .downArrow:
                     guard isMultiline else {
                         break
                     }
-                    applyCaretMove(state.moveCaretDown())
+                    applyCaretMove(state.moveCaretDown(extendSelection: event.modifiers.contains(.shift)))
                 case .home:
-                    applyCaretMove(state.moveCaretToStart())
+                    applyCaretMove(state.moveCaretToStart(extendSelection: event.modifiers.contains(.shift)))
                 case .end:
-                    applyCaretMove(state.moveCaretToEnd())
+                    applyCaretMove(state.moveCaretToEnd(extendSelection: event.modifiers.contains(.shift)))
                 case .enter:
                     if isMultiline {
                         applyTextMutation(state.insert("\n"))
@@ -1803,6 +1803,7 @@ private final class TextFieldState {
     var text: String
     var caretOffset: Int
     private var selectionRange: Range<Int>?
+    private var selectionAnchorOffset: Int?
 
     init(text: String) {
         self.text = text
@@ -1863,6 +1864,7 @@ private final class TextFieldState {
     func replace(with newText: String) -> Bool {
         let hadSelection = selectionRange != nil
         selectionRange = nil
+        selectionAnchorOffset = nil
         guard text != newText else {
             caretOffset = min(caretOffset, text.count)
             return hadSelection
@@ -1876,18 +1878,23 @@ private final class TextFieldState {
     func selectAll() -> Bool {
         let previousSelection = normalizedSelectionRange
         let previousCaretOffset = caretOffset
+        let previousSelectionAnchorOffset = selectionAnchorOffset
 
         guard !text.isEmpty else {
             selectionRange = nil
+            selectionAnchorOffset = nil
             caretOffset = 0
-            return previousSelection != nil || previousCaretOffset != 0
+            return previousSelection != nil || previousSelectionAnchorOffset != nil || previousCaretOffset != 0
         }
 
         selectionRange = 0..<text.count
+        selectionAnchorOffset = 0
         caretOffset = text.count
         let wasAlreadySelectedAll = previousSelection?.lowerBound == 0
             && previousSelection?.upperBound == text.count
-        return !wasAlreadySelectedAll || previousCaretOffset != text.count
+        return !wasAlreadySelectedAll
+            || previousSelectionAnchorOffset != 0
+            || previousCaretOffset != text.count
     }
 
     func insert(_ input: String) -> Bool {
@@ -1900,6 +1907,7 @@ private final class TextFieldState {
             text.replaceSubrange(replacementRange, with: input)
             caretOffset = selectionRange.lowerBound + input.count
             self.selectionRange = nil
+            selectionAnchorOffset = nil
             return true
         }
 
@@ -1907,6 +1915,7 @@ private final class TextFieldState {
         let insertionIndex = text.index(text.startIndex, offsetBy: offset)
         text.insert(contentsOf: input, at: insertionIndex)
         caretOffset = offset + input.count
+        selectionAnchorOffset = nil
         return true
     }
 
@@ -1944,7 +1953,11 @@ private final class TextFieldState {
         return true
     }
 
-    func moveCaretLeft() -> Bool {
+    func moveCaretLeft(extendSelection: Bool = false) -> Bool {
+        if extendSelection {
+            return self.extendSelection(to: max(0, clampedCaretOffset - 1))
+        }
+
         if let selectionRange = normalizedSelectionRange {
             return moveCaret(to: selectionRange.lowerBound)
         }
@@ -1953,7 +1966,11 @@ private final class TextFieldState {
         return moveCaret(to: nextOffset)
     }
 
-    func moveCaretRight() -> Bool {
+    func moveCaretRight(extendSelection: Bool = false) -> Bool {
+        if extendSelection {
+            return self.extendSelection(to: min(text.count, clampedCaretOffset + 1))
+        }
+
         if let selectionRange = normalizedSelectionRange {
             return moveCaret(to: selectionRange.upperBound)
         }
@@ -1962,23 +1979,23 @@ private final class TextFieldState {
         return moveCaret(to: nextOffset)
     }
 
-    func moveCaretToStart() -> Bool {
-        moveCaret(to: 0)
+    func moveCaretToStart(extendSelection: Bool = false) -> Bool {
+        extendSelection ? self.extendSelection(to: 0) : moveCaret(to: 0)
     }
 
-    func moveCaretToEnd() -> Bool {
-        moveCaret(to: text.count)
+    func moveCaretToEnd(extendSelection: Bool = false) -> Bool {
+        extendSelection ? self.extendSelection(to: text.count) : moveCaret(to: text.count)
     }
 
-    func moveCaretUp() -> Bool {
-        moveCaretVertically(delta: -1)
+    func moveCaretUp(extendSelection: Bool = false) -> Bool {
+        moveCaretVertically(delta: -1, extendSelection: extendSelection)
     }
 
-    func moveCaretDown() -> Bool {
-        moveCaretVertically(delta: 1)
+    func moveCaretDown(extendSelection: Bool = false) -> Bool {
+        moveCaretVertically(delta: 1, extendSelection: extendSelection)
     }
 
-    private func moveCaretVertically(delta: Int) -> Bool {
+    private func moveCaretVertically(delta: Int, extendSelection: Bool = false) -> Bool {
         let ranges = lineRanges()
         let offset = clampedCaretOffset
         guard let currentLineIndex = ranges.firstIndex(where: { offset >= $0.start && offset <= $0.end }) else {
@@ -1994,13 +2011,15 @@ private final class TextFieldState {
         let targetLine = ranges[targetLineIndex]
         let currentColumn = min(max(0, offset - currentLine.start), currentLine.end - currentLine.start)
         let targetColumn = min(currentColumn, targetLine.end - targetLine.start)
-        return moveCaret(to: targetLine.start + targetColumn)
+        let targetOffset = targetLine.start + targetColumn
+        return extendSelection ? self.extendSelection(to: targetOffset) : moveCaret(to: targetOffset)
     }
 
     private func moveCaret(to offset: Int) -> Bool {
         let nextOffset = min(max(0, offset), text.count)
-        let hadSelection = selectionRange != nil
+        let hadSelection = selectionRange != nil || selectionAnchorOffset != nil
         selectionRange = nil
+        selectionAnchorOffset = nil
         guard nextOffset != caretOffset else {
             return hadSelection
         }
@@ -2009,8 +2028,40 @@ private final class TextFieldState {
         return true
     }
 
+    private func extendSelection(to offset: Int) -> Bool {
+        let nextOffset = min(max(0, offset), text.count)
+        let anchorOffset = selectionAnchorForExtension
+        let previousSelection = normalizedSelectionRange
+        let previousCaretOffset = caretOffset
+        let previousSelectionAnchorOffset = selectionAnchorOffset
+
+        caretOffset = nextOffset
+        selectionAnchorOffset = anchorOffset
+        if anchorOffset == nextOffset {
+            selectionRange = nil
+        } else {
+            selectionRange = min(anchorOffset, nextOffset)..<max(anchorOffset, nextOffset)
+        }
+
+        return previousSelection != normalizedSelectionRange
+            || previousCaretOffset != caretOffset
+            || previousSelectionAnchorOffset != selectionAnchorOffset
+    }
+
     private var clampedCaretOffset: Int {
         min(max(0, caretOffset), text.count)
+    }
+
+    private var selectionAnchorForExtension: Int {
+        if let selectionAnchorOffset {
+            return min(max(0, selectionAnchorOffset), text.count)
+        }
+
+        if let selectionRange = normalizedSelectionRange {
+            return clampedCaretOffset <= selectionRange.lowerBound ? selectionRange.upperBound : selectionRange.lowerBound
+        }
+
+        return clampedCaretOffset
     }
 
     private var normalizedSelectionRange: Range<Int>? {
@@ -2030,12 +2081,14 @@ private final class TextFieldState {
     private func removeSelection() -> Bool {
         guard let selectionRange = normalizedSelectionRange else {
             self.selectionRange = nil
+            selectionAnchorOffset = nil
             return false
         }
 
         text.removeSubrange(stringRange(for: selectionRange))
         caretOffset = selectionRange.lowerBound
         self.selectionRange = nil
+        selectionAnchorOffset = nil
         return true
     }
 

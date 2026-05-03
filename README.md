@@ -79,7 +79,7 @@ Current gaps:
 
 - This is not full SwiftUI API parity
 - Observation support is intentionally small and tuned for retained-runtime invalidation
-- Text entry includes caret-aware single-line fields, limited keyboard select-all replacement/deletion, and a basic multiline `TextEditor`, but partial mouse selection and rich editing are still future work
+- Text entry includes caret-aware single-line fields, keyboard selection replacement/deletion, and a basic multiline `TextEditor`, but partial mouse selection and rich editing are still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
 - `Rectangle` and `RoundedRectangle` are renderable shape views. Fills and strokes lower into retained panels, with `RoundedRectangle` carrying its corner radius into the retained node.
 - Shape clipping maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills and overlays.

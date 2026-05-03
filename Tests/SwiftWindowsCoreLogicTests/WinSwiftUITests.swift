@@ -44,6 +44,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachExpandsRowsAndAssignsStableTags() async {
+        await MainActor.run {
+            struct Row: Identifiable {
+                let id: Int
+                let title: String
+            }
+
+            let rows = [
+                Row(id: 10, title: "ALPHA"),
+                Row(id: 20, title: "BETA"),
+            ]
+            let node = makeNode(
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(rows) { row in
+                        Text(row.title)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ALPHA")
+            XCTAssertEqual(node.children[0].nodeTag, "10:0")
+            XCTAssertEqual(node.children[1].text, "BETA")
+            XCTAssertEqual(node.children[1].nodeTag, "20:0")
+        }
+    }
+
     func testButtonRunsActionAndInvalidates() async {
         await MainActor.run {
             var didRunAction = false
@@ -179,6 +206,25 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(node.showsScrollIndicator)
             XCTAssertTrue(node.clipsToBounds)
             XCTAssertEqual(node.children.count, 3)
+        }
+    }
+
+    func testListMapsToVerticalScrollPanelAndFlattensForEachRows() async {
+        await MainActor.run {
+            let rows = ["ONE", "TWO", "THREE"]
+            let node = makeNode(
+                List {
+                    ForEach(rows, id: \.self) { row in
+                        Text(row)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.scrollAxis, .vertical)
+            XCTAssertTrue(node.showsScrollIndicator)
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children.map(\.text), rows.map(Optional.some))
         }
     }
 

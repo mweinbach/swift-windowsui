@@ -44,6 +44,46 @@ public struct Group: View {
 }
 
 @MainActor
+public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
+    public typealias Body = Never
+
+    let expandedContent: [AnyView]
+
+    public init(_ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+        self.expandedContent = data.enumerated().flatMap { _, element in
+            let elementID = String(describing: element[keyPath: id])
+            return content(element).enumerated().map { childOffset, view in
+                AnyView(view.id("\(elementID):\(childOffset)"))
+            }
+        }
+    }
+
+    public init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) where Data.Element: Identifiable, ID == Data.Element.ID {
+        self.init(data, id: \.id, content: content)
+    }
+
+    public var body: Never {
+        fatalError("ForEach has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(
+            from: expandedContent,
+            context: context,
+            fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+}
+
+public extension ViewBuilder {
+    static func buildExpression<Data: RandomAccessCollection, ID: Hashable>(
+        _ expression: ForEach<Data, ID>
+    ) -> [AnyView] {
+        expression.expandedContent
+    }
+}
+
+@MainActor
 public struct Text: View {
     public typealias Body = Never
 
@@ -403,6 +443,41 @@ public struct ScrollView: View {
             return .vertical(spacing: style.spacing, padding: style.padding, alignment: style.alignment.stackAlignment)
         }
     }
+}
+
+@MainActor
+public struct List: View {
+    public typealias Body = Never
+
+    private let style: ScrollViewStyle
+    private let content: [AnyView]
+
+    public init(style: ScrollViewStyle = List.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+        self.style = style
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("List has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ScrollView(.vertical, style: style) {
+            content
+        }
+        .makeComponent(context: context)
+    }
+
+    public static let defaultStyle = ScrollViewStyle(
+        spacing: 6,
+        padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+        alignment: .leading,
+        backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.54),
+        borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08),
+        borderWidth: 1,
+        cornerRadius: 16,
+        scrollStep: 44
+    )
 }
 
 @MainActor

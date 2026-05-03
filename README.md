@@ -66,11 +66,12 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Divider`, `Group`, `GeometryReader`
+- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Divider`, `Rectangle`, `RoundedRectangle`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Section`, `HSplitView`, `VSplitView`
 - Controls: `Button`, `TextField`, `SecureField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `hidden`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `tag`
-- Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `Rectangle`, `RoundedRectangle`, `FillStyle`, `DragGesture`
+- Shape styling: `fill(_:)` for colors and linear gradients, plus `stroke(_:lineWidth:)`
+- Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `FillStyle`, `DragGesture`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 
@@ -80,7 +81,8 @@ Current gaps:
 - Observation support is intentionally small and tuned for retained-runtime invalidation
 - Text entry is single-line with caret-aware keyboard editing, but selection and multiline editing are still future work
 - Text rendering is still limited by the current runtime text system; bitmap text remains the baseline path
-- Shape clipping currently maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills
+- `Rectangle` and `RoundedRectangle` are renderable shape views. Fills and strokes lower into retained panels, with `RoundedRectangle` carrying its corner radius into the retained node.
+- Shape clipping maps to retained rectangular clip bounds; `RoundedRectangle` also sets the retained corner radius for matching rounded fills and overlays.
 
 ## Demo Source Compatibility
 

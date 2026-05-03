@@ -44,6 +44,8 @@ Views and containers:
 - `Label`
 - `Spacer`
 - `Divider`
+- `Rectangle`
+- `RoundedRectangle`
 - `Group`
 - `GeometryReader`
 - `ForEach`
@@ -103,10 +105,10 @@ Compatibility helpers:
 - common non-channel named `Color` values such as `primary`, `secondary`, `accentColor`, `gray`, `orange`, and `purple`
 - `Color.opacity(_:)`
 - `LinearGradient(colors:startPoint:endPoint)`
+- shape `fill(_:)` for colors and linear gradients
+- shape `stroke(_:lineWidth:)`
 - `UnitPoint`
 - `Angle`
-- `Rectangle`
-- `RoundedRectangle`
 - `FillStyle`
 - `DragGesture`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
@@ -125,6 +127,8 @@ Surface direction:
 - `Text` maps into retained label nodes and the current text renderer path.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Divider` maps into a thin retained panel and uses the nearest stack axis to choose a horizontal or vertical separator.
+- `Rectangle` and `RoundedRectangle` map into passive retained panels. Shape fills set panel backgrounds or gradients; shape strokes set retained border color and width.
+- `RoundedRectangle` carries its corner radius into the retained node so fills, strokes, overlays, and clipping stay aligned.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.

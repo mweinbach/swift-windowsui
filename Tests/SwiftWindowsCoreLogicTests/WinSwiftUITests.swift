@@ -400,6 +400,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRenderableShapesMapToRetainedPanels() async {
+        await MainActor.run {
+            let rectangleNode = makeNode(Rectangle().fill(.accentColor))
+            let roundedNode = makeNode(RoundedRectangle(cornerRadius: 12).fill(.orange))
+            let strokedNode = makeNode(RoundedRectangle(cornerRadius: 10).stroke(.cyan, lineWidth: 2))
+
+            XCTAssertEqual(rectangleNode.backgroundColor, .accentColor)
+            XCTAssertEqual(rectangleNode.cornerRadius, 0)
+            XCTAssertFalse(rectangleNode.isHitTestVisible)
+            XCTAssertEqual(roundedNode.backgroundColor, .orange)
+            XCTAssertEqual(roundedNode.cornerRadius, 12)
+            XCTAssertTrue(roundedNode.clipsToBounds)
+            XCTAssertEqual(strokedNode.borderColor, .cyan)
+            XCTAssertEqual(strokedNode.borderWidth, 2)
+            XCTAssertEqual(strokedNode.cornerRadius, 10)
+            XCTAssertFalse(strokedNode.isHitTestVisible)
+        }
+    }
+
+    func testRenderableShapesSupportGradientFillsAndDefaultBodies() async {
+        await MainActor.run {
+            let gradient = LinearGradient(colors: [.orange, .pink], startPoint: .top, endPoint: .bottom)
+            let gradientNode = makeNode(Rectangle().fill(gradient))
+            let defaultRoundedNode = makeNode(RoundedRectangle(cornerRadius: 16))
+
+            XCTAssertEqual(gradientNode.backgroundGradient, gradient)
+            XCTAssertEqual(gradientNode.cornerRadius, 0)
+            XCTAssertFalse(gradientNode.isHitTestVisible)
+            XCTAssertEqual(defaultRoundedNode.backgroundColor, .white)
+            XCTAssertEqual(defaultRoundedNode.cornerRadius, 16)
+            XCTAssertTrue(defaultRoundedNode.clipsToBounds)
+        }
+    }
+
     func testOverlayAndBackgroundUseAlignedLayerWrappers() async {
         await MainActor.run {
             let overlayNode = laidOutNode(

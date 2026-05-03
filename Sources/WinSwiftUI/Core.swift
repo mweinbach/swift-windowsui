@@ -938,6 +938,109 @@ func composeComponent(
     }
 }
 
+private enum ShapeFillStyle {
+    case color(Color)
+    case gradient(LinearGradient)
+}
+
+@MainActor
+private struct ShapeFillView<S: Shape>: View {
+    typealias Body = Never
+
+    let shape: S
+    let fill: ShapeFillStyle
+
+    var body: Never {
+        fatalError("ShapeFillView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let cornerRadius = clipCornerRadius(for: shape)
+        return Component { _ in
+            switch fill {
+            case .color(let color):
+                return Controls.panel(
+                    backgroundColor: color,
+                    cornerRadius: cornerRadius,
+                    clipsToBounds: cornerRadius > 0,
+                    isHitTestVisible: false
+                )
+            case .gradient(let gradient):
+                return Controls.panel(
+                    backgroundGradient: gradient,
+                    cornerRadius: cornerRadius,
+                    clipsToBounds: cornerRadius > 0,
+                    isHitTestVisible: false
+                )
+            }
+        }
+    }
+}
+
+@MainActor
+private struct ShapeStrokeView<S: Shape>: View {
+    typealias Body = Never
+
+    let shape: S
+    let color: Color
+    let lineWidth: Double
+
+    var body: Never {
+        fatalError("ShapeStrokeView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let cornerRadius = clipCornerRadius(for: shape)
+        return Component { _ in
+            Controls.panel(
+                borderColor: color,
+                borderWidth: max(0, lineWidth),
+                cornerRadius: cornerRadius,
+                clipsToBounds: cornerRadius > 0,
+                isHitTestVisible: false
+            )
+        }
+    }
+}
+
+extension Rectangle: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("Rectangle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ShapeFillView(shape: self, fill: .color(.white)).makeComponent(context: context)
+    }
+}
+
+extension RoundedRectangle: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("RoundedRectangle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ShapeFillView(shape: self, fill: .color(.white)).makeComponent(context: context)
+    }
+}
+
+public extension Shape {
+    func fill(_ color: Color) -> some View {
+        ShapeFillView(shape: self, fill: .color(color))
+    }
+
+    func fill(_ gradient: LinearGradient) -> some View {
+        ShapeFillView(shape: self, fill: .gradient(gradient))
+    }
+
+    func stroke(_ color: Color, lineWidth: Double = 1) -> some View {
+        ShapeStrokeView(shape: self, color: color, lineWidth: lineWidth)
+    }
+}
+
 @MainActor
 private func updateTextStyles(in node: ViewNode, _ update: (inout PixelTextStyle) -> Void) {
     if node.text != nil {

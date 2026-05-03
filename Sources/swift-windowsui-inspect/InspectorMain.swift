@@ -729,6 +729,7 @@ private struct WinSwiftUIProbeView: View {
                 .strikethrough()
                 .fontDesign(.monospaced)
                 .tracking(1.6)
+                .lineSpacing(4)
                 .lineLimit(1)
 
             HStack(spacing: 8) {

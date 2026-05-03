@@ -82,6 +82,7 @@ final class WinSwiftUITests: XCTestCase {
                     .bold()
                     .monospaced()
                     .kerning(1.75)
+                    .lineSpacing(4.25)
                     .underline()
                     .strikethrough()
             )
@@ -89,6 +90,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(styledNode.textStyle.weight, .bold)
             XCTAssertEqual(styledNode.textStyle.fontFamily, "Cascadia Mono")
             XCTAssertEqual(styledNode.textStyle.letterSpacing, 1.75, accuracy: 0.001)
+            XCTAssertEqual(styledNode.textStyle.lineSpacing, 4.25, accuracy: 0.001)
             XCTAssertTrue(styledNode.textStyle.underline)
             XCTAssertTrue(styledNode.textStyle.strikethrough)
 
@@ -103,6 +105,7 @@ final class WinSwiftUITests: XCTestCase {
                 )
                 .monospaced()
                 .kerning(3.5)
+                .lineSpacing(6.75)
             )
 
             guard let spans = spanNode.textStyle.spans else {
@@ -117,6 +120,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(spans[1].style.weight, .semibold)
             XCTAssertEqual(spans.map(\.style.fontFamily), ["Cascadia Mono", "Cascadia Mono"])
             XCTAssertEqual(spans.map(\.style.letterSpacing), [3.5, 3.5])
+            XCTAssertEqual(spans.map(\.style.lineSpacing), [6.75, 6.75])
         }
     }
 
@@ -168,6 +172,7 @@ final class WinSwiftUITests: XCTestCase {
                 .fontWeight(.semibold)
                 .monospaced()
                 .tracking(2.5)
+                .lineSpacing(5.25)
                 .underline()
                 .strikethrough()
             )
@@ -176,6 +181,7 @@ final class WinSwiftUITests: XCTestCase {
                 child.textStyle.weight == .semibold
                     && child.textStyle.fontFamily == "Cascadia Mono"
                     && child.textStyle.letterSpacing == 2.5
+                    && child.textStyle.lineSpacing == 5.25
                     && child.textStyle.underline
                     && child.textStyle.strikethrough
             })

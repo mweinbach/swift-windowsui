@@ -106,6 +106,7 @@ public struct Text: View {
     private var alignment: TextAlignment
     private var lineLimit: Int?
     private var letterSpacing: Double
+    private var lineSpacing: Double
     private var underline: Bool
     private var strikethrough: Bool
     private var enableKerning: Bool
@@ -118,6 +119,7 @@ public struct Text: View {
         self.alignment = .center
         self.lineLimit = nil
         self.letterSpacing = 1
+        self.lineSpacing = 2
         self.underline = false
         self.strikethrough = false
         self.enableKerning = true
@@ -146,6 +148,7 @@ public struct Text: View {
                 fontFamily: font.resolvedFamily,
                 alignment: alignment.horizontalAlignment.textAlignment,
                 letterSpacing: letterSpacing,
+                lineSpacing: lineSpacing,
                 lineBreakMode: resolvedLineBreakMode,
                 maximumNumberOfLines: lineLimit,
                 underline: underline,
@@ -206,6 +209,15 @@ public struct Text: View {
 
     public func tracking(_ value: CGFloat) -> Text {
         kerning(value)
+    }
+
+    public func lineSpacing(_ value: CGFloat) -> Text {
+        var copy = self
+        copy.lineSpacing = value
+        copy.updateSpanStyles { style in
+            style.lineSpacing = value
+        }
+        return copy
     }
 
     public func fontWeight(_ weight: Font.Weight?) -> Text {
@@ -285,6 +297,7 @@ public struct Text: View {
         combined.alignment = lhs.alignment
         combined.lineLimit = lhs.lineLimit ?? rhs.lineLimit
         combined.letterSpacing = lhs.letterSpacing
+        combined.lineSpacing = lhs.lineSpacing
         combined.underline = lhs.underline
         combined.strikethrough = lhs.strikethrough
         combined.enableKerning = lhs.enableKerning
@@ -323,6 +336,7 @@ public struct Text: View {
             scale: font.resolvedScale,
             alignment: alignment.horizontalAlignment.textAlignment,
             letterSpacing: letterSpacing,
+            lineSpacing: lineSpacing,
             fontFamily: font.resolvedFamily,
             weight: font.weight.textWeight,
             lineBreakMode: resolvedLineBreakMode,

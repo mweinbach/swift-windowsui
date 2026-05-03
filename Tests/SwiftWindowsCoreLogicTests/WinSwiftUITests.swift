@@ -57,6 +57,7 @@ final class WinSwiftUITests: XCTestCase {
             var isOn = true
             var count = 1
             var amount = 0.5
+            var date = localDate(year: 2026, month: 5, day: 3)
             var selection = "one"
             var isExpanded = false
 
@@ -87,6 +88,7 @@ final class WinSwiftUITests: XCTestCase {
                     Toggle("PREFIX-TOGGLE".suffix(6), isOn: Binding(get: { isOn }, set: { isOn = $0 }))
                     Stepper("PREFIX-COUNT".suffix(5), value: Binding(get: { count }, set: { count = $0 }), in: 0...5)
                     Stepper("PREFIX-AMOUNT".suffix(6), value: Binding(get: { amount }, set: { amount = $0 }), in: 0...1, step: 0.25)
+                    DatePicker("PREFIX-DATE".suffix(4), selection: Binding(get: { date }, set: { date = $0 }), displayedComponents: [.date])
                     ProgressView("PREFIX-PROGRESS".suffix(8), value: 0.4)
                     Picker("PREFIX-PICKER".suffix(6), selection: Binding(get: { selection }, set: { selection = $0 })) {
                         Text("ONE").tag("one")
@@ -97,7 +99,7 @@ final class WinSwiftUITests: XCTestCase {
             for expectedText in [
                 "BUTTON", "SAVE", "LABEL", "LABELED", "VALUE", "DETAIL", "GROUP",
                 "DISCLOSE", "SECTION", "MENU", "ACTIONS", "TOGGLE", "COUNT",
-                "AMOUNT", "PROGRESS", "PICKER"
+                "AMOUNT", "DATE", "PROGRESS", "PICKER"
             ] {
                 XCTAssertTrue(containsText(expectedText, in: node), "Expected retained tree to contain \(expectedText)")
             }
@@ -1567,6 +1569,75 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(value, 0.75, accuracy: 0.001)
             XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testDatePickerMapsDateAndTimeToRetainedControls() async {
+        await MainActor.run {
+            var value = localDate(year: 2026, month: 5, day: 3, hour: 9, minute: 30)
+            var invalidationCount = 0
+
+            let node = makeNode(
+                DatePicker("START", selection: Binding(get: { value }, set: { value = $0 }), displayedComponents: [.date, .hourAndMinute]),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("START", in: node))
+            XCTAssertTrue(containsText("2026-05-03 09:30", in: node))
+
+            firstFocusableNode(containing: "+D", in: node)?.onActivate?()
+
+            let components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: value)
+            XCTAssertEqual(components.year, 2026)
+            XCTAssertEqual(components.month, 5)
+            XCTAssertEqual(components.day, 4)
+            XCTAssertEqual(components.hour, 9)
+            XCTAssertEqual(components.minute, 30)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testDatePickerClampsRangeAndDisablesOutOfRangeSteps() async {
+        await MainActor.run {
+            let lowerBound = localDate(year: 2026, month: 5, day: 2)
+            let upperBound = localDate(year: 2026, month: 5, day: 3)
+            var value = upperBound
+
+            let node = makeNode(
+                DatePicker("WINDOW", selection: Binding(get: { value }, set: { value = $0 }), in: lowerBound...upperBound, displayedComponents: [.date])
+            )
+
+            XCTAssertTrue(containsText("2026-05-03", in: node))
+            XCTAssertNil(firstFocusableNode(containing: "+", in: node))
+
+            firstFocusableNode(containing: "-", in: node)?.onActivate?()
+
+            let components = Calendar.current.dateComponents([.year, .month, .day], from: value)
+            XCTAssertEqual(components.year, 2026)
+            XCTAssertEqual(components.month, 5)
+            XCTAssertEqual(components.day, 2)
+        }
+    }
+
+    func testDatePickerStyleModifierAppliesToDescendantPickers() async {
+        await MainActor.run {
+            let value = localDate(year: 2026, month: 5, day: 3)
+            let node = makeNode(
+                VStack {
+                    DatePicker("GRAPHICAL", selection: Binding(get: { value }, set: { _ in }), displayedComponents: [.date])
+                    DatePicker("COMPACT", selection: Binding(get: { value }, set: { _ in }), displayedComponents: [.date])
+                        .datePickerStyle(.compact)
+                }
+                .datePickerStyle(GraphicalDatePickerStyle())
+            )
+
+            let inheritedSurface = firstNode(withBackground: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.86), in: node.children[0])
+            let explicitSurface = firstNode(withBackground: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.72), in: node.children[1])
+
+            XCTAssertNotNil(inheritedSurface)
+            XCTAssertNotNil(explicitSurface)
         }
     }
 
@@ -4281,6 +4352,21 @@ private func firstFocusableNode(containing text: String, in node: ViewNode) -> V
 }
 
 @MainActor
+private func firstNode(withBackground color: Color, in node: ViewNode) -> ViewNode? {
+    if node.backgroundColor == color {
+        return node
+    }
+
+    for child in node.children {
+        if let match = firstNode(withBackground: color, in: child) {
+            return match
+        }
+    }
+
+    return nil
+}
+
+@MainActor
 private func containsText(_ text: String, in node: ViewNode) -> Bool {
     if node.text == text {
         return true
@@ -4296,4 +4382,10 @@ private func allTextDescendants(in node: ViewNode, satisfy predicate: (ViewNode)
     }
 
     return node.children.allSatisfy { allTextDescendants(in: $0, satisfy: predicate) }
+}
+
+private func localDate(year: Int, month: Int, day: Int, hour: Int = 0, minute: Int = 0) -> Date {
+    Calendar.current.date(
+        from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute)
+    )!
 }

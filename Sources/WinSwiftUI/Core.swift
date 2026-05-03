@@ -467,6 +467,7 @@ public struct ViewBuildContext {
     var textFieldStyle: TextFieldStyle
     var progressViewStyle: ProgressViewStyle
     var gaugeStyle: GaugeStyle
+    var datePickerStyle: DatePickerStyle
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -489,6 +490,7 @@ public struct ViewBuildContext {
         textFieldStyle: TextFieldStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
+        datePickerStyle: DatePickerStyle = .automatic,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -506,6 +508,7 @@ public struct ViewBuildContext {
         self.textFieldStyle = textFieldStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
+        self.datePickerStyle = datePickerStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -534,6 +537,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -555,6 +559,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -576,6 +581,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -597,6 +603,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -618,6 +625,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -639,6 +647,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -660,6 +669,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -681,6 +691,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -702,6 +713,7 @@ public struct ViewBuildContext {
             textFieldStyle: style,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -723,6 +735,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: style,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -744,6 +757,29 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: style,
+            datePickerStyle: datePickerStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withDatePickerStyle(_ style: DatePickerStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlGroupStyle: controlGroupStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            datePickerStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -765,6 +801,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -786,6 +823,7 @@ public struct ViewBuildContext {
             textFieldStyle: textFieldStyle,
             progressViewStyle: progressViewStyle,
             gaugeStyle: gaugeStyle,
+            datePickerStyle: datePickerStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -974,6 +1012,17 @@ public enum TextAlignment: Sendable {
 public enum Axis: Sendable {
     case horizontal
     case vertical
+}
+
+public struct DatePickerComponents: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let hourAndMinute = DatePickerComponents(rawValue: 1 << 0)
+    public static let date = DatePickerComponents(rawValue: 1 << 1)
 }
 
 public enum ScrollIndicatorVisibility: Sendable, Equatable {
@@ -1519,6 +1568,114 @@ public struct AccessoryCircularGaugeStyle: Sendable {
 }
 
 public struct AccessoryCircularCapacityGaugeStyle: Sendable {
+    public init() {}
+}
+
+struct DatePickerStyleMetrics: Sendable {
+    var backgroundColor: Color
+    var borderColor: Color
+    var borderWidth: Double
+    var cornerRadius: Double
+    var padding: EdgeInsets
+    var spacing: Double
+    var valueMinWidth: Double
+    var buttonStyle: ButtonStyle
+}
+
+public struct DatePickerStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case field
+        case stepperField
+        case graphical
+        case wheel
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = DatePickerStyle(kind: .automatic)
+    public static let compact = DatePickerStyle(kind: .compact)
+    public static let field = DatePickerStyle(kind: .field)
+    public static let stepperField = DatePickerStyle(kind: .stepperField)
+    public static let graphical = DatePickerStyle(kind: .graphical)
+    public static let wheel = DatePickerStyle(kind: .wheel)
+
+    var metrics: DatePickerStyleMetrics {
+        switch kind {
+        case .automatic, .compact:
+            return DatePickerStyleMetrics(
+                backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.72),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                borderWidth: 1,
+                cornerRadius: 14,
+                padding: EdgeInsets(top: 5, leading: 6, bottom: 5, trailing: 6),
+                spacing: 6,
+                valueMinWidth: 132,
+                buttonStyle: .borderless
+            )
+        case .field, .stepperField:
+            return DatePickerStyleMetrics(
+                backgroundColor: Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+                borderWidth: 1,
+                cornerRadius: 12,
+                padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                spacing: 7,
+                valueMinWidth: 142,
+                buttonStyle: .bordered
+            )
+        case .graphical:
+            return DatePickerStyleMetrics(
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.86),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.16),
+                borderWidth: 1,
+                cornerRadius: 18,
+                padding: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10),
+                spacing: 8,
+                valueMinWidth: 150,
+                buttonStyle: .borderless
+            )
+        case .wheel:
+            return DatePickerStyleMetrics(
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.21, alpha: 0.82),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.12),
+                borderWidth: 1,
+                cornerRadius: 16,
+                padding: EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 8),
+                spacing: 6,
+                valueMinWidth: 144,
+                buttonStyle: .borderless
+            )
+        }
+    }
+}
+
+public struct DefaultDatePickerStyle: Sendable {
+    public init() {}
+}
+
+public struct CompactDatePickerStyle: Sendable {
+    public init() {}
+}
+
+public struct FieldDatePickerStyle: Sendable {
+    public init() {}
+}
+
+public struct StepperFieldDatePickerStyle: Sendable {
+    public init() {}
+}
+
+public struct GraphicalDatePickerStyle: Sendable {
+    public init() {}
+}
+
+public struct WheelDatePickerStyle: Sendable {
     public init() {}
 }
 
@@ -3442,6 +3599,36 @@ public extension View {
 
     func gaugeStyle(_ style: AccessoryCircularCapacityGaugeStyle) -> some View {
         gaugeStyle(.accessoryCircularCapacity)
+    }
+
+    func datePickerStyle(_ style: DatePickerStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withDatePickerStyle(style))
+        }
+    }
+
+    func datePickerStyle(_ style: DefaultDatePickerStyle) -> some View {
+        datePickerStyle(.automatic)
+    }
+
+    func datePickerStyle(_ style: CompactDatePickerStyle) -> some View {
+        datePickerStyle(.compact)
+    }
+
+    func datePickerStyle(_ style: FieldDatePickerStyle) -> some View {
+        datePickerStyle(.field)
+    }
+
+    func datePickerStyle(_ style: StepperFieldDatePickerStyle) -> some View {
+        datePickerStyle(.stepperField)
+    }
+
+    func datePickerStyle(_ style: GraphicalDatePickerStyle) -> some View {
+        datePickerStyle(.graphical)
+    }
+
+    func datePickerStyle(_ style: WheelDatePickerStyle) -> some View {
+        datePickerStyle(.wheel)
     }
 
     func controlGroupStyle(_ style: ControlGroupStyle) -> some View {

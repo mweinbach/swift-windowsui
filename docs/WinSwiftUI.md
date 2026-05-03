@@ -88,6 +88,7 @@ Views and containers:
 - `Toggle`
 - `Stepper`
 - `Slider`
+- `DatePicker`
 - `ProgressView`
 - `Gauge`
 - `Picker`
@@ -121,6 +122,7 @@ Modifiers:
 - `textFieldStyle`
 - `progressViewStyle`
 - `gaugeStyle`
+- `datePickerStyle`
 - `controlGroupStyle`
 - `buttonStyle`
 - `labelStyle`
@@ -177,7 +179,8 @@ Compatibility helpers:
 - `FillStyle`
 - `DragGesture`
 - `ControlSize`
-- common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `ControlGroupStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
+- `DatePickerComponents`
+- common `TextFieldStyle`, `ProgressViewStyle`, `GaugeStyle`, `DatePickerStyle`, `ControlGroupStyle`, `LabelStyle`, `ToggleStyle`, `PickerStyle`, and `ListStyle` presets
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -208,7 +211,7 @@ Surface direction:
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked. It supports the same string-title, `prompt: Text` placeholder initializer shapes, and inherited `textFieldStyle` chrome as `TextField`. Paste is allowed through the injected clipboard bridge, but copy/cut do not expose selected secure text.
 - `TextEditor(text:)` reuses the retained text-input path in multiline mode. Return/enter inserts newlines, text wraps inside the editor surface, and the caret tracks explicit line breaks with pointer clicks/drags plus up/down arrow movement across explicit lines. Keyboard and pointer range/select-all replacement/deletion plus injected clipboard shortcuts are supported, while rich text and full platform text services are still future work.
 - Clipboard shortcuts use the runtime-level `TextClipboard` injection point. `SwiftWindowsPlatform.Win32TextClipboard` provides `CF_UNICODETEXT` read/write with Windows CRLF normalization, and both `FoundationApp` and `WinSwiftUIWindowHost` install it for retained text controls.
-- `Toggle`, `Stepper`, `Slider`, `ProgressView`, and `Gauge` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `toggleStyle` supports `.automatic`, `.switch`, `.checkbox`, and `.button` style values plus common concrete wrappers such as `CheckboxToggleStyle()`; descendant toggles inherit the style through the build context unless they set their own explicit style. `Stepper` supports bounded integer and double values with title or custom-label call sites. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `ProgressView` also supports a string-title initializer that composes a retained label with the progress indicator. `progressViewStyle` supports `.automatic`, `.linear`, and `.circular`; circular style lowers to renderer-neutral stroked paths. `Gauge(value:in:label:currentValueLabel:minimumValueLabel:maximumValueLabel:)` reuses the retained progress path with optional label rows plus inherited tint and control sizing. `gaugeStyle` supports linear and accessory/circular style presets, with circular variants backed by the same stroked path ring.
+- `Toggle`, `Stepper`, `Slider`, `DatePicker`, `ProgressView`, and `Gauge` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `toggleStyle` supports `.automatic`, `.switch`, `.checkbox`, and `.button` style values plus common concrete wrappers such as `CheckboxToggleStyle()`; descendant toggles inherit the style through the build context unless they set their own explicit style. `Stepper` supports bounded integer and double values with title or custom-label call sites. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `DatePicker` supports string/custom-label `Binding<Date>` call sites, date/time displayed components, closed and one-sided ranges, retained +/- date and time steppers, `labelsHidden`, and `datePickerStyle` presets `.automatic`, `.compact`, `.field`, `.stepperField`, `.graphical`, and `.wheel`; these are retained compact fields rather than native popup calendars for now. `ProgressView` also supports a string-title initializer that composes a retained label with the progress indicator. `progressViewStyle` supports `.automatic`, `.linear`, and `.circular`; circular style lowers to renderer-neutral stroked paths. `Gauge(value:in:label:currentValueLabel:minimumValueLabel:maximumValueLabel:)` reuses the retained progress path with optional label rows plus inherited tint and control sizing. `gaugeStyle` supports linear and accessory/circular style presets, with circular variants backed by the same stroked path ring.
 - `Picker` maps tagged `Text` options into retained selection controls and supports hashable selection tags, including integers, strings, and enum values. `pickerStyle` supports `.automatic`, `.menu`, `.segmented`, `.radioGroup`, and `.inline` style values plus common concrete wrappers such as `SegmentedPickerStyle()`. Menu style lowers to the retained dropdown, segmented style lowers to the retained tab-bar/segmented control, and radio-group/inline style lowers to retained radio rows.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `scrollIndicators(_:)` accepts `.automatic`, `.visible`, and `.hidden` and updates descendant retained scroll containers, including `List`, without changing scroll culling or input behavior.
@@ -240,6 +243,7 @@ Surface direction:
 - `controlSize` is carried through the build context and supports `.mini`, `.small`, `.regular`, `.large`, and `.extraLarge`. Buttons, switches, checkbox/button-style toggles, text fields, text editors, sliders, progress bars/rings, menu pickers, segmented pickers, and radio picker rows use it to choose retained hit targets, preferred sizes, padding, and corner radii.
 - `textFieldStyle` is carried through the build context so descendant `TextField` and `SecureField` controls can share rounded-border or plain retained chrome unless they set their own explicit style.
 - `progressViewStyle` and `gaugeStyle` are carried through the build context so descendant progress and gauge controls can share linear or circular retained indicators unless they set explicit styles.
+- `datePickerStyle` is carried through the build context so descendant date pickers can share compact, field, graphical, or wheel-inspired retained chrome unless they set explicit styles.
 - `controlGroupStyle` is carried through the build context so toolbar and menu control clusters can share retained group chrome unless a descendant group sets an explicit style.
 - `labelsHidden()` is supported on `Toggle` and `Picker`; it removes the retained label/title wrapper while preserving the interactive switch, dropdown, segmented control, or radio rows.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.

@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 64
+            maximumTextSamples: 80
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -673,6 +673,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("GAUGE LOAD") {
         failures.append("WinSwiftUI probe text samples are missing the Gauge label")
     }
+    if !winSwiftUIProbe.textSamples.contains("SCHEDULE WINDOW") {
+        failures.append("WinSwiftUI probe text samples are missing the DatePicker label")
+    }
     if !winSwiftUIProbe.textSamples.contains("CUSTOM LABEL") {
         failures.append("WinSwiftUI probe text samples are missing the custom Label builder")
     }
@@ -715,6 +718,11 @@ private func clipMatches(
 
 @MainActor
 private struct WinSwiftUIProbeView: View {
+    private var sampleDate: Date {
+        Calendar.current.date(from: DateComponents(year: 2026, month: 5, day: 3, hour: 9, minute: 30))
+            ?? Date(timeIntervalSince1970: 0)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("DECLARATIVE INSPECTOR")
@@ -764,6 +772,13 @@ private struct WinSwiftUIProbeView: View {
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 
             TextField("Ignored title", text: Binding(get: { "" }, set: { _ in }), prompt: Text("PROMPT SEARCH"))
+
+            DatePicker(
+                "SCHEDULE WINDOW",
+                selection: Binding(get: { sampleDate }, set: { _ in }),
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            .datePickerStyle(.field)
 
             ProgressView(value: 0.68)
 

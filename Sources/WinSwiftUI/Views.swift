@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsLayout
 import SwiftWindowsUI
@@ -3099,6 +3100,262 @@ public struct Slider: View {
 
     public func accentColor(_ color: Color?) -> Slider {
         tint(color)
+    }
+}
+
+@MainActor
+public struct DatePicker: View {
+    public typealias Body = Never
+
+    private static let defaultComponents: DatePickerComponents = [.date, .hourAndMinute]
+
+    private let selection: Binding<Date>
+    private let bounds: ClosedRange<Date>
+    private let displayedComponents: DatePickerComponents
+    private let label: [AnyView]
+    private var isEnabled: Bool
+    private var hidesLabel: Bool
+
+    public init(
+        _ title: String,
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(
+            selection: selection,
+            displayedComponents: displayedComponents,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }
+        )
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(String(title), selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.bounds = Date.distantPast...Date.distantFuture
+        self.displayedComponents = displayedComponents
+        self.label = label()
+        self.isEnabled = true
+        self.hidesLabel = false
+    }
+
+    public init(
+        _ title: String,
+        selection: Binding<Date>,
+        in bounds: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(
+            selection: selection,
+            in: bounds,
+            displayedComponents: displayedComponents,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }
+        )
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in bounds: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(String(title), selection: selection, in: bounds, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        in bounds: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.bounds = bounds
+        self.displayedComponents = displayedComponents
+        self.label = label()
+        self.isEnabled = true
+        self.hidesLabel = false
+    }
+
+    public init(
+        _ title: String,
+        selection: Binding<Date>,
+        in bounds: PartialRangeFrom<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(title, selection: selection, in: bounds.lowerBound...Date.distantFuture, displayedComponents: displayedComponents)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in bounds: PartialRangeFrom<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(String(title), selection: selection, in: bounds, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        _ title: String,
+        selection: Binding<Date>,
+        in bounds: PartialRangeThrough<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(title, selection: selection, in: Date.distantPast...bounds.upperBound, displayedComponents: displayedComponents)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in bounds: PartialRangeThrough<Date>,
+        displayedComponents: DatePickerComponents = [.date, .hourAndMinute]
+    ) {
+        self.init(String(title), selection: selection, in: bounds, displayedComponents: displayedComponents)
+    }
+
+    public var body: Never {
+        fatalError("DatePicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let components = resolvedComponents
+        let metrics = context.datePickerStyle.metrics
+        let currentValue = clamped(selection.wrappedValue)
+        let dateLabel = components.contains(.date) && components.contains(.hourAndMinute) ? "D" : ""
+        let timeLabel = components.contains(.date) && components.contains(.hourAndMinute) ? "T" : ""
+
+        return HStack(spacing: metrics.spacing) {
+            if !hidesLabel {
+                label
+                Spacer()
+            }
+
+            Text(formattedDate(currentValue, components: components))
+                .font(.system(size: 1.35, weight: .semibold, design: .monospaced))
+                .foregroundColor(Color(red: 0.84, green: 0.90, blue: 1.0, alpha: 0.82))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+                .frame(minWidth: metrics.valueMinWidth, alignment: .trailing)
+
+            HStack(spacing: 4) {
+                if components.contains(.date) {
+                    Button("-\(dateLabel)") {
+                        adjust(.day, value: -1)
+                    }
+                    .disabled(!canAdjust(.day, value: -1, from: currentValue))
+
+                    Button("+\(dateLabel)") {
+                        adjust(.day, value: 1)
+                    }
+                    .disabled(!canAdjust(.day, value: 1, from: currentValue))
+                }
+
+                if components.contains(.hourAndMinute) {
+                    Button("-\(timeLabel)") {
+                        adjust(.minute, value: -15)
+                    }
+                    .disabled(!canAdjust(.minute, value: -15, from: currentValue))
+
+                    Button("+\(timeLabel)") {
+                        adjust(.minute, value: 15)
+                    }
+                    .disabled(!canAdjust(.minute, value: 15, from: currentValue))
+                }
+            }
+            .buttonStyle(metrics.buttonStyle)
+        }
+        .padding(metrics.padding)
+        .background(metrics.backgroundColor)
+        .cornerRadius(metrics.cornerRadius)
+        .overlay(
+            RoundedRectangle(cornerRadius: metrics.cornerRadius)
+                .stroke(metrics.borderColor, lineWidth: metrics.borderWidth)
+        )
+        .makeComponent(context: context)
+    }
+
+    private var resolvedComponents: DatePickerComponents {
+        displayedComponents.isEmpty ? Self.defaultComponents : displayedComponents
+    }
+
+    private func adjust(_ component: Calendar.Component, value: Int) {
+        let currentValue = clamped(selection.wrappedValue)
+        let nextValue = steppedDate(from: currentValue, component: component, value: value)
+        selection.wrappedValue = clamped(nextValue)
+    }
+
+    private func canAdjust(_ component: Calendar.Component, value: Int, from date: Date) -> Bool {
+        guard isEnabled else {
+            return false
+        }
+
+        let nextValue = steppedDate(from: date, component: component, value: value)
+        return nextValue >= bounds.lowerBound && nextValue <= bounds.upperBound
+    }
+
+    private func steppedDate(from date: Date, component: Calendar.Component, value: Int) -> Date {
+        Calendar.current.date(byAdding: component, value: value, to: date) ?? date
+    }
+
+    private func clamped(_ date: Date) -> Date {
+        min(max(date, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private func formattedDate(_ date: Date, components: DatePickerComponents) -> String {
+        let dateComponents = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        var parts: [String] = []
+
+        if components.contains(.date) {
+            let year = dateComponents.year ?? 0
+            let month = padded(dateComponents.month ?? 1)
+            let day = padded(dateComponents.day ?? 1)
+            parts.append("\(year)-\(month)-\(day)")
+        }
+
+        if components.contains(.hourAndMinute) {
+            let hour = padded(dateComponents.hour ?? 0)
+            let minute = padded(dateComponents.minute ?? 0)
+            parts.append("\(hour):\(minute)")
+        }
+
+        return parts.joined(separator: " ")
+    }
+
+    private func padded(_ value: Int) -> String {
+        value < 10 ? "0\(value)" : "\(value)"
+    }
+
+    public func disabled(_ disabled: Bool) -> DatePicker {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+
+    public func labelsHidden() -> DatePicker {
+        var copy = self
+        copy.hidesLabel = true
+        return copy
     }
 }
 

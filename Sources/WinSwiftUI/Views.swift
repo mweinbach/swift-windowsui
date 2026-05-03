@@ -1170,6 +1170,167 @@ public struct ViewThatFits: View {
 }
 
 @MainActor
+public struct GridRowContent {
+    fileprivate let cells: [AnyView]
+    fileprivate let alignment: VerticalAlignment?
+
+    fileprivate init(cells: [AnyView], alignment: VerticalAlignment? = nil) {
+        self.cells = cells
+        self.alignment = alignment
+    }
+}
+
+@MainActor
+@resultBuilder
+public enum GridContentBuilder {
+    public static func buildExpression(_ expression: GridRow) -> [GridRowContent] {
+        [expression.rowContent]
+    }
+
+    public static func buildExpression<V: View>(_ expression: V) -> [GridRowContent] {
+        [GridRowContent(cells: [AnyView(expression)])]
+    }
+
+    public static func buildExpression(_ expression: [AnyView]) -> [GridRowContent] {
+        expression.map { GridRowContent(cells: [$0]) }
+    }
+
+    public static func buildExpression<Data: RandomAccessCollection, ID: Hashable>(
+        _ expression: ForEach<Data, ID>
+    ) -> [GridRowContent] {
+        expression.expandedContent.map { GridRowContent(cells: [$0]) }
+    }
+
+    public static func buildExpression(_ expression: Void) -> [GridRowContent] {
+        []
+    }
+
+    public static func buildBlock(_ components: [GridRowContent]...) -> [GridRowContent] {
+        components.flatMap { $0 }
+    }
+
+    public static func buildOptional(_ components: [GridRowContent]?) -> [GridRowContent] {
+        components ?? []
+    }
+
+    public static func buildEither(first components: [GridRowContent]) -> [GridRowContent] {
+        components
+    }
+
+    public static func buildEither(second components: [GridRowContent]) -> [GridRowContent] {
+        components
+    }
+
+    public static func buildArray(_ components: [[GridRowContent]]) -> [GridRowContent] {
+        components.flatMap { $0 }
+    }
+
+    public static func buildLimitedAvailability(_ components: [GridRowContent]) -> [GridRowContent] {
+        components
+    }
+}
+
+@MainActor
+public struct GridRow: View {
+    public typealias Body = Never
+
+    fileprivate let rowContent: GridRowContent
+
+    public init(alignment: VerticalAlignment? = nil, @ViewBuilder content: () -> [AnyView]) {
+        self.rowContent = GridRowContent(cells: content(), alignment: alignment)
+    }
+
+    public var body: Never {
+        fatalError("GridRow has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        HStack(alignment: rowContent.alignment ?? .center, spacing: 0) {
+            rowContent.cells
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct Grid: View {
+    public typealias Body = Never
+
+    private let alignment: Alignment
+    private let horizontalSpacing: Double
+    private let verticalSpacing: Double
+    private let rows: [GridRowContent]
+
+    public init(
+        alignment: Alignment = .center,
+        horizontalSpacing: Double? = nil,
+        verticalSpacing: Double? = nil,
+        @GridContentBuilder content: () -> [GridRowContent]
+    ) {
+        self.alignment = alignment
+        self.horizontalSpacing = horizontalSpacing ?? 0
+        self.verticalSpacing = verticalSpacing ?? 0
+        self.rows = content()
+    }
+
+    public var body: Never {
+        fatalError("Grid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let childContext = context.withContainerAxis(.vertical)
+        let columnCount = max(1, rows.map { $0.cells.count }.max() ?? 1)
+        let gridLayout = GridLayout(
+            columns: columnCount,
+            rowSpacing: verticalSpacing,
+            columnSpacing: horizontalSpacing
+        )
+
+        return Component { runtime in
+            let cellNodes = rows.flatMap { row -> [ViewNode] in
+                let cellAlignment = Alignment(
+                    horizontal: alignment.horizontal,
+                    vertical: row.alignment ?? alignment.vertical
+                )
+                var nodes = row.cells.map { cell -> ViewNode in
+                    let child = cell.makeComponent(context: childContext).makeNode(runtime: runtime)
+                    return Self.alignedCell(child: child, alignment: cellAlignment)
+                }
+
+                if nodes.count < columnCount {
+                    nodes.append(contentsOf: (0..<(columnCount - nodes.count)).map { _ in
+                        Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+                    })
+                }
+
+                return nodes
+            }
+
+            return Controls.gridPanel(
+                gridLayout: gridLayout,
+                isHitTestVisible: false,
+                children: cellNodes
+            )
+        }
+    }
+
+    private static func alignedCell(child: ViewNode, alignment: Alignment) -> ViewNode {
+        let cell = Controls.panel(layoutMode: .absolute, isHitTestVisible: false, children: [child])
+        cell.onLayout = { bounds in
+            let childSize = child.intrinsicContentSize()
+            let childFrame = Rect(
+                origin: alignment.frameOrigin(for: childSize, in: bounds.size),
+                size: childSize
+            )
+            if child.frame != childFrame {
+                child.frame = childFrame
+            }
+        }
+        return cell
+    }
+}
+
+@MainActor
 public struct LazyVStack: View {
     public typealias Body = Never
 

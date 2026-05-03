@@ -1196,6 +1196,83 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGridRowsMapToRetainedGridLayout() async {
+        await MainActor.run {
+            let node = makeNode(
+                Grid(alignment: .topLeading, horizontalSpacing: 6, verticalSpacing: 8) {
+                    GridRow {
+                        Text("A1")
+                        Text("A2")
+                    }
+                    GridRow {
+                        Text("B1")
+                        Text("B2")
+                    }
+                }
+            )
+
+            guard case .grid(let gridLayout) = node.layoutMode else {
+                XCTFail("Expected Grid to lower to a retained grid layout")
+                return
+            }
+
+            XCTAssertEqual(gridLayout.columns, 2)
+            XCTAssertEqual(gridLayout.columnSpacing, 6)
+            XCTAssertEqual(gridLayout.rowSpacing, 8)
+            XCTAssertEqual(node.children.count, 4)
+            XCTAssertTrue(containsText("A1", in: node))
+            XCTAssertTrue(containsText("B2", in: node))
+        }
+    }
+
+    func testGridPadsShortRowsToRetainedColumnCount() async {
+        await MainActor.run {
+            let node = makeNode(
+                Grid {
+                    GridRow {
+                        Text("A1")
+                        Text("A2")
+                        Text("A3")
+                    }
+                    GridRow {
+                        Text("B1")
+                    }
+                }
+            )
+
+            guard case .grid(let gridLayout) = node.layoutMode else {
+                XCTFail("Expected Grid to lower to a retained grid layout")
+                return
+            }
+
+            XCTAssertEqual(gridLayout.columns, 3)
+            XCTAssertEqual(node.children.count, 6)
+            XCTAssertTrue(containsText("B1", in: node.children[3]))
+            XCTAssertTrue(node.children[4].children.isEmpty)
+            XCTAssertTrue(node.children[5].children.isEmpty)
+        }
+    }
+
+    func testGridAppliesCellAlignmentDuringLayout() async {
+        await MainActor.run {
+            let node = laidOutNode(
+                Grid(alignment: .topTrailing, horizontalSpacing: 4) {
+                    GridRow(alignment: .bottom) {
+                        Text("SHORT").frame(width: 20, height: 10)
+                        Text("TALL").frame(width: 20, height: 24)
+                    }
+                },
+                size: Size(width: 100, height: 40)
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            let shortCellChild = node.children[0].children[0]
+
+            XCTAssertEqual(shortCellChild.frame.origin.x, 28, accuracy: 0.001)
+            XCTAssertEqual(shortCellChild.frame.origin.y, 14, accuracy: 0.001)
+        }
+    }
+
     func testButtonRunsActionAndInvalidates() async {
         await MainActor.run {
             var didRunAction = false

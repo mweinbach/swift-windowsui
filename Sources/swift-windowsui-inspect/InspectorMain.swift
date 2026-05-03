@@ -676,6 +676,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("COMPACT FIT") {
         failures.append("WinSwiftUI probe text samples are missing the ViewThatFits selection")
     }
+    if !winSwiftUIProbe.textSamples.contains("GRID B2") {
+        failures.append("WinSwiftUI probe text samples are missing the Grid row selection")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -789,6 +792,17 @@ private struct WinSwiftUIProbeView: View {
             ViewThatFits(in: .horizontal) {
                 Text("WIDE FIT").frame(width: 420, height: 24)
                 Text("COMPACT FIT").frame(width: 140, height: 24)
+            }
+
+            Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 4) {
+                GridRow {
+                    Text("GRID A1")
+                    Text("GRID A2")
+                }
+                GridRow {
+                    Text("GRID B1")
+                    Text("GRID B2")
+                }
             }
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))

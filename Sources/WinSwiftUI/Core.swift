@@ -1606,6 +1606,43 @@ public extension SwiftWindowsCore.Color {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
     }
 
+    init(white: Double, opacity: Double = 1.0) {
+        self.init(red: white, green: white, blue: white, opacity: opacity)
+    }
+
+    init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1.0) {
+        let clampedSaturation = min(max(saturation, 0), 1)
+        let clampedBrightness = min(max(brightness, 0), 1)
+        let normalizedHue = hue - floor(hue)
+
+        guard clampedSaturation > 0 else {
+            self.init(white: clampedBrightness, opacity: opacity)
+            return
+        }
+
+        let scaledHue = normalizedHue * 6
+        let sector = Int(floor(scaledHue))
+        let fraction = scaledHue - Double(sector)
+        let p = clampedBrightness * (1 - clampedSaturation)
+        let q = clampedBrightness * (1 - clampedSaturation * fraction)
+        let t = clampedBrightness * (1 - clampedSaturation * (1 - fraction))
+
+        switch sector {
+        case 0:
+            self.init(red: clampedBrightness, green: t, blue: p, opacity: opacity)
+        case 1:
+            self.init(red: q, green: clampedBrightness, blue: p, opacity: opacity)
+        case 2:
+            self.init(red: p, green: clampedBrightness, blue: t, opacity: opacity)
+        case 3:
+            self.init(red: p, green: q, blue: clampedBrightness, opacity: opacity)
+        case 4:
+            self.init(red: t, green: p, blue: clampedBrightness, opacity: opacity)
+        default:
+            self.init(red: clampedBrightness, green: p, blue: q, opacity: opacity)
+        }
+    }
+
     static let primary = SwiftWindowsCore.Color(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0)
     static let secondary = SwiftWindowsCore.Color(red: 0.36, green: 0.40, blue: 0.48, alpha: 1.0)
     static let accentColor = SwiftWindowsCore.Color(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)

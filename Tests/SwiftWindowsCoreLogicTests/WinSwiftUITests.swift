@@ -519,6 +519,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSwiftUIColorInitializersMapToCoreColorChannels() async {
+        await MainActor.run {
+            let gray = Color(white: 0.25, opacity: 0.5)
+            XCTAssertEqual(gray.red, 0.25, accuracy: 0.001)
+            XCTAssertEqual(gray.green, 0.25, accuracy: 0.001)
+            XCTAssertEqual(gray.blue, 0.25, accuracy: 0.001)
+            XCTAssertEqual(gray.alpha, 0.5, accuracy: 0.001)
+
+            let cyan = Color(hue: 0.5, saturation: 1.0, brightness: 0.8, opacity: 0.7)
+            XCTAssertEqual(cyan.red, 0.0, accuracy: 0.001)
+            XCTAssertEqual(cyan.green, 0.8, accuracy: 0.001)
+            XCTAssertEqual(cyan.blue, 0.8, accuracy: 0.001)
+            XCTAssertEqual(cyan.alpha, 0.7, accuracy: 0.001)
+
+            let wrappedRed = Color(hue: 1.0, saturation: 1.0, brightness: 1.0)
+            XCTAssertEqual(wrappedRed.red, 1.0, accuracy: 0.001)
+            XCTAssertEqual(wrappedRed.green, 0.0, accuracy: 0.001)
+            XCTAssertEqual(wrappedRed.blue, 0.0, accuracy: 0.001)
+        }
+    }
+
     func testSystemImageAliasesMapToRetainedSymbolIcons() async {
         await MainActor.run {
             let node = makeNode(

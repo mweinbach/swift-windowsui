@@ -97,6 +97,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let renderer: any RenderBackend
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
+    private let textClipboard: Win32TextClipboard
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
 
     private var isRendererReady = false
@@ -125,8 +126,15 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         self.window = Win32Window(title: configuration.title, clientSize: configuration.size)
         self.renderer = renderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
-        self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
+        let runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
+        let textClipboard = Win32TextClipboard()
+        runtime.textClipboard = TextClipboard(
+            readString: { textClipboard.readString() },
+            writeString: { textClipboard.writeString($0) }
+        )
+        self.runtime = runtime
         self.componentHost = ComponentHost(runtime: runtime)
+        self.textClipboard = textClipboard
 
         runtime.setRootSize(configuration.size)
         componentHost.setContent(buildRootComponent())
@@ -146,6 +154,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
             try renderer.attach(to: surface)
             isRendererReady = true
+            textClipboard.ownerWindow = window.nativeHandle
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()

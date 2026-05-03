@@ -156,6 +156,7 @@ Compatibility helpers:
 - `Color.opacity(_:)`
 - `Material` presets such as `ultraThinMaterial`, `thinMaterial`, `regularMaterial`, `thickMaterial`, `ultraThickMaterial`, and `bar`
 - `LinearGradient(colors:startPoint:endPoint)`
+- `EdgeInsets()` and partially specified `EdgeInsets(top:leading:bottom:trailing:)` initializers with zero defaults
 - shape `fill(_:)` for colors and linear gradients
 - shape `stroke(_:lineWidth:)`
 - `UnitPoint`

@@ -181,7 +181,7 @@ public struct EdgeInsets: Equatable, Sendable {
     public var bottom: Double
     public var trailing: Double
 
-    public init(top: Double, leading: Double, bottom: Double, trailing: Double) {
+    public init(top: Double = 0, leading: Double = 0, bottom: Double = 0, trailing: Double = 0) {
         self.top = top
         self.leading = leading
         self.bottom = bottom

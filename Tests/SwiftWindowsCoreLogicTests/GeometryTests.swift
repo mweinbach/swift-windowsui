@@ -22,6 +22,14 @@ final class GeometryTests: XCTestCase {
         )
     }
 
+    func testEdgeInsetsDefaultsMatchSwiftUIConvenienceShape() {
+        XCTAssertEqual(EdgeInsets(), .zero)
+        XCTAssertEqual(
+            EdgeInsets(top: 4, bottom: 6),
+            EdgeInsets(top: 4, leading: 0, bottom: 6, trailing: 0)
+        )
+    }
+
     func testColorInterpolationClampsProgress() {
         let start = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
         let end = Color(red: 0.9, green: 0.8, blue: 0.7, alpha: 0.6)

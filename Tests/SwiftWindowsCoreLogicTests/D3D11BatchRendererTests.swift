@@ -30,10 +30,31 @@ final class D3D11BatchRendererTests: XCTestCase {
             XCTAssertTrue(capabilities.shadows)
             XCTAssertTrue(capabilities.quads)
             XCTAssertFalse(capabilities.glyphs)
-            XCTAssertFalse(capabilities.images)
-            XCTAssertEqual(capabilities.supportedPrimitiveNames, ["shadows", "quads"])
-            XCTAssertEqual(capabilities.unsupportedPrimitiveNames, ["glyphs", "images"])
+            XCTAssertTrue(capabilities.images)
+            XCTAssertEqual(capabilities.supportedPrimitiveNames, ["shadows", "quads", "images"])
+            XCTAssertEqual(capabilities.unsupportedPrimitiveNames, ["glyphs"])
         }
+    }
+
+    func testImagePrimitiveRunsPreserveTextureOrder() {
+        let images = [
+            ImagePrimitive(textureID: 2),
+            ImagePrimitive(textureID: 2),
+            ImagePrimitive(textureID: 5),
+            ImagePrimitive(textureID: 2),
+            ImagePrimitive(textureID: 2),
+            ImagePrimitive(textureID: 9),
+        ]
+
+        XCTAssertEqual(
+            imagePrimitiveRuns(images),
+            [
+                ImagePrimitiveRun(textureID: 2, range: 0..<2),
+                ImagePrimitiveRun(textureID: 5, range: 2..<3),
+                ImagePrimitiveRun(textureID: 2, range: 3..<5),
+                ImagePrimitiveRun(textureID: 9, range: 5..<6),
+            ]
+        )
     }
 
     func testBatchPrimitiveCapabilitiesCountSupportedAndUnsupportedSceneWork() {

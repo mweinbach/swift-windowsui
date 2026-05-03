@@ -115,7 +115,7 @@ The inspector includes renderer, retained-runtime, text-input, and multi-offset 
 
 Renderer note: retained shadows are first-class `shadowRect` render commands. The batch scene bridge converts them into clipped `ShadowPrimitive` values for the instanced D3D11 path, while the default frame renderer still has a conservative expanded-fill fallback.
 
-Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad and shadow batches today; glyph and image primitives remain in `GPUIScene` for inspection and future atlas/texture work, with bitmap-backed image resources preserved from `drawBitmap`, but they are reported as unsupported by the batch backend until D3D11 texture/atlas binding lands.
+Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad, shadow, and bitmap-backed image batches today; glyph primitives remain in `GPUIScene` for inspection and future atlas work, but they are reported as unsupported by the batch backend until glyph-atlas binding lands.
 
 Useful focused command:
 

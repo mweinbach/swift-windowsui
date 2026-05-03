@@ -2296,20 +2296,22 @@ private func fixedFrameExtent(min minimum: Double?, max maximum: Double?) -> Dou
 }
 
 public extension View {
-    func foregroundColor(_ color: Color) -> some View {
+    func foregroundColor(_ color: Color?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
-                updateTextStyles(in: node) { style in
-                    style.color = color
+                if let color {
+                    updateTextStyles(in: node) { style in
+                        style.color = color
+                    }
                 }
                 return node
             }
         }
     }
 
-    func foregroundStyle(_ color: Color) -> some View {
+    func foregroundStyle(_ color: Color?) -> some View {
         foregroundColor(color)
     }
 

@@ -170,7 +170,11 @@ public struct Text: View {
         }
     }
 
-    public func foregroundColor(_ color: Color) -> Text {
+    public func foregroundColor(_ color: Color?) -> Text {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.color = color
         copy.updateSpanStyles { style in
@@ -179,7 +183,7 @@ public struct Text: View {
         return copy
     }
 
-    public func foregroundStyle(_ color: Color) -> Text {
+    public func foregroundStyle(_ color: Color?) -> Text {
         foregroundColor(color)
     }
 
@@ -463,13 +467,17 @@ public struct Image: View {
         }
     }
 
-    public func foregroundColor(_ color: Color) -> Image {
+    public func foregroundColor(_ color: Color?) -> Image {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.color = color
         return copy
     }
 
-    public func foregroundStyle(_ color: Color) -> Image {
+    public func foregroundStyle(_ color: Color?) -> Image {
         foregroundColor(color)
     }
 
@@ -556,13 +564,17 @@ public struct Label: View {
         .makeComponent(context: context)
     }
 
-    public func foregroundColor(_ color: Color) -> Label {
+    public func foregroundColor(_ color: Color?) -> Label {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.color = color
         return copy
     }
 
-    public func foregroundStyle(_ color: Color) -> Label {
+    public func foregroundStyle(_ color: Color?) -> Label {
         foregroundColor(color)
     }
 
@@ -820,7 +832,11 @@ public struct TextField: View {
         return copy
     }
 
-    public func foregroundColor(_ color: Color) -> TextField {
+    public func foregroundColor(_ color: Color?) -> TextField {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.textColor = color
         return copy
@@ -893,7 +909,11 @@ public struct SecureField: View {
         return copy
     }
 
-    public func foregroundColor(_ color: Color) -> SecureField {
+    public func foregroundColor(_ color: Color?) -> SecureField {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.textColor = color
         return copy
@@ -939,7 +959,11 @@ public struct TextEditor: View {
         return copy
     }
 
-    public func foregroundColor(_ color: Color) -> TextEditor {
+    public func foregroundColor(_ color: Color?) -> TextEditor {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.textColor = color
         return copy

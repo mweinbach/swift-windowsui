@@ -567,6 +567,54 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOptionalForegroundColorModifiersLeaveExistingStylesUnchanged() async {
+        await MainActor.run {
+            let node = makeNode(
+                HStack {
+                    Text("STATUS")
+                    Image(systemName: "star.fill")
+                }
+                .foregroundColor(.green)
+                .foregroundColor(nil)
+                .foregroundStyle(nil)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.color, .green)
+            XCTAssertEqual(node.children[1].textStyle.color, .green)
+
+            let textNode = makeNode(
+                Text("OPTIONAL")
+                    .foregroundStyle(.red)
+                    .foregroundColor(nil)
+            )
+            XCTAssertEqual(textNode.textStyle.color, .red)
+
+            let spanNode = makeNode(
+                (
+                    Text("LEFT").foregroundColor(.red)
+                    + Text(" RIGHT").foregroundColor(.blue)
+                )
+                .foregroundColor(nil)
+            )
+            XCTAssertEqual(spanNode.textStyle.spans?.map(\.style.color), [.red, .blue])
+
+            let labelNode = makeNode(
+                Label("READY", systemImage: "checkmark")
+                    .foregroundStyle(.cyan)
+                    .foregroundStyle(nil)
+            )
+            XCTAssertTrue(allTextDescendants(in: labelNode) { $0.textStyle.color == .cyan })
+
+            var text = "typed"
+            let fieldNode = makeNode(
+                TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                    .foregroundColor(.orange)
+                    .foregroundColor(nil)
+            )
+            XCTAssertEqual(fieldNode.children[0].textStyle.color, .orange)
+        }
+    }
+
     func testForegroundStyleUsesNamedColor() async {
         await MainActor.run {
             let node = makeNode(

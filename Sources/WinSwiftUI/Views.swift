@@ -748,6 +748,68 @@ public struct GroupBox: View {
 }
 
 @MainActor
+public struct DisclosureGroup: View {
+    public typealias Body = Never
+
+    private let isExpanded: Binding<Bool>
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: () -> [AnyView]) {
+        self.isExpanded = isExpanded
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.55, weight: .semibold))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.content = content()
+    }
+
+    public init(
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.isExpanded = isExpanded
+        self.label = label()
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("DisclosureGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: {
+                isExpanded.wrappedValue = !isExpanded.wrappedValue
+            }) {
+                HStack(spacing: 8) {
+                    Text(isExpanded.wrappedValue ? "v" : ">")
+                        .font(.system(size: 1.2, weight: .semibold))
+                        .foregroundColor(Color(red: 0.72, green: 0.82, blue: 1.0, alpha: 0.88))
+                        .frame(width: 18)
+                    label
+                }
+            }
+            .buttonStyle(.borderless)
+
+            if isExpanded.wrappedValue {
+                VStack(alignment: .leading, spacing: 8) {
+                    content
+                }
+                .padding(.leading, 26)
+            }
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct Section: View {
     public typealias Body = Never
 

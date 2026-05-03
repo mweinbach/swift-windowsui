@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 10
+            maximumTextSamples: 16
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -668,6 +668,9 @@ private struct WinSwiftUIProbeView: View {
                 }
                 GroupBox("GROUP BOX") {
                     Text("INSPECTED DETAIL")
+                    DisclosureGroup("MORE DETAIL", isExpanded: Binding(get: { true }, set: { _ in })) {
+                        Text("DISCLOSED ROW")
+                    }
                 }
             }
             .frame(height: 126)

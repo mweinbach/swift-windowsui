@@ -1311,6 +1311,54 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDisclosureGroupTogglesBindingAndConditionallyBuildsContent() async {
+        await MainActor.run {
+            var isExpanded = false
+            var invalidationCount = 0
+
+            let collapsedNode = makeNode(
+                DisclosureGroup("ADVANCED", isExpanded: Binding(get: { isExpanded }, set: { isExpanded = $0 })) {
+                    Text("DETAIL")
+                },
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(collapsedNode.children.count, 1)
+            XCTAssertTrue(collapsedNode.children[0].isFocusable)
+
+            collapsedNode.children[0].onActivate?()
+
+            XCTAssertTrue(isExpanded)
+            XCTAssertEqual(invalidationCount, 1)
+
+            let expandedNode = makeNode(
+                DisclosureGroup("ADVANCED", isExpanded: Binding(get: { true }, set: { _ in })) {
+                    Text("DETAIL")
+                }
+            )
+
+            XCTAssertEqual(expandedNode.children.count, 2)
+            XCTAssertTrue(containsText("DETAIL", in: expandedNode))
+        }
+    }
+
+    func testDisclosureGroupSupportsCustomLabels() async {
+        await MainActor.run {
+            let node = makeNode(
+                DisclosureGroup(isExpanded: Binding(get: { true }, set: { _ in })) {
+                    Text("LOG ENTRY")
+                } label: {
+                    Label("LOGS", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertTrue(containsText("LOGS", in: node))
+            XCTAssertTrue(containsText("LOG ENTRY", in: node))
+        }
+    }
+
     func testSectionStringTitleKeepsStyledHeader() async {
         await MainActor.run {
             let style = SectionStyle(
@@ -1543,4 +1591,13 @@ private func hasInteractiveNode(in node: ViewNode) -> Bool {
     }
 
     return node.children.contains { hasInteractiveNode(in: $0) }
+}
+
+@MainActor
+private func containsText(_ text: String, in node: ViewNode) -> Bool {
+    if node.text == text {
+        return true
+    }
+
+    return node.children.contains { containsText(text, in: $0) }
 }

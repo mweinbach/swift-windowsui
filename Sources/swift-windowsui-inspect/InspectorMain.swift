@@ -700,6 +700,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR SHEET") {
         failures.append("WinSwiftUI probe text samples are missing the sheet overlay")
     }
+    if !winSwiftUIProbe.textSamples.contains("DISMISS READY") {
+        failures.append("WinSwiftUI probe text samples are missing the dismiss environment sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR POPOVER") {
         failures.append("WinSwiftUI probe text samples are missing the popover overlay")
     }
@@ -865,6 +868,16 @@ private struct InspectorFocusSample: View {
     var body: some View {
         Button("FOCUS BINDING") {}
             .focused($isFocused)
+    }
+}
+
+private struct InspectorDismissButton: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        Button("DISMISS READY") {
+            dismiss()
+        }
     }
 }
 
@@ -1119,6 +1132,7 @@ private struct WinSwiftUIProbeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("INSPECTOR SHEET")
                 Text("SHEET DETAIL")
+                InspectorDismissButton()
             }
         }
         .popover(isPresented: Binding(get: { true }, set: { _ in }), arrowEdge: .trailing) {

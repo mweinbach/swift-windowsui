@@ -616,6 +616,10 @@ private struct IsEnabledEnvironmentKey: EnvironmentKey {
     static let defaultValue = true
 }
 
+private struct DismissEnvironmentKey: EnvironmentKey {
+    static let defaultValue = DismissAction()
+}
+
 public extension EnvironmentValues {
     var tint: Color? {
         get {
@@ -643,20 +647,82 @@ public extension EnvironmentValues {
             self[IsEnabledEnvironmentKey.self] = newValue
         }
     }
+
+    var dismiss: DismissAction {
+        get {
+            self[DismissEnvironmentKey.self]
+        }
+        set {
+            self[DismissEnvironmentKey.self] = newValue
+        }
+    }
+}
+
+public struct DismissAction: @unchecked Sendable {
+    private let action: @MainActor () -> Void
+
+    public init(_ action: @escaping @MainActor () -> Void = {}) {
+        self.action = action
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        action()
+    }
 }
 
 @MainActor
 @propertyWrapper
 public struct Environment<Value> {
     private let keyPath: KeyPath<EnvironmentValues, Value>
+    private let box = EnvironmentBox<Value>()
 
     public init(_ keyPath: KeyPath<EnvironmentValues, Value>) {
         self.keyPath = keyPath
     }
 
     public var wrappedValue: Value {
-        let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
-        return values[keyPath: keyPath]
+        if let values = ViewBuildContextScope.current?.environmentValues {
+            let value = values[keyPath: keyPath]
+            box.cachedValue = .some(value)
+            return value
+        }
+
+        if case .some(let value) = box.cachedValue {
+            return value
+        }
+
+        return EnvironmentValues()[keyPath: keyPath]
+    }
+}
+
+@MainActor
+private final class EnvironmentBox<Value> {
+    var cachedValue: CachedValue = .none
+
+    enum CachedValue {
+        case none
+        case some(Value)
+    }
+}
+
+@MainActor
+private protocol EnvironmentValueBinding {
+    func bindEnvironmentValues(_ values: EnvironmentValues)
+}
+
+extension Environment: EnvironmentValueBinding {
+    fileprivate func bindEnvironmentValues(_ values: EnvironmentValues) {
+        box.cachedValue = .some(values[keyPath: keyPath])
+    }
+}
+
+@MainActor
+private func bindEnvironmentValues(in value: Any, values: EnvironmentValues) {
+    for child in Mirror(reflecting: value).children {
+        if let binding = child.value as? EnvironmentValueBinding {
+            binding.bindEnvironmentValues(values)
+        }
     }
 }
 
@@ -992,6 +1058,12 @@ public struct ViewBuildContext {
             submitAction: submitAction,
             containerAxis: containerAxis
         )
+    }
+
+    func withDismissAction(_ action: DismissAction) -> ViewBuildContext {
+        var values = environmentValues
+        values.dismiss = action
+        return withEnvironmentValues(values)
     }
 
     func withTint(_ color: Color) -> ViewBuildContext {
@@ -1432,7 +1504,8 @@ public protocol View {
 public extension View {
     func makeComponent(context: ViewBuildContext) -> Component {
         ViewBuildContextScope.withCurrent(context) {
-            body.makeComponent(context: context)
+            bindEnvironmentValues(in: self, values: context.environmentValues)
+            return body.makeComponent(context: context)
         }
     }
 
@@ -1541,7 +1614,8 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        modifier.body(content: ViewModifierContent<Modifier>(content)).makeComponent(context: context)
+        bindEnvironmentValues(in: modifier, values: context.environmentValues)
+        return modifier.body(content: ViewModifierContent<Modifier>(content)).makeComponent(context: context)
     }
 }
 
@@ -3883,6 +3957,32 @@ private func materialComponent(_ material: Material) -> Component {
 }
 
 @MainActor
+private func presentationDismissAction(
+    isPresented: Binding<Bool>,
+    onDismiss: (@MainActor () -> Void)? = nil,
+    context: ViewBuildContext
+) -> DismissAction {
+    DismissAction {
+        dismissPresentation(isPresented: isPresented, onDismiss: onDismiss, context: context)
+    }
+}
+
+@MainActor
+private func dismissPresentation(
+    isPresented: Binding<Bool>,
+    onDismiss: (@MainActor () -> Void)? = nil,
+    context: ViewBuildContext
+) {
+    guard isPresented.wrappedValue else {
+        return
+    }
+
+    isPresented.wrappedValue = false
+    onDismiss?()
+    isPresented.invalidateContextIfNeeded(context)
+}
+
+@MainActor
 private func alertComponent(
     base: Component,
     title: String,
@@ -3897,17 +3997,19 @@ private func alertComponent(
             return baseNode
         }
 
+        let dismissAction = presentationDismissAction(isPresented: isPresented, context: context)
+        let presentationContext = context.withDismissAction(dismissAction)
         let titleNode = Text(title)
             .font(.system(size: 2.2, weight: .semibold))
             .foregroundColor(Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 1.0))
             .multilineTextAlignment(.center)
             .lineLimit(2)
-            .makeComponent(context: context)
+            .makeComponent(context: presentationContext)
             .makeNode(runtime: runtime)
 
         let messageNode: ViewNode? = messageViews.isEmpty ? nil : composeComponent(
             from: messageViews,
-            context: context,
+            context: presentationContext,
             fallbackLayout: .stack(.vertical(spacing: 6, alignment: .stretch))
         )
         .makeNode(runtime: runtime)
@@ -3916,16 +4018,15 @@ private func alertComponent(
             ? [
                 AnyView(
                     Button("OK") {
-                        isPresented.wrappedValue = false
-                        isPresented.invalidateContextIfNeeded(context)
+                        dismissAction()
                     }
                     .buttonStyle(.borderedProminent)
                 )
             ]
             : actionViews
         let actionNodes = actions.map { actionView -> ViewNode in
-            let node = actionView.makeComponent(context: context).makeNode(runtime: runtime)
-            installAlertDismissal(on: node, isPresented: isPresented, context: context)
+            let node = actionView.makeComponent(context: presentationContext).makeNode(runtime: runtime)
+            installAlertDismissal(on: node, dismissAction: dismissAction)
             return node
         }
         let actionsRow = Controls.stackPanel(
@@ -4008,25 +4109,22 @@ private func alertComponent(
 @MainActor
 private func installAlertDismissal(
     on node: ViewNode,
-    isPresented: Binding<Bool>,
-    context: ViewBuildContext
+    dismissAction: DismissAction
 ) {
     if let action = node.onActivate {
         node.onActivate = {
             action()
-            isPresented.wrappedValue = false
-            isPresented.invalidateContextIfNeeded(context)
+            dismissAction()
         }
     } else if let pointerUpInside = node.onPointerUpInside {
         node.onPointerUpInside = {
             pointerUpInside()
-            isPresented.wrappedValue = false
-            isPresented.invalidateContextIfNeeded(context)
+            dismissAction()
         }
     }
 
     for child in node.children {
-        installAlertDismissal(on: child, isPresented: isPresented, context: context)
+        installAlertDismissal(on: child, dismissAction: dismissAction)
     }
 }
 
@@ -4044,7 +4142,10 @@ private func sheetComponent(
             return baseNode
         }
 
-        let sheetContext = context.withContainerAxis(.vertical)
+        let dismissAction = presentationDismissAction(isPresented: isPresented, onDismiss: onDismiss, context: context)
+        let sheetContext = context
+            .withDismissAction(dismissAction)
+            .withContainerAxis(.vertical)
         let sheetContent = composeComponent(
             from: sheetViews,
             context: sheetContext,
@@ -4087,9 +4188,7 @@ private func sheetComponent(
         sheetPanel.blurRadius = 20
 
         scrim.onPointerUpInside = {
-            isPresented.wrappedValue = false
-            onDismiss?()
-            isPresented.invalidateContextIfNeeded(context)
+            dismissAction()
         }
 
         let overlayRoot = Controls.panel(
@@ -4151,7 +4250,10 @@ private func popoverComponent(
             return baseNode
         }
 
-        let popoverContext = context.withContainerAxis(.vertical)
+        let dismissAction = presentationDismissAction(isPresented: isPresented, context: context)
+        let popoverContext = context
+            .withDismissAction(dismissAction)
+            .withContainerAxis(.vertical)
         let popoverContent = composeComponent(
             from: popoverViews,
             context: popoverContext,
@@ -4194,8 +4296,7 @@ private func popoverComponent(
         card.blurRadius = 16
 
         dismissLayer.onPointerUpInside = {
-            isPresented.wrappedValue = false
-            isPresented.invalidateContextIfNeeded(context)
+            dismissAction()
         }
 
         let overlayRoot = Controls.panel(

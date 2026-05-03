@@ -209,6 +209,7 @@ Compatibility helpers:
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
 - minimal `EnvironmentKey`, `EnvironmentValues`, `Environment`, and `environment(_:_:)`
 - minimal `EnvironmentObject` and `environmentObject(_:)` for type-keyed observable models
+- minimal `DismissAction` through `@Environment(\.dismiss)` in retained presentation content
 - minimal `PreferenceKey`, `preference(key:value:)`, and `onPreferenceChange(_:perform:)`
 
 Surface direction:
@@ -283,9 +284,9 @@ Surface direction:
 - `menuStyle` is carried through the build context so menu trigger chrome can be set at a container boundary while still allowing descendant menus to override the inherited style.
 - `labelsHidden()` is supported on `Toggle` and `Picker`; it removes the retained label/title wrapper while preserving the interactive switch, dropdown, segmented control, or radio rows.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
-- `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and the current implementation is an in-window overlay rather than a separate native dialog surface.
-- `sheet(isPresented:onDismiss:content:)` maps to a retained in-window sheet with a dimming scrim and a wider glass-style bottom panel. Scrim dismissal updates the presentation binding and calls `onDismiss`; content-driven dismissal should update the supplied binding directly.
-- `popover(isPresented:attachmentAnchor:arrowEdge:content:)` maps to a retained floating glass card with a transparent dismissal layer and a renderer-neutral vector arrow on the requested edge. The common `.rect(.bounds)` attachment anchor is accepted for source compatibility; precise source-rect anchoring is still future work, so placement currently follows the requested `arrowEdge` within the window.
+- `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and `@Environment(\.dismiss)` is available inside alert action/message content. The current implementation is an in-window overlay rather than a separate native dialog surface.
+- `sheet(isPresented:onDismiss:content:)` maps to a retained in-window sheet with a dimming scrim and a wider glass-style bottom panel. Scrim dismissal and `@Environment(\.dismiss)` update the presentation binding, call `onDismiss`, and invalidate the retained host.
+- `popover(isPresented:attachmentAnchor:arrowEdge:content:)` maps to a retained floating glass card with a transparent dismissal layer and a renderer-neutral vector arrow on the requested edge. The common `.rect(.bounds)` attachment anchor is accepted for source compatibility; `@Environment(\.dismiss)` is available inside popover content, but precise source-rect anchoring is still future work, so placement currently follows the requested `arrowEdge` within the window.
 - `Material` presets lower to passive retained layers with translucent fills, blur radius, border, rounded corners, and soft shadow values for macOS-style glass surfaces.
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
 - `onSubmit` is carried through the build context and currently routes the retained `TextField` enter-key submit hook.

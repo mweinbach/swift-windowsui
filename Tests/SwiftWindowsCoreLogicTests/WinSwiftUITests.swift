@@ -2599,6 +2599,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAlertMessageCanDismissThroughEnvironment() async {
+        await MainActor.run {
+            struct AlertDismissButton: View {
+                @Environment(\.dismiss) private var dismiss
+
+                var body: some View {
+                    Button("MESSAGE CLOSE") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var isPresented = true
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .alert("READY", isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }), actions: {
+                    }, message: {
+                        AlertDismissButton()
+                    }),
+                size: Size(width: 320, height: 220),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            guard let closeButton = firstFocusableNode(containing: "MESSAGE CLOSE", in: node) else {
+                XCTFail("Expected alert message dismiss button to be focusable")
+                return
+            }
+
+            closeButton.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
     func testSheetModifierBuildsModalOverlayWhenPresented() async {
         await MainActor.run {
             var isPresented = true
@@ -2663,6 +2701,50 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.children[1].onPointerUpInside?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didDismiss)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
+    func testSheetContentCanDismissThroughEnvironment() async {
+        await MainActor.run {
+            struct SheetDismissButton: View {
+                @Environment(\.dismiss) private var dismiss
+
+                var body: some View {
+                    Button("CLOSE SHEET") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var isPresented = true
+            var didDismiss = false
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .sheet(
+                        isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }),
+                        onDismiss: {
+                            didDismiss = true
+                        }
+                    ) {
+                        SheetDismissButton()
+                    },
+                size: Size(width: 420, height: 260),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            guard let closeButton = firstFocusableNode(containing: "CLOSE SHEET", in: node) else {
+                XCTFail("Expected sheet dismiss button to be focusable")
+                return
+            }
+
+            closeButton.onActivate?()
 
             XCTAssertFalse(isPresented)
             XCTAssertTrue(didDismiss)
@@ -2735,6 +2817,43 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             node.children[1].onPointerUpInside?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
+    func testPopoverContentCanDismissThroughEnvironment() async {
+        await MainActor.run {
+            struct PopoverDismissButton: View {
+                @Environment(\.dismiss) private var dismiss
+
+                var body: some View {
+                    Button("CLOSE POPOVER") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var isPresented = true
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .popover(isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }), arrowEdge: .bottom) {
+                        PopoverDismissButton()
+                    },
+                size: Size(width: 420, height: 260),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            guard let closeButton = firstFocusableNode(containing: "CLOSE POPOVER", in: node) else {
+                XCTFail("Expected popover dismiss button to be focusable")
+                return
+            }
+
+            closeButton.onActivate?()
 
             XCTAssertFalse(isPresented)
             XCTAssertGreaterThanOrEqual(invalidations, 1)

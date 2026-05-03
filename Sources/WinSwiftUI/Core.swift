@@ -1630,6 +1630,154 @@ private func materialComponent(_ material: Material) -> Component {
     }
 }
 
+@MainActor
+private func alertComponent(
+    base: Component,
+    title: String,
+    isPresented: Binding<Bool>,
+    actions actionViews: [AnyView],
+    message messageViews: [AnyView],
+    context: ViewBuildContext
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        guard isPresented.wrappedValue else {
+            return baseNode
+        }
+
+        let titleNode = Text(title)
+            .font(.system(size: 2.2, weight: .semibold))
+            .foregroundColor(Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 1.0))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+
+        let messageNode: ViewNode? = messageViews.isEmpty ? nil : composeComponent(
+            from: messageViews,
+            context: context,
+            fallbackLayout: .stack(.vertical(spacing: 6, alignment: .stretch))
+        )
+        .makeNode(runtime: runtime)
+
+        let actions = actionViews.isEmpty
+            ? [
+                AnyView(
+                    Button("OK") {
+                        isPresented.wrappedValue = false
+                        isPresented.invalidateContextIfNeeded(context)
+                    }
+                    .buttonStyle(.borderedProminent)
+                )
+            ]
+            : actionViews
+        let actionNodes = actions.map { actionView -> ViewNode in
+            let node = actionView.makeComponent(context: context).makeNode(runtime: runtime)
+            installAlertDismissal(on: node, isPresented: isPresented, context: context)
+            return node
+        }
+        let actionsRow = Controls.stackPanel(
+            stackLayout: .horizontal(spacing: 10, alignment: .center, mainAlignment: .end),
+            isHitTestVisible: false,
+            children: actionNodes
+        )
+
+        var cardChildren = [titleNode]
+        if let messageNode {
+            cardChildren.append(messageNode)
+        }
+        cardChildren.append(actionsRow)
+
+        let scrim = Controls.panel(
+            backgroundColor: Color(red: 0.01, green: 0.02, blue: 0.04, alpha: 0.46),
+            isHitTestVisible: true
+        )
+        let card = Controls.stackPanel(
+            preferredSize: Size(width: 340, height: 0),
+            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.94),
+            borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.18),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32),
+            shadowOffset: Point(x: 0, y: 20),
+            shadowSpread: 26,
+            cornerRadius: 26,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 16,
+                padding: EdgeInsets(top: 24, leading: 24, bottom: 22, trailing: 24),
+                alignment: .stretch
+            ),
+            isHitTestVisible: true,
+            children: cardChildren
+        )
+        card.blurRadius = 18
+
+        let overlayRoot = Controls.panel(
+            preferredSize: context.canvasSize,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, scrim, card]
+        )
+
+        overlayRoot.onLayout = { bounds in
+            let fullFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != fullFrame {
+                baseNode.frame = fullFrame
+            }
+            if scrim.frame != fullFrame {
+                scrim.frame = fullFrame
+            }
+
+            let horizontalMargin = min(28.0, max(12.0, bounds.size.width * 0.06))
+            let cardWidth = min(380.0, max(240.0, bounds.size.width - horizontalMargin * 2))
+            let preferredCardSize = Size(width: cardWidth, height: 0)
+            if card.preferredSize != preferredCardSize {
+                card.preferredSize = preferredCardSize
+            }
+
+            let measuredCardSize = card.intrinsicContentSize()
+            let cardSize = Size(
+                width: cardWidth,
+                height: min(max(0, bounds.size.height - 32), measuredCardSize.height)
+            )
+            let cardFrame = Rect(
+                origin: Alignment.center.frameOrigin(for: cardSize, in: bounds.size),
+                size: cardSize
+            )
+            if card.frame != cardFrame {
+                card.frame = cardFrame
+            }
+        }
+
+        return overlayRoot
+    }
+}
+
+@MainActor
+private func installAlertDismissal(
+    on node: ViewNode,
+    isPresented: Binding<Bool>,
+    context: ViewBuildContext
+) {
+    if let action = node.onActivate {
+        node.onActivate = {
+            action()
+            isPresented.wrappedValue = false
+            isPresented.invalidateContextIfNeeded(context)
+        }
+    } else if let pointerUpInside = node.onPointerUpInside {
+        node.onPointerUpInside = {
+            pointerUpInside()
+            isPresented.wrappedValue = false
+            isPresented.invalidateContextIfNeeded(context)
+        }
+    }
+
+    for child in node.children {
+        installAlertDismissal(on: child, isPresented: isPresented, context: context)
+    }
+}
+
 private func finiteFrameExtent(_ extent: Double?) -> Double? {
     guard let extent, extent.isFinite else {
         return nil
@@ -1947,6 +2095,27 @@ public extension View {
                 layer: composeComponent(from: overlayViews, context: context),
                 alignment: alignment,
                 placement: .above
+            )
+        }
+    }
+
+    func alert(
+        _ title: String,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: () -> [AnyView] = { [] },
+        @ViewBuilder message: () -> [AnyView] = { [] }
+    ) -> some View {
+        let actionViews = actions()
+        let messageViews = message()
+
+        return ModifiedView(content: self) { baseContent, context in
+            alertComponent(
+                base: baseContent.makeComponent(context: context),
+                title: title,
+                isPresented: isPresented,
+                actions: actionViews,
+                message: messageViews,
+                context: context
             )
         }
     }

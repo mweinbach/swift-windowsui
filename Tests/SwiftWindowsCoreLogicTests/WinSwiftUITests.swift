@@ -862,6 +862,81 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAlertModifierBuildsModalOverlayWhenPresented() async {
+        await MainActor.run {
+            var isPresented = true
+            let node = laidOutNode(
+                Text("BASE")
+                    .alert("NETWORK ISSUE", isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }), actions: {
+                    }, message: {
+                        Text("TRY AGAIN")
+                    }),
+                size: Size(width: 320, height: 220)
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 320, height: 220))
+            XCTAssertEqual(node.children[1].resolvedFrame, Rect(x: 0, y: 0, width: 320, height: 220))
+            XCTAssertTrue(node.children[1].isHitTestVisible)
+            XCTAssertTrue(containsText("BASE", in: node.children[0]))
+            XCTAssertTrue(containsText("NETWORK ISSUE", in: node.children[2]))
+            XCTAssertTrue(containsText("TRY AGAIN", in: node.children[2]))
+            XCTAssertTrue(containsText("OK", in: node.children[2]))
+            XCTAssertEqual(node.children[2].cornerRadius, 26)
+            XCTAssertGreaterThan(node.children[2].shadowSpread, 0)
+        }
+    }
+
+    func testAlertModifierSkipsOverlayWhenNotPresented() async {
+        await MainActor.run {
+            var isPresented = false
+            let node = makeNode(
+                Text("BASE")
+                    .alert("HIDDEN ALERT", isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }), actions: {
+                    }, message: {
+                        Text("HIDDEN MESSAGE")
+                    })
+            )
+
+            XCTAssertEqual(node.text, "BASE")
+            XCTAssertFalse(containsText("HIDDEN ALERT", in: node))
+            XCTAssertFalse(containsText("HIDDEN MESSAGE", in: node))
+        }
+    }
+
+    func testAlertActionDismissesBindingAndInvalidates() async {
+        await MainActor.run {
+            var isPresented = true
+            var didRun = false
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .alert("READY", isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })) {
+                        Button("CONFIRM") {
+                            didRun = true
+                        }
+                    } message: {
+                        Text("RUN ACTION")
+                    },
+                size: Size(width: 320, height: 220),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            guard let confirmButton = firstFocusableNode(containing: "CONFIRM", in: node) else {
+                XCTFail("Expected alert action button to be focusable")
+                return
+            }
+
+            confirmButton.onActivate?()
+
+            XCTAssertTrue(didRun)
+            XCTAssertFalse(isPresented)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
     func testLifecycleModifiersRouteToRetainedCallbacks() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

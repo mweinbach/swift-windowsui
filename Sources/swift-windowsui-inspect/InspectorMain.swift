@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 40
+            maximumTextSamples: 48
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -609,6 +609,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("DECLARATIVE INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the title")
     }
+    if !winSwiftUIProbe.textSamples.contains("INSPECTOR ALERT") {
+        failures.append("WinSwiftUI probe text samples are missing the alert overlay")
+    }
     if textInputProbeValue != "AxC" {
         failures.append("text input probe expected AxC, got \(textInputProbeValue)")
     }
@@ -766,6 +769,11 @@ private struct WinSwiftUIProbeView: View {
             endPoint: .bottomTrailing
         ))
         .cornerRadius(18)
+        .alert("INSPECTOR ALERT", isPresented: Binding(get: { true }, set: { _ in })) {
+            Button("ACK") {}
+        } message: {
+            Text("RETAINED MODAL")
+        }
     }
 }
 

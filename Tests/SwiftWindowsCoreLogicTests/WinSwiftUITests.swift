@@ -1547,6 +1547,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGaugeMapsLabelsAndBoundsToRetainedProgressBar() async {
+        await MainActor.run {
+            let node = makeNode(
+                Gauge(value: 40, in: 0...100) {
+                    Text("CPU")
+                } currentValueLabel: {
+                    Text("40%")
+                } minimumValueLabel: {
+                    Text("0")
+                } maximumValueLabel: {
+                    Text("100")
+                }
+                .tint(.orange)
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].text, "CPU")
+
+            let progressBar = node.children[1]
+            XCTAssertEqual(progressBar.preferredSize, Size(width: 200, height: 8))
+            XCTAssertEqual(progressBar.children[1].backgroundColor, .orange)
+            XCTAssertEqual(progressBar.children[1].frame.size.width, 80, accuracy: 0.001)
+
+            let valueRow = node.children[2]
+            XCTAssertTrue(containsText("0", in: valueRow))
+            XCTAssertTrue(containsText("40%", in: valueRow))
+            XCTAssertTrue(containsText("100", in: valueRow))
+        }
+    }
+
+    func testGaugeStringInitializerInheritsTintAndControlSize() async {
+        await MainActor.run {
+            let title = "PREFIX-LOAD".suffix(4)
+            let node = makeNode(
+                VStack {
+                    Gauge(title, value: 0.5)
+                        .controlSize(.large)
+                    Gauge(value: 0.25)
+                }
+                .tint(.mint)
+            )
+
+            let labeledGauge = node.children[0]
+            XCTAssertEqual(labeledGauge.children[0].text, "LOAD")
+            XCTAssertEqual(labeledGauge.children[1].preferredSize, Size(width: 240, height: 10))
+            XCTAssertEqual(labeledGauge.children[1].children[1].backgroundColor, .mint)
+            XCTAssertEqual(labeledGauge.children[1].children[1].frame.size.width, 120, accuracy: 0.001)
+
+            let unlabeledGauge = node.children[1]
+            XCTAssertEqual(unlabeledGauge.preferredSize, Size(width: 200, height: 8))
+            XCTAssertEqual(unlabeledGauge.children[1].backgroundColor, .mint)
+            XCTAssertEqual(unlabeledGauge.children[1].frame.size.width, 50, accuracy: 0.001)
+        }
+    }
+
     func testGenericTintStylesControlDescendants() async {
         await MainActor.run {
             let node = makeNode(

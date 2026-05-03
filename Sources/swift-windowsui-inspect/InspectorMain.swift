@@ -667,6 +667,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("PROMPT SEARCH") {
         failures.append("WinSwiftUI probe text samples are missing the prompt-backed text field")
     }
+    if !winSwiftUIProbe.textSamples.contains("GAUGE LOAD") {
+        failures.append("WinSwiftUI probe text samples are missing the Gauge label")
+    }
     if !winSwiftUIProbe.textSamples.contains("CUSTOM LABEL") {
         failures.append("WinSwiftUI probe text samples are missing the custom Label builder")
     }
@@ -760,6 +763,17 @@ private struct WinSwiftUIProbeView: View {
             TextField("Ignored title", text: Binding(get: { "" }, set: { _ in }), prompt: Text("PROMPT SEARCH"))
 
             ProgressView(value: 0.68)
+
+            Gauge(value: 72, in: 0...100) {
+                Text("GAUGE LOAD")
+            } currentValueLabel: {
+                Text("72%")
+            } minimumValueLabel: {
+                Text("0")
+            } maximumValueLabel: {
+                Text("100")
+            }
+            .tint(.mint)
 
             TextEditor(text: Binding(get: { "EDITOR LINE A\nEDITOR LINE B" }, set: { _ in }))
                 .frame(height: 74)

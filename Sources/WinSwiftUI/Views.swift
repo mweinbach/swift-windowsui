@@ -3178,6 +3178,143 @@ public struct ProgressView: View {
 }
 
 @MainActor
+public struct Gauge: View {
+    public typealias Body = Never
+
+    private static let defaultTintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
+
+    private let value: Double
+    private let bounds: ClosedRange<Double>
+    private let label: [AnyView]
+    private let currentValueLabel: [AnyView]
+    private let minimumValueLabel: [AnyView]
+    private let maximumValueLabel: [AnyView]
+    private var tintColor: Color?
+
+    public init(
+        value: Double,
+        in bounds: ClosedRange<Double> = 0...1,
+        @ViewBuilder label: () -> [AnyView] = { [] },
+        @ViewBuilder currentValueLabel: () -> [AnyView] = { [] },
+        @ViewBuilder minimumValueLabel: () -> [AnyView] = { [] },
+        @ViewBuilder maximumValueLabel: () -> [AnyView] = { [] }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+        self.tintColor = nil
+    }
+
+    public init(_ title: String, value: Double, in bounds: ClosedRange<Double> = 0...1) {
+        self.init(value: value, in: bounds) {
+            Text(title)
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, value: Double, in bounds: ClosedRange<Double> = 0...1) {
+        self.init(String(title), value: value, in: bounds)
+    }
+
+    public var body: Never {
+        fatalError("Gauge has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let metrics = context.controlSize.metrics
+            let progressBar = Controls.progressBar(
+                value: value - bounds.lowerBound,
+                total: bounds.upperBound - bounds.lowerBound,
+                preferredSize: metrics.progressPreferredSize,
+                filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
+            )
+
+            var children: [ViewNode] = []
+            if let labelNode = makeLabelNode(from: label, context: context, runtime: runtime) {
+                labelNode.layoutPriority = 1
+                labelNode.fillsAvailableWidth = true
+                children.append(labelNode)
+            }
+
+            children.append(progressBar)
+
+            if let valueRow = makeValueLabelRow(context: context, runtime: runtime) {
+                valueRow.fillsAvailableWidth = true
+                children.append(valueRow)
+            }
+
+            guard children.count > 1 else {
+                return progressBar
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+
+    private func makeValueLabelRow(context: ViewBuildContext, runtime: RetainedViewRuntime) -> ViewNode? {
+        let labelContext = context.withContainerAxis(.horizontal)
+        let nodes = [
+            makeLabelNode(from: minimumValueLabel, context: labelContext, runtime: runtime),
+            makeLabelNode(from: currentValueLabel, context: labelContext, runtime: runtime),
+            makeLabelNode(from: maximumValueLabel, context: labelContext, runtime: runtime)
+        ].compactMap { $0 }
+
+        guard !nodes.isEmpty else {
+            return nil
+        }
+
+        return Controls.stackPanel(
+            stackLayout: .horizontal(
+                spacing: 8,
+                alignment: .center,
+                mainAlignment: nodes.count == 1 ? .center : .start,
+                distribution: nodes.count == 1 ? .fill : .spaceBetween
+            ),
+            isHitTestVisible: false,
+            children: nodes
+        )
+    }
+
+    private func makeLabelNode(
+        from views: [AnyView],
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime
+    ) -> ViewNode? {
+        guard !views.isEmpty else {
+            return nil
+        }
+
+        return composeComponent(
+            from: views,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 4, alignment: .center))
+        )
+        .makeNode(runtime: runtime)
+    }
+
+    public func tint(_ color: Color?) -> Gauge {
+        guard let color else {
+            return self
+        }
+
+        var copy = self
+        copy.tintColor = color
+        return copy
+    }
+
+    public func accentColor(_ color: Color?) -> Gauge {
+        tint(color)
+    }
+}
+
+@MainActor
 public struct Picker<SelectionValue: Hashable>: View {
     public typealias Body = Never
 

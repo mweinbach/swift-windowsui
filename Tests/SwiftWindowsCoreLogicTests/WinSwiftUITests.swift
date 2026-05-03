@@ -1074,6 +1074,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSectionStringTitleKeepsStyledHeader() async {
+        await MainActor.run {
+            let style = SectionStyle(
+                headerColor: .cyan,
+                headerFont: .system(size: 2.2, weight: .bold)
+            )
+            let node = makeNode(
+                Section("TOOLS", style: style) {
+                    Text("ROW")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "TOOLS")
+            XCTAssertEqual(node.children[0].textStyle.color, .cyan)
+            XCTAssertEqual(node.children[0].textStyle.scale, 2.2)
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].text, "ROW")
+        }
+    }
+
+    func testSectionSupportsContentHeaderFooterBuilders() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("ROW")
+                } header: {
+                    Text("CUSTOM HEADER")
+                } footer: {
+                    Text("CUSTOM FOOTER")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children.map(\.text), ["CUSTOM HEADER", "ROW", "CUSTOM FOOTER"].map(Optional.some))
+        }
+    }
+
+    func testSectionSupportsHeaderFirstBuilderSyntax() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("HEADER")
+                } content: {
+                    Text("ROW")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children.map(\.text), ["HEADER", "ROW"].map(Optional.some))
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

@@ -636,14 +636,44 @@ public struct List: View {
 public struct Section: View {
     public typealias Body = Never
 
-    private let title: String
+    private let title: String?
     private let style: SectionStyle
+    private let header: [AnyView]
     private let content: [AnyView]
+    private let footer: [AnyView]
 
     public init(_ title: String, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
         self.title = title
         self.style = style
+        self.header = []
         self.content = content()
+        self.footer = []
+    }
+
+    public init(
+        style: SectionStyle = .default,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder header: () -> [AnyView] = { [] },
+        @ViewBuilder footer: () -> [AnyView] = { [] }
+    ) {
+        self.title = nil
+        self.style = style
+        self.header = header()
+        self.content = content()
+        self.footer = footer()
+    }
+
+    public init(
+        style: SectionStyle = .default,
+        @ViewBuilder header: () -> [AnyView],
+        @ViewBuilder footer: () -> [AnyView] = { [] },
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.title = nil
+        self.style = style
+        self.header = header()
+        self.content = content()
+        self.footer = footer()
     }
 
     public var body: Never {
@@ -653,26 +683,58 @@ public struct Section: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let childContext = context.withContainerAxis(.vertical)
         return Component { runtime in
-            Controls.section(
-                title: title,
+            let sectionChildren = makeSectionChildren(context: childContext, runtime: runtime)
+            let node = Controls.stackPanel(
                 backgroundColor: style.backgroundColor,
                 backgroundGradient: style.backgroundGradient,
                 borderColor: style.borderColor,
+                borderWidth: 1,
                 shadowColor: style.shadowColor,
+                shadowOffset: Point(x: 0, y: 20),
+                shadowSpread: 10,
                 cornerRadius: style.cornerRadius,
+                clipsToBounds: true,
                 stackLayout: .vertical(spacing: style.spacing, padding: style.padding, alignment: style.alignment.stackAlignment),
-                scrollAxis: style.scrollAxis?.scrollAxis,
-                scrollStep: style.scrollStep,
-                scrollIndicatorColor: style.indicatorColor,
-                scrollIndicatorHoverColor: style.indicatorHoverColor,
-                scrollIndicatorActiveColor: style.indicatorActiveColor,
-                scrollIndicatorThickness: style.indicatorThickness,
-                headerColor: style.headerColor,
-                headerScale: style.headerFont.size,
                 isHitTestVisible: style.isHitTestVisible,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: sectionChildren
+            )
+
+            if let scrollAxis = style.scrollAxis {
+                node.scrollAxis = scrollAxis.scrollAxis
+                node.scrollStep = style.scrollStep
+                node.showsScrollIndicator = true
+                node.scrollIndicatorColor = style.indicatorColor
+                node.scrollIndicatorIdleColor = style.indicatorColor
+                node.scrollIndicatorHoverColor = style.indicatorHoverColor
+                node.scrollIndicatorActiveColor = style.indicatorActiveColor
+                node.scrollIndicatorThickness = style.indicatorThickness
+            }
+
+            return node
+        }
+    }
+
+    private func makeSectionChildren(context: ViewBuildContext, runtime: RetainedViewRuntime) -> [ViewNode] {
+        var nodes: [ViewNode] = []
+
+        if let title {
+            nodes.append(
+                Controls.label(
+                    title,
+                    color: style.headerColor,
+                    scale: style.headerFont.size,
+                    weight: style.headerFont.weight.textWeight,
+                    alignment: .leading,
+                    lineBreakMode: .truncateTail,
+                    maximumNumberOfLines: 1
+                )
             )
         }
+
+        nodes.append(contentsOf: header.map { $0.makeComponent(context: context).makeNode(runtime: runtime) })
+        nodes.append(contentsOf: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) })
+        nodes.append(contentsOf: footer.map { $0.makeComponent(context: context).makeNode(runtime: runtime) })
+        return nodes
     }
 }
 

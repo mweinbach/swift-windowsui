@@ -144,6 +144,7 @@ Surface direction:
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
+- `Section` supports the styled string-title initializer plus SwiftUI-shaped content/header/footer builder forms. Custom header and footer views are rendered as supplied retained subtrees.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
 - `frame` supports fixed dimensions plus the common min/ideal/max overload. Infinite maximums, such as `maxWidth: .infinity`, map to retained fill-available behavior and participate in stack growth.

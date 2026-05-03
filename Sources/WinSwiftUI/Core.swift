@@ -1014,6 +1014,50 @@ private func clipCornerRadius<S: Shape>(for shape: S) -> Double {
     return 0
 }
 
+private enum LayerPlacement: Equatable {
+    case behind
+    case above
+}
+
+@MainActor
+private func layeredComponent(
+    base: Component,
+    layer: Component,
+    alignment: Alignment,
+    placement: LayerPlacement
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let layerNode = layer.makeNode(runtime: runtime)
+        let baseSize = baseNode.intrinsicContentSize()
+        let children = placement == .behind ? [layerNode, baseNode] : [baseNode, layerNode]
+        let root = Controls.panel(
+            preferredSize: baseSize,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: children
+        )
+
+        root.onLayout = { bounds in
+            let baseFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != baseFrame {
+                baseNode.frame = baseFrame
+            }
+
+            let layerSize = layerNode.intrinsicContentSize()
+            let layerFrame = Rect(
+                origin: alignment.frameOrigin(for: layerSize, in: bounds.size),
+                size: layerSize
+            )
+            if layerNode.frame != layerFrame {
+                layerNode.frame = layerFrame
+            }
+        }
+
+        return root
+    }
+}
+
 public extension View {
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
@@ -1097,6 +1141,32 @@ public extension View {
                     children: [childNode]
                 )
             }
+        }
+    }
+
+    func background(alignment: Alignment = .center, @ViewBuilder content: () -> [AnyView]) -> some View {
+        let backgroundViews = content()
+
+        return ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: composeComponent(from: backgroundViews, context: context),
+                alignment: alignment,
+                placement: .behind
+            )
+        }
+    }
+
+    func overlay(alignment: Alignment = .center, @ViewBuilder content: () -> [AnyView]) -> some View {
+        let overlayViews = content()
+
+        return ModifiedView(content: self) { baseContent, context in
+            layeredComponent(
+                base: baseContent.makeComponent(context: context),
+                layer: composeComponent(from: overlayViews, context: context),
+                alignment: alignment,
+                placement: .above
+            )
         }
     }
 

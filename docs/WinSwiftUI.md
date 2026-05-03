@@ -65,6 +65,7 @@ Modifiers:
 - `frame`
 - `padding`
 - `background`
+- `overlay`
 - `cornerRadius`
 - `clipped`
 - `clipShape`
@@ -115,6 +116,7 @@ Surface direction:
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
+- View `background` and `overlay` content closures map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 

@@ -193,6 +193,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayAndBackgroundUseAlignedLayerWrappers() async {
+        await MainActor.run {
+            let overlayNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .overlay(alignment: .bottomTrailing) {
+                        Color(red: 1, green: 1, blue: 1, opacity: 0.35)
+                            .frame(width: 20, height: 10)
+                    }
+            )
+            let backgroundNode = laidOutNode(
+                Text("BASE")
+                    .frame(width: 100, height: 50)
+                    .background(alignment: .topLeading) {
+                        Color(red: 0.1, green: 0.2, blue: 0.3, opacity: 1)
+                            .frame(width: 12, height: 8)
+                    }
+            )
+
+            XCTAssertEqual(overlayNode.children.count, 2)
+            XCTAssertEqual(overlayNode.children[0].frame, Rect(x: 0, y: 0, width: 100, height: 50))
+            XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 80, y: 40, width: 20, height: 10))
+            XCTAssertEqual(backgroundNode.children.count, 2)
+            XCTAssertEqual(backgroundNode.children[0].frame, Rect(x: 0, y: 0, width: 12, height: 8))
+            XCTAssertEqual(backgroundNode.children[1].frame, Rect(x: 0, y: 0, width: 100, height: 50))
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))
@@ -482,4 +510,18 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+@MainActor
+private func laidOutNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 160, height: 90)
+) -> ViewNode {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: {})
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    runtime.root.addChild(node)
+    runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+    _ = runtime.renderFrame()
+    return node
 }

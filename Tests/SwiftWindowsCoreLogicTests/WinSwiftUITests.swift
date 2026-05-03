@@ -2279,6 +2279,102 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStyleSegmentedMapsOptionsToRetainedSegments() async {
+        await MainActor.run {
+            var selection = "input"
+            var didInvalidate = false
+
+            let node = makeNode(
+                Picker("MODE", selection: Binding(get: { selection }, set: { selection = $0 })) {
+                    Text("Layout").tag("layout")
+                    Text("Input").tag("input")
+                    Text("Render").tag("render")
+                }
+                .labelsHidden()
+                .pickerStyle(SegmentedPickerStyle()),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertFalse(node.isHitTestVisible)
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertTrue(node.children[0].isFocusable)
+            XCTAssertTrue(node.children[1].isFocusable)
+            XCTAssertEqual(node.children[1].backgroundColor, Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0))
+            XCTAssertTrue(containsText("Input", in: node.children[1]))
+
+            node.children[2].onActivate?()
+
+            XCTAssertEqual(selection, "render")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testPickerStyleRadioGroupMapsOptionsToRetainedRadioRows() async {
+        await MainActor.run {
+            var selection = 0
+            var didInvalidate = false
+
+            let node = makeNode(
+                Picker("MODE", selection: Binding(get: { selection }, set: { selection = $0 })) {
+                    Text("Layout").tag(0)
+                    Text("Input").tag(1)
+                    Text("Render").tag(2)
+                }
+                .pickerStyle(.radioGroup)
+                .tint(.mint),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "MODE")
+
+            let radioGroup = node.children[1]
+            XCTAssertEqual(radioGroup.children.count, 3)
+            XCTAssertTrue(radioGroup.children[0].isFocusable)
+            XCTAssertEqual(radioGroup.children[0].children[0].children.first?.backgroundColor, .mint)
+            XCTAssertTrue(containsText("Render", in: radioGroup.children[2]))
+
+            radioGroup.children[2].onActivate?()
+
+            XCTAssertEqual(selection, 2)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testInheritedPickerStyleAppliesToDescendantPickers() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Picker("FIRST", selection: Binding(get: { "input" }, set: { _ in })) {
+                        Text("Input").tag("input")
+                        Text("Render").tag("render")
+                    }
+                    .labelsHidden()
+
+                    Picker("SECOND", selection: Binding(get: { "input" }, set: { _ in })) {
+                        Text("Input").tag("input")
+                        Text("Render").tag("render")
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                }
+                .pickerStyle(.segmented)
+            )
+
+            let inheritedSegmented = node.children[0]
+            let explicitMenu = node.children[1]
+
+            XCTAssertFalse(inheritedSegmented.isHitTestVisible)
+            XCTAssertEqual(inheritedSegmented.children.count, 2)
+            XCTAssertTrue(inheritedSegmented.children[0].isFocusable)
+            XCTAssertTrue(explicitMenu.isFocusable)
+            XCTAssertEqual(explicitMenu.children[0].children.first?.text, "Input")
+        }
+    }
+
     func testTextFieldUsesBindingAndKeyboardEditing() async {
         await MainActor.run {
             var text = ""

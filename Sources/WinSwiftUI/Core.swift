@@ -461,6 +461,7 @@ public struct ViewBuildContext {
     var listStyle: ListStyle?
     var labelStyle: LabelStyle?
     var toggleStyle: ToggleStyle?
+    var pickerStyle: PickerStyle?
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -477,6 +478,7 @@ public struct ViewBuildContext {
         listStyle: ListStyle? = nil,
         labelStyle: LabelStyle? = nil,
         toggleStyle: ToggleStyle? = nil,
+        pickerStyle: PickerStyle? = nil,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -488,6 +490,7 @@ public struct ViewBuildContext {
         self.listStyle = listStyle
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
+        self.pickerStyle = pickerStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -510,6 +513,7 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -525,6 +529,7 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -540,6 +545,7 @@ public struct ViewBuildContext {
             listStyle: style,
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -555,6 +561,7 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: style,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -570,6 +577,23 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: labelStyle,
             toggleStyle: style,
+            pickerStyle: pickerStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withPickerStyle(_ style: PickerStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -585,6 +609,7 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -600,6 +625,7 @@ public struct ViewBuildContext {
             listStyle: listStyle,
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1346,6 +1372,65 @@ public struct CheckboxToggleStyle: Sendable {
 }
 
 public struct ButtonToggleStyle: Sendable {
+    public init() {}
+}
+
+enum PickerControlKind: Sendable {
+    case menu
+    case segmented
+    case radioGroup
+}
+
+public struct PickerStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case menu
+        case segmented
+        case radioGroup
+        case inline
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PickerStyle(kind: .automatic)
+    public static let menu = PickerStyle(kind: .menu)
+    public static let segmented = PickerStyle(kind: .segmented)
+    public static let radioGroup = PickerStyle(kind: .radioGroup)
+    public static let inline = PickerStyle(kind: .inline)
+
+    var controlKind: PickerControlKind {
+        switch kind {
+        case .automatic, .menu:
+            return .menu
+        case .segmented:
+            return .segmented
+        case .radioGroup, .inline:
+            return .radioGroup
+        }
+    }
+}
+
+public struct DefaultPickerStyle: Sendable {
+    public init() {}
+}
+
+public struct MenuPickerStyle: Sendable {
+    public init() {}
+}
+
+public struct SegmentedPickerStyle: Sendable {
+    public init() {}
+}
+
+public struct RadioGroupPickerStyle: Sendable {
+    public init() {}
+}
+
+public struct InlinePickerStyle: Sendable {
     public init() {}
 }
 
@@ -2728,6 +2813,32 @@ public extension View {
 
     func toggleStyle(_ style: ButtonToggleStyle) -> some View {
         toggleStyle(.button)
+    }
+
+    func pickerStyle(_ style: PickerStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withPickerStyle(style))
+        }
+    }
+
+    func pickerStyle(_ style: DefaultPickerStyle) -> some View {
+        pickerStyle(.automatic)
+    }
+
+    func pickerStyle(_ style: MenuPickerStyle) -> some View {
+        pickerStyle(.menu)
+    }
+
+    func pickerStyle(_ style: SegmentedPickerStyle) -> some View {
+        pickerStyle(.segmented)
+    }
+
+    func pickerStyle(_ style: RadioGroupPickerStyle) -> some View {
+        pickerStyle(.radioGroup)
+    }
+
+    func pickerStyle(_ style: InlinePickerStyle) -> some View {
+        pickerStyle(.inline)
     }
 
     func scrollIndicators(_ visibility: ScrollIndicatorVisibility) -> some View {

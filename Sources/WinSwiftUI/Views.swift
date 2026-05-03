@@ -3166,6 +3166,17 @@ public struct Picker<SelectionValue: Hashable>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        switch (context.pickerStyle ?? .automatic).controlKind {
+        case .menu:
+            return makeMenuComponent(context: context)
+        case .segmented:
+            return makeSegmentedComponent(context: context)
+        case .radioGroup:
+            return makeRadioGroupComponent(context: context)
+        }
+    }
+
+    private func makeMenuComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
             let options: [PickerOption<SelectionValue>] = pickerOptions(from: content, context: context, runtime: runtime)
             let optionTitles = options.map(\.title)
@@ -3185,27 +3196,94 @@ public struct Picker<SelectionValue: Hashable>: View {
                 }
             )
 
-            guard !hidesLabel, !title.isEmpty else {
-                return dropdown
-            }
+            return wrappedControl(dropdown, context: context)
+        }
+    }
 
-            let label = Controls.label(
-                title,
-                layoutPriority: 1,
-                color: Color(red: 0.85, green: 0.90, blue: 0.98, alpha: 0.92),
-                scale: 1.5,
-                weight: .semibold,
-                alignment: .leading,
-                lineBreakMode: .truncateTail,
-                maximumNumberOfLines: 1
+    private func makeSegmentedComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let options: [PickerOption<SelectionValue>] = pickerOptions(from: content, context: context, runtime: runtime)
+            let optionTitles = options.map(\.title)
+            let selectedIndex = options.firstIndex { $0.value == selection.wrappedValue } ?? 0
+            let segmentedControl = Controls.tabBar(
+                runtime: runtime,
+                tabs: optionTitles,
+                selectedIndex: selectedIndex,
+                isEnabled: isEnabled,
+                onSelect: { selectedOptionIndex in
+                    selectOption(at: selectedOptionIndex, from: options, context: context)
+                }
             )
 
+            return wrappedControl(segmentedControl, context: context)
+        }
+    }
+
+    private func makeRadioGroupComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let options: [PickerOption<SelectionValue>] = pickerOptions(from: content, context: context, runtime: runtime)
+            let rows = options.enumerated().map { index, option in
+                Controls.radioButton(
+                    runtime: runtime,
+                    label: option.title,
+                    isSelected: option.value == selection.wrappedValue,
+                    isEnabled: isEnabled,
+                    selectedColor: context.tintColor ?? Color.accentColor,
+                    onSelect: {
+                        selectOption(at: index, from: options, context: context)
+                    }
+                )
+            }
+
+            let radioGroup = Controls.stackPanel(
+                stackLayout: .vertical(spacing: 6, alignment: .stretch),
+                isHitTestVisible: false,
+                children: rows
+            )
+
+            return wrappedControl(radioGroup, context: context)
+        }
+    }
+
+    private func wrappedControl(_ control: ViewNode, context: ViewBuildContext) -> ViewNode {
+        guard !hidesLabel, !title.isEmpty else {
+            return control
+        }
+
+        let label = Controls.label(
+            title,
+            layoutPriority: 1,
+            color: Color(red: 0.85, green: 0.90, blue: 0.98, alpha: 0.92),
+            scale: 1.5,
+            weight: .semibold,
+            alignment: .leading,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+
+        switch (context.pickerStyle ?? .automatic).controlKind {
+        case .radioGroup:
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [label, control]
+            )
+        case .menu, .segmented:
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: false,
-                children: [label, dropdown]
+                children: [label, control]
             )
         }
+    }
+
+    private func selectOption(at index: Int, from options: [PickerOption<SelectionValue>], context: ViewBuildContext) {
+        guard options.indices.contains(index) else {
+            return
+        }
+
+        selection.wrappedValue = options[index].value
+        selection.invalidateContextIfNeeded(context)
     }
 
     public func disabled(_ disabled: Bool) -> Picker {

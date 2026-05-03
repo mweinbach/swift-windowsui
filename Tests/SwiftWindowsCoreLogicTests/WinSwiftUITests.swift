@@ -768,6 +768,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStateObjectProjectedBindingPersistsAcrossRebuilds() async {
+        await MainActor.run {
+            final class SettingsModel: ObservableObject {
+                @Published var enabled = false
+            }
+
+            struct SettingsView: View {
+                @StateObject var model = SettingsModel()
+
+                var body: some View {
+                    Toggle("ENABLED", isOn: $model.enabled)
+                        .tint(.orange)
+                }
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 80) },
+                invalidateHandler: {
+                    invalidationCount += 1
+                }
+            )
+            let view = AnyView(SettingsView())
+
+            let firstNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            firstNode.children[1].onActivate?()
+
+            let rebuiltNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            let rebuiltSwitchTrack = rebuiltNode.children[1].children[0]
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertEqual(rebuiltSwitchTrack.backgroundColor, .orange)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(
@@ -870,6 +906,40 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(model.enabled)
             XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testStateObjectMutationTriggersInvalidation() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            struct CounterView: View {
+                @StateObject var model = CounterModel()
+
+                var body: some View {
+                    Text("\(model.value)")
+                }
+            }
+
+            var model: CounterModel?
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    model = object as? CounterModel
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = CounterView().makeComponent(context: context)
+            model?.value = 1
+
+            XCTAssertEqual(invalidationCount, 1)
         }
     }
 

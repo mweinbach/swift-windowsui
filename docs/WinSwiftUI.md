@@ -113,13 +113,13 @@ Compatibility helpers:
 - `DragGesture`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
-- minimal `ObservableObject`, `Published`, and `ObservedObject`
-- minimal `Binding`, including projected `@ObservedObject` bindings
+- minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, including projected `@ObservedObject` and `@StateObject` bindings
 
 Surface direction:
 
 - default retained buttons now use lighter rounded chrome with hover, focus, press, and activation transitions
-- bindings now cover direct `Binding(get:set:)`, projected `@State`, and projected `@ObservedObject` members for controls such as `TextField`, `Toggle`, and `Slider`
+- bindings now cover direct `Binding(get:set:)`, projected `@State`, projected `@ObservedObject`, and projected `@StateObject` members for controls such as `TextField`, `Toggle`, and `Slider`
 - the demo’s cards and chips are built from shared-source-friendly layered gradients and translucent strokes rather than WinSwiftUI-only styling hooks
 
 ## Mapping Notes
@@ -159,6 +159,7 @@ Surface direction:
 - `ObservableObject`
 - `@Published`
 - `@ObservedObject`
+- `@StateObject`
 
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 

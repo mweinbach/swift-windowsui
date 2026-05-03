@@ -355,6 +355,48 @@ private final class StateBox<Value> {
 }
 
 @MainActor
+@propertyWrapper
+public struct StateObject<ObjectType: ObservableObject> {
+    private let box: StateObjectBox<ObjectType>
+
+    public init(wrappedValue makeObject: @autoclosure @escaping @MainActor () -> ObjectType) {
+        self.box = StateObjectBox(makeObject: makeObject)
+    }
+
+    public var wrappedValue: ObjectType {
+        let object = box.object
+        ViewBuildContextScope.current?.observe(object)
+        return object
+    }
+
+    public var projectedValue: ObservedObject<ObjectType> {
+        let object = box.object
+        ViewBuildContextScope.current?.observe(object)
+        return ObservedObject(wrappedValue: object)
+    }
+}
+
+@MainActor
+private final class StateObjectBox<ObjectType: ObservableObject> {
+    private let makeObject: @MainActor () -> ObjectType
+    private var cachedObject: ObjectType?
+
+    var object: ObjectType {
+        if let cachedObject {
+            return cachedObject
+        }
+
+        let object = makeObject()
+        cachedObject = object
+        return object
+    }
+
+    init(makeObject: @escaping @MainActor () -> ObjectType) {
+        self.makeObject = makeObject
+    }
+}
+
+@MainActor
 @dynamicMemberLookup
 @propertyWrapper
 public struct ObservedObject<ObjectType: ObservableObject> {

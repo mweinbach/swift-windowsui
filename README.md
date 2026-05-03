@@ -72,7 +72,7 @@ Included today:
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `hidden`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `tag`
 - Shape styling: `fill(_:)` for colors and linear gradients, plus `stroke(_:lineWidth:)`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, common non-channel named `Color` values, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `FillStyle`, `DragGesture`
-- Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`
+- Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `State` / `StateObject` / `Binding` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 
 Current gaps:

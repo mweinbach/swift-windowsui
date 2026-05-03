@@ -615,30 +615,37 @@ public enum Controls {
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
+        isEnabled: Bool = true,
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil,
         children: [ViewNode] = []
     ) -> ViewNode {
+        let isInteractive = isEnabled
         let node = panel(
             frame: frame,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
-            backgroundColor: palette.idle,
-            borderColor: chrome.borderColor,
+            backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
+            borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
             borderWidth: chrome.borderWidth,
             outlineColor: .clear,
             outlineWidth: chrome.focusRingWidth,
-            shadowColor: chrome.shadowColor,
+            shadowColor: isEnabled ? chrome.shadowColor : .clear,
             shadowOffset: chrome.shadowOffset,
             shadowSpread: chrome.shadowSpread,
             cornerRadius: cornerRadius,
             clipsToBounds: clipsToBounds,
             layoutMode: layoutMode,
-            isHitTestVisible: true,
+            isHitTestVisible: isInteractive,
             children: children
         )
+
+        guard isInteractive else {
+            node.isFocusable = false
+            return node
+        }
 
         let interactionState = ButtonInteractionState()
 
@@ -781,6 +788,7 @@ public enum Controls {
         titleColor: Color = .white,
         titleScale: Double = 2,
         titleWeight: TextWeight = .semibold,
+        isEnabled: Bool = true,
         clipsToBounds: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
@@ -788,7 +796,7 @@ public enum Controls {
         let labelNode = label(
             title,
             layoutPriority: 1,
-            color: titleColor,
+            color: isEnabled ? titleColor : palette.disabledForeground,
             scale: titleScale,
             weight: titleWeight,
             lineBreakMode: .truncateTail,
@@ -802,6 +810,7 @@ public enum Controls {
             cornerRadius: cornerRadius,
             palette: palette,
             chrome: chrome,
+            isEnabled: isEnabled,
             clipsToBounds: clipsToBounds,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             animation: animation,
@@ -1074,6 +1083,7 @@ public enum Controls {
             cornerRadius: 8,
             palette: palette,
             chrome: chrome,
+            isEnabled: isEnabled,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             animation: animation,
@@ -1145,6 +1155,7 @@ public enum Controls {
             cornerRadius: (trackHeight + 8) * 0.5,
             palette: palette,
             chrome: chrome,
+            isEnabled: isEnabled,
             clipsToBounds: false,
             layoutMode: .stack(.horizontal(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center, mainAlignment: .center)),
             animation: animation,
@@ -1362,6 +1373,7 @@ public enum Controls {
             cornerRadius: 8,
             palette: palette,
             chrome: chrome,
+            isEnabled: isEnabled,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             animation: animation,
@@ -1439,6 +1451,7 @@ public enum Controls {
                 titleColor: optionColor,
                 titleScale: 1.5,
                 titleWeight: isCurrentSelection ? .semibold : .regular,
+                isEnabled: isEnabled,
                 action: {
                     dropdownState.isOpen = false
                     optionsListReference?.isHidden = true
@@ -1479,6 +1492,7 @@ public enum Controls {
                 focusRingColor: chrome.focusRingColor,
                 focusRingWidth: chrome.focusRingWidth
             ),
+            isEnabled: isEnabled,
             clipsToBounds: false,
             layoutMode: .stack(.vertical(spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
             animation: animation,
@@ -1533,6 +1547,7 @@ public enum Controls {
                 titleColor: titleColor,
                 titleScale: 1.5,
                 titleWeight: isSelected ? .semibold : .regular,
+                isEnabled: isEnabled,
                 clipsToBounds: true,
                 animation: animation,
                 action: isEnabled ? { onSelect?(index) } : nil

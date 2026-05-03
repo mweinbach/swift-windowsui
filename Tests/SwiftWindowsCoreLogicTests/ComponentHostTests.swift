@@ -112,4 +112,25 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(activations, [1, 2])
         }
     }
+
+    func testReloadUpdatesFocusabilityInPlace() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var isFocusable = true
+
+            host.setContent {
+                Component { _ in
+                    ViewNode(backgroundColor: .white, isFocusable: isFocusable)
+                }
+            }
+
+            let node = runtime.root.children[0]
+            isFocusable = false
+            host.reload()
+
+            XCTAssertTrue(runtime.root.children[0] === node)
+            XCTAssertFalse(node.isFocusable)
+        }
+    }
 }

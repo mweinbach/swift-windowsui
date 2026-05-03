@@ -135,6 +135,7 @@ public final class ComponentHost {
         if target.transform != source.transform { target.transform = source.transform }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }

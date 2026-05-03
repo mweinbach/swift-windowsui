@@ -1427,6 +1427,35 @@ public extension View {
         }
     }
 
+    func disabled(_ disabled: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                guard disabled else {
+                    return childNode
+                }
+
+                childNode.isHitTestVisible = false
+                childNode.isFocusable = false
+                childNode.onPointerEnter = nil
+                childNode.onPointerExit = nil
+                childNode.onPointerDown = nil
+                childNode.onPointerUpInside = nil
+                childNode.onPointerUpOutside = nil
+                childNode.onFocusEnter = nil
+                childNode.onFocusExit = nil
+                childNode.onKeyDown = nil
+                childNode.onTextInput = nil
+                childNode.onActivate = nil
+                childNode.onDragStart = nil
+                childNode.onDragChange = nil
+                childNode.onDragEnd = nil
+                return childNode
+            }
+        }
+    }
+
     func onAppear(perform action: @escaping @MainActor () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

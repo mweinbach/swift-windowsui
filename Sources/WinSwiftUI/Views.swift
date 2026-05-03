@@ -580,12 +580,14 @@ public struct Button: View {
     private let label: [AnyView]
     private var style: ButtonSurfaceStyle
     private var resolvedButtonStyle: ButtonStyle
+    private var isEnabled: Bool
 
     public init(action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
         self.action = action
         self.label = label()
         self.style = .default
         self.resolvedButtonStyle = .automatic
+        self.isEnabled = true
     }
 
     public init(_ title: String, action: @escaping @MainActor () -> Void) {
@@ -600,6 +602,7 @@ public struct Button: View {
         ]
         self.style = .default
         self.resolvedButtonStyle = .automatic
+        self.isEnabled = true
     }
 
     public var body: Never {
@@ -621,13 +624,14 @@ public struct Button: View {
                 cornerRadius: surfaceStyle.cornerRadius,
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,
+                isEnabled: isEnabled,
                 clipsToBounds: surfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
                 animation: surfaceStyle.animation,
-                action: {
+                action: isEnabled ? {
                     action()
                     context.invalidate()
-                },
+                } : nil,
                 children: [labelNode]
             )
         }
@@ -643,6 +647,12 @@ public struct Button: View {
     public func buttonStyle(_ style: ButtonStyle) -> Button {
         var copy = self
         copy.resolvedButtonStyle = style
+        return copy
+    }
+
+    public func disabled(_ disabled: Bool) -> Button {
+        var copy = self
+        copy.isEnabled = !disabled
         return copy
     }
 }

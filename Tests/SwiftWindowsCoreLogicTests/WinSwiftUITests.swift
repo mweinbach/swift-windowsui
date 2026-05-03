@@ -115,6 +115,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonDisabledRemovesInteractionAndUsesDisabledChrome() async {
+        await MainActor.run {
+            var didRunAction = false
+
+            let node = makeNode(
+                Button("NOPE") {
+                    didRunAction = true
+                }
+                .disabled(true)
+            )
+
+            XCTAssertFalse(node.isFocusable)
+            XCTAssertFalse(node.isHitTestVisible)
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.defaultPalette.disabledBackground)
+            XCTAssertEqual(node.borderColor, ButtonSurfaceStyle.defaultPalette.disabledBorder)
+            XCTAssertNil(node.onActivate)
+            XCTAssertFalse(didRunAction)
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25
@@ -271,6 +291,24 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(taps, 1)
             XCTAssertEqual(doubleTaps, 0)
+        }
+    }
+
+    func testGenericDisabledClearsRetainedInteraction() async {
+        await MainActor.run {
+            var taps = 0
+            let node = makeNode(
+                Text("LOCKED")
+                    .onTapGesture {
+                        taps += 1
+                    }
+                    .disabled(true)
+            )
+
+            XCTAssertFalse(node.isFocusable)
+            XCTAssertFalse(node.isHitTestVisible)
+            XCTAssertNil(node.onPointerUpInside)
+            XCTAssertEqual(taps, 0)
         }
     }
 

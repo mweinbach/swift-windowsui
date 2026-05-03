@@ -1397,6 +1397,76 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLazyHGridMapsRowsToNestedRetainedStacks() async {
+        await MainActor.run {
+            let node = makeNode(
+                LazyHGrid(
+                    rows: [
+                        GridItem(.fixed(20), spacing: 5),
+                        GridItem(.flexible()),
+                    ],
+                    alignment: .top,
+                    spacing: 7,
+                    pinnedViews: [.sectionFooters]
+                ) {
+                    Text("A")
+                    Text("B")
+                    Text("C")
+                    Text("D")
+                    Text("E")
+                },
+                size: Size(width: 220, height: 100)
+            )
+
+            guard case .stack(let outerLayout) = node.layoutMode else {
+                XCTFail("Expected LazyHGrid to lower to a retained horizontal stack")
+                return
+            }
+
+            XCTAssertEqual(outerLayout.axis, .horizontal)
+            XCTAssertEqual(outerLayout.spacing, 7)
+            XCTAssertEqual(outerLayout.alignment, .leading)
+            XCTAssertEqual(node.children.count, 3)
+
+            for column in node.children {
+                guard case .stack(let columnLayout) = column.layoutMode else {
+                    XCTFail("Expected LazyHGrid column to lower to a retained vertical stack")
+                    return
+                }
+
+                XCTAssertEqual(columnLayout.axis, .vertical)
+                XCTAssertEqual(columnLayout.spacing, 5)
+                XCTAssertEqual(columnLayout.alignment, .stretch)
+            }
+
+            XCTAssertEqual(node.children[0].children.compactMap { $0.children.first?.text }, ["A", "B"])
+            XCTAssertEqual(node.children[1].children.compactMap { $0.children.first?.text }, ["C", "D"])
+            XCTAssertEqual(node.children[2].children.compactMap { $0.children.first?.text }, ["E"])
+            XCTAssertEqual(node.children[0].children.compactMap(\.preferredSize?.height), [20, 75])
+        }
+    }
+
+    func testLazyHGridResolvesAdaptiveRowsFromAvailableHeight() async {
+        await MainActor.run {
+            let node = makeNode(
+                LazyHGrid(rows: [GridItem(.adaptive(minimum: 24), spacing: 4)], spacing: 6) {
+                    Text("A")
+                    Text("B")
+                    Text("C")
+                    Text("D")
+                },
+                size: Size(width: 200, height: 84)
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].children.count, 3)
+            XCTAssertEqual(node.children[1].children.count, 1)
+            for rowHeight in node.children[0].children.compactMap(\.preferredSize?.height) {
+                XCTAssertEqual(rowHeight, 25.333333333333332, accuracy: 0.0001)
+            }
+        }
+    }
+
     func testListMapsToVerticalScrollPanelAndFlattensForEachRows() async {
         await MainActor.run {
             let rows = ["ONE", "TWO", "THREE"]

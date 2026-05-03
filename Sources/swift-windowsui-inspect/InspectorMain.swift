@@ -702,6 +702,19 @@ private struct WinSwiftUIProbeView: View {
                     Text("GRID C")
                     Text("GRID D")
                 }
+
+                LazyHGrid(
+                    rows: [
+                        GridItem(.fixed(14)),
+                        GridItem(.fixed(14)),
+                    ],
+                    spacing: 4
+                ) {
+                    Text("HGRID A")
+                    Text("HGRID B")
+                    Text("HGRID C")
+                    Text("HGRID D")
+                }
             }
             .frame(height: 96)
 

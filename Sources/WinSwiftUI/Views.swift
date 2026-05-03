@@ -753,6 +753,148 @@ public struct LazyVGrid: View {
 }
 
 @MainActor
+public struct LazyHGrid: View {
+    public typealias Body = Never
+
+    private let rows: [GridItem]
+    private let alignment: VerticalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        rows: [GridItem],
+        alignment: VerticalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.rows = rows
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyHGrid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let childContext = context.withContainerAxis(.vertical)
+        let rowMetrics = resolvedRowMetrics(for: context.canvasSize.height)
+
+        return Component { runtime in
+            _ = pinnedViews
+            let columnNodes = columnGroups(rowCount: rowMetrics.heights.count).map { columnViews in
+                let rowNodes = columnViews.enumerated().map { index, view -> ViewNode in
+                    let child = view.makeComponent(context: childContext).makeNode(runtime: runtime)
+                    let rowHeight = rowMetrics.heights[index]
+                    guard rowHeight > 0 else {
+                        return child
+                    }
+
+                    return Controls.panel(
+                        preferredSize: Size(width: 0, height: rowHeight),
+                        layoutMode: .absolute,
+                        isHitTestVisible: false,
+                        children: [child]
+                    )
+                }
+
+                return Controls.stackPanel(
+                    stackLayout: .vertical(spacing: rowMetrics.spacing, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: rowNodes
+                )
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
+                isHitTestVisible: false,
+                children: columnNodes
+            )
+        }
+    }
+
+    private func columnGroups(rowCount: Int) -> [[AnyView]] {
+        let safeRowCount = max(1, rowCount)
+        var columns: [[AnyView]] = []
+        var currentColumn: [AnyView] = []
+
+        for (index, view) in content.enumerated() {
+            if index > 0, index % safeRowCount == 0 {
+                columns.append(currentColumn)
+                currentColumn = []
+            }
+
+            currentColumn.append(view)
+        }
+
+        if !currentColumn.isEmpty {
+            columns.append(currentColumn)
+        }
+
+        return columns
+    }
+
+    private func resolvedRowMetrics(for availableHeight: Double) -> (spacing: Double, heights: [Double]) {
+        let rowSpacing = rows.compactMap(\.spacing).first ?? spacing
+        let safeAvailableHeight = max(0, availableHeight)
+
+        if let adaptive = rows.first(where: { item in
+            if case .adaptive = item.size {
+                return true
+            }
+            return false
+        }), case let .adaptive(minimum, maximum) = adaptive.size {
+            let minimumHeight = max(1, minimum)
+            let maximumHeight = maximum.isFinite ? max(minimumHeight, maximum) : .infinity
+            let rawCount = Int((safeAvailableHeight + rowSpacing) / (minimumHeight + rowSpacing))
+            let rowCount = max(1, rawCount)
+            let spacingTotal = rowSpacing * Double(max(0, rowCount - 1))
+            let proposedHeight = max(minimumHeight, (safeAvailableHeight - spacingTotal) / Double(rowCount))
+            let rowHeight = maximumHeight.isFinite ? min(maximumHeight, proposedHeight) : proposedHeight
+            return (rowSpacing, Array(repeating: rowHeight, count: rowCount))
+        }
+
+        let resolvedRows = rows.isEmpty ? [GridItem()] : rows
+        let spacingTotal = rowSpacing * Double(max(0, resolvedRows.count - 1))
+        let fixedTotal = resolvedRows.reduce(0.0) { total, item in
+            if case let .fixed(height) = item.size {
+                return total + max(0, height)
+            }
+            return total
+        }
+        let flexibleItems = resolvedRows.filter { item in
+            if case .flexible = item.size {
+                return true
+            }
+            return false
+        }
+        let remainingHeight = max(0, safeAvailableHeight - spacingTotal - fixedTotal)
+        let defaultFlexibleHeight = flexibleItems.isEmpty ? 0 : remainingHeight / Double(flexibleItems.count)
+
+        let heights = resolvedRows.map { item -> Double in
+            switch item.size {
+            case .fixed(let height):
+                return max(0, height)
+            case .flexible(let minimum, let maximum):
+                let minimumHeight = max(0, minimum)
+                let maximumHeight = maximum.isFinite ? max(minimumHeight, maximum) : .infinity
+                let flexibleHeight = max(minimumHeight, defaultFlexibleHeight)
+                return maximumHeight.isFinite ? min(maximumHeight, flexibleHeight) : flexibleHeight
+            case .adaptive(let minimum, let maximum):
+                let maximumHeight = maximum.isFinite ? max(minimum, maximum) : .infinity
+                return maximumHeight.isFinite ? min(maximumHeight, max(0, minimum)) : max(0, minimum)
+            }
+        }
+
+        return (rowSpacing, heights)
+    }
+}
+
+@MainActor
 public struct ZStack: View {
     public typealias Body = Never
 

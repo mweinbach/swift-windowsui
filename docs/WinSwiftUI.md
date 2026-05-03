@@ -60,6 +60,7 @@ Views and containers:
 - `LazyVStack`
 - `LazyHStack`
 - `LazyVGrid`
+- `LazyHGrid`
 - `ScrollView`
 - `List`
 - `Form`
@@ -168,6 +169,7 @@ Surface direction:
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `LazyVStack` and `LazyHStack` preserve common lazy-stack call sites and lower to the retained stack layout path. The runtime already clips and culls offscreen render commands inside scroll panels; child view construction is still eager, and pinned section headers/footers are accepted for compatibility but not pinned yet.
 - `LazyVGrid` maps `GridItem` column declarations into the retained grid layout path. Fixed and flexible columns resolve against the current build context width, and adaptive columns expand from their minimum width; pinned headers/footers are accepted for compatibility but not pinned yet.
+- `LazyHGrid` preserves the SwiftUI-shaped row initializer and currently lowers to retained nested stacks in column-major order. Fixed, flexible, and adaptive row declarations resolve against the current build context height; shared row sizing, true lazy construction, and pinned headers/footers are still future work.
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.

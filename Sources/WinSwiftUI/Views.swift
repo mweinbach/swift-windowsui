@@ -2680,7 +2680,11 @@ public struct Toggle: View {
         return copy
     }
 
-    public func tint(_ color: Color) -> Toggle {
+    public func tint(_ color: Color?) -> Toggle {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.tintColor = color
         return copy
@@ -2885,7 +2889,11 @@ public struct Slider: View {
         return copy
     }
 
-    public func tint(_ color: Color) -> Slider {
+    public func tint(_ color: Color?) -> Slider {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.tintColor = color
         return copy
@@ -2956,7 +2964,11 @@ public struct ProgressView: View {
         }
     }
 
-    public func tint(_ color: Color) -> ProgressView {
+    public func tint(_ color: Color?) -> ProgressView {
+        guard let color else {
+            return self
+        }
+
         var copy = self
         copy.tintColor = color
         return copy

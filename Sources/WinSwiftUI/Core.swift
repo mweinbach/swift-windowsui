@@ -2315,9 +2315,10 @@ public extension View {
         foregroundColor(color)
     }
 
-    func tint(_ color: Color) -> some View {
+    func tint(_ color: Color?) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withTint(color))
+            let childContext = color.map { context.withTint($0) } ?? context
+            return content.makeComponent(context: childContext)
         }
     }
 

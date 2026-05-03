@@ -688,6 +688,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("PREFERENCE VALUE") {
+        failures.append("WinSwiftUI probe text samples are missing the PreferenceKey sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -778,6 +781,14 @@ private struct InspectorEnvironmentSample: View {
     }
 }
 
+private struct InspectorPreferenceKey: PreferenceKey {
+    static let defaultValue = ""
+
+    static func reduce(value: inout String, nextValue: () -> String) {
+        value = nextValue()
+    }
+}
+
 @MainActor
 private struct WinSwiftUIProbeView: View {
     private var sampleDate: Date {
@@ -857,6 +868,10 @@ private struct WinSwiftUIProbeView: View {
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }
+
+            Text("PREFERENCE VALUE")
+                .preference(key: InspectorPreferenceKey.self, value: "PREFERENCE VALUE")
+                .onPreferenceChange(InspectorPreferenceKey.self) { _ in }
 
             Toggle("LIVE SWITCH", isOn: .constant(true))
 

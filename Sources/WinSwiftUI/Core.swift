@@ -550,17 +550,40 @@ public struct Environment<Value> {
     }
 }
 
+public protocol PreferenceKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+
+    static func reduce(value: inout Value, nextValue: () -> Value)
+}
+
 @MainActor
 final class ViewBuildDynamicState {
+    private struct PreferenceEntry {
+        var value: Any
+        let combine: (Any?, Any) -> Any
+    }
+
     private var callsiteOccurrences: [String: Int] = [:]
     private var onChangeValues: [String: Any] = [:]
+    private var observedPreferenceValues: [String: Any] = [:]
+    private var preferenceScopes: [[ObjectIdentifier: PreferenceEntry]] = [[:]]
 
     func beginRootBuild() {
         callsiteOccurrences.removeAll()
+        preferenceScopes = [[:]]
     }
 
     func onChangeKey(fileID: StaticString, line: UInt) -> String {
-        let callsite = "\(String(describing: fileID)):\(line)"
+        let callsite = "onChange:\(String(describing: fileID)):\(line)"
+        let occurrence = callsiteOccurrences[callsite, default: 0]
+        callsiteOccurrences[callsite] = occurrence + 1
+        return "\(callsite):\(occurrence)"
+    }
+
+    func preferenceChangeKey<Key: PreferenceKey>(_ key: Key.Type, fileID: StaticString, line: UInt) -> String {
+        let callsite = "onPreferenceChange:\(ObjectIdentifier(key)):\(String(describing: fileID)):\(line)"
         let occurrence = callsiteOccurrences[callsite, default: 0]
         callsiteOccurrences[callsite] = occurrence + 1
         return "\(callsite):\(occurrence)"
@@ -573,6 +596,86 @@ final class ViewBuildDynamicState {
 
     func setOnChangeValue<Value>(_ value: Value, for key: String) {
         onChangeValues[key] = value
+    }
+
+    func setPreference<Key: PreferenceKey>(_ key: Key.Type, value: Key.Value) {
+        ensurePreferenceScope()
+        let identifier = ObjectIdentifier(key)
+        let combine: (Any?, Any) -> Any = { existing, incoming in
+            var accumulated = (existing as? Key.Value) ?? Key.defaultValue
+            guard let typedIncoming = incoming as? Key.Value else {
+                return accumulated
+            }
+
+            Key.reduce(value: &accumulated) {
+                typedIncoming
+            }
+            return accumulated
+        }
+
+        let existing = preferenceScopes[preferenceScopes.count - 1][identifier]
+        let nextValue = combine(existing?.value, value)
+        preferenceScopes[preferenceScopes.count - 1][identifier] = PreferenceEntry(
+            value: nextValue,
+            combine: combine
+        )
+    }
+
+    func capturePreferenceValue<Key: PreferenceKey, Result>(
+        for key: Key.Type,
+        _ body: () -> Result
+    ) -> (Result, Key.Value) {
+        preferenceScopes.append([:])
+        let result = body()
+        let entries = preferenceScopes.removeLast()
+        let value = preferenceValue(for: key, in: entries)
+        mergePreferenceEntries(entries)
+        return (result, value)
+    }
+
+    func observePreferenceChange<Value: Equatable>(
+        value: Value,
+        defaultValue: Value,
+        for key: String,
+        action: @MainActor (Value) -> Void
+    ) {
+        if let oldValue = observedPreferenceValues[key] as? Value {
+            if oldValue != value {
+                action(value)
+            }
+        } else if value != defaultValue {
+            action(value)
+        }
+
+        observedPreferenceValues[key] = value
+    }
+
+    private func ensurePreferenceScope() {
+        if preferenceScopes.isEmpty {
+            preferenceScopes = [[:]]
+        }
+    }
+
+    private func preferenceValue<Key: PreferenceKey>(
+        for key: Key.Type,
+        in entries: [ObjectIdentifier: PreferenceEntry]
+    ) -> Key.Value {
+        entries[ObjectIdentifier(key)]?.value as? Key.Value ?? Key.defaultValue
+    }
+
+    private func mergePreferenceEntries(_ entries: [ObjectIdentifier: PreferenceEntry]) {
+        ensurePreferenceScope()
+        let parentIndex = preferenceScopes.count - 1
+        for (identifier, entry) in entries {
+            if let existing = preferenceScopes[parentIndex][identifier] {
+                preferenceScopes[parentIndex][identifier] = PreferenceEntry(
+                    value: entry.combine(existing.value, entry.value),
+                    combine: entry.combine
+                )
+            } else {
+                preferenceScopes[parentIndex][identifier] = entry
+            }
+        }
     }
 }
 
@@ -696,6 +799,33 @@ public struct ViewBuildContext {
         }
 
         dynamicState.setOnChangeValue(value, for: key)
+    }
+
+    func setPreference<Key: PreferenceKey>(_ key: Key.Type, value: Key.Value) {
+        dynamicState.setPreference(key, value: value)
+    }
+
+    func capturePreferenceValue<Key: PreferenceKey, Result>(
+        for key: Key.Type,
+        _ body: () -> Result
+    ) -> (Result, Key.Value) {
+        dynamicState.capturePreferenceValue(for: key, body)
+    }
+
+    func observePreferenceChange<Key: PreferenceKey>(
+        for key: Key.Type,
+        value: Key.Value,
+        fileID: StaticString,
+        line: UInt,
+        action: @MainActor (Key.Value) -> Void
+    ) where Key.Value: Equatable {
+        let changeKey = dynamicState.preferenceChangeKey(key, fileID: fileID, line: line)
+        dynamicState.observePreferenceChange(
+            value: value,
+            defaultValue: Key.defaultValue,
+            for: changeKey,
+            action: action
+        )
     }
 
     func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
@@ -5133,6 +5263,35 @@ public extension View {
                 childNode.onDragStartAt = nil
                 childNode.onDragChangeAt = nil
                 childNode.onDragEndAt = nil
+                return childNode
+            }
+        }
+    }
+
+    func preference<Key: PreferenceKey>(key: Key.Type = Key.self, value: Key.Value) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                context.setPreference(key, value: value)
+                return childNode
+            }
+        }
+    }
+
+    func onPreferenceChange<Key: PreferenceKey>(
+        _ key: Key.Type = Key.self,
+        fileID: StaticString = #fileID,
+        line: UInt = #line,
+        perform action: @escaping @MainActor (Key.Value) -> Void
+    ) -> some View where Key.Value: Equatable {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let (childNode, value) = context.capturePreferenceValue(for: key) {
+                    child.makeNode(runtime: runtime)
+                }
+                context.observePreferenceChange(for: key, value: value, fileID: fileID, line: line, action: action)
                 return childNode
             }
         }

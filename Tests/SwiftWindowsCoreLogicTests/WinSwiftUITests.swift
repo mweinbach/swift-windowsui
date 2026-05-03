@@ -2822,6 +2822,54 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPreferenceKeyReducesChildValuesAndNotifiesAncestor() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var values: [Int] = []
+
+            _ = rebuilder.rebuild(TestPreferenceSumView(first: 1, second: 2) { value in
+                values.append(value)
+            })
+            _ = rebuilder.rebuild(TestPreferenceSumView(first: 1, second: 2) { value in
+                values.append(value)
+            })
+            _ = rebuilder.rebuild(TestPreferenceSumView(first: 3, second: 4) { value in
+                values.append(value)
+            })
+
+            XCTAssertEqual(values, [3, 7])
+        }
+    }
+
+    func testPreferenceKeyReportsDefaultWhenSubtreeStopsProducingValue() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var values: [Int] = []
+
+            _ = rebuilder.rebuild(TestConditionalPreferenceView(includePreference: true) { value in
+                values.append(value)
+            })
+            _ = rebuilder.rebuild(TestConditionalPreferenceView(includePreference: false) { value in
+                values.append(value)
+            })
+
+            XCTAssertEqual(values, [9, 0])
+        }
+    }
+
+    func testPreferenceKeyObserverScopesToWrappedSubtree() async {
+        await MainActor.run {
+            let rebuilder = TestViewRebuilder()
+            var values: [Int] = []
+
+            _ = rebuilder.rebuild(TestScopedPreferenceView { value in
+                values.append(value)
+            })
+
+            XCTAssertEqual(values, [2])
+        }
+    }
+
     func testTapGestureMapsToPointerActivation() async {
         await MainActor.run {
             var taps = 0
@@ -5141,6 +5189,64 @@ private struct TestOnChangeBindingView: View {
             .onChange(of: value.wrappedValue) { oldValue, newValue in
                 onChange(oldValue, newValue)
             }
+    }
+}
+
+private struct TestSumPreferenceKey: PreferenceKey {
+    static let defaultValue = 0
+
+    static func reduce(value: inout Int, nextValue: () -> Int) {
+        value += nextValue()
+    }
+}
+
+private struct TestPreferenceSumView: View {
+    let first: Int
+    let second: Int
+    let onChange: @MainActor (Int) -> Void
+
+    var body: some View {
+        VStack {
+            Text("FIRST \(first)")
+                .preference(key: TestSumPreferenceKey.self, value: first)
+            Text("SECOND \(second)")
+                .preference(key: TestSumPreferenceKey.self, value: second)
+        }
+        .onPreferenceChange(TestSumPreferenceKey.self, perform: onChange)
+    }
+}
+
+private struct TestConditionalPreferenceView: View {
+    let includePreference: Bool
+    let onChange: @MainActor (Int) -> Void
+
+    var body: some View {
+        VStack {
+            if includePreference {
+                Text("INCLUDED")
+                    .preference(key: TestSumPreferenceKey.self, value: 9)
+            } else {
+                Text("EMPTY")
+            }
+        }
+        .onPreferenceChange(TestSumPreferenceKey.self, perform: onChange)
+    }
+}
+
+private struct TestScopedPreferenceView: View {
+    let onChange: @MainActor (Int) -> Void
+
+    var body: some View {
+        VStack {
+            Text("SIBLING")
+                .preference(key: TestSumPreferenceKey.self, value: 100)
+
+            VStack {
+                Text("OBSERVED")
+                    .preference(key: TestSumPreferenceKey.self, value: 2)
+            }
+            .onPreferenceChange(TestSumPreferenceKey.self, perform: onChange)
+        }
     }
 }
 

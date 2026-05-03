@@ -751,6 +751,34 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testFocusedTextEditorReceivesArrowKeysBeforeScrollAncestor() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let editor = Controls.textEditor(
+                runtime: runtime,
+                text: "A\nB",
+                preferredSize: Size(width: 80, height: 70)
+            )
+            let filler = ViewNode(frame: Rect(x: 0, y: 120, width: 80, height: 80), backgroundColor: .white)
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .absolute,
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                isHitTestVisible: false,
+                children: [editor, filler]
+            )
+            runtime.root.addChild(scrollPanel)
+            runtime.setRootSize(IntSize(width: 120, height: 80))
+            _ = runtime.renderFrame()
+
+            runtime.pointerDown(at: Point(x: 10, y: 10))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+
+            XCTAssertEqual(scrollPanel.scrollOffset, 0)
+        }
+    }
+
     func testNodeDragCallbacksReceivePointerDelta() async {
         await MainActor.run {
             var startPoints: [Point] = []

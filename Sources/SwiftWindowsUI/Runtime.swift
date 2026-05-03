@@ -1982,6 +1982,11 @@ public final class RetainedViewRuntime {
             break
         }
 
+        if let key = event.key, shouldRouteFocusedNodeBeforeScroll(key), let focusedKeyHandler = focusedNode?.onKeyDown {
+            focusedKeyHandler(event)
+            return
+        }
+
         if let key = event.key, handleScrollKey(key) {
             return
         }
@@ -2158,6 +2163,15 @@ public final class RetainedViewRuntime {
         }
 
         return scrollableNode.applyKeyboardScroll(key)
+    }
+
+    private func shouldRouteFocusedNodeBeforeScroll(_ key: KeyboardKey) -> Bool {
+        switch key {
+        case .backspace, .delete, .leftArrow, .rightArrow, .upArrow, .downArrow, .home, .end, .enter:
+            return true
+        default:
+            return false
+        }
     }
 
     private func updateResolvedLayout() {

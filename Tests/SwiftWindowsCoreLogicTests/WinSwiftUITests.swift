@@ -1426,6 +1426,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextEditorMovesCaretBetweenExplicitLines() async {
+        await MainActor.run {
+            var text = "A\nBC\nD"
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 360, height: 180) }, invalidateHandler: {})
+            let node = TextEditor(text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 360, height: 180))
+            _ = runtime.renderFrame()
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            _ = runtime.renderFrame()
+            node.onTextInput?("x")
+            XCTAssertEqual(text, "A\nBxC\nD")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            node.onTextInput?("!")
+
+            XCTAssertEqual(text, "A\nBxC\nD!")
+        }
+    }
+
     func testParentOnSubmitRoutesToTextFieldDescendant() async {
         await MainActor.run {
             var text = ""

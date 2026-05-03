@@ -1074,6 +1074,16 @@ public enum Controls {
                     applyCaretMove(state.moveCaretLeft())
                 case .rightArrow:
                     applyCaretMove(state.moveCaretRight())
+                case .upArrow:
+                    guard isMultiline else {
+                        break
+                    }
+                    applyCaretMove(state.moveCaretUp())
+                case .downArrow:
+                    guard isMultiline else {
+                        break
+                    }
+                    applyCaretMove(state.moveCaretDown())
                 case .home:
                     applyCaretMove(state.moveCaretToStart())
                 case .end:
@@ -1806,6 +1816,33 @@ private final class TextFieldState {
         moveCaret(to: text.count)
     }
 
+    func moveCaretUp() -> Bool {
+        moveCaretVertically(delta: -1)
+    }
+
+    func moveCaretDown() -> Bool {
+        moveCaretVertically(delta: 1)
+    }
+
+    private func moveCaretVertically(delta: Int) -> Bool {
+        let ranges = lineRanges()
+        let offset = clampedCaretOffset
+        guard let currentLineIndex = ranges.firstIndex(where: { offset >= $0.start && offset <= $0.end }) else {
+            return false
+        }
+
+        let targetLineIndex = currentLineIndex + delta
+        guard ranges.indices.contains(targetLineIndex) else {
+            return false
+        }
+
+        let currentLine = ranges[currentLineIndex]
+        let targetLine = ranges[targetLineIndex]
+        let currentColumn = min(max(0, offset - currentLine.start), currentLine.end - currentLine.start)
+        let targetColumn = min(currentColumn, targetLine.end - targetLine.start)
+        return moveCaret(to: targetLine.start + targetColumn)
+    }
+
     private func moveCaret(to offset: Int) -> Bool {
         let nextOffset = min(max(0, offset), text.count)
         guard nextOffset != caretOffset else {
@@ -1818,6 +1855,23 @@ private final class TextFieldState {
 
     private var clampedCaretOffset: Int {
         min(max(0, caretOffset), text.count)
+    }
+
+    private func lineRanges() -> [(start: Int, end: Int)] {
+        var ranges: [(start: Int, end: Int)] = []
+        var lineStart = 0
+        var offset = 0
+
+        for character in text {
+            if character == "\n" {
+                ranges.append((start: lineStart, end: offset))
+                lineStart = offset + 1
+            }
+            offset += 1
+        }
+
+        ranges.append((start: lineStart, end: offset))
+        return ranges
     }
 }
 

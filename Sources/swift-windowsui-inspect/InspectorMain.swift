@@ -658,6 +658,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
         failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
     }
+    if !winSwiftUIProbe.textSamples.contains("PROMPT SEARCH") {
+        failures.append("WinSwiftUI probe text samples are missing the prompt-backed text field")
+    }
     if textInputProbeValue != "ZQ->Z-Q|-" {
         failures.append("text input probe expected ZQ->Z-Q|- after select-all, selection replacement, pointer editing, and clipboard shortcuts, got \(textInputProbeValue)")
     }
@@ -707,6 +710,8 @@ private struct WinSwiftUIProbeView: View {
                 .disabled(true)
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
+
+            TextField("Ignored title", text: Binding(get: { "" }, set: { _ in }), prompt: Text("PROMPT SEARCH"))
 
             ProgressView(value: 0.68)
 

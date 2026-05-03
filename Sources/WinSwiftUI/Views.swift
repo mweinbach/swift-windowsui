@@ -167,6 +167,10 @@ public struct Text: View {
 
         return .wrap
     }
+
+    fileprivate var promptContent: String {
+        content
+    }
 }
 
 @MainActor
@@ -361,15 +365,37 @@ public struct TextField: View {
     public typealias Body = Never
 
     private let title: String
+    private let prompt: String?
     private let text: Binding<String>
     private var isEnabled: Bool
     private var textColor: Color
 
     public init(_ title: String, text: Binding<String>) {
         self.title = title
+        self.prompt = nil
         self.text = text
         self.isEnabled = true
         self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>) {
+        self.init(String(title), text: text)
+    }
+
+    public init(_ title: String, text: Binding<String>, prompt: Text?) {
+        self.title = title
+        self.prompt = prompt?.promptContent
+        self.text = text
+        self.isEnabled = true
+        self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text?) {
+        self.init(String(title), text: text, prompt: prompt)
+    }
+
+    public init(text: Binding<String>, prompt: Text) {
+        self.init("", text: text, prompt: prompt)
     }
 
     public var body: Never {
@@ -381,7 +407,7 @@ public struct TextField: View {
             Controls.textField(
                 runtime: runtime,
                 text: text.wrappedValue,
-                placeholder: title,
+                placeholder: prompt ?? title,
                 isEnabled: isEnabled,
                 textColor: textColor,
                 onTextChanged: { newText in
@@ -411,15 +437,37 @@ public struct SecureField: View {
     public typealias Body = Never
 
     private let title: String
+    private let prompt: String?
     private let text: Binding<String>
     private var isEnabled: Bool
     private var textColor: Color
 
     public init(_ title: String, text: Binding<String>) {
         self.title = title
+        self.prompt = nil
         self.text = text
         self.isEnabled = true
         self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>) {
+        self.init(String(title), text: text)
+    }
+
+    public init(_ title: String, text: Binding<String>, prompt: Text?) {
+        self.title = title
+        self.prompt = prompt?.promptContent
+        self.text = text
+        self.isEnabled = true
+        self.textColor = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0)
+    }
+
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text?) {
+        self.init(String(title), text: text, prompt: prompt)
+    }
+
+    public init(text: Binding<String>, prompt: Text) {
+        self.init("", text: text, prompt: prompt)
     }
 
     public var body: Never {
@@ -431,7 +479,7 @@ public struct SecureField: View {
             Controls.textField(
                 runtime: runtime,
                 text: text.wrappedValue,
-                placeholder: title,
+                placeholder: prompt ?? title,
                 isEnabled: isEnabled,
                 textColor: textColor,
                 isSecure: true,

@@ -1314,6 +1314,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldPromptInitializersUsePromptPlaceholder() async {
+        await MainActor.run {
+            var text = ""
+            let title = "Ignored".suffix(4)
+            let promptedNode = makeNode(
+                TextField(title, text: Binding(get: { text }, set: { text = $0 }), prompt: Text("Find devices"))
+            )
+            let promptOnlyNode = makeNode(
+                TextField(text: Binding(get: { text }, set: { text = $0 }), prompt: Text("Search everything"))
+            )
+
+            XCTAssertEqual(promptedNode.children[0].text, "Find devices")
+            XCTAssertEqual(promptOnlyNode.children[0].text, "Search everything")
+
+            promptedNode.onTextInput?("A")
+            XCTAssertEqual(text, "A")
+            XCTAssertEqual(promptedNode.children[0].text, "A")
+        }
+    }
+
     func testTextFieldEditsAtCaretAndMovesCaret() async {
         await MainActor.run {
             var text = ""
@@ -1562,6 +1582,21 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(password, "P")
             XCTAssertEqual(node.children[0].text, "*")
             XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testSecureFieldPromptInitializerUsesPromptPlaceholder() async {
+        await MainActor.run {
+            var password = ""
+            let node = makeNode(
+                SecureField("Ignored", text: Binding(get: { password }, set: { password = $0 }), prompt: Text("Passphrase"))
+            )
+
+            XCTAssertEqual(node.children[0].text, "Passphrase")
+
+            node.onTextInput?("secret")
+            XCTAssertEqual(password, "secret")
+            XCTAssertEqual(node.children[0].text, "******")
         }
     }
 

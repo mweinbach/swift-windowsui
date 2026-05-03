@@ -460,6 +460,7 @@ public struct ViewBuildContext {
     var buttonStyle: ButtonStyle?
     var listStyle: ListStyle?
     var labelStyle: LabelStyle?
+    var toggleStyle: ToggleStyle?
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -475,6 +476,7 @@ public struct ViewBuildContext {
         buttonStyle: ButtonStyle? = nil,
         listStyle: ListStyle? = nil,
         labelStyle: LabelStyle? = nil,
+        toggleStyle: ToggleStyle? = nil,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -485,6 +487,7 @@ public struct ViewBuildContext {
         self.buttonStyle = buttonStyle
         self.listStyle = listStyle
         self.labelStyle = labelStyle
+        self.toggleStyle = toggleStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -506,6 +509,7 @@ public struct ViewBuildContext {
             buttonStyle: buttonStyle,
             listStyle: listStyle,
             labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -520,6 +524,7 @@ public struct ViewBuildContext {
             buttonStyle: style,
             listStyle: listStyle,
             labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -534,6 +539,7 @@ public struct ViewBuildContext {
             buttonStyle: buttonStyle,
             listStyle: style,
             labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -548,6 +554,22 @@ public struct ViewBuildContext {
             buttonStyle: buttonStyle,
             listStyle: listStyle,
             labelStyle: style,
+            toggleStyle: toggleStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withToggleStyle(_ style: ToggleStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -562,6 +584,7 @@ public struct ViewBuildContext {
             buttonStyle: buttonStyle,
             listStyle: listStyle,
             labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -576,6 +599,7 @@ public struct ViewBuildContext {
             buttonStyle: buttonStyle,
             listStyle: listStyle,
             labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1269,6 +1293,59 @@ public struct TitleOnlyLabelStyle: Sendable {
 }
 
 public struct IconOnlyLabelStyle: Sendable {
+    public init() {}
+}
+
+enum ToggleControlKind: Sendable {
+    case switchControl
+    case checkbox
+    case button
+}
+
+public struct ToggleStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case switchControl
+        case checkbox
+        case button
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToggleStyle(kind: .automatic)
+    public static let `switch` = ToggleStyle(kind: .switchControl)
+    public static let checkbox = ToggleStyle(kind: .checkbox)
+    public static let button = ToggleStyle(kind: .button)
+
+    var controlKind: ToggleControlKind {
+        switch kind {
+        case .automatic, .switchControl:
+            return .switchControl
+        case .checkbox:
+            return .checkbox
+        case .button:
+            return .button
+        }
+    }
+}
+
+public struct DefaultToggleStyle: Sendable {
+    public init() {}
+}
+
+public struct SwitchToggleStyle: Sendable {
+    public init() {}
+}
+
+public struct CheckboxToggleStyle: Sendable {
+    public init() {}
+}
+
+public struct ButtonToggleStyle: Sendable {
     public init() {}
 }
 
@@ -2629,6 +2706,28 @@ public extension View {
 
     func labelStyle(_ style: IconOnlyLabelStyle) -> some View {
         labelStyle(.iconOnly)
+    }
+
+    func toggleStyle(_ style: ToggleStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withToggleStyle(style))
+        }
+    }
+
+    func toggleStyle(_ style: DefaultToggleStyle) -> some View {
+        toggleStyle(.automatic)
+    }
+
+    func toggleStyle(_ style: SwitchToggleStyle) -> some View {
+        toggleStyle(.switch)
+    }
+
+    func toggleStyle(_ style: CheckboxToggleStyle) -> some View {
+        toggleStyle(.checkbox)
+    }
+
+    func toggleStyle(_ style: ButtonToggleStyle) -> some View {
+        toggleStyle(.button)
     }
 
     func scrollIndicators(_ visibility: ScrollIndicatorVisibility) -> some View {

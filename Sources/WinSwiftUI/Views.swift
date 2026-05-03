@@ -2647,12 +2647,23 @@ public struct Toggle: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
+        switch (context.toggleStyle ?? .automatic).controlKind {
+        case .switchControl:
+            return makeSwitchComponent(context: context)
+        case .checkbox:
+            return makeCheckboxComponent(context: context)
+        case .button:
+            return makeButtonComponent(context: context)
+        }
+    }
+
+    private func makeSwitchComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
             let switchNode = Controls.toggle(
                 runtime: runtime,
                 isOn: isOn.wrappedValue,
                 isEnabled: isEnabled,
-                onColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
+                onColor: resolvedTintColor(context),
                 offColor: offColor,
                 onToggle: { newValue in
                     isOn.wrappedValue = newValue
@@ -2677,6 +2688,142 @@ public struct Toggle: View {
                 children: [labelNode, switchNode]
             )
         }
+    }
+
+    private func makeCheckboxComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+
+        return Component { runtime in
+            let accent = resolvedTintColor(context)
+            let isChecked = isOn.wrappedValue
+            let boxSize: Double = 20
+            let checkmark = isChecked
+                ? Controls.icon(.checkmark, preferredSize: Size(width: 14, height: 14), color: .white, scale: 1.0)
+                : Controls.panel(preferredSize: Size(width: 14, height: 14), isHitTestVisible: false)
+
+            let box = Controls.panel(
+                preferredSize: Size(width: boxSize, height: boxSize),
+                backgroundColor: isChecked ? accent : Color(red: 0.15, green: 0.18, blue: 0.24, alpha: 0.88),
+                borderColor: isChecked ? accent.opacity(0.82) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.20),
+                borderWidth: 1,
+                cornerRadius: 6,
+                layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+                isHitTestVisible: false,
+                children: [checkmark]
+            )
+
+            var children = [box]
+            if !hidesLabel, !label.isEmpty {
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                labelNode.layoutPriority = 1
+                children.append(labelNode)
+            }
+
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: 10,
+                palette: checkboxPalette,
+                chrome: checkboxChrome,
+                isEnabled: isEnabled,
+                clipsToBounds: true,
+                layoutMode: .stack(
+                    .horizontal(
+                        spacing: hidesLabel ? 0 : 10,
+                        padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                        alignment: .center
+                    )
+                ),
+                action: isEnabled ? {
+                    toggleValue(context: context)
+                } : nil,
+                children: children
+            )
+        }
+    }
+
+    private func makeButtonComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+
+        return Component { runtime in
+            let accent = resolvedTintColor(context)
+            let labelNode = hidesLabel || label.isEmpty
+                ? Controls.panel(preferredSize: Size(width: 44, height: 20), isHitTestVisible: false)
+                : labelComponent.makeNode(runtime: runtime)
+
+            if !hidesLabel {
+                labelNode.layoutPriority = 1
+            }
+
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: 14,
+                palette: isOn.wrappedValue ? buttonOnPalette(accent: accent) : ButtonSurfaceStyle.defaultPalette,
+                chrome: .elevatedButton,
+                isEnabled: isEnabled,
+                clipsToBounds: true,
+                layoutMode: .stack(
+                    .horizontal(
+                        spacing: 0,
+                        padding: EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )
+                ),
+                action: isEnabled ? {
+                    toggleValue(context: context)
+                } : nil,
+                children: [labelNode]
+            )
+        }
+    }
+
+    private var checkboxPalette: SurfacePalette {
+        SurfacePalette(
+            idle: .clear,
+            hovered: Color(red: 0.80, green: 0.88, blue: 1.0, alpha: 0.07),
+            focused: Color(red: 0.80, green: 0.88, blue: 1.0, alpha: 0.10),
+            pressed: Color(red: 0.80, green: 0.88, blue: 1.0, alpha: 0.14),
+            activated: Color(red: 0.80, green: 0.88, blue: 1.0, alpha: 0.12),
+            disabledBackground: .clear,
+            disabledBorder: .clear
+        )
+    }
+
+    private var checkboxChrome: SurfaceChrome {
+        SurfaceChrome(
+            focusRingColor: Color(red: 0.52, green: 0.74, blue: 1.0, alpha: 0.28),
+            focusRingWidth: 2
+        )
+    }
+
+    private func buttonOnPalette(accent: Color) -> SurfacePalette {
+        SurfacePalette(
+            idle: accent.opacity(0.78),
+            hovered: accent.opacity(0.86),
+            focused: accent.opacity(0.92),
+            pressed: accent.opacity(1.0),
+            activated: accent.opacity(0.96),
+            disabledBackground: ButtonSurfaceStyle.defaultPalette.disabledBackground,
+            disabledForeground: ButtonSurfaceStyle.defaultPalette.disabledForeground,
+            disabledBorder: ButtonSurfaceStyle.defaultPalette.disabledBorder
+        )
+    }
+
+    private func resolvedTintColor(_ context: ViewBuildContext) -> Color {
+        tintColor ?? context.tintColor ?? Self.defaultTintColor
+    }
+
+    private func toggleValue(context: ViewBuildContext) {
+        isOn.wrappedValue.toggle()
+        isOn.invalidateContextIfNeeded(context)
     }
 
     public func disabled(_ disabled: Bool) -> Toggle {

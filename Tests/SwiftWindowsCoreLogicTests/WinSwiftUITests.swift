@@ -1153,6 +1153,90 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToggleStyleCheckboxBuildsFocusableCheckboxAndInvalidates() async {
+        await MainActor.run {
+            var isOn = false
+            var didInvalidate = false
+
+            let node = makeNode(
+                Toggle("POWER", isOn: Binding(get: { isOn }, set: { isOn = $0 }))
+                    .toggleStyle(CheckboxToggleStyle())
+                    .tint(.mint),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].preferredSize, Size(width: 20, height: 20))
+            XCTAssertEqual(node.children[0].backgroundColor, Color(red: 0.15, green: 0.18, blue: 0.24, alpha: 0.88))
+            XCTAssertTrue(containsText("POWER", in: node))
+
+            node.onActivate?()
+
+            XCTAssertTrue(isOn)
+            XCTAssertTrue(didInvalidate)
+
+            let selectedNode = makeNode(
+                Toggle("POWER", isOn: Binding(get: { true }, set: { _ in }))
+                    .toggleStyle(.checkbox)
+                    .tint(.mint)
+            )
+
+            XCTAssertEqual(selectedNode.children[0].backgroundColor, .mint)
+            XCTAssertEqual(selectedNode.children[0].children.first?.text, SymbolIcon.checkmark.rawValue)
+        }
+    }
+
+    func testToggleStyleButtonUsesTintedSelectedSurface() async {
+        await MainActor.run {
+            var isOn = true
+
+            let selectedNode = makeNode(
+                Toggle("SYNC", isOn: Binding(get: { isOn }, set: { isOn = $0 }))
+                    .tint(.orange)
+                    .toggleStyle(ButtonToggleStyle())
+            )
+
+            XCTAssertTrue(selectedNode.isFocusable)
+            XCTAssertEqual(selectedNode.backgroundColor, Color.orange.opacity(0.78))
+            XCTAssertTrue(containsText("SYNC", in: selectedNode))
+
+            selectedNode.onActivate?()
+
+            XCTAssertFalse(isOn)
+
+            let unselectedNode = makeNode(
+                Toggle("SYNC", isOn: Binding(get: { false }, set: { _ in }))
+                    .toggleStyle(.button)
+            )
+
+            XCTAssertEqual(unselectedNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+        }
+    }
+
+    func testInheritedToggleStyleAppliesToDescendantToggles() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Toggle("CHECKED", isOn: Binding(get: { true }, set: { _ in }))
+                    Toggle("SWITCHED", isOn: Binding(get: { true }, set: { _ in }))
+                        .toggleStyle(.switch)
+                }
+                .toggleStyle(.checkbox)
+            )
+
+            let checkboxToggle = node.children[0]
+            let switchRow = node.children[1]
+
+            XCTAssertTrue(checkboxToggle.isFocusable)
+            XCTAssertEqual(checkboxToggle.children.first?.preferredSize, Size(width: 20, height: 20))
+            XCTAssertFalse(switchRow.isFocusable)
+            XCTAssertEqual(switchRow.children[1].preferredSize, Size(width: 52, height: 32))
+        }
+    }
+
     func testStepperUpdatesBindingAndDisablesAtBounds() async {
         await MainActor.run {
             var value = 2

@@ -12,10 +12,13 @@ The batch scene types expose lightweight inspection helpers:
 - `GPUIScene.primitiveCount`
 - `GPUIScene.totalPrimitiveCount`
 - `QuadPrimitive.clipRect`
+- `ShadowPrimitive.clipRect`
 
 Use these helpers in tests and diagnostics when checking primitive emission, layer splitting, clipping, and batch renderer readiness.
 
 `RenderClipStack` is the shared clip resolver for renderers that currently expose rectangular scissor-style clipping. `pushClip` and `popClip` are honored by the `RenderFrame -> GPUIScene` bridge and by the default `D3D11Renderer`/Direct2D frame path for rect clips, ellipse bounds, and path bounds. Rounded, elliptical, and arbitrary path clips are approximated to rectangular bounds until the backend grows a true mask/stencil clip path.
+
+Retained shadows now travel through the renderer-neutral frame contract as `shadowRect` commands instead of pre-expanded fill rectangles. The `RenderFrame -> GPUIScene` bridge maps them to clipped `ShadowPrimitive` values for the batch renderer, preserving the original rect, corner radius, blur radius, offset, color, and resolved clip. The default `D3D11Renderer` and Direct2D frame path still lower `shadowRect` to a conservative expanded fill rectangle until their non-batch soft-shadow path is promoted.
 
 Retained-node opacity is resolved in `RetainedViewRuntime.renderFrame()` before commands reach a backend. Fill colors, gradient stops, path/text colors, bitmap opacity, and scroll-indicator fills inherit parent opacity in the renderer-neutral command stream; zero-opacity nodes still lay out but skip command emission.
 
@@ -40,4 +43,4 @@ swift run swift-windowsui-inspect -- --json --verify
 The inspector builds small retained and `WinSwiftUI` declarative trees, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes path, text, blur, retained-control, `WinSwiftUI`, text-input, multi-offset scroll-stress, and clip-stack probes without opening a window.
 Use `--verify` to turn those probes into a smoke gate; it exits nonzero if command emission, retained-control focusability, `WinSwiftUI` tree generation, text input, scroll culling across the sweep, or clip resolution regresses. Add `--json` to emit the same diagnostics as structured JSON for scripts or CI dashboards.
 
-Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, `drawText`, and `applyBlur`. Clip-stack support is currently rectangular/bounds-based rather than full vector masking.
+Current important limit: the default `D3D11Renderer` still renders only the established `fillRect`, `shadowRect` fallback, and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, `drawText`, and `applyBlur`. Clip-stack support is currently rectangular/bounds-based rather than full vector masking.

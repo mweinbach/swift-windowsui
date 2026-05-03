@@ -206,6 +206,8 @@ struct ShadowInstance
     float colorA;
     float blurRadius;
     float offsetX, offsetY;
+    float clipX, clipY;
+    float clipWidth, clipHeight;
 };
 
 StructuredBuffer<ShadowInstance> instances : register(t0);
@@ -219,6 +221,7 @@ struct VSOutput
     float radius : TEXCOORD3;
     float4 shadowColor : COLOR0;
     float blurRadius : TEXCOORD4;
+    float4 clipRect : TEXCOORD5;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -254,6 +257,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.radius = inst.cornerRadius;
     output.shadowColor = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
     output.blurRadius = inst.blurRadius;
+    output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     return output;
 }
 
@@ -269,6 +273,17 @@ float roundedRectDistanceShadow(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
+    {
+        float2 pixelPos = input.position.xy;
+        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
+            pixelPos.x > input.clipRect.x + input.clipRect.z ||
+            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        {
+            discard;
+        }
+    }
+
     // Map from expanded local coords back to the original rect's local coords
     float expand = input.blurRadius * 2.0;
     float2 rectLocal = input.localPosition - float2(expand, expand);

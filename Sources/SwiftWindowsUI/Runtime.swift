@@ -876,17 +876,19 @@ public final class ViewNode {
 
         let resolvedShadowColor = applyingOpacity(effectiveOpacity, to: shadowColor)
         if resolvedShadowColor.alpha > 0 {
-            let shadowRect = absoluteFrame
+            let shadowBounds = absoluteFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
 
-            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) {
+            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowBounds) {
                 commands.append(
-                    .fillRect(
-                        FillRectCommand(
-                            rect: shadowRect,
+                    .shadowRect(
+                        ShadowRectCommand(
+                            rect: absoluteFrame,
                             color: resolvedShadowColor,
-                            cornerRadius: cornerRadius + max(0, shadowSpread),
+                            cornerRadius: cornerRadius,
+                            blurRadius: shadowSpread,
+                            offset: shadowOffset,
                             clipRect: inheritedClip
                         )
                     )
@@ -2559,6 +2561,9 @@ private func renderCommand(_ command: RenderCommand, applyingOpacity opacity: Do
         fillRect.color = applyingOpacity(opacity, to: fillRect.color)
         fillRect.gradient = applyingOpacity(opacity, to: fillRect.gradient)
         return .fillRect(fillRect)
+    case .shadowRect(var shadowRect):
+        shadowRect.color = applyingOpacity(opacity, to: shadowRect.color)
+        return .shadowRect(shadowRect)
     case .drawBitmap(var drawBitmap):
         drawBitmap.opacity *= Float(clampedOpacity(opacity))
         return .drawBitmap(drawBitmap)

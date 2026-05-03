@@ -297,6 +297,20 @@ public final class D3D11Renderer: RenderBackend {
                     bitmapConstantBuffer: bitmapConstantBuffer,
                     bitmapSamplerState: bitmapSamplerState
                 )
+            case .shadowRect(let shadowRectCommand):
+                try draw(
+                    .fillRect(resolved(fillRect: shadowRectCommand.fallbackFillRect, clipStack: clipStack)),
+                    surfaceSize: surface.pixelSize,
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext,
+                    rectangleVertexShader: vertexShader,
+                    rectanglePixelShader: pixelShader,
+                    rectangleConstantBuffer: constantBuffer,
+                    bitmapVertexShader: bitmapVertexShader,
+                    bitmapPixelShader: bitmapPixelShader,
+                    bitmapConstantBuffer: bitmapConstantBuffer,
+                    bitmapSamplerState: bitmapSamplerState
+                )
             case .drawBitmap(let drawBitmapCommand):
                 try draw(
                     .drawBitmap(resolved(bitmap: drawBitmapCommand, clipStack: clipStack)),
@@ -794,6 +808,11 @@ public final class D3D11Renderer: RenderBackend {
                     fillRect: resolved(fillRect: fillRectCommand, clipStack: clipStack),
                     deviceContext: deviceContext
                 )
+            case .shadowRect(let shadowRectCommand):
+                try drawWithDirect2D(
+                    fillRect: resolved(fillRect: shadowRectCommand.fallbackFillRect, clipStack: clipStack),
+                    deviceContext: deviceContext
+                )
             case .drawBitmap(let drawBitmapCommand):
                 try drawWithDirect2D(
                     bitmap: resolved(bitmap: drawBitmapCommand, clipStack: clipStack),
@@ -1104,6 +1123,16 @@ public final class D3D11Renderer: RenderBackend {
         case .fillRect(let fillRectCommand):
             try draw(
                 fillRect: fillRectCommand,
+                surfaceSize: surfaceSize,
+                scaleFactor: scaleFactor,
+                deviceContext: deviceContext,
+                vertexShader: rectangleVertexShader,
+                pixelShader: rectanglePixelShader,
+                constantBuffer: rectangleConstantBuffer
+            )
+        case .shadowRect(let shadowRectCommand):
+            try draw(
+                fillRect: shadowRectCommand.fallbackFillRect,
                 surfaceSize: surfaceSize,
                 scaleFactor: scaleFactor,
                 deviceContext: deviceContext,

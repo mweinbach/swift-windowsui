@@ -170,6 +170,7 @@ private func makeSampleRuntime() -> RetainedViewRuntime {
 
 private struct CommandCounts {
     var fillRect = 0
+    var shadowRect = 0
     var drawBitmap = 0
     var fillPath = 0
     var strokePath = 0
@@ -182,6 +183,8 @@ private struct CommandCounts {
             switch command {
             case .fillRect:
                 fillRect += 1
+            case .shadowRect:
+                shadowRect += 1
             case .drawBitmap:
                 drawBitmap += 1
             case .fillPath:
@@ -220,6 +223,7 @@ private struct InspectorReport: Encodable {
 private struct CommandSummary: Encodable {
     var total: Int
     var fillRect: Int
+    var shadowRect: Int
     var drawBitmap: Int
     var fillPath: Int
     var strokePath: Int
@@ -230,6 +234,7 @@ private struct CommandSummary: Encodable {
     init(total: Int, counts: CommandCounts) {
         self.total = total
         self.fillRect = counts.fillRect
+        self.shadowRect = counts.shadowRect
         self.drawBitmap = counts.drawBitmap
         self.fillPath = counts.fillPath
         self.strokePath = counts.strokePath
@@ -316,6 +321,7 @@ private func printHumanReport(_ report: InspectorReport) {
     print("Text backend: \(report.textBackend)")
     print("RenderFrame commands: \(report.renderFrame.total)")
     print("  fillRect: \(report.renderFrame.fillRect)")
+    print("  shadowRect: \(report.renderFrame.shadowRect)")
     print("  drawBitmap: \(report.renderFrame.drawBitmap)")
     print("  fillPath: \(report.renderFrame.fillPath)")
     print("  strokePath: \(report.renderFrame.strokePath)")
@@ -655,14 +661,23 @@ private func verificationFailures(
     if sampleCommandCounts.fillRect == 0 {
         failures.append("sample retained tree emitted no fillRect commands")
     }
+    if sampleCommandCounts.shadowRect == 0 {
+        failures.append("sample retained tree emitted no shadowRect commands")
+    }
     if sampleCommandCounts.drawBitmap == 0 {
         failures.append("sample retained tree emitted no bitmap text commands")
     }
     if bridgedScene.primitiveCount == 0 {
         failures.append("RenderFrame -> GPUIScene bridge emitted no primitives")
     }
+    if bridgedScene.totalShadows == 0 {
+        failures.append("RenderFrame -> GPUIScene bridge emitted no shadow primitives")
+    }
     if paintedScene.totalQuads == 0 {
         failures.append("ScenePainter emitted no quads")
+    }
+    if paintedScene.totalShadows == 0 {
+        failures.append("ScenePainter emitted no shadows")
     }
     if pathProbeCounts.fillPath != 1 || pathProbeCounts.strokePath != 1 {
         failures.append("path probe did not emit one fillPath and one strokePath command")

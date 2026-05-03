@@ -608,6 +608,40 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testShadowEmitsRendererNeutralShadowRectCommand() async {
+        await MainActor.run {
+            let child = ViewNode(
+                frame: Rect(x: 10, y: 12, width: 40, height: 20),
+                backgroundColor: .white,
+                shadowColor: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.8),
+                shadowOffset: Point(x: 3, y: 4),
+                shadowSpread: 5,
+                cornerRadius: 6
+            )
+            let parent = ViewNode(
+                frame: Rect(x: 5, y: 7, width: 80, height: 60),
+                clipsToBounds: true,
+                opacity: 0.5,
+                isHitTestVisible: false,
+                children: [child]
+            )
+            let runtime = RetainedViewRuntime(root: parent)
+
+            let shadows = shadowRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(shadows.count, 1)
+            XCTAssertEqual(shadows[0].rect, Rect(x: 15, y: 19, width: 40, height: 20))
+            XCTAssertEqual(shadows[0].color.red, 0.1, accuracy: 0.001)
+            XCTAssertEqual(shadows[0].color.green, 0.2, accuracy: 0.001)
+            XCTAssertEqual(shadows[0].color.blue, 0.3, accuracy: 0.001)
+            XCTAssertEqual(shadows[0].color.alpha, 0.4, accuracy: 0.001)
+            XCTAssertEqual(shadows[0].cornerRadius, 6)
+            XCTAssertEqual(shadows[0].blurRadius, 5)
+            XCTAssertEqual(shadows[0].offset, Point(x: 3, y: 4))
+            XCTAssertEqual(shadows[0].clipRect, Rect(x: 5, y: 7, width: 80, height: 60))
+        }
+    }
+
     func testPathControlEmitsRendererNeutralPathCommands() async {
         await MainActor.run {
             var path = RenderPath()
@@ -880,11 +914,23 @@ private func strokePathCommands(in frame: RenderFrame) -> [StrokePathCommand] {
     }
 }
 
+private func shadowRectCommands(in frame: RenderFrame) -> [ShadowRectCommand] {
+    frame.commands.compactMap { command in
+        guard case .shadowRect(let shadowRect) = command else {
+            return nil
+        }
+
+        return shadowRect
+    }
+}
+
 private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
     frame.commands.compactMap { command in
         switch command {
         case .fillRect(let fillRect):
             return fillRect.rect
+        case .shadowRect(let shadowRect):
+            return shadowRect.fallbackFillRect.rect
         case .drawBitmap(let drawBitmap):
             return drawBitmap.rect
         case .applyBlur(let blur):

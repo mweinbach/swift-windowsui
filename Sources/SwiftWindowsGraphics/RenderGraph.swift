@@ -40,6 +40,9 @@ public struct RenderFrame: Equatable, Sendable {
 /// popClip, and applyBlur cases.
 public enum RenderCommand: Equatable, Sendable {
     case fillRect(FillRectCommand)
+    /// Renderer-neutral soft shadow primitive. Backends without a native
+    /// shadow path may conservatively lower it to an expanded fill rect.
+    case shadowRect(ShadowRectCommand)
     case drawBitmap(DrawBitmapCommand)
     /// Gap 1 fix: fill an arbitrary path with a solid color or gradient.
     case fillPath(FillPathCommand)
@@ -326,6 +329,49 @@ public struct FillRectCommand: Equatable, Sendable {
         self.clipRect = clipRect
         self.gradient = gradient.map { .linear($0) }
         self.blendMode = blendMode
+    }
+}
+
+/// Shared soft-shadow rectangle primitive used by retained chrome and batch
+/// renderers.
+public struct ShadowRectCommand: Equatable, Sendable {
+    public var rect: Rect
+    public var color: Color
+    public var cornerRadius: Double
+    public var blurRadius: Double
+    public var offset: Point
+    public var clipRect: Rect?
+    public var blendMode: BlendMode
+
+    public init(
+        rect: Rect,
+        color: Color,
+        cornerRadius: Double = 0,
+        blurRadius: Double = 0,
+        offset: Point = .zero,
+        clipRect: Rect? = nil,
+        blendMode: BlendMode = .normal
+    ) {
+        self.rect = rect
+        self.color = color
+        self.cornerRadius = cornerRadius
+        self.blurRadius = blurRadius
+        self.offset = offset
+        self.clipRect = clipRect
+        self.blendMode = blendMode
+    }
+
+    public var fallbackFillRect: FillRectCommand {
+        let spread = max(0, blurRadius)
+        return FillRectCommand(
+            rect: rect
+                .outset(by: spread)
+                .offsetBy(dx: offset.x, dy: offset.y),
+            color: color,
+            cornerRadius: cornerRadius + spread,
+            clipRect: clipRect,
+            blendMode: blendMode
+        )
     }
 }
 

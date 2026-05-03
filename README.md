@@ -8,7 +8,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 
 - A custom-rendered UI stack, not a wrapper around native Win32 widgets
 - A retained `ViewNode` runtime with mutable state, layout, hit testing, focus, clipping, and animation
-- A backend-neutral render path that mostly reduces visible UI to `FillRectCommand`
+- A backend-neutral render path with `FillRectCommand`, `shadowRect`, bitmap text, path, text, clip, and blur commands
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -112,6 +112,8 @@ swift run swift-windowsui
 ```
 
 The inspector includes renderer, retained-runtime, text-input, and multi-offset scroll-stress probes so performance-sensitive culling regressions can be caught without launching the GUI demo.
+
+Renderer note: retained shadows are first-class `shadowRect` render commands. The batch scene bridge converts them into clipped `ShadowPrimitive` values for the instanced D3D11 path, while the default frame renderer still has a conservative expanded-fill fallback.
 
 Useful focused command:
 

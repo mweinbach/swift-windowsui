@@ -52,9 +52,19 @@ struct ScenePainterTests {
         #expect(scene.layers[0].quads.count == 1)
 
         let shadow = scene.layers[0].shadows[0]
+        #expect(shadow.x == 0)
+        #expect(shadow.y == 0)
+        #expect(shadow.width == 200)
+        #expect(shadow.height == 100)
+        #expect(shadow.cornerRadius == 0)
         #expect(shadow.colorA == 0.5)
+        #expect(shadow.blurRadius == 3)
         #expect(shadow.offsetX == 2)
         #expect(shadow.offsetY == 4)
+        #expect(shadow.clipX == 0)
+        #expect(shadow.clipY == 0)
+        #expect(shadow.clipWidth == Float(surfaceSize.width))
+        #expect(shadow.clipHeight == Float(surfaceSize.height))
     }
 
     // MARK: - Parent with colored children

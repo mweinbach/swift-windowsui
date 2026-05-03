@@ -227,7 +227,7 @@ public struct ImagePrimitive: Equatable, Sendable {
 // MARK: - Shadow Primitive
 
 /// A soft shadow rectangle, designed for direct upload to a D3D11 structured
-/// buffer. Total: 12 floats = 48 bytes (divisible by 16).
+/// buffer. Total: 16 floats = 64 bytes (divisible by 16).
 @frozen
 public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow rect
@@ -247,13 +247,19 @@ public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow offset
     public var offsetX: Float
     public var offsetY: Float
+    // Clip bounds
+    public var clipX: Float
+    public var clipY: Float
+    public var clipWidth: Float
+    public var clipHeight: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
         cornerRadius: Float = 0,
         colorR: Float = 0, colorG: Float = 0, colorB: Float = 0, colorA: Float = 0.5,
         blurRadius: Float = 4,
-        offsetX: Float = 0, offsetY: Float = 0
+        offsetX: Float = 0, offsetY: Float = 0,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -267,6 +273,10 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.blurRadius = blurRadius
         self.offsetX = offsetX
         self.offsetY = offsetY
+        self.clipX = clipX
+        self.clipY = clipY
+        self.clipWidth = clipWidth
+        self.clipHeight = clipHeight
     }
 
     public init(
@@ -274,14 +284,16 @@ public struct ShadowPrimitive: Equatable, Sendable {
         red: Float, green: Float, blue: Float, alpha: Float,
         cornerRadius: Float = 0,
         blurRadius: Float = 4,
-        offsetX: Float = 0, offsetY: Float = 0
+        offsetX: Float = 0, offsetY: Float = 0,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
     ) {
         self.init(
             x: x, y: y, width: width, height: height,
             cornerRadius: cornerRadius,
             colorR: red, colorG: green, colorB: blue, colorA: alpha,
             blurRadius: blurRadius,
-            offsetX: offsetX, offsetY: offsetY
+            offsetX: offsetX, offsetY: offsetY,
+            clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight
         )
     }
 
@@ -303,6 +315,13 @@ public struct ShadowPrimitive: Equatable, Sendable {
     public var alpha: Float {
         get { colorA }
         set { colorA = newValue }
+    }
+
+    public var clipRect: (Float, Float, Float, Float)? {
+        guard clipWidth > 0, clipHeight > 0 else {
+            return nil
+        }
+        return (clipX, clipY, clipWidth, clipHeight)
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }

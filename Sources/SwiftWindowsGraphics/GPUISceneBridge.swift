@@ -6,6 +6,7 @@ import SwiftWindowsCore
 /// can split layers on type transitions to preserve z-order.
 private enum LastPrimitiveKind {
     case none
+    case shadow
     case quad
     case image
 }
@@ -32,6 +33,14 @@ extension GPUIScene {
 
         for command in frame.commands {
             switch command {
+            case .shadowRect(let cmd):
+                if lastKind != .none && lastKind != .shadow {
+                    self.pushLayer()
+                }
+                lastKind = .shadow
+                let shadow = Self.makeShadow(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
+                self.layers[self.layers.count - 1].shadows.append(shadow)
+
             case .fillRect(let cmd):
                 if lastKind != .none && lastKind != .quad {
                     self.pushLayer()
@@ -118,6 +127,34 @@ extension GPUIScene {
             startR: startR, startG: startG, startB: startB, startA: startA,
             endR: endR, endG: endG, endB: endB, endA: endA,
             gradientAxis: axis,
+            clipX: Float(clip.origin.x),
+            clipY: Float(clip.origin.y),
+            clipWidth: Float(clip.size.width),
+            clipHeight: Float(clip.size.height)
+        )
+    }
+
+    /// Converts a `ShadowRectCommand` to a `ShadowPrimitive`.
+    private static func makeShadow(
+        from cmd: ShadowRectCommand,
+        clipStack: RenderClipStack,
+        surfaceSize: Size
+    ) -> ShadowPrimitive {
+        let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)
+
+        return ShadowPrimitive(
+            x: Float(cmd.rect.origin.x),
+            y: Float(cmd.rect.origin.y),
+            width: Float(cmd.rect.size.width),
+            height: Float(cmd.rect.size.height),
+            cornerRadius: Float(cmd.cornerRadius),
+            colorR: cmd.color.red,
+            colorG: cmd.color.green,
+            colorB: cmd.color.blue,
+            colorA: cmd.color.alpha,
+            blurRadius: Float(max(0, cmd.blurRadius)),
+            offsetX: Float(cmd.offset.x),
+            offsetY: Float(cmd.offset.y),
             clipX: Float(clip.origin.x),
             clipY: Float(clip.origin.y),
             clipWidth: Float(clip.size.width),

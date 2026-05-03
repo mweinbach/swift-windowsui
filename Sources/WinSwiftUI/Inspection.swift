@@ -5,6 +5,7 @@ import SwiftWindowsUI
 public struct WinSwiftUIRenderCommandCounts: Sendable, Equatable {
     public let total: Int
     public let fillRect: Int
+    public let shadowRect: Int
     public let drawBitmap: Int
     public let fillPath: Int
     public let strokePath: Int
@@ -14,6 +15,7 @@ public struct WinSwiftUIRenderCommandCounts: Sendable, Equatable {
 
     init(commands: [RenderCommand]) {
         var fillRect = 0
+        var shadowRect = 0
         var drawBitmap = 0
         var fillPath = 0
         var strokePath = 0
@@ -25,6 +27,8 @@ public struct WinSwiftUIRenderCommandCounts: Sendable, Equatable {
             switch command {
             case .fillRect:
                 fillRect += 1
+            case .shadowRect:
+                shadowRect += 1
             case .drawBitmap:
                 drawBitmap += 1
             case .fillPath:
@@ -42,6 +46,7 @@ public struct WinSwiftUIRenderCommandCounts: Sendable, Equatable {
 
         self.total = commands.count
         self.fillRect = fillRect
+        self.shadowRect = shadowRect
         self.drawBitmap = drawBitmap
         self.fillPath = fillPath
         self.strokePath = strokePath

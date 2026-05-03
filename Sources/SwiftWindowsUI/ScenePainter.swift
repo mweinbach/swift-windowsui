@@ -57,24 +57,29 @@ public enum ScenePainter {
 
         // Shadow
         if node.shadowColor.alpha > 0 {
-            let shadowRect = absoluteFrame
+            let shadowBounds = absoluteFrame
                 .outset(by: max(0, node.shadowSpread))
                 .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
 
-            if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
+            if clipAllowsDrawing(clip: inheritedClip, rect: shadowBounds) {
+                let clipR = clipRectFloats(inheritedClip, surfaceSize: surfaceSize)
                 scene.layers[layerIndex].shadows.append(ShadowPrimitive(
-                    x: Float(shadowRect.origin.x),
-                    y: Float(shadowRect.origin.y),
-                    width: Float(shadowRect.size.width),
-                    height: Float(shadowRect.size.height),
-                    cornerRadius: Float(node.cornerRadius + max(0, node.shadowSpread)),
+                    x: Float(absoluteFrame.origin.x),
+                    y: Float(absoluteFrame.origin.y),
+                    width: Float(absoluteFrame.size.width),
+                    height: Float(absoluteFrame.size.height),
+                    cornerRadius: Float(node.cornerRadius),
                     colorR: node.shadowColor.red,
                     colorG: node.shadowColor.green,
                     colorB: node.shadowColor.blue,
-                    colorA: node.shadowColor.alpha,
+                    colorA: node.shadowColor.alpha * opacity,
                     blurRadius: Float(node.shadowSpread),
                     offsetX: Float(node.shadowOffset.x),
-                    offsetY: Float(node.shadowOffset.y)
+                    offsetY: Float(node.shadowOffset.y),
+                    clipX: clipR.0,
+                    clipY: clipR.1,
+                    clipWidth: clipR.2,
+                    clipHeight: clipR.3
                 ))
             }
         }

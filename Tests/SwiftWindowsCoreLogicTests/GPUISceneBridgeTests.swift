@@ -169,6 +169,69 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].images.count == 2)
     }
 
+    @Test("shadowRect maps to clipped ShadowPrimitive")
+    func shadowRectConversion() {
+        let stackClip = Rect(x: 0, y: 0, width: 80, height: 70)
+        let commandClip = Rect(x: 50, y: 30, width: 90, height: 80)
+        let color = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
+        let commands: [RenderCommand] = [
+            .pushClip(ClipCommand(shape: .rect(stackClip, cornerRadius: 0))),
+            .shadowRect(ShadowRectCommand(
+                rect: Rect(x: 12, y: 18, width: 120, height: 48),
+                color: color,
+                cornerRadius: 9,
+                blurRadius: 14,
+                offset: Point(x: 4, y: 7),
+                clipRect: commandClip
+            )),
+            .popClip,
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 1)
+        #expect(scene.layers[0].shadows.count == 1)
+        #expect(scene.layers[0].quads.isEmpty)
+
+        let shadow = scene.layers[0].shadows[0]
+        #expect(shadow.x == 12)
+        #expect(shadow.y == 18)
+        #expect(shadow.width == 120)
+        #expect(shadow.height == 48)
+        #expect(shadow.cornerRadius == 9)
+        #expect(shadow.colorR == color.red)
+        #expect(shadow.colorG == color.green)
+        #expect(shadow.colorB == color.blue)
+        #expect(shadow.colorA == color.alpha)
+        #expect(shadow.blurRadius == 14)
+        #expect(shadow.offsetX == 4)
+        #expect(shadow.offsetY == 7)
+        #expect(shadow.clipX == 50)
+        #expect(shadow.clipY == 30)
+        #expect(shadow.clipWidth == 30)
+        #expect(shadow.clipHeight == 40)
+    }
+
+    @Test("shadowRect layer splitting preserves z order around fills")
+    func shadowLayerSplitting() {
+        let commands: [RenderCommand] = [
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 30, height: 30), color: .white)),
+            .shadowRect(ShadowRectCommand(rect: Rect(x: 8, y: 8, width: 40, height: 24), color: .black)),
+            .shadowRect(ShadowRectCommand(rect: Rect(x: 12, y: 40, width: 40, height: 24), color: .black)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 70, width: 30, height: 30), color: .white)),
+        ]
+        let frame = RenderFrame(clearColor: .black, commands: commands)
+        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+
+        #expect(scene.layers.count == 3)
+        #expect(scene.layers[0].quads.count == 1)
+        #expect(scene.layers[0].shadows.isEmpty)
+        #expect(scene.layers[1].quads.isEmpty)
+        #expect(scene.layers[1].shadows.count == 2)
+        #expect(scene.layers[2].quads.count == 1)
+        #expect(scene.layers[2].shadows.isEmpty)
+    }
+
     // MARK: - Clip Stack
 
     @Test("pushClip then fillRect applies correct clip bounds")

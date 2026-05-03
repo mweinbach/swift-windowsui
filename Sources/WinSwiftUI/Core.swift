@@ -1358,6 +1358,9 @@ private func suppressInteraction(in node: ViewNode) {
     node.onDragStart = nil
     node.onDragChange = nil
     node.onDragEnd = nil
+    node.onDragStartAt = nil
+    node.onDragChangeAt = nil
+    node.onDragEndAt = nil
 
     for child in node.children {
         suppressInteraction(in: child)
@@ -2686,6 +2689,9 @@ public extension View {
                 childNode.onDragStart = nil
                 childNode.onDragChange = nil
                 childNode.onDragEnd = nil
+                childNode.onDragStartAt = nil
+                childNode.onDragChangeAt = nil
+                childNode.onDragEndAt = nil
                 return childNode
             }
         }

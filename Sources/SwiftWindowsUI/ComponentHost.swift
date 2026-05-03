@@ -175,6 +175,9 @@ public final class ComponentHost {
         target.onDragStart = source.onDragStart
         target.onDragChange = source.onDragChange
         target.onDragEnd = source.onDragEnd
+        target.onDragStartAt = source.onDragStartAt
+        target.onDragChangeAt = source.onDragChangeAt
+        target.onDragEndAt = source.onDragEndAt
         target.onLayout = source.onLayout
         target.onAppear = source.onAppear
         target.onDisappear = source.onDisappear

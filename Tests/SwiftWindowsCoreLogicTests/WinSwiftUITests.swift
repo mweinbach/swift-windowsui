@@ -1446,6 +1446,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldPointerDragSelectsAndReplacesRange() async {
+        await MainActor.run {
+            var text = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("ABCD")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            _ = runtime.renderFrame()
+            let afterFirstCharacterX = node.children[1].frame.origin.x
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            _ = runtime.renderFrame()
+            let afterThirdCharacterX = node.children[1].frame.origin.x
+
+            runtime.pointerDown(at: Point(x: afterFirstCharacterX, y: 18))
+            runtime.pointerMoved(to: Point(x: afterThirdCharacterX, y: 18))
+            _ = runtime.renderFrame()
+
+            XCTAssertFalse(node.children[2].isHidden)
+
+            runtime.pointerUp(at: Point(x: afterThirdCharacterX, y: 18))
+            runtime.textInput("x")
+
+            XCTAssertEqual(text, "AxD")
+        }
+    }
+
     func testSecureFieldMasksDisplayWhileEditingBinding() async {
         await MainActor.run {
             var password = ""

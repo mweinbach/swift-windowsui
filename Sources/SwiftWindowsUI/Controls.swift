@@ -1140,18 +1140,17 @@ public enum Controls {
                 applyTextMutation(state.insert(sanitizedInput))
             }
             root.onPointerDownAt = { point in
-                let contentPoint = Point(
-                    x: point.x - contentInsets.leading,
-                    y: point.y - contentInsets.top
-                )
-                let offset = state.caretOffset(
-                    closestTo: contentPoint,
-                    isSecure: isSecure,
-                    isMultiline: isMultiline,
-                    lineHeight: measuredLineHeight(),
-                    measureTextWidth: measuredTextWidth
-                )
+                let offset = caretOffset(at: point)
                 applyCaretMove(state.moveCaret(toTextOffset: offset))
+            }
+            root.onDragStartAt = { point in
+                applySelectionChange(state.beginSelection(atTextOffset: caretOffset(at: point)))
+            }
+            root.onDragChangeAt = { point, _ in
+                applySelectionChange(state.extendSelection(toTextOffset: caretOffset(at: point)))
+            }
+            root.onDragEndAt = { point, _ in
+                applySelectionChange(state.extendSelection(toTextOffset: caretOffset(at: point)))
             }
             root.onKeyDown = { event in
                 if event.modifiers.contains(.control), event.keyCode == 0x41 {
@@ -1192,6 +1191,20 @@ public enum Controls {
                     break
                 }
             }
+        }
+
+        func caretOffset(at point: Point) -> Int {
+            let contentPoint = Point(
+                x: point.x - contentInsets.leading,
+                y: point.y - contentInsets.top
+            )
+            return state.caretOffset(
+                closestTo: contentPoint,
+                isSecure: isSecure,
+                isMultiline: isMultiline,
+                lineHeight: measuredLineHeight(),
+                measureTextWidth: measuredTextWidth
+            )
         }
 
         return root
@@ -2011,6 +2024,21 @@ private final class TextFieldState {
 
     func moveCaret(toTextOffset offset: Int) -> Bool {
         moveCaret(to: offset)
+    }
+
+    func beginSelection(atTextOffset offset: Int) -> Bool {
+        let nextOffset = min(max(0, offset), text.count)
+        let didChange = normalizedSelectionRange != nil
+            || selectionAnchorOffset != nextOffset
+            || caretOffset != nextOffset
+        caretOffset = nextOffset
+        selectionAnchorOffset = nextOffset
+        selectionRange = nil
+        return didChange
+    }
+
+    func extendSelection(toTextOffset offset: Int) -> Bool {
+        extendSelection(to: offset)
     }
 
     func caretOffset(

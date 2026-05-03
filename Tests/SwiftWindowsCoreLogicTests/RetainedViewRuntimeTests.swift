@@ -810,11 +810,17 @@ final class RetainedViewRuntimeTests: XCTestCase {
             var startPoints: [Point] = []
             var dragDeltas: [Point] = []
             var endDeltas: [Point] = []
+            var localStartPoints: [Point] = []
+            var localDragDeltas: [Point] = []
+            var localEndDeltas: [Point] = []
 
             let handle = ViewNode(frame: Rect(x: 10, y: 10, width: 24, height: 24))
             handle.onDragStart = { point in startPoints.append(point) }
             handle.onDragChange = { _, delta in dragDeltas.append(delta) }
             handle.onDragEnd = { _, delta in endDeltas.append(delta) }
+            handle.onDragStartAt = { point in localStartPoints.append(point) }
+            handle.onDragChangeAt = { _, delta in localDragDeltas.append(delta) }
+            handle.onDragEndAt = { _, delta in localEndDeltas.append(delta) }
 
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 120, height: 120),
@@ -830,6 +836,9 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertEqual(startPoints, [Point(x: 14, y: 16)])
             XCTAssertEqual(dragDeltas.last, Point(x: 14, y: 26))
             XCTAssertEqual(endDeltas, [Point(x: 14, y: 26)])
+            XCTAssertEqual(localStartPoints, [Point(x: 4, y: 6)])
+            XCTAssertEqual(localDragDeltas.last, Point(x: 14, y: 26))
+            XCTAssertEqual(localEndDeltas, [Point(x: 14, y: 26)])
         }
     }
 }

@@ -482,6 +482,18 @@ private func runTextInputProbe() -> String {
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
     runtime.pointerDown(at: Point(x: afterFirstCharacterX, y: 18))
     runtime.textInput("!")
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+    _ = runtime.renderFrame()
+    let dragStartX = field.children[1].frame.origin.x
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+    _ = runtime.renderFrame()
+    let dragEndX = field.children[1].frame.origin.x
+    runtime.pointerDown(at: Point(x: dragStartX, y: 18))
+    runtime.pointerMoved(to: Point(x: dragEndX, y: 18))
+    runtime.pointerUp(at: Point(x: dragEndX, y: 18))
+    runtime.textInput("-")
     return value
 }
 
@@ -636,8 +648,8 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
         failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
     }
-    if textInputProbeValue != "Z!1Q" {
-        failures.append("text input probe expected Z!1Q after select-all, shift-selection, and pointer-caret replacement, got \(textInputProbeValue)")
+    if textInputProbeValue != "Z-Q" {
+        failures.append("text input probe expected Z-Q after select-all, shift-selection, pointer-caret, and drag-selection replacement, got \(textInputProbeValue)")
     }
     if scrollStress.commandCount > 40 {
         failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")

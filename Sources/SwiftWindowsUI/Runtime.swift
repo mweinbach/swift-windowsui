@@ -252,6 +252,9 @@ public final class ViewNode {
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
+    public var onDragStartAt: ((Point) -> Void)?
+    public var onDragChangeAt: ((Point, Point) -> Void)?
+    public var onDragEndAt: ((Point, Point) -> Void)?
     public var onLayout: ((Rect) -> Void)?
 
     // Gap/Fix: Lifecycle hooks — called during appendCommands when node
@@ -373,6 +376,9 @@ public final class ViewNode {
         self.onDragStart = nil
         self.onDragChange = nil
         self.onDragEnd = nil
+        self.onDragStartAt = nil
+        self.onDragChangeAt = nil
+        self.onDragEndAt = nil
         self.onLayout = nil
         self.children = []
         self.resolvedFrame = frame
@@ -1497,7 +1503,12 @@ public final class ViewNode {
     }
 
     fileprivate var isDraggable: Bool {
-        onDragStart != nil || onDragChange != nil || onDragEnd != nil
+        onDragStart != nil
+            || onDragChange != nil
+            || onDragEnd != nil
+            || onDragStartAt != nil
+            || onDragChangeAt != nil
+            || onDragEndAt != nil
     }
 
     fileprivate func localPoint(from point: Point) -> Point {
@@ -1904,6 +1915,12 @@ public final class RetainedViewRuntime {
 
             let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
             node.onDragChange?(point, delta)
+            let localPoint = node.localPoint(from: point)
+            let localDelta = Point(
+                x: localPoint.x - dragState.startLocalPoint.x,
+                y: localPoint.y - dragState.startLocalPoint.y
+            )
+            node.onDragChangeAt?(localPoint, localDelta)
             return
         }
 
@@ -1938,20 +1955,23 @@ public final class RetainedViewRuntime {
         }
 
         let hitNode = hitTest(at: point)
-        if let draggableNode = nearestDraggableNode(from: hitNode) {
-            nodeDragState = NodeDragState(node: draggableNode, startPoint: point)
-            draggableNode.onDragStart?(point)
-            updateHoverTarget(to: hitNode)
-            return
-        }
-
         updateFocusTarget(to: nearestFocusableNode(from: hitNode))
         updateHoverTarget(to: hitNode)
-        pressedNode = hitNode
         hitNode?.onPointerDown?()
         if let hitNode {
             hitNode.onPointerDownAt?(hitNode.localPoint(from: point))
         }
+
+        if let draggableNode = nearestDraggableNode(from: hitNode) {
+            let localPoint = draggableNode.localPoint(from: point)
+            nodeDragState = NodeDragState(node: draggableNode, startPoint: point, startLocalPoint: localPoint)
+            pressedNode = nil
+            draggableNode.onDragStart?(point)
+            draggableNode.onDragStartAt?(localPoint)
+            return
+        }
+
+        pressedNode = hitNode
     }
 
     public func pointerUp(at point: Point) {
@@ -1973,6 +1993,12 @@ public final class RetainedViewRuntime {
             if let node = dragState.node {
                 let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
                 node.onDragEnd?(point, delta)
+                let localPoint = node.localPoint(from: point)
+                let localDelta = Point(
+                    x: localPoint.x - dragState.startLocalPoint.x,
+                    y: localPoint.y - dragState.startLocalPoint.y
+                )
+                node.onDragEndAt?(localPoint, localDelta)
             }
             updateHoverTarget(to: hitTest(at: point))
             updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
@@ -2282,6 +2308,7 @@ private struct ScrollDragState {
 private struct NodeDragState {
     weak var node: ViewNode?
     let startPoint: Point
+    let startLocalPoint: Point
 }
 
 public enum AnimatedColorProperty: Hashable, Sendable {

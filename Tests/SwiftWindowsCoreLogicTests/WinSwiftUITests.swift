@@ -339,6 +339,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStepperUpdatesBindingAndDisablesAtBounds() async {
+        await MainActor.run {
+            var value = 2
+            var invalidationCount = 0
+
+            let node = makeNode(
+                Stepper("COUNT", value: Binding(get: { value }, set: { value = $0 }), in: 0...3, step: 1),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "COUNT")
+            XCTAssertEqual(node.children[2].text, "2")
+
+            let controls = node.children[3]
+            controls.children[1].onActivate?()
+            XCTAssertEqual(value, 3)
+            XCTAssertEqual(invalidationCount, 1)
+
+            controls.children[0].onActivate?()
+            XCTAssertEqual(value, 2)
+            XCTAssertEqual(invalidationCount, 2)
+
+            let upperBoundNode = makeNode(
+                Stepper("COUNT", value: Binding(get: { 3 }, set: { _ in }), in: 0...3)
+            )
+            let upperBoundIncrementButton = upperBoundNode.children[3].children[1]
+            XCTAssertFalse(upperBoundIncrementButton.isFocusable)
+            XCTAssertNil(upperBoundIncrementButton.onActivate)
+        }
+    }
+
+    func testStepperSupportsDoubleValuesAndCustomLabels() async {
+        await MainActor.run {
+            var value = 0.5
+
+            let node = makeNode(
+                Stepper(value: Binding(get: { value }, set: { value = $0 }), in: 0...1, step: 0.25) {
+                    Label("RATE", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertEqual(node.children[0].children[1].text, "RATE")
+            XCTAssertEqual(node.children[2].text, "0.5")
+
+            node.children[3].children[1].onActivate?()
+
+            XCTAssertEqual(value, 0.75, accuracy: 0.001)
+        }
+    }
+
     func testButtonDisabledRemovesInteractionAndUsesDisabledChrome() async {
         await MainActor.run {
             var didRunAction = false

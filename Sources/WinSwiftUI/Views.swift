@@ -1050,6 +1050,131 @@ public struct Toggle: View {
 }
 
 @MainActor
+public struct Stepper<Value: Comparable>: View {
+    public typealias Body = Never
+
+    private let value: Binding<Value>
+    private let bounds: ClosedRange<Value>
+    private let label: [AnyView]
+    private let incrementValue: (Value) -> Value
+    private let decrementValue: (Value) -> Value
+    private let valueText: (Value) -> String
+    private var isEnabled: Bool
+
+    public init(_ title: String, value: Binding<Int>, in bounds: ClosedRange<Int> = Int.min...Int.max, step: Int = 1) where Value == Int {
+        self.init(
+            value: value,
+            in: bounds,
+            step: step,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }
+        )
+    }
+
+    public init(value: Binding<Int>, in bounds: ClosedRange<Int> = Int.min...Int.max, step: Int = 1, @ViewBuilder label: () -> [AnyView]) where Value == Int {
+        let normalizedStep = step > 0 ? step : 1
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.incrementValue = { current in
+            let (candidate, overflow) = current.addingReportingOverflow(normalizedStep)
+            return overflow ? Int.max : candidate
+        }
+        self.decrementValue = { current in
+            let (candidate, overflow) = current.subtractingReportingOverflow(normalizedStep)
+            return overflow ? Int.min : candidate
+        }
+        self.valueText = { "\($0)" }
+        self.isEnabled = true
+    }
+
+    public init(_ title: String, value: Binding<Double>, in bounds: ClosedRange<Double>, step: Double = 1.0) where Value == Double {
+        self.init(
+            value: value,
+            in: bounds,
+            step: step,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .regular))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }
+        )
+    }
+
+    public init(value: Binding<Double>, in bounds: ClosedRange<Double>, step: Double = 1.0, @ViewBuilder label: () -> [AnyView]) where Value == Double {
+        let normalizedStep = step > 0 ? step : 1.0
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.incrementValue = { $0 + normalizedStep }
+        self.decrementValue = { $0 - normalizedStep }
+        self.valueText = { "\($0)" }
+        self.isEnabled = true
+    }
+
+    public var body: Never {
+        fatalError("Stepper has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let currentValue = clamped(value.wrappedValue)
+        let canDecrement = isEnabled && currentValue > bounds.lowerBound
+        let canIncrement = isEnabled && currentValue < bounds.upperBound
+
+        return HStack(spacing: 10) {
+            label
+            Spacer()
+            Text(valueText(currentValue))
+                .font(.system(size: 1.35, weight: .semibold))
+                .foregroundColor(Color(red: 0.84, green: 0.90, blue: 1.0, alpha: 0.78))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+            HStack(spacing: 6) {
+                Button("-") {
+                    setValue(decrementValue(value.wrappedValue))
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canDecrement)
+
+                Button("+") {
+                    setValue(incrementValue(value.wrappedValue))
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canIncrement)
+            }
+        }
+        .makeComponent(context: context)
+    }
+
+    private func setValue(_ newValue: Value) {
+        value.wrappedValue = clamped(newValue)
+    }
+
+    private func clamped(_ rawValue: Value) -> Value {
+        if rawValue < bounds.lowerBound {
+            return bounds.lowerBound
+        }
+        if rawValue > bounds.upperBound {
+            return bounds.upperBound
+        }
+        return rawValue
+    }
+
+    public func disabled(_ disabled: Bool) -> Stepper {
+        var copy = self
+        copy.isEnabled = !disabled
+        return copy
+    }
+}
+
+@MainActor
 public struct Slider: View {
     public typealias Body = Never
 

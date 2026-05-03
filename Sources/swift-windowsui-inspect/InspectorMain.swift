@@ -32,7 +32,8 @@ struct SwiftWindowsUIInspector {
         let controlProbeFocusableCount = countFocusableNodes(controlProbeRuntime.root)
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
-            size: Size(width: 360, height: 260)
+            size: Size(width: 360, height: 260),
+            maximumTextSamples: 10
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -663,6 +664,7 @@ private struct WinSwiftUIProbeView: View {
             Form {
                 Section("FORM STATUS") {
                     Toggle("INSPECTED ROW", isOn: Binding(get: { true }, set: { _ in }))
+                    Stepper("STEP COUNT", value: Binding(get: { 2 }, set: { _ in }), in: 0...5)
                 }
                 GroupBox("GROUP BOX") {
                     Text("INSPECTED DETAIL")

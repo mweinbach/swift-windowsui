@@ -21,6 +21,15 @@ public struct GPUILayer: Equatable, Sendable {
         self.glyphs = glyphs
         self.images = images
     }
+
+    /// Total primitive count in this layer, useful for renderer diagnostics.
+    public var primitiveCount: Int {
+        shadows.count + quads.count + glyphs.count + images.count
+    }
+
+    public var isEmpty: Bool {
+        primitiveCount == 0
+    }
 }
 
 // MARK: - GPUIScene
@@ -35,6 +44,15 @@ public struct GPUIScene: Equatable, Sendable {
     public init(clearColor: Color = .black) {
         self.clearColor = clearColor
         self.layers = [GPUILayer()]
+    }
+
+    /// Total primitive count across all layers.
+    public var primitiveCount: Int {
+        layers.reduce(0) { $0 + $1.primitiveCount }
+    }
+
+    public var totalPrimitiveCount: Int {
+        primitiveCount
     }
 
     // MARK: - Layer management

@@ -65,6 +65,61 @@ public struct QuadPrimitive: Equatable, Sendable {
         self._pad1 = 0
     }
 
+    public init(
+        x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
+        red: Float, green: Float, blue: Float, alpha: Float,
+        cornerRadius: Float = 0,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
+    ) {
+        self.init(
+            x: x, y: y, width: width, height: height,
+            cornerRadius: cornerRadius,
+            startR: red, startG: green, startB: blue, startA: alpha,
+            endR: red, endG: green, endB: blue, endA: alpha,
+            gradientAxis: 0,
+            clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight
+        )
+    }
+
+    public var red: Float {
+        get { startR }
+        set {
+            startR = newValue
+            endR = newValue
+        }
+    }
+
+    public var green: Float {
+        get { startG }
+        set {
+            startG = newValue
+            endG = newValue
+        }
+    }
+
+    public var blue: Float {
+        get { startB }
+        set {
+            startB = newValue
+            endB = newValue
+        }
+    }
+
+    public var alpha: Float {
+        get { startA }
+        set {
+            startA = newValue
+            endA = newValue
+        }
+    }
+
+    public var clipRect: (Float, Float, Float, Float)? {
+        guard clipWidth > 0, clipHeight > 0 else {
+            return nil
+        }
+        return (clipX, clipY, clipWidth, clipHeight)
+    }
+
     public static var byteSize: Int { MemoryLayout<Self>.size }
 }
 
@@ -212,6 +267,42 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.blurRadius = blurRadius
         self.offsetX = offsetX
         self.offsetY = offsetY
+    }
+
+    public init(
+        x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
+        red: Float, green: Float, blue: Float, alpha: Float,
+        cornerRadius: Float = 0,
+        blurRadius: Float = 4,
+        offsetX: Float = 0, offsetY: Float = 0
+    ) {
+        self.init(
+            x: x, y: y, width: width, height: height,
+            cornerRadius: cornerRadius,
+            colorR: red, colorG: green, colorB: blue, colorA: alpha,
+            blurRadius: blurRadius,
+            offsetX: offsetX, offsetY: offsetY
+        )
+    }
+
+    public var red: Float {
+        get { colorR }
+        set { colorR = newValue }
+    }
+
+    public var green: Float {
+        get { colorG }
+        set { colorG = newValue }
+    }
+
+    public var blue: Float {
+        get { colorB }
+        set { colorB = newValue }
+    }
+
+    public var alpha: Float {
+        get { colorA }
+        set { colorA = newValue }
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }

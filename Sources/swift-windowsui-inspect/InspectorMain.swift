@@ -679,6 +679,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("GRID B2") {
         failures.append("WinSwiftUI probe text samples are missing the Grid row selection")
     }
+    if !winSwiftUIProbe.textSamples.contains("MODIFIER CHIP") {
+        failures.append("WinSwiftUI probe text samples are missing the ViewModifier sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -732,6 +735,17 @@ private func clipMatches(
         && abs(clip.1 - y) <= tolerance
         && abs(clip.2 - width) <= tolerance
         && abs(clip.3 - height) <= tolerance
+}
+
+private struct InspectorChipModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 1.35, weight: .semibold))
+            .foregroundColor(Color(red: 0.90, green: 0.96, blue: 1.0, alpha: 0.96))
+            .padding(EdgeInsets(top: 4, leading: 10, bottom: 4, trailing: 10))
+            .background(Color(red: 0.12, green: 0.20, blue: 0.30, alpha: 0.78))
+            .cornerRadius(15)
+    }
 }
 
 @MainActor
@@ -804,6 +818,9 @@ private struct WinSwiftUIProbeView: View {
                     Text("GRID B2")
                 }
             }
+
+            Text("MODIFIER CHIP")
+                .modifier(InspectorChipModifier())
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 

@@ -305,6 +305,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCustomViewModifierAppliesRetainedTransforms() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("MODIFIED")
+                    .modifier(TestHighlightModifier())
+            )
+
+            XCTAssertTrue(containsText("MODIFIED", in: node))
+            XCTAssertEqual(node.cornerRadius, 9)
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertNotNil(firstNode(withBackground: TestHighlightModifier.backgroundColor, in: node))
+            XCTAssertTrue(allTextDescendants(in: node) { child in
+                child.textStyle.color == TestHighlightModifier.foregroundColor
+            })
+        }
+    }
+
+    func testModifiedContentInitializerBuildsModifier() async {
+        await MainActor.run {
+            let node = makeNode(
+                ModifiedContent(content: Text("DIRECT MODIFIER"), modifier: TestHighlightModifier())
+            )
+
+            XCTAssertTrue(containsText("DIRECT MODIFIER", in: node))
+            XCTAssertEqual(node.cornerRadius, 9)
+            XCTAssertNotNil(firstNode(withBackground: TestHighlightModifier.backgroundColor, in: node))
+        }
+    }
+
+    func testCustomViewModifierPropagatesBuildContext() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Button("RUN") {}
+                }
+                .modifier(TestBorderlessButtonsModifier())
+            )
+
+            let button = firstFocusableNode(containing: "RUN", in: node)
+
+            XCTAssertEqual(button?.backgroundColor, .clear)
+            XCTAssertEqual(button?.borderColor, .clear)
+            XCTAssertFalse(button?.clipsToBounds ?? true)
+        }
+    }
+
+    func testCustomViewModifierSupportsViewBuilderConditionals() async {
+        await MainActor.run {
+            let activeNode = makeNode(
+                Text("ACTIVE")
+                    .modifier(TestConditionalModifier(isActive: true))
+            )
+            let inactiveNode = makeNode(
+                Text("INACTIVE")
+                    .modifier(TestConditionalModifier(isActive: false))
+            )
+
+            XCTAssertTrue(containsText("ACTIVE", in: activeNode))
+            XCTAssertEqual(activeNode.textStyle.color, .green)
+            XCTAssertTrue(containsText("INACTIVE", in: inactiveNode))
+            XCTAssertEqual(inactiveNode.textStyle.color, .white)
+        }
+    }
+
     func testGenericTextCaseStylesDescendants() async {
         await MainActor.run {
             let node = makeNode(
@@ -4763,6 +4827,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+}
+
+private struct TestHighlightModifier: ViewModifier {
+    static let backgroundColor = Color(red: 0.12, green: 0.20, blue: 0.30, alpha: 1.0)
+    static let foregroundColor = Color(red: 0.96, green: 0.84, blue: 0.24, alpha: 1.0)
+
+    func body(content: Content) -> some View {
+        content
+            .padding(5)
+            .background(Self.backgroundColor)
+            .cornerRadius(9)
+            .foregroundColor(Self.foregroundColor)
+    }
+}
+
+private struct TestBorderlessButtonsModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content.buttonStyle(.borderless)
+    }
+}
+
+private struct TestConditionalModifier: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        if isActive {
+            content.foregroundColor(.green)
+        } else {
+            content
+        }
+    }
 }
 
 @MainActor

@@ -889,6 +889,19 @@ public extension View {
     func eraseToAnyView() -> AnyView {
         AnyView(self)
     }
+
+    func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
+        ModifiedContent(content: self, modifier: modifier)
+    }
+}
+
+@MainActor
+public protocol ViewModifier {
+    associatedtype Body: View
+
+    typealias Content = ViewModifierContent<Self>
+
+    @ViewBuilder func body(content: Content) -> Body
 }
 
 @MainActor
@@ -939,6 +952,46 @@ public struct AnyView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         buildComponent(context)
+    }
+}
+
+@MainActor
+public struct ViewModifierContent<Modifier: ViewModifier>: View {
+    public typealias Body = Never
+
+    private let content: AnyView
+
+    init<V: View>(_ content: V) {
+        self.content = AnyView(content)
+    }
+
+    public var body: Never {
+        fatalError("ViewModifierContent has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View {
+    public typealias Body = Never
+
+    public let content: Content
+    public let modifier: Modifier
+
+    public init(content: Content, modifier: Modifier) {
+        self.content = content
+        self.modifier = modifier
+    }
+
+    public var body: Never {
+        fatalError("ModifiedContent has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        modifier.body(content: ViewModifierContent<Modifier>(content)).makeComponent(context: context)
     }
 }
 

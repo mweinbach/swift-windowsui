@@ -58,6 +58,7 @@ Views and containers:
 - `ScrollView`
 - `List`
 - `Form`
+- `GroupBox`
 - `Section`
 - `HSplitView`
 - `VSplitView`
@@ -147,6 +148,7 @@ Surface direction:
 - `id(_:)` accepts hashable values and stores their string description as the retained node tag for reconciliation.
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
+- `GroupBox` maps title and custom-label call sites into retained `Section`-style rounded panels for settings and dashboard groups.
 - `Section` supports the styled string-title initializer plus SwiftUI-shaped content/header/footer builder forms. Custom header and footer views are rendered as supplied retained subtrees.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.

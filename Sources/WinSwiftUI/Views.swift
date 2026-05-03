@@ -671,6 +671,83 @@ public struct Form: View {
 }
 
 @MainActor
+public struct GroupBox: View {
+    public typealias Body = Never
+
+    private let title: String?
+    private let style: SectionStyle
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(_ title: String, style: SectionStyle = GroupBox.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+        self.title = title
+        self.style = style
+        self.label = []
+        self.content = content()
+    }
+
+    public init(style: SectionStyle = GroupBox.defaultStyle, @ViewBuilder content: () -> [AnyView]) {
+        self.title = nil
+        self.style = style
+        self.label = []
+        self.content = content()
+    }
+
+    public init(
+        style: SectionStyle = GroupBox.defaultStyle,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = nil
+        self.style = style
+        self.label = label()
+        self.content = content()
+    }
+
+    public init<LabelContent: View>(
+        style: SectionStyle = GroupBox.defaultStyle,
+        label: LabelContent,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.title = nil
+        self.style = style
+        self.label = [AnyView(label)]
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("GroupBox has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        if let title {
+            return Section(title, style: style) {
+                content
+            }
+            .makeComponent(context: context)
+        }
+
+        return Section(style: style) {
+            content
+        } header: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+
+    public static let defaultStyle = SectionStyle(
+        spacing: 12,
+        padding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
+        backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.66),
+        borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.12),
+        shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.14),
+        cornerRadius: 20,
+        headerColor: Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 0.92),
+        headerFont: .system(size: 1.35, weight: .semibold)
+    )
+}
+
+@MainActor
 public struct Section: View {
     public typealias Body = Never
 

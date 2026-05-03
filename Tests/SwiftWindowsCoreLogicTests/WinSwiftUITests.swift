@@ -1222,6 +1222,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGroupBoxMapsTitleAndCustomLabelToRetainedSection() async {
+        await MainActor.run {
+            let titledNode = makeNode(
+                GroupBox("SETTINGS") {
+                    Text("ROW")
+                }
+            )
+
+            XCTAssertEqual(titledNode.cornerRadius, GroupBox.defaultStyle.cornerRadius)
+            XCTAssertEqual(titledNode.children.count, 2)
+            XCTAssertEqual(titledNode.children[0].text, "SETTINGS")
+            XCTAssertEqual(titledNode.children[0].textStyle.scale, GroupBox.defaultStyle.headerFont.size)
+            XCTAssertEqual(titledNode.children[1].text, "ROW")
+
+            let customLabelNode = makeNode(
+                GroupBox {
+                    Text("VALUE")
+                } label: {
+                    Label("NETWORK", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertEqual(customLabelNode.children.count, 2)
+            XCTAssertEqual(customLabelNode.children[0].children[1].text, "NETWORK")
+            XCTAssertEqual(customLabelNode.children[1].text, "VALUE")
+
+            let valueLabelNode = makeNode(
+                GroupBox(label: Label("ALERTS", systemImage: "bell.fill")) {
+                    Text("ON")
+                }
+            )
+
+            XCTAssertEqual(valueLabelNode.children[0].children[1].text, "ALERTS")
+            XCTAssertEqual(valueLabelNode.children[1].text, "ON")
+        }
+    }
+
     func testSectionStringTitleKeepsStyledHeader() async {
         await MainActor.run {
             let style = SectionStyle(

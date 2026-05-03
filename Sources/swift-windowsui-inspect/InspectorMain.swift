@@ -664,6 +664,9 @@ private struct WinSwiftUIProbeView: View {
                 Section("FORM STATUS") {
                     Toggle("INSPECTED ROW", isOn: Binding(get: { true }, set: { _ in }))
                 }
+                GroupBox("GROUP BOX") {
+                    Text("INSPECTED DETAIL")
+                }
             }
             .frame(height: 126)
         }

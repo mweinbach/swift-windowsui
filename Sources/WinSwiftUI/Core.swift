@@ -779,6 +779,20 @@ public struct Font: Sendable, Equatable {
         case monospaced
     }
 
+    public enum TextStyle: Sendable, Equatable {
+        case largeTitle
+        case title
+        case title2
+        case title3
+        case headline
+        case subheadline
+        case body
+        case callout
+        case footnote
+        case caption
+        case caption2
+    }
+
     public var size: Double
     public var weight: Weight
     public var design: Design
@@ -793,6 +807,17 @@ public struct Font: Sendable, Equatable {
 
     public static func system(size: Double, weight: Weight = .regular, design: Design = .default) -> Font {
         Font(size: size, weight: weight, design: design)
+    }
+
+    public static func system(_ style: TextStyle, design: Design? = nil, weight: Weight? = nil) -> Font {
+        var font = style.font
+        if let design {
+            font.design = design
+        }
+        if let weight {
+            font.weight = weight
+        }
+        return font
     }
 
     public static func custom(_ name: String, size: Double) -> Font {
@@ -1475,6 +1500,35 @@ extension Font {
             return "Segoe UI"
         case .monospaced:
             return "Cascadia Mono"
+        }
+    }
+}
+
+extension Font.TextStyle {
+    var font: Font {
+        switch self {
+        case .largeTitle:
+            return .largeTitle
+        case .title:
+            return .title
+        case .title2:
+            return .title2
+        case .title3:
+            return .title3
+        case .headline:
+            return .headline
+        case .subheadline:
+            return .subheadline
+        case .body:
+            return .body
+        case .callout:
+            return .callout
+        case .footnote:
+            return .footnote
+        case .caption:
+            return .caption
+        case .caption2:
+            return .caption2
         }
     }
 }

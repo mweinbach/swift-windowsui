@@ -148,11 +148,18 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let headlineNode = makeNode(Text("HEADLINE").font(.headline))
             let captionNode = makeNode(Text("CAPTION").font(.caption2))
+            let systemStyleNode = makeNode(
+                Text("SYSTEM STYLE")
+                    .font(.system(.headline, design: .monospaced, weight: .bold))
+            )
 
             XCTAssertEqual(headlineNode.textStyle.scale, 1.7, accuracy: 0.001)
             XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
             XCTAssertEqual(captionNode.textStyle.scale, 1.1, accuracy: 0.001)
             XCTAssertEqual(captionNode.textStyle.weight, .regular)
+            XCTAssertEqual(systemStyleNode.textStyle.scale, 1.7, accuracy: 0.001)
+            XCTAssertEqual(systemStyleNode.textStyle.weight, .bold)
+            XCTAssertEqual(systemStyleNode.textStyle.fontFamily, "Cascadia Mono")
         }
     }
 

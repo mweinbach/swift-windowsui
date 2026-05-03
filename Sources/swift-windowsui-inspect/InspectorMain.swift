@@ -822,7 +822,7 @@ private struct WinSwiftUIProbeView: View {
             Text("MODIFIER CHIP")
                 .modifier(InspectorChipModifier())
 
-            Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
+            Toggle("LIVE SWITCH", isOn: .constant(true))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("SEARCH RESULT ROW")

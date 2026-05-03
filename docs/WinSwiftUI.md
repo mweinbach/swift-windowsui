@@ -198,7 +198,7 @@ Compatibility helpers:
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
-- minimal `Binding`, including projected `@ObservedObject` and `@StateObject` bindings
+- minimal `Binding`, including `Binding.constant(_:)` and projected `@ObservedObject` and `@StateObject` bindings
 - minimal `ViewModifier`, `ViewModifier.Content`, and `ModifiedContent`
 
 Surface direction:

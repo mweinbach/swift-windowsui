@@ -273,6 +273,16 @@ public struct Binding<Value> {
         self.init(get: get, set: set, invalidatesOnSet: false)
     }
 
+    public static func constant(_ value: Value) -> Binding<Value> {
+        Binding<Value>(
+            get: {
+                value
+            },
+            set: { _ in },
+            invalidatesOnSet: true
+        )
+    }
+
     init(
         get: @escaping @MainActor () -> Value,
         set: @escaping @MainActor (Value) -> Void,

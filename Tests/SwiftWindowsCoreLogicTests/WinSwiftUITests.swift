@@ -108,6 +108,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testConstantBindingReadsValueAndIgnoresWrites() async {
+        await MainActor.run {
+            let binding = Binding.constant("LOCKED")
+
+            XCTAssertEqual(binding.wrappedValue, "LOCKED")
+            binding.wrappedValue = "UPDATED"
+            XCTAssertEqual(binding.wrappedValue, "LOCKED")
+        }
+    }
+
+    func testConstantBindingDoesNotInvalidateRetainedContextOnControlActivation() async {
+        await MainActor.run {
+            var invalidationCount = 0
+            let node = makeNode(
+                Toggle("LOCKED", isOn: .constant(false)),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(invalidationCount, 0)
+        }
+    }
+
     func testTextConcatenationPreservesSpanStyles() async {
         await MainActor.run {
             let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)

@@ -1456,6 +1456,67 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationStackPushesLinkDestinationsAndBackButtonPops() async {
+        await MainActor.run {
+            var invalidationCount = 0
+            let view = NavigationStack {
+                NavigationLink("Details") {
+                    Text("DETAIL VIEW")
+                }
+            }
+            let rootNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(containsText("Details", in: rootNode))
+            XCTAssertFalse(containsText("DETAIL VIEW", in: rootNode))
+
+            let link = firstFocusableNode(in: rootNode)
+            link?.onActivate?()
+
+            let pushedNode = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(invalidationCount, 1)
+            XCTAssertTrue(containsText("DETAILS", in: pushedNode.children[0]))
+            XCTAssertTrue(containsText("DETAIL VIEW", in: pushedNode))
+
+            let backButton = firstFocusableNode(in: pushedNode)
+            backButton?.onActivate?()
+
+            let poppedNode = makeNode(view)
+
+            XCTAssertEqual(invalidationCount, 2)
+            XCTAssertTrue(containsText("Details", in: poppedNode))
+            XCTAssertFalse(containsText("DETAIL VIEW", in: poppedNode))
+        }
+    }
+
+    func testNavigationLinkSupportsCustomLabels() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationStack {
+                    NavigationLink {
+                        Text("LOG DETAIL")
+                    } label: {
+                        Label("Logs", systemImage: "bolt.fill")
+                    }
+                }
+            )
+
+            XCTAssertTrue(containsText("Logs", in: node))
+            XCTAssertFalse(containsText("LOG DETAIL", in: node))
+            XCTAssertTrue(hasInteractiveNode(in: node))
+        }
+    }
+
     func testGroupBoxMapsTitleAndCustomLabelToRetainedSection() async {
         await MainActor.run {
             let titledNode = makeNode(
@@ -1773,6 +1834,21 @@ private func hasInteractiveNode(in node: ViewNode) -> Bool {
     }
 
     return node.children.contains { hasInteractiveNode(in: $0) }
+}
+
+@MainActor
+private func firstFocusableNode(in node: ViewNode) -> ViewNode? {
+    if node.isFocusable {
+        return node
+    }
+
+    for child in node.children {
+        if let focusable = firstFocusableNode(in: child) {
+            return focusable
+        }
+    }
+
+    return nil
 }
 
 @MainActor

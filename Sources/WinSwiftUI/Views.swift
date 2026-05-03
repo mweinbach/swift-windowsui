@@ -952,6 +952,225 @@ public struct TabView: View {
 }
 
 @MainActor
+public struct NavigationStack: View {
+    public typealias Body = Never
+
+    @State private var routes: [NavigationRoute] = []
+
+    private let root: [AnyView]
+
+    public init(@ViewBuilder root: () -> [AnyView]) {
+        self.root = root()
+    }
+
+    public var body: Never {
+        fatalError("NavigationStack has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let activeRoute = routes.last
+            let activeViews = activeRoute?.destination ?? root
+            let contentNode = NavigationStackScope.withPush({ route in
+                routes.append(route)
+                context.invalidate()
+            }) {
+                composeComponent(
+                    from: activeViews,
+                    context: context,
+                    fallbackLayout: .stack(.vertical(spacing: 10, alignment: .stretch))
+                )
+                .makeNode(runtime: runtime)
+            }
+            contentNode.layoutPriority = 1
+            contentNode.fillsAvailableWidth = true
+            contentNode.fillsAvailableHeight = true
+
+            var children: [ViewNode] = []
+            if let activeRoute {
+                children.append(makeNavigationBar(title: activeRoute.title, runtime: runtime, context: context))
+            }
+            children.append(contentNode)
+
+            return Controls.stackPanel(
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.16, alpha: 0.78),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.16),
+                shadowOffset: Point(x: 0, y: 16),
+                shadowSpread: 10,
+                cornerRadius: 24,
+                clipsToBounds: true,
+                stackLayout: .vertical(
+                    spacing: 12,
+                    padding: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+
+    private func makeNavigationBar(title: String, runtime: RetainedViewRuntime, context: ViewBuildContext) -> ViewNode {
+        let backLabel = Controls.label(
+            "<",
+            color: Color(red: 0.94, green: 0.98, blue: 1.0, alpha: 0.94),
+            scale: 1.5,
+            weight: .semibold,
+            alignment: .center,
+            lineBreakMode: .clip,
+            maximumNumberOfLines: 1
+        )
+        let backButton = Controls.button(
+            runtime: runtime,
+            preferredSize: Size(width: 36, height: 30),
+            cornerRadius: 14,
+            palette: Self.navigationButtonPalette,
+            chrome: Self.navigationButtonChrome,
+            clipsToBounds: true,
+            layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+            action: {
+                if !routes.isEmpty {
+                    _ = routes.removeLast()
+                    context.invalidate()
+                }
+            },
+            children: [backLabel]
+        )
+
+        let titleLabel = Controls.label(
+            title.uppercased(),
+            layoutPriority: 1,
+            color: Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.94),
+            scale: 1.45,
+            weight: .semibold,
+            alignment: .leading,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+
+        return Controls.stackPanel(
+            backgroundColor: Color(red: 0.09, green: 0.13, blue: 0.20, alpha: 0.62),
+            borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08),
+            borderWidth: 1,
+            cornerRadius: 18,
+            clipsToBounds: true,
+            stackLayout: .horizontal(
+                spacing: 10,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 12),
+                alignment: .center
+            ),
+            isHitTestVisible: false,
+            children: [backButton, titleLabel]
+        )
+    }
+
+    private static let navigationButtonPalette = SurfacePalette(
+        idle: Color(red: 0.16, green: 0.22, blue: 0.32, alpha: 0.70),
+        hovered: Color(red: 0.22, green: 0.30, blue: 0.42, alpha: 0.82),
+        focused: Color(red: 0.26, green: 0.38, blue: 0.54, alpha: 0.90),
+        pressed: Color(red: 0.32, green: 0.48, blue: 0.66, alpha: 0.96),
+        activated: Color(red: 0.40, green: 0.58, blue: 0.78, alpha: 1.0)
+    )
+
+    private static let navigationButtonChrome = SurfaceChrome(
+        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+        borderHoveredColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.18),
+        borderFocusedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.28),
+        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+        borderWidth: 1,
+        focusRingColor: Color(red: 0.62, green: 0.80, blue: 1.0, alpha: 0.26),
+        focusRingWidth: 2
+    )
+}
+
+@MainActor
+public struct NavigationLink: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let destination: [AnyView]
+    private let explicitTitle: String?
+
+    public init(_ title: String, @ViewBuilder destination: () -> [AnyView]) {
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.55, weight: .semibold))
+                    .foregroundColor(Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 0.94))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.destination = destination()
+        self.explicitTitle = title
+    }
+
+    public init(
+        @ViewBuilder destination: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = destination()
+        self.explicitTitle = nil
+    }
+
+    public var body: Never {
+        fatalError("NavigationLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = HStack(spacing: 10) {
+            label
+            Spacer()
+            Text(">")
+                .font(.system(size: 1.5, weight: .semibold))
+                .foregroundColor(Color(red: 0.72, green: 0.82, blue: 0.94, alpha: 0.82))
+                .lineLimit(1)
+        }
+        .makeComponent(context: context)
+        let push = NavigationStackScope.push
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            let routeTitle = explicitTitle ?? firstText(in: labelNode) ?? "Detail"
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: 16,
+                palette: Self.linkPalette,
+                chrome: Self.linkChrome,
+                isEnabled: push != nil,
+                clipsToBounds: true,
+                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                action: {
+                    push?(NavigationRoute(title: routeTitle, destination: destination))
+                },
+                children: [labelNode]
+            )
+        }
+    }
+
+    private static let linkPalette = SurfacePalette(
+        idle: Color(red: 0.12, green: 0.17, blue: 0.25, alpha: 0.68),
+        hovered: Color(red: 0.17, green: 0.24, blue: 0.34, alpha: 0.78),
+        focused: Color(red: 0.22, green: 0.32, blue: 0.45, alpha: 0.86),
+        pressed: Color(red: 0.28, green: 0.42, blue: 0.58, alpha: 0.94),
+        activated: Color(red: 0.36, green: 0.52, blue: 0.70, alpha: 0.98)
+    )
+
+    private static let linkChrome = SurfaceChrome(
+        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+        borderHoveredColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.18),
+        borderFocusedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.28),
+        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+        borderWidth: 1,
+        focusRingColor: Color(red: 0.62, green: 0.80, blue: 1.0, alpha: 0.28),
+        focusRingWidth: 2
+    )
+}
+
+@MainActor
 public struct NavigationSplitView: View {
     public typealias Body = Never
 
@@ -1995,6 +2214,29 @@ private struct TabDescriptor {
     var selectionValue: AnyHashable
     var title: String
     var contentNode: ViewNode
+}
+
+private struct NavigationRoute {
+    var title: String
+    var destination: [AnyView]
+}
+
+@MainActor
+private enum NavigationStackScope {
+    private static var currentPush: ((NavigationRoute) -> Void)?
+
+    static var push: ((NavigationRoute) -> Void)? {
+        currentPush
+    }
+
+    static func withPush<Result>(_ push: @escaping (NavigationRoute) -> Void, _ body: () -> Result) -> Result {
+        let previousPush = currentPush
+        currentPush = push
+        defer {
+            currentPush = previousPush
+        }
+        return body()
+    }
 }
 
 @MainActor

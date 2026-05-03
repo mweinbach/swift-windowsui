@@ -61,6 +61,8 @@ Views and containers:
 - `List`
 - `Form`
 - `TabView`
+- `NavigationStack`
+- `NavigationLink`
 - `NavigationSplitView`
 - `GroupBox`
 - `DisclosureGroup`
@@ -158,6 +160,7 @@ Surface direction:
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `Form` maps into a grouped vertical retained scroll panel with macOS-style translucent chrome and composes directly with `Section` rows.
 - `TabView` maps tagged pages into a retained segmented tab bar plus the selected content subtree. The `selection:` initializer supports typed `Binding` values, while unbound tabs keep local `@State` selection.
+- `NavigationStack` keeps a local retained route stack for simple drill-in flows. `NavigationLink` renders as an interactive retained row and pushes destination content when built inside a `NavigationStack`.
 - `NavigationSplitView` maps the common two- and three-column closure forms onto retained nested `HSplitView`s with styled sidebar/content/detail columns.
 - `GroupBox` maps title and custom-label call sites into retained `Section`-style rounded panels for settings and dashboard groups.
 - `DisclosureGroup` maps expanded-state bindings into retained stack content with a button-backed header; collapsed groups keep only the header in the retained tree.

@@ -1347,6 +1347,7 @@ private func suppressInteraction(in node: ViewNode) {
     node.onPointerEnter = nil
     node.onPointerExit = nil
     node.onPointerDown = nil
+    node.onPointerDownAt = nil
     node.onPointerUpInside = nil
     node.onPointerUpOutside = nil
     node.onFocusEnter = nil
@@ -2674,6 +2675,7 @@ public extension View {
                 childNode.onPointerEnter = nil
                 childNode.onPointerExit = nil
                 childNode.onPointerDown = nil
+                childNode.onPointerDownAt = nil
                 childNode.onPointerUpInside = nil
                 childNode.onPointerUpOutside = nil
                 childNode.onFocusEnter = nil

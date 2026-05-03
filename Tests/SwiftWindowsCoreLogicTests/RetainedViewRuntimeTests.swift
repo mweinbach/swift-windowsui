@@ -231,6 +231,32 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testPointerDownAtReceivesLocalPoint() async {
+        await MainActor.run {
+            var localPoints: [Point] = []
+
+            let target = ViewNode(frame: Rect(x: 5, y: 7, width: 20, height: 20))
+            target.onPointerDownAt = { localPoints.append($0) }
+
+            let container = ViewNode(
+                frame: Rect(x: 10, y: 20, width: 80, height: 60),
+                isHitTestVisible: false,
+                children: [target]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                isHitTestVisible: false,
+                children: [container]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+            _ = runtime.renderFrame()
+
+            runtime.pointerDown(at: Point(x: 18, y: 31))
+
+            XCTAssertEqual(localPoints, [Point(x: 3, y: 4)])
+        }
+    }
+
     func testRenderFrameCapturesButtonVisualStateChanges() async {
         await MainActor.run {
             let palette = SurfacePalette(

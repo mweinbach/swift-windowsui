@@ -455,14 +455,13 @@ private func runTextInputProbe() -> String {
         isHitTestVisible: false
     )
     let runtime = RetainedViewRuntime(root: root, displayScale: 1.0)
-    root.addChild(
-        Controls.textField(
-            runtime: runtime,
-            text: "",
-            placeholder: "Search",
-            onTextChanged: { value = $0 }
-        )
+    let field = Controls.textField(
+        runtime: runtime,
+        text: "",
+        placeholder: "Search",
+        onTextChanged: { value = $0 }
     )
+    root.addChild(field)
 
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.tab.rawValue))
     runtime.textInput("ABC")
@@ -476,6 +475,13 @@ private func runTextInputProbe() -> String {
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue, modifiers: [.shift]))
     runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue, modifiers: [.shift]))
     runtime.textInput("Q")
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+    _ = runtime.renderFrame()
+    let afterFirstCharacterX = field.children[1].frame.origin.x
+    runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+    runtime.pointerDown(at: Point(x: afterFirstCharacterX, y: 18))
+    runtime.textInput("!")
     return value
 }
 
@@ -630,8 +636,8 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("EDITOR LINE A\nEDITOR LINE B") {
         failures.append("WinSwiftUI probe text samples are missing the multiline text editor")
     }
-    if textInputProbeValue != "Z1Q" {
-        failures.append("text input probe expected Z1Q after select-all and shift-selection replacement, got \(textInputProbeValue)")
+    if textInputProbeValue != "Z!1Q" {
+        failures.append("text input probe expected Z!1Q after select-all, shift-selection, and pointer-caret replacement, got \(textInputProbeValue)")
     }
     if scrollStress.commandCount > 40 {
         failures.append("scroll stress emitted \(scrollStress.commandCount) commands; expected culling to keep it at or below 40")

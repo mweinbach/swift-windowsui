@@ -1139,6 +1139,20 @@ public enum Controls {
 
                 applyTextMutation(state.insert(sanitizedInput))
             }
+            root.onPointerDownAt = { point in
+                let contentPoint = Point(
+                    x: point.x - contentInsets.leading,
+                    y: point.y - contentInsets.top
+                )
+                let offset = state.caretOffset(
+                    closestTo: contentPoint,
+                    isSecure: isSecure,
+                    isMultiline: isMultiline,
+                    lineHeight: measuredLineHeight(),
+                    measureTextWidth: measuredTextWidth
+                )
+                applyCaretMove(state.moveCaret(toTextOffset: offset))
+            }
             root.onKeyDown = { event in
                 if event.modifiers.contains(.control), event.keyCode == 0x41 {
                     applySelectionChange(state.selectAll())
@@ -1995,6 +2009,38 @@ private final class TextFieldState {
         moveCaretVertically(delta: 1, extendSelection: extendSelection)
     }
 
+    func moveCaret(toTextOffset offset: Int) -> Bool {
+        moveCaret(to: offset)
+    }
+
+    func caretOffset(
+        closestTo point: Point,
+        isSecure: Bool = false,
+        isMultiline: Bool = false,
+        lineHeight: Double,
+        measureTextWidth: (String) -> Double
+    ) -> Int {
+        guard !text.isEmpty else {
+            return 0
+        }
+
+        let ranges = lineRanges()
+        let lineIndex: Int
+        if isMultiline {
+            let safeLineHeight = max(1, lineHeight)
+            let rawLineIndex = Int((max(0, point.y) / safeLineHeight).rounded(.down))
+            lineIndex = min(max(0, rawLineIndex), max(0, ranges.count - 1))
+        } else {
+            lineIndex = 0
+        }
+
+        let lineRange = ranges[lineIndex]
+        let lineText = String(text.dropFirst(lineRange.start).prefix(lineRange.end - lineRange.start))
+        let displayText = isSecure ? String(repeating: "*", count: lineText.count) : lineText
+        let column = closestColumn(in: displayText, to: max(0, point.x), measureTextWidth: measureTextWidth)
+        return lineRange.start + column
+    }
+
     private func moveCaretVertically(delta: Int, extendSelection: Bool = false) -> Bool {
         let ranges = lineRanges()
         let offset = clampedCaretOffset
@@ -2096,6 +2142,30 @@ private final class TextFieldState {
         let lowerBound = text.index(text.startIndex, offsetBy: range.lowerBound)
         let upperBound = text.index(text.startIndex, offsetBy: range.upperBound)
         return lowerBound..<upperBound
+    }
+
+    private func closestColumn(
+        in displayText: String,
+        to x: Double,
+        measureTextWidth: (String) -> Double
+    ) -> Int {
+        guard !displayText.isEmpty else {
+            return 0
+        }
+
+        var bestColumn = 0
+        var bestDistance = abs(x)
+
+        for column in 1...displayText.count {
+            let width = measureTextWidth(String(displayText.prefix(column)))
+            let distance = abs(width - x)
+            if distance < bestDistance {
+                bestColumn = column
+                bestDistance = distance
+            }
+        }
+
+        return bestColumn
     }
 
     private func lineRanges() -> [(start: Int, end: Int)] {

@@ -241,6 +241,7 @@ public final class ViewNode {
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerDown: (() -> Void)?
+    public var onPointerDownAt: ((Point) -> Void)?
     public var onPointerUpInside: (() -> Void)?
     public var onPointerUpOutside: (() -> Void)?
     public var onFocusEnter: (() -> Void)?
@@ -361,6 +362,7 @@ public final class ViewNode {
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil
+        self.onPointerDownAt = nil
         self.onPointerUpInside = nil
         self.onPointerUpOutside = nil
         self.onFocusEnter = nil
@@ -1498,6 +1500,30 @@ public final class ViewNode {
         onDragStart != nil || onDragChange != nil || onDragEnd != nil
     }
 
+    fileprivate func localPoint(from point: Point) -> Point {
+        let origin = absoluteOrigin()
+        return Point(x: point.x - origin.x, y: point.y - origin.y)
+    }
+
+    private func absoluteOrigin() -> Point {
+        var origin = resolvedFrame.origin
+        var child: ViewNode = self
+
+        while let ancestor = child.parent {
+            origin.x += ancestor.resolvedFrame.origin.x
+            origin.y += ancestor.resolvedFrame.origin.y
+            if ancestor.scrollAxis == .horizontal {
+                origin.x -= ancestor.resolvedScrollOffset
+            }
+            if ancestor.scrollAxis == .vertical {
+                origin.y -= ancestor.resolvedScrollOffset
+            }
+            child = ancestor
+        }
+
+        return origin
+    }
+
     fileprivate var maxScrollOffset: Double {
         switch scrollAxis {
         case .horizontal:
@@ -1923,6 +1949,9 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: hitNode)
         pressedNode = hitNode
         hitNode?.onPointerDown?()
+        if let hitNode {
+            hitNode.onPointerDownAt?(hitNode.localPoint(from: point))
+        }
     }
 
     public func pointerUp(at point: Point) {

@@ -1417,6 +1417,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldPointerDownMovesCaretToClickedPosition() async {
+        await MainActor.run {
+            var text = ""
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(canvasSizeProvider: { Size(width: 320, height: 80) }, invalidateHandler: {})
+            let node = TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 80))
+            node.onTextInput?("ABCD")
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            _ = runtime.renderFrame()
+            let middleCaretX = node.children[1].frame.origin.x
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+            _ = runtime.renderFrame()
+            XCTAssertGreaterThan(node.children[1].frame.origin.x, middleCaretX)
+
+            runtime.pointerDown(at: Point(x: middleCaretX, y: 18))
+            node.onTextInput?("x")
+
+            XCTAssertEqual(text, "ABxCD")
+        }
+    }
+
     func testSecureFieldMasksDisplayWhileEditingBinding() async {
         await MainActor.run {
             var password = ""

@@ -885,6 +885,7 @@ final class WinSwiftUITests: XCTestCase {
             acceptsDynamicProperty(State(wrappedValue: "STATE"))
             acceptsDynamicProperty(Binding.constant("BINDING"))
             acceptsDynamicProperty(ScaledMetric<Double>(wrappedValue: 12))
+            acceptsDynamicProperty(GestureState(wrappedValue: Size(width: 0, height: 0)))
             acceptsDynamicProperty(Environment(\.controlSize))
             acceptsDynamicProperty(FocusState<Bool>(wrappedValue: false))
         }
@@ -3304,6 +3305,55 @@ final class WinSwiftUITests: XCTestCase {
             }
             XCTAssertEqual(endedTranslation.width, 10, accuracy: 0.001)
             XCTAssertEqual(endedTranslation.height, 5, accuracy: 0.001)
+        }
+    }
+
+    func testGestureStateUpdatesDuringDragAndResetsOnEnd() async {
+        await MainActor.run {
+            struct GestureStateDragView: View {
+                @GestureState private var translation = Size(width: 0, height: 0)
+
+                var body: some View {
+                    Text(translation.width > 0 ? "DRAGGING" : "IDLE")
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .updating($translation) { value, state, transaction in
+                                    transaction.disablesAnimations = true
+                                    state = value.translation
+                                }
+                        )
+                }
+            }
+
+            var invalidations = 0
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: {
+                    Size(width: 160, height: 80)
+                },
+                invalidateHandler: {
+                    invalidations += 1
+                }
+            )
+            let view = GestureStateDragView()
+
+            context.beginDynamicBuild()
+            let idleNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            XCTAssertTrue(containsText("IDLE", in: idleNode))
+
+            idleNode.onDragStart?(Point(x: 10, y: 10))
+            idleNode.onDragChange?(Point(x: 24, y: 16), Point(x: 14, y: 6))
+
+            context.beginDynamicBuild()
+            let draggingNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            XCTAssertTrue(containsText("DRAGGING", in: draggingNode))
+            XCTAssertGreaterThanOrEqual(invalidations, 2)
+
+            idleNode.onDragEnd?(Point(x: 24, y: 16), Point(x: 0, y: 0))
+
+            context.beginDynamicBuild()
+            let resetNode = view.makeComponent(context: context).makeNode(runtime: runtime)
+            XCTAssertTrue(containsText("IDLE", in: resetNode))
         }
     }
 

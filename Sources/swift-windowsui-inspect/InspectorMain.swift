@@ -742,6 +742,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("SCALED METRIC READY") {
         failures.append("WinSwiftUI probe text samples are missing the ScaledMetric sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("GESTURE STATE READY") {
+        failures.append("WinSwiftUI probe text samples are missing the GestureState sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("ONCHANGE READY") {
         failures.append("WinSwiftUI probe text samples are missing the onChange sample")
     }
@@ -911,6 +914,22 @@ private struct InspectorScaledMetricSample: View {
     }
 }
 
+private struct InspectorGestureStateSample: View {
+    @GestureState private var dragOffset = Size(width: 0, height: 0)
+
+    var body: some View {
+        Text("GESTURE STATE READY")
+            .offset(dragOffset)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($dragOffset) { value, state, _ in
+                        state = value.translation
+                    }
+            )
+            .modifier(InspectorChipModifier())
+    }
+}
+
 private struct InspectorPreferenceKey: PreferenceKey {
     static let defaultValue = ""
 
@@ -1033,6 +1052,8 @@ private struct WinSwiftUIProbeView: View {
 
             InspectorScaledMetricSample()
                 .controlSize(.large)
+
+            InspectorGestureStateSample()
 
             Text("ONCHANGE READY")
                 .onChange(of: "ready", initial: true) { _, _ in }

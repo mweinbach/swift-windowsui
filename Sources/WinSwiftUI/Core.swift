@@ -132,6 +132,14 @@ public extension DynamicProperty {
     mutating func update() {}
 }
 
+public struct Transaction: Sendable {
+    public var disablesAnimations: Bool
+
+    public init(disablesAnimations: Bool = false) {
+        self.disablesAnimations = disablesAnimations
+    }
+}
+
 public struct DragGesture: Gesture {
     public struct Value: Sendable, Equatable {
         public var time: Date
@@ -163,6 +171,8 @@ public struct DragGesture: Gesture {
 
     var onChangedHandler: (@MainActor (Value) -> Void)?
     var onEndedHandler: (@MainActor (Value) -> Void)?
+    var updatingHandlers: [@MainActor (Value) -> Void] = []
+    var resetHandlers: [@MainActor () -> Void] = []
 
     public init(minimumDistance: Double = 10, coordinateSpace: CoordinateSpace = .local) {
         self.minimumDistance = minimumDistance
@@ -178,6 +188,23 @@ public struct DragGesture: Gesture {
     public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
         var copy = self
         copy.onEndedHandler = action
+        return copy
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>.Binding,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> DragGesture {
+        var copy = self
+        copy.updatingHandlers.append { value in
+            var stateValue = state.wrappedValue
+            var transaction = Transaction()
+            body(value, &stateValue, &transaction)
+            state.wrappedValue = stateValue
+        }
+        copy.resetHandlers.append {
+            state.reset()
+        }
         return copy
     }
 }
@@ -564,6 +591,72 @@ private final class SceneStorageBox<Value> {
     var write: (@MainActor (Value, String) -> Void)?
     var fallbackValue: Value?
     var invalidate: (() -> Void)?
+}
+
+@MainActor
+@propertyWrapper
+public struct GestureState<Value>: DynamicProperty {
+    private let box: GestureStateBox<Value>
+
+    public init(wrappedValue: Value) {
+        self.box = GestureStateBox(initialValue: wrappedValue)
+    }
+
+    public var wrappedValue: Value {
+        bindToCurrentContext()
+        return box.value
+    }
+
+    public var projectedValue: Binding {
+        bindToCurrentContext()
+        return Binding(box: box)
+    }
+
+    private func bindToCurrentContext() {
+        guard let context = ViewBuildContextScope.current else {
+            return
+        }
+
+        box.invalidate = {
+            context.invalidate()
+        }
+    }
+
+    @MainActor
+    public struct Binding {
+        private let box: GestureStateBox<Value>
+
+        fileprivate var wrappedValue: Value {
+            get {
+                box.value
+            }
+            nonmutating set {
+                box.value = newValue
+                box.invalidate?()
+            }
+        }
+
+        fileprivate init(box: GestureStateBox<Value>) {
+            self.box = box
+        }
+
+        fileprivate func reset() {
+            box.value = box.initialValue
+            box.invalidate?()
+        }
+    }
+}
+
+@MainActor
+private final class GestureStateBox<Value> {
+    let initialValue: Value
+    var value: Value
+    var invalidate: (() -> Void)?
+
+    init(initialValue: Value) {
+        self.initialValue = initialValue
+        self.value = initialValue
+    }
 }
 
 public extension AppStorage where Value: RawRepresentable, Value.RawValue == String {
@@ -5976,7 +6069,11 @@ public extension View {
                     startPoint = point
                     didRecognize = minimumDistance == 0
                     if didRecognize {
-                        gesture.onChangedHandler?(dragValue(start: point, current: point))
+                        let value = dragValue(start: point, current: point)
+                        for handler in gesture.updatingHandlers {
+                            handler(value)
+                        }
+                        gesture.onChangedHandler?(value)
                     }
                 }
                 childNode.onDragChange = { point, _ in
@@ -5991,7 +6088,11 @@ public extension View {
                         didRecognize = true
                     }
 
-                    gesture.onChangedHandler?(dragValue(start: start, current: point))
+                    let value = dragValue(start: start, current: point)
+                    for handler in gesture.updatingHandlers {
+                        handler(value)
+                    }
+                    gesture.onChangedHandler?(value)
                 }
                 childNode.onDragEnd = { point, _ in
                     defer {
@@ -6004,6 +6105,9 @@ public extension View {
                     }
 
                     gesture.onEndedHandler?(dragValue(start: start, current: point))
+                    for handler in gesture.resetHandlers {
+                        handler()
+                    }
                 }
                 return childNode
             }

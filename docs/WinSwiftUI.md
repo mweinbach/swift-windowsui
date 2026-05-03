@@ -196,6 +196,7 @@ Compatibility helpers:
 - `Axis.Set`
 - `FillStyle`
 - `DragGesture`
+- `Transaction`
 - `ControlSize`
 - `SearchFieldPlacement`
 - `DatePickerComponents`
@@ -209,6 +210,7 @@ Compatibility helpers:
 - minimal `FocusState`, with bool and optional hashable value bindings for retained focus targets
 - minimal `AppStorage`, with primitive and `String`/`Int` RawRepresentable `UserDefaults` reads/writes, `defaultAppStorage(_:)`, and projected bindings tied into retained-runtime invalidation
 - minimal `SceneStorage`, with per-retained-host keyed values and projected bindings tied into retained-runtime invalidation
+- minimal `GestureState`, with `DragGesture.updating` support and reset on drag end
 - minimal `ScaledMetric`, backed by the current retained `controlSize` scale
 - minimal `DynamicProperty`, with built-in property wrappers conforming for source compatibility
 - minimal `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -306,7 +308,7 @@ Surface direction:
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 - Lifecycle modifiers map to retained `onAppear` and `onDisappear` callbacks. Reconciliation refreshes node handlers in place so rebuilt declarative closures stay current without replacing the retained node.
 - `onTapGesture` maps to retained pointer-up-inside callbacks and makes the target node hit-test visible. The current compatibility surface supports single-tap activation; multi-tap counting is intentionally not wired until the runtime tracks click sequences.
-- `gesture(DragGesture(...))` maps to retained drag start/change/end callbacks with `minimumDistance`, `onChanged`, and `onEnded` support. Coordinate spaces are accepted for call-site compatibility but currently resolve through the runtime's logical window coordinates.
+- `gesture(DragGesture(...))` maps to retained drag start/change/end callbacks with `minimumDistance`, `onChanged`, `onEnded`, and `updating($gestureState)` support. `GestureState` values invalidate the retained host while dragging and reset to their initial value when the drag ends. Coordinate spaces are accepted for call-site compatibility but currently resolve through the runtime's logical window coordinates.
 
 ## Observation Model
 
@@ -319,6 +321,7 @@ Surface direction:
 - `@EnvironmentObject`
 - `@AppStorage`
 - `@SceneStorage`
+- `@GestureState`
 - `@ScaledMetric`
 
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.

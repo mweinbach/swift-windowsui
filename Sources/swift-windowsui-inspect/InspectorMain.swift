@@ -13,6 +13,7 @@ struct SwiftWindowsUIInspector {
         let textCapabilities = TextSystem.capabilities()
         let renderBackend = DefaultRenderBackendFactory.make()
         let batchBackend = DefaultRenderBackendFactory.makeBatchBackend()
+        let batchCapabilities = batchBackend?.primitiveCapabilities
 
         let runtime = makeSampleRuntime()
         let frame = runtime.renderFrame()
@@ -44,6 +45,7 @@ struct SwiftWindowsUIInspector {
         let failures = wantsVerification
             ? verificationFailures(
                 batchBackendName: batchBackend?.backendDisplayName,
+                batchCapabilities: batchCapabilities,
                 sampleCommandCounts: commandCounts,
                 bridgedScene: bridgedScene,
                 paintedScene: paintedScene,
@@ -60,6 +62,13 @@ struct SwiftWindowsUIInspector {
         let report = InspectorReport(
             renderBackend: renderBackend.backendStatusDescription,
             batchBackend: batchBackend?.backendDisplayName,
+            batchCapabilities: batchCapabilities.map {
+                BatchCapabilitySummary(
+                    capabilities: $0,
+                    bridgedScene: bridgedScene,
+                    paintedScene: paintedScene
+                )
+            },
             textBackend: textCapabilities.renderingLabel,
             renderFrame: CommandSummary(total: frame.commands.count, counts: commandCounts),
             gpuSceneBridge: SceneSummary(layers: bridgedScene.layers.count, primitives: bridgedScene.primitiveCount),
@@ -205,6 +214,7 @@ private struct CommandCounts {
 private struct InspectorReport: Encodable {
     var renderBackend: String
     var batchBackend: String?
+    var batchCapabilities: BatchCapabilitySummary?
     var textBackend: String
     var renderFrame: CommandSummary
     var gpuSceneBridge: SceneSummary
@@ -256,6 +266,36 @@ private struct ScenePainterSummary: Encodable {
     var shadows: Int
     var glyphs: Int
     var images: Int
+}
+
+private struct BatchCapabilitySummary: Encodable {
+    var supported: [String]
+    var unsupported: [String]
+    var bridgeUnsupported: PrimitiveCountSummary
+    var scenePainterUnsupported: PrimitiveCountSummary
+
+    init(capabilities: BatchPrimitiveCapabilities, bridgedScene: GPUIScene, paintedScene: GPUIScene) {
+        self.supported = capabilities.supportedPrimitiveNames
+        self.unsupported = capabilities.unsupportedPrimitiveNames
+        self.bridgeUnsupported = PrimitiveCountSummary(capabilities.unsupportedPrimitiveCounts(in: bridgedScene))
+        self.scenePainterUnsupported = PrimitiveCountSummary(capabilities.unsupportedPrimitiveCounts(in: paintedScene))
+    }
+}
+
+private struct PrimitiveCountSummary: Encodable {
+    var total: Int
+    var shadows: Int
+    var quads: Int
+    var glyphs: Int
+    var images: Int
+
+    init(_ counts: BatchPrimitiveCounts) {
+        self.total = counts.total
+        self.shadows = counts.shadows
+        self.quads = counts.quads
+        self.glyphs = counts.glyphs
+        self.images = counts.images
+    }
 }
 
 private struct PathProbeSummary: Encodable {
@@ -318,6 +358,12 @@ private func printHumanReport(_ report: InspectorReport) {
     print("Swift Windows UI Inspector")
     print("Render backend: \(report.renderBackend)")
     print("Batch backend: \(report.batchBackend ?? "unavailable")")
+    if let batchCapabilities = report.batchCapabilities {
+        print("Batch supported primitives: \(formatPrimitiveNames(batchCapabilities.supported))")
+        print("Batch unsupported primitives: \(formatPrimitiveNames(batchCapabilities.unsupported))")
+        print("  bridge unsupported: \(formatPrimitiveCounts(batchCapabilities.bridgeUnsupported))")
+        print("  ScenePainter unsupported: \(formatPrimitiveCounts(batchCapabilities.scenePainterUnsupported))")
+    }
     print("Text backend: \(report.textBackend)")
     print("RenderFrame commands: \(report.renderFrame.total)")
     print("  fillRect: \(report.renderFrame.fillRect)")
@@ -631,6 +677,14 @@ private func formatClip(_ clip: ClipSummary?) -> String {
     return "x=\(clip.x) y=\(clip.y) w=\(clip.width) h=\(clip.height)"
 }
 
+private func formatPrimitiveNames(_ names: [String]) -> String {
+    names.isEmpty ? "none" : names.joined(separator: ", ")
+}
+
+private func formatPrimitiveCounts(_ counts: PrimitiveCountSummary) -> String {
+    "total=\(counts.total) shadows=\(counts.shadows) quads=\(counts.quads) glyphs=\(counts.glyphs) images=\(counts.images)"
+}
+
 private func clipSummary(_ clip: (Float, Float, Float, Float)?) -> ClipSummary? {
     guard let clip else {
         return nil
@@ -641,6 +695,7 @@ private func clipSummary(_ clip: (Float, Float, Float, Float)?) -> ClipSummary? 
 
 private func verificationFailures(
     batchBackendName: String?,
+    batchCapabilities: BatchPrimitiveCapabilities?,
     sampleCommandCounts: CommandCounts,
     bridgedScene: GPUIScene,
     paintedScene: GPUIScene,
@@ -657,6 +712,20 @@ private func verificationFailures(
 
     if batchBackendName == nil {
         failures.append("batch backend is unavailable")
+    }
+    if let batchCapabilities {
+        if !batchCapabilities.shadows {
+            failures.append("batch backend does not report shadow primitive support")
+        }
+        if !batchCapabilities.quads {
+            failures.append("batch backend does not report quad primitive support")
+        }
+        let unsupported = batchCapabilities.unsupportedPrimitiveCounts(in: bridgedScene)
+        if !batchCapabilities.images && sampleCommandCounts.drawBitmap > 0 && unsupported.images == 0 {
+            failures.append("batch primitive coverage did not flag bitmap-backed image primitives as unsupported")
+        }
+    } else if batchBackendName != nil {
+        failures.append("batch primitive capabilities are unavailable")
     }
     if sampleCommandCounts.fillRect == 0 {
         failures.append("sample retained tree emitted no fillRect commands")

@@ -14,6 +14,14 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     public private(set) var isAttached = false
 
     public var backendDisplayName: String { "D3D11 BATCH" }
+    public var primitiveCapabilities: BatchPrimitiveCapabilities { Self.currentPrimitiveCapabilities }
+
+    public static let currentPrimitiveCapabilities = BatchPrimitiveCapabilities(
+        shadows: true,
+        quads: true,
+        glyphs: false,
+        images: false
+    )
 
     // MARK: - D3D11 Core State
 
@@ -182,7 +190,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
                     deviceContext: deviceContext
                 )
             }
-            if !layer.images.isEmpty {
+            // Images and glyphs are represented in GPUIScene, but the D3D11
+            // batch path does not own texture/atlas resources yet. Keep them
+            // out of the draw stream until resource binding is explicit.
+            if primitiveCapabilities.images && !layer.images.isEmpty {
                 try renderBatch(
                     layer.images,
                     capacity: &imageInstanceCapacity,

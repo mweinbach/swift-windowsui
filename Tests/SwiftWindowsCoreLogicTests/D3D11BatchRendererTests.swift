@@ -15,11 +15,47 @@ final class D3D11BatchRendererTests: XCTestCase {
             let renderer = D3D11BatchRenderer()
             XCTAssertFalse(renderer.isAttached)
             XCTAssertEqual(renderer.backendDisplayName, "D3D11 BATCH")
+            XCTAssertEqual(renderer.primitiveCapabilities, D3D11BatchRenderer.currentPrimitiveCapabilities)
 
             // Verify protocol conformance
             let _: any BatchRenderBackend = renderer
             let _: any RenderBackend = renderer
         }
+    }
+
+    func testBatchRendererReportsCurrentPrimitiveCoverage() async throws {
+        await MainActor.run {
+            let capabilities = D3D11BatchRenderer().primitiveCapabilities
+
+            XCTAssertTrue(capabilities.shadows)
+            XCTAssertTrue(capabilities.quads)
+            XCTAssertFalse(capabilities.glyphs)
+            XCTAssertFalse(capabilities.images)
+            XCTAssertEqual(capabilities.supportedPrimitiveNames, ["shadows", "quads"])
+            XCTAssertEqual(capabilities.unsupportedPrimitiveNames, ["glyphs", "images"])
+        }
+    }
+
+    func testBatchPrimitiveCapabilitiesCountSupportedAndUnsupportedSceneWork() {
+        var scene = GPUIScene()
+        scene.addShadow(ShadowPrimitive(x: 0, y: 0, width: 24, height: 16))
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 24, height: 16))
+        scene.addGlyph(GlyphPrimitive(screenX: 2, screenY: 4, screenW: 8, screenH: 12))
+        scene.addImage(ImagePrimitive(screenX: 4, screenY: 8, screenW: 16, screenH: 16))
+
+        let capabilities = BatchPrimitiveCapabilities(
+            shadows: true,
+            quads: true,
+            glyphs: false,
+            images: false
+        )
+        let supported = capabilities.supportedPrimitiveCounts(in: scene)
+        let unsupported = capabilities.unsupportedPrimitiveCounts(in: scene)
+
+        XCTAssertEqual(supported, BatchPrimitiveCounts(shadows: 1, quads: 1))
+        XCTAssertEqual(supported.total, 2)
+        XCTAssertEqual(unsupported, BatchPrimitiveCounts(glyphs: 1, images: 1))
+        XCTAssertEqual(unsupported.total, 2)
     }
 
     func testBatchRendererCanAcceptRenderFramesBeforeAttach() async throws {

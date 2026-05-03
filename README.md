@@ -115,6 +115,8 @@ The inspector includes renderer, retained-runtime, text-input, and multi-offset 
 
 Renderer note: retained shadows are first-class `shadowRect` render commands. The batch scene bridge converts them into clipped `ShadowPrimitive` values for the instanced D3D11 path, while the default frame renderer still has a conservative expanded-fill fallback.
 
+Batch renderer note: `D3D11BatchRenderer` now reports primitive capabilities to tools. It draws quad and shadow batches today; glyph and image primitives remain in `GPUIScene` for inspection and future atlas/texture work, but they are reported as unsupported instead of being treated as silently rendered.
+
 Useful focused command:
 
 ```powershell

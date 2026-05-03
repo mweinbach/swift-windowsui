@@ -3958,6 +3958,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLinkStringInitializerOpensDestinationURL() async {
+        await MainActor.run {
+            let destination = URL(string: "https://example.com/docs")!
+            var openedURL: URL?
+            let previousOpen = LinkURLHandler.open
+            LinkURLHandler.open = { url in
+                openedURL = url
+                return true
+            }
+            defer {
+                LinkURLHandler.open = previousOpen
+            }
+
+            let node = makeNode(
+                Link("Docs", destination: destination)
+            )
+
+            XCTAssertTrue(containsText("Docs", in: node))
+            XCTAssertEqual(node.backgroundColor, .clear)
+            XCTAssertEqual(node.borderColor, .clear)
+
+            firstFocusableNode(containing: "Docs", in: node)?.onActivate?()
+
+            XCTAssertEqual(openedURL, destination)
+        }
+    }
+
+    func testLinkSupportsCustomLabelInitializer() async {
+        await MainActor.run {
+            let destination = URL(string: "https://example.com/status")!
+            let node = makeNode(
+                Link(destination: destination) {
+                    Label("Status", systemImage: "bolt.fill")
+                }
+            )
+
+            XCTAssertTrue(containsText("Status", in: node))
+            XCTAssertTrue(hasInteractiveNode(in: node))
+        }
+    }
+
     func testNavigationTitleWrapsContentWithRetainedHeader() async {
         await MainActor.run {
             let node = makeNode(

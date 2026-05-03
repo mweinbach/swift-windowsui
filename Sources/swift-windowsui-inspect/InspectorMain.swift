@@ -670,6 +670,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("PROMPT SEARCH") {
         failures.append("WinSwiftUI probe text samples are missing the prompt-backed text field")
     }
+    if !winSwiftUIProbe.textSamples.contains("DOCS LINK") {
+        failures.append("WinSwiftUI probe text samples are missing the Link control")
+    }
     if !winSwiftUIProbe.textSamples.contains("FILTER INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the searchable field")
     }
@@ -774,6 +777,8 @@ private struct WinSwiftUIProbeView: View {
 
             Button("DISABLED ACTION") {}
                 .disabled(true)
+
+            Link("DOCS LINK", destination: URL(string: "https://example.com/docs")!)
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 

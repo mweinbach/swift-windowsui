@@ -2,6 +2,7 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsLayout
 import SwiftWindowsUI
+import WinSDK
 
 public struct GeometryProxy {
     public let size: Size
@@ -2028,6 +2029,81 @@ public struct NavigationLink: View {
         focusRingColor: Color(red: 0.62, green: 0.80, blue: 1.0, alpha: 0.28),
         focusRingWidth: 2
     )
+}
+
+@MainActor
+enum LinkURLHandler {
+    static var open: @MainActor (URL) -> Bool = defaultOpenURL
+
+    static func reset() {
+        open = defaultOpenURL
+    }
+
+    private static func defaultOpenURL(_ url: URL) -> Bool {
+        let target = url.absoluteString
+        let result = target.withCString(encodedAs: UTF16.self) { targetPointer in
+            "open".withCString(encodedAs: UTF16.self) { operationPointer in
+                ShellExecuteW(nil, operationPointer, targetPointer, nil, nil, 1)
+            }
+        }
+
+        guard let handle = result else {
+            return false
+        }
+
+        return Int(bitPattern: handle) > 32
+    }
+}
+
+@MainActor
+public struct Link: View {
+    public typealias Body = Never
+
+    private let destination: URL
+    private let label: [AnyView]
+
+    public init(_ title: String, destination: URL) {
+        self.destination = destination
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.55, weight: .semibold))
+                    .foregroundColor(Color(red: 0.48, green: 0.72, blue: 1.0, alpha: 1.0))
+                    .underline()
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+    }
+
+    public init<S: StringProtocol>(_ title: S, destination: URL) {
+        self.init(String(title), destination: destination)
+    }
+
+    public init(destination: URL, @ViewBuilder label: () -> [AnyView]) {
+        self.destination = destination
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError("Link has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Button(action: {
+            _ = LinkURLHandler.open(destination)
+        }) {
+            HStack(spacing: 6) {
+                label
+                Image(systemName: "square.and.arrow.up")
+                    .font(.system(size: 1.15, weight: .semibold))
+                    .foregroundColor(Color(red: 0.54, green: 0.76, blue: 1.0, alpha: 0.84))
+                    .frame(width: 16)
+            }
+        }
+        .buttonStyle(.borderless)
+        .makeComponent(context: context)
+    }
 }
 
 public enum ToolbarItemPlacement: Sendable, Equatable {

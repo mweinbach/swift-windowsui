@@ -22,6 +22,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         glyphs: false,
         images: true
     )
+    static let maxCachedImageTextures = 128
 
     // MARK: - D3D11 Core State
 
@@ -46,6 +47,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var samplerState: UnsafeMutablePointer<ID3D11SamplerState>?
+    private var imageTextureCache: [BatchImageTextureKey: UnsafeMutablePointer<ID3D11ShaderResourceView>] = [:]
+    private var imageTextureCacheAccessOrder: [BatchImageTextureKey] = []
 
     // MARK: - Dynamic Instance Buffers
 
@@ -101,6 +104,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         }
 
         releaseCOMPointer(&renderTargetView)
+        releaseCachedImageTextures()
         deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
 
         let hr = swapChain.pointee.lpVtbl.pointee.ResizeBuffers(
@@ -167,10 +171,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
         deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
-        var imageTextureViews = try createImageTextureResourceViews(for: scene.imageResources)
-        defer {
-            releaseShaderResourceViews(&imageTextureViews)
-        }
+        let imageTextureViews = try createImageTextureResourceViews(for: scene.imageResources)
 
         for layer in scene.layers {
             if !layer.shadows.isEmpty {
@@ -670,13 +671,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         for resources: [GPUISceneImageResource]
     ) throws -> [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] {
         var views: [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] = [:]
-        do {
-            for resource in resources where isValidImageResource(resource) {
-                views[resource.id] = try createShaderResourceView(for: resource.bitmap)
-            }
-        } catch {
-            releaseShaderResourceViews(&views)
-            throw error
+        for resource in resources where isValidImageResource(resource) {
+            views[resource.id] = try cachedShaderResourceView(for: resource.bitmap)
         }
         return views
     }
@@ -736,14 +732,44 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         return shaderResourceView
     }
 
-    private func releaseShaderResourceViews(
-        _ views: inout [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>]
-    ) {
-        for view in views.values {
+    private func cachedShaderResourceView(
+        for bitmap: BitmapSurface
+    ) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
+        let key = BatchImageTextureKey(bitmap)
+        if let cachedView = imageTextureCache[key] {
+            markImageTextureCacheAccess(key)
+            return cachedView
+        }
+
+        let view = try createShaderResourceView(for: bitmap)
+        imageTextureCache[key] = view
+        markImageTextureCacheAccess(key)
+        evictImageTextureCacheIfNeeded()
+        return view
+    }
+
+    private func markImageTextureCacheAccess(_ key: BatchImageTextureKey) {
+        imageTextureCacheAccessOrder.removeAll { $0 == key }
+        imageTextureCacheAccessOrder.append(key)
+    }
+
+    private func evictImageTextureCacheIfNeeded() {
+        while imageTextureCacheAccessOrder.count > Self.maxCachedImageTextures {
+            let key = imageTextureCacheAccessOrder.removeFirst()
+            if let view = imageTextureCache.removeValue(forKey: key) {
+                var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = view
+                releaseCOMPointer(&releasableView)
+            }
+        }
+    }
+
+    private func releaseCachedImageTextures() {
+        for view in imageTextureCache.values {
             var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = view
             releaseCOMPointer(&releasableView)
         }
-        views.removeAll()
+        imageTextureCache.removeAll()
+        imageTextureCacheAccessOrder.removeAll()
     }
 
     // MARK: - Frame Uniforms
@@ -899,6 +925,20 @@ struct BatchFrameUniforms: Equatable {
     var surfaceHeight: Float
     var scaleFactor: Float
     var pad0: Float
+}
+
+struct BatchImageTextureKey: Hashable {
+    var width: Int32
+    var height: Int32
+    var bytesPerRow: Int32
+    var pixels: Data
+
+    init(_ bitmap: BitmapSurface) {
+        self.width = bitmap.width
+        self.height = bitmap.height
+        self.bytesPerRow = bitmap.bytesPerRow
+        self.pixels = bitmap.pixels
+    }
 }
 
 struct ImagePrimitiveRun: Equatable {

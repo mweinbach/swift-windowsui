@@ -57,6 +57,37 @@ final class D3D11BatchRendererTests: XCTestCase {
         )
     }
 
+    func testBatchImageTextureKeyUsesBitmapPixelsAndLayout() {
+        let first = BitmapSurface(
+            width: 2,
+            height: 1,
+            bytesPerRow: 8,
+            pixels: Data([1, 2, 3, 4, 5, 6, 7, 8])
+        )
+        let same = BitmapSurface(
+            width: 2,
+            height: 1,
+            bytesPerRow: 8,
+            pixels: Data([1, 2, 3, 4, 5, 6, 7, 8])
+        )
+        let differentPixels = BitmapSurface(
+            width: 2,
+            height: 1,
+            bytesPerRow: 8,
+            pixels: Data([8, 7, 6, 5, 4, 3, 2, 1])
+        )
+        let differentStride = BitmapSurface(
+            width: 2,
+            height: 1,
+            bytesPerRow: 12,
+            pixels: Data([1, 2, 3, 4, 5, 6, 7, 8])
+        )
+
+        XCTAssertEqual(BatchImageTextureKey(first), BatchImageTextureKey(same))
+        XCTAssertNotEqual(BatchImageTextureKey(first), BatchImageTextureKey(differentPixels))
+        XCTAssertNotEqual(BatchImageTextureKey(first), BatchImageTextureKey(differentStride))
+    }
+
     func testBatchPrimitiveCapabilitiesCountSupportedAndUnsupportedSceneWork() {
         var scene = GPUIScene()
         scene.addShadow(ShadowPrimitive(x: 0, y: 0, width: 24, height: 16))

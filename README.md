@@ -66,7 +66,7 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Divider`, `Rectangle`, `RoundedRectangle`, `Group`, `GeometryReader`
+- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Divider`, `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, `Capsule`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ForEach`, `ScrollView`, `List`, `Section`, `HSplitView`, `VSplitView`
 - Controls: `Button`, `TextField`, `SecureField`, `Toggle`, `Slider`, `ProgressView`, `Picker`
 - Modifiers: `frame`, `padding`, `foregroundColor`, `foregroundStyle`, `font`, `multilineTextAlignment`, `lineLimit`, `tint`, `background`, `overlay`, `cornerRadius`, `clipped`, `clipShape`, `border`, `shadow`, `opacity`, `hidden`, `blur`, `offset`, `scaleEffect`, `rotationEffect`, `zIndex`, `layoutPriority`, `allowsHitTesting`, `disabled`, `onAppear`, `onDisappear`, `onSubmit`, `onTapGesture`, `gesture`, `tag`

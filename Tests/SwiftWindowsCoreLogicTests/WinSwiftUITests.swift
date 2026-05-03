@@ -516,6 +516,7 @@ final class WinSwiftUITests: XCTestCase {
             let gradient = LinearGradient(colors: [.orange, .pink], startPoint: .top, endPoint: .bottom)
             let gradientNode = makeNode(Rectangle().fill(gradient))
             let defaultRoundedNode = makeNode(RoundedRectangle(cornerRadius: 16))
+            let defaultCircleNode = makeNode(Circle())
 
             XCTAssertEqual(gradientNode.backgroundGradient, gradient)
             XCTAssertEqual(gradientNode.cornerRadius, 0)
@@ -523,6 +524,27 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(defaultRoundedNode.backgroundColor, .white)
             XCTAssertEqual(defaultRoundedNode.cornerRadius, 16)
             XCTAssertTrue(defaultRoundedNode.clipsToBounds)
+            XCTAssertEqual(defaultCircleNode.backgroundColor, .white)
+            XCTAssertEqual(defaultCircleNode.cornerRadius, 1_000_000)
+            XCTAssertTrue(defaultCircleNode.clipsToBounds)
+        }
+    }
+
+    func testCapsuleCircleAndEllipseMapToRoundedRetainedPanels() async {
+        await MainActor.run {
+            let capsuleNode = makeNode(Capsule().fill(.pink))
+            let circleNode = makeNode(Circle().stroke(.orange, lineWidth: 3))
+            let ellipseClipNode = makeNode(Text("AVATAR").clipShape(Ellipse()))
+
+            XCTAssertEqual(capsuleNode.backgroundColor, .pink)
+            XCTAssertEqual(capsuleNode.cornerRadius, 1_000_000)
+            XCTAssertTrue(capsuleNode.clipsToBounds)
+            XCTAssertEqual(circleNode.borderColor, .orange)
+            XCTAssertEqual(circleNode.borderWidth, 3)
+            XCTAssertEqual(circleNode.cornerRadius, 1_000_000)
+            XCTAssertTrue(circleNode.clipsToBounds)
+            XCTAssertEqual(ellipseClipNode.cornerRadius, 1_000_000)
+            XCTAssertTrue(ellipseClipNode.clipsToBounds)
         }
     }
 

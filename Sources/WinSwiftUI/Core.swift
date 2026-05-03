@@ -83,6 +83,22 @@ public struct Rectangle: Shape, Equatable {
     public init() {}
 }
 
+public struct Circle: Shape, Equatable {
+    public init() {}
+}
+
+public struct Ellipse: Shape, Equatable {
+    public init() {}
+}
+
+public struct Capsule: Shape, Equatable {
+    public var style: RoundedCornerStyle
+
+    public init(style: RoundedCornerStyle = .continuous) {
+        self.style = style
+    }
+}
+
 public enum RoundedCornerStyle: Sendable, Equatable {
     case circular
     case continuous
@@ -1130,6 +1146,42 @@ extension Rectangle: View {
     }
 }
 
+extension Circle: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("Circle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ShapeFillView(shape: self, fill: .color(.white)).makeComponent(context: context)
+    }
+}
+
+extension Ellipse: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("Ellipse has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ShapeFillView(shape: self, fill: .color(.white)).makeComponent(context: context)
+    }
+}
+
+extension Capsule: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("Capsule has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        ShapeFillView(shape: self, fill: .color(.white)).makeComponent(context: context)
+    }
+}
+
 extension RoundedRectangle: View {
     public typealias Body = Never
 
@@ -1384,8 +1436,14 @@ private func clipCornerRadius<S: Shape>(for shape: S) -> Double {
         return max(0, roundedRectangle.cornerRadius)
     }
 
+    if shape is Circle || shape is Ellipse || shape is Capsule {
+        return maximumCapsuleCornerRadius
+    }
+
     return 0
 }
+
+private let maximumCapsuleCornerRadius = 1_000_000.0
 
 private func dragValue(start: Point, current: Point) -> DragGesture.Value {
     let translation = Size(width: current.x - start.x, height: current.y - start.y)

@@ -1689,6 +1689,10 @@ extension EdgeInsets {
     }
 }
 
+private func resolvedPaddingLength(_ length: Double?) -> Double {
+    length ?? 16
+}
+
 extension Alignment {
     func frameOrigin(for childSize: Size, in containerSize: Size) -> Point {
         let x: Double
@@ -2591,17 +2595,18 @@ public extension View {
         }
     }
 
-    func padding(_ length: Double = 16) -> some View {
-        padding(EdgeInsets.all(length))
+    func padding(_ length: Double? = nil) -> some View {
+        padding(EdgeInsets.all(resolvedPaddingLength(length)))
     }
 
-    func padding(_ edges: Edge.Set, _ length: Double = 16) -> some View {
-        padding(
+    func padding(_ edges: Edge.Set, _ length: Double? = nil) -> some View {
+        let resolvedLength = resolvedPaddingLength(length)
+        return padding(
             EdgeInsets(
-                top: edges.contains(.top) ? length : 0,
-                leading: edges.contains(.leading) ? length : 0,
-                bottom: edges.contains(.bottom) ? length : 0,
-                trailing: edges.contains(.trailing) ? length : 0
+                top: edges.contains(.top) ? resolvedLength : 0,
+                leading: edges.contains(.leading) ? resolvedLength : 0,
+                bottom: edges.contains(.bottom) ? resolvedLength : 0,
+                trailing: edges.contains(.trailing) ? resolvedLength : 0
             )
         )
     }

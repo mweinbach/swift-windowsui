@@ -495,6 +495,28 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPaddingAcceptsOptionalLengthsLikeSwiftUI() async {
+        await MainActor.run {
+            let defaultNode = makeNode(Text("DEFAULT").padding(nil))
+            guard case .stack(let defaultLayout) = defaultNode.layoutMode else {
+                return XCTFail("Expected padding to lower to a retained stack wrapper")
+            }
+            XCTAssertEqual(defaultLayout.padding, EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
+
+            let horizontalNode = makeNode(Text("H").padding(.horizontal, nil))
+            guard case .stack(let horizontalLayout) = horizontalNode.layoutMode else {
+                return XCTFail("Expected edge padding to lower to a retained stack wrapper")
+            }
+            XCTAssertEqual(horizontalLayout.padding, EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+
+            let explicitNode = makeNode(Text("T").padding(.top, 7))
+            guard case .stack(let explicitLayout) = explicitNode.layoutMode else {
+                return XCTFail("Expected explicit edge padding to lower to a retained stack wrapper")
+            }
+            XCTAssertEqual(explicitLayout.padding, EdgeInsets(top: 7, leading: 0, bottom: 0, trailing: 0))
+        }
+    }
+
     func testGenericForegroundColorStylesTextDescendants() async {
         await MainActor.run {
             let color = Color(red: 0.3, green: 0.8, blue: 0.7, alpha: 1)

@@ -1517,6 +1517,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToolbarModifierWrapsContentAndInteractiveItems() async {
+        await MainActor.run {
+            var didRefresh = false
+            let node = makeNode(
+                Text("BODY")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("Refresh") {
+                                didRefresh = true
+                            }
+                        }
+                        ToolbarItemGroup(placement: .secondaryAction) {
+                            Button("One") {}
+                            Button("Two") {}
+                        }
+                    }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(containsText("Refresh", in: node.children[0]))
+            XCTAssertTrue(containsText("One", in: node.children[0]))
+            XCTAssertTrue(containsText("Two", in: node.children[0]))
+            XCTAssertEqual(node.children[1].text, "BODY")
+
+            firstFocusableNode(in: node.children[0])?.onActivate?()
+
+            XCTAssertTrue(didRefresh)
+        }
+    }
+
+    func testEmptyToolbarDoesNotWrapContent() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("BODY")
+                    .toolbar {}
+            )
+
+            XCTAssertEqual(node.text, "BODY")
+        }
+    }
+
     func testGroupBoxMapsTitleAndCustomLabelToRetainedSection() async {
         await MainActor.run {
             let titledNode = makeNode(

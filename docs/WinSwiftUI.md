@@ -64,6 +64,8 @@ Views and containers:
 - `NavigationStack`
 - `NavigationLink`
 - `NavigationSplitView`
+- `ToolbarItem`
+- `ToolbarItemGroup`
 - `GroupBox`
 - `DisclosureGroup`
 - `Section`
@@ -110,6 +112,7 @@ Modifiers:
 - `onSubmit`
 - `onTapGesture`
 - `gesture` with `DragGesture`
+- `toolbar`
 - `tabItem`
 - `id`
 - `tag`
@@ -162,6 +165,7 @@ Surface direction:
 - `TabView` maps tagged pages into a retained segmented tab bar plus the selected content subtree. The `selection:` initializer supports typed `Binding` values, while unbound tabs keep local `@State` selection.
 - `NavigationStack` keeps a local retained route stack for simple drill-in flows. `NavigationLink` renders as an interactive retained row and pushes destination content when built inside a `NavigationStack`.
 - `NavigationSplitView` maps the common two- and three-column closure forms onto retained nested `HSplitView`s with styled sidebar/content/detail columns.
+- `toolbar` wraps a view in a retained translucent action bar. `ToolbarItem` and `ToolbarItemGroup` preserve common SwiftUI call-site shapes while lowering their contents into retained controls. Placement values are accepted for compatibility, but currently render in one horizontal action row.
 - `GroupBox` maps title and custom-label call sites into retained `Section`-style rounded panels for settings and dashboard groups.
 - `DisclosureGroup` maps expanded-state bindings into retained stack content with a button-backed header; collapsed groups keep only the header in the retained tree.
 - `Section` supports the styled string-title initializer plus SwiftUI-shaped content/header/footer builder forms. Custom header and footer views are rendered as supplied retained subtrees.

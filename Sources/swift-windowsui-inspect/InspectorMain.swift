@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 32
+            maximumTextSamples: 36
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -699,7 +699,12 @@ private struct WinSwiftUIProbeView: View {
                     Text("INSPECTOR DESTINATION")
                 }
             }
-            .frame(height: 72)
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Inspect") {}
+                }
+            }
+            .frame(height: 104)
 
             NavigationSplitView {
                 Text("NAV SIDEBAR")

@@ -1170,6 +1170,69 @@ public struct NavigationLink: View {
     )
 }
 
+public enum ToolbarItemPlacement: Sendable, Equatable {
+    case automatic
+    case primaryAction
+    case secondaryAction
+    case navigation
+    case principal
+    case confirmationAction
+    case cancellationAction
+    case destructiveAction
+    case bottomBar
+}
+
+@MainActor
+public struct ToolbarItem: View {
+    public typealias Body = Never
+
+    private let placement: ToolbarItemPlacement
+    private let content: [AnyView]
+
+    public init(placement: ToolbarItemPlacement = .automatic, @ViewBuilder content: () -> [AnyView]) {
+        self.placement = placement
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ToolbarItem has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = placement
+        return composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center))
+        )
+    }
+}
+
+@MainActor
+public struct ToolbarItemGroup: View {
+    public typealias Body = Never
+
+    private let placement: ToolbarItemPlacement
+    private let content: [AnyView]
+
+    public init(placement: ToolbarItemPlacement = .automatic, @ViewBuilder content: () -> [AnyView]) {
+        self.placement = placement
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ToolbarItemGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = placement
+        return HStack(spacing: 8) {
+            content
+        }
+        .makeComponent(context: context)
+    }
+}
+
 @MainActor
 public struct NavigationSplitView: View {
     public typealias Body = Never
@@ -2236,6 +2299,68 @@ private enum NavigationStackScope {
             currentPush = previousPush
         }
         return body()
+    }
+}
+
+@MainActor
+private struct ToolbarHost<Content: View>: View {
+    typealias Body = Never
+
+    let content: Content
+    let items: [AnyView]
+
+    var body: Never {
+        fatalError("ToolbarHost has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        guard !items.isEmpty else {
+            return content.makeComponent(context: context)
+        }
+
+        let contentComponent = content.makeComponent(context: context)
+
+        return Component { runtime in
+            let toolbarChildren = items.map { item in
+                item.makeComponent(context: context).makeNode(runtime: runtime)
+            }
+            let toolbar = Controls.stackPanel(
+                backgroundColor: Color(red: 0.09, green: 0.13, blue: 0.20, alpha: 0.70),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.14),
+                shadowOffset: Point(x: 0, y: 10),
+                shadowSpread: 8,
+                cornerRadius: 20,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                    alignment: .center,
+                    mainAlignment: .end
+                ),
+                isHitTestVisible: false,
+                children: toolbarChildren
+            )
+            toolbar.fillsAvailableWidth = true
+
+            let contentNode = contentComponent.makeNode(runtime: runtime)
+            contentNode.layoutPriority = 1
+            contentNode.fillsAvailableWidth = true
+            contentNode.fillsAvailableHeight = true
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 10, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [toolbar, contentNode]
+            )
+        }
+    }
+}
+
+public extension View {
+    func toolbar(@ViewBuilder content: () -> [AnyView]) -> some View {
+        ToolbarHost(content: self, items: content())
     }
 }
 

@@ -100,6 +100,9 @@ public struct Text: View {
     private var font: Font
     private var alignment: TextAlignment
     private var lineLimit: Int?
+    private var underline: Bool
+    private var strikethrough: Bool
+    private var enableKerning: Bool
     private var spans: [TextSpan]?
 
     public init(_ content: String) {
@@ -108,6 +111,9 @@ public struct Text: View {
         self.font = .system(size: 2)
         self.alignment = .center
         self.lineLimit = nil
+        self.underline = false
+        self.strikethrough = false
+        self.enableKerning = true
         self.spans = nil
     }
 
@@ -134,6 +140,9 @@ public struct Text: View {
                 alignment: alignment.horizontalAlignment.textAlignment,
                 lineBreakMode: resolvedLineBreakMode,
                 maximumNumberOfLines: lineLimit,
+                underline: underline,
+                strikethrough: strikethrough,
+                enableKerning: enableKerning,
                 spans: spans
             )
         }
@@ -178,6 +187,50 @@ public struct Text: View {
         return copy
     }
 
+    public func fontWeight(_ weight: Font.Weight?) -> Text {
+        guard let weight else {
+            return self
+        }
+
+        var copy = self
+        copy.font.weight = weight
+        copy.updateSpanStyles { style in
+            style.weight = weight.textWeight
+        }
+        return copy
+    }
+
+    public func bold() -> Text {
+        fontWeight(.bold)
+    }
+
+    public func monospaced() -> Text {
+        var copy = self
+        copy.font.family = "Cascadia Mono"
+        copy.updateSpanStyles { style in
+            style.fontFamily = "Cascadia Mono"
+        }
+        return copy
+    }
+
+    public func underline(_ active: Bool = true) -> Text {
+        var copy = self
+        copy.underline = active
+        copy.updateSpanStyles { style in
+            style.underline = active
+        }
+        return copy
+    }
+
+    public func strikethrough(_ active: Bool = true) -> Text {
+        var copy = self
+        copy.strikethrough = active
+        copy.updateSpanStyles { style in
+            style.strikethrough = active
+        }
+        return copy
+    }
+
     public static func + (lhs: Text, rhs: Text) -> Text {
         let content = lhs.content + rhs.content
         var combined = Text(content)
@@ -185,6 +238,9 @@ public struct Text: View {
         combined.font = lhs.font
         combined.alignment = lhs.alignment
         combined.lineLimit = lhs.lineLimit ?? rhs.lineLimit
+        combined.underline = lhs.underline
+        combined.strikethrough = lhs.strikethrough
+        combined.enableKerning = lhs.enableKerning
         combined.spans = spans(for: lhs.segments + rhs.segments, in: content)
         return combined
     }
@@ -222,7 +278,10 @@ public struct Text: View {
             fontFamily: font.resolvedFamily,
             weight: font.weight.textWeight,
             lineBreakMode: resolvedLineBreakMode,
-            maximumNumberOfLines: lineLimit
+            maximumNumberOfLines: lineLimit,
+            underline: underline,
+            strikethrough: strikethrough,
+            enableKerning: enableKerning
         )
     }
 

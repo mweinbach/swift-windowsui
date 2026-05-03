@@ -96,6 +96,11 @@ Modifiers:
 - `foregroundColor`
 - `foregroundStyle`
 - `font`
+- `fontWeight`
+- `bold`
+- `monospaced`
+- `underline`
+- `strikethrough`
 - `multilineTextAlignment`
 - `lineLimit`
 - `tint`
@@ -156,7 +161,7 @@ Surface direction:
 
 ## Mapping Notes
 
-- `Text` maps into retained label nodes and the current text renderer path. Plain strings, `StringProtocol` values, `Text(verbatim:)`, and `Text` concatenation with retained span style metadata are accepted for source compatibility.
+- `Text` maps into retained label nodes and the current text renderer path. Plain strings, `StringProtocol` values, `Text(verbatim:)`, `Text` concatenation with retained span style metadata, and common inline styling modifiers such as `bold`, `fontWeight`, `monospaced`, `underline`, and `strikethrough` are accepted for source compatibility.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set, including common action glyphs such as `trash`.
 - `Label` maps system-image labels and custom `title`/`icon` builder labels into retained horizontal stacks. Label-level `foregroundColor` and `font` modifiers style descendant text while preserving the icon font family.
 - `ContentUnavailableView` maps common empty-state and search-empty call sites into centered retained stacks with title/icon, optional description, and optional action content.
@@ -194,7 +199,7 @@ Surface direction:
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
 - `frame` supports fixed dimensions plus the common min/ideal/max overload. Infinite maximums, such as `maxWidth: .infinity`, map to retained fill-available behavior and participate in stack growth.
-- Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `multilineTextAlignment`, and `lineLimit`) walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight.
+- Generic text modifiers (`foregroundColor`, `foregroundStyle(Color)`, `font`, `fontWeight`, `bold`, `monospaced`, `underline`, `strikethrough`, `multilineTextAlignment`, and `lineLimit`) walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight; `monospaced` also preserves icon glyph families.
 - `Font` supports `system(size:weight:design:)` plus common named presets such as `largeTitle`, `title`, `headline`, `body`, `caption`, and `footnote`.
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.

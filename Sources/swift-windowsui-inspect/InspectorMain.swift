@@ -649,6 +649,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("INLINE SPAN") {
         failures.append("WinSwiftUI probe text samples are missing the concatenated Text sample")
     }
+    if !winSwiftUIProbe.textSamples.contains("DECORATED TEXT") {
+        failures.append("WinSwiftUI probe text samples are missing the decorated Text sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR ALERT") {
         failures.append("WinSwiftUI probe text samples are missing the alert overlay")
     }
@@ -719,6 +722,12 @@ private struct WinSwiftUIProbeView: View {
                     .font(.system(size: 1.7, weight: .bold))
             )
             .lineLimit(1)
+
+            Text("DECORATED TEXT")
+                .underline()
+                .strikethrough()
+                .monospaced()
+                .lineLimit(1)
 
             HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")

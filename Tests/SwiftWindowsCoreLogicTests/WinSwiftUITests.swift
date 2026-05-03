@@ -75,6 +75,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextStyleConvenienceModifiersReachTextAndSpans() async {
+        await MainActor.run {
+            let styledNode = makeNode(
+                Text("DECORATED")
+                    .bold()
+                    .monospaced()
+                    .underline()
+                    .strikethrough()
+            )
+
+            XCTAssertEqual(styledNode.textStyle.weight, .bold)
+            XCTAssertEqual(styledNode.textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertTrue(styledNode.textStyle.underline)
+            XCTAssertTrue(styledNode.textStyle.strikethrough)
+
+            let spanNode = makeNode(
+                (
+                    Text("UNDER")
+                        .underline()
+                    + Text(" STRIKE")
+                        .strikethrough()
+                        .fontWeight(.semibold)
+                )
+                .monospaced()
+            )
+
+            guard let spans = spanNode.textStyle.spans else {
+                return XCTFail("Expected concatenated Text to carry text spans")
+            }
+
+            XCTAssertEqual(spans.count, 2)
+            XCTAssertTrue(spans[0].style.underline)
+            XCTAssertFalse(spans[0].style.strikethrough)
+            XCTAssertFalse(spans[1].style.underline)
+            XCTAssertTrue(spans[1].style.strikethrough)
+            XCTAssertEqual(spans[1].style.weight, .semibold)
+            XCTAssertEqual(spans.map(\.style.fontFamily), ["Cascadia Mono", "Cascadia Mono"])
+        }
+    }
+
+    func testGenericTextStyleConvenienceModifiersStyleDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .fontWeight(.semibold)
+                .monospaced()
+                .underline()
+                .strikethrough()
+            )
+
+            XCTAssertTrue(allTextDescendants(in: node) { child in
+                child.textStyle.weight == .semibold
+                    && child.textStyle.fontFamily == "Cascadia Mono"
+                    && child.textStyle.underline
+                    && child.textStyle.strikethrough
+            })
+        }
+    }
+
     func testNamedFontPresetsMapToRetainedTextStyle() async {
         await MainActor.run {
             let headlineNode = makeNode(Text("HEADLINE").font(.headline))
@@ -2895,4 +2957,13 @@ private func containsText(_ text: String, in node: ViewNode) -> Bool {
     }
 
     return node.children.contains { containsText(text, in: $0) }
+}
+
+@MainActor
+private func allTextDescendants(in node: ViewNode, satisfy predicate: (ViewNode) -> Bool) -> Bool {
+    if node.text != nil && !predicate(node) {
+        return false
+    }
+
+    return node.children.allSatisfy { allTextDescendants(in: $0, satisfy: predicate) }
 }

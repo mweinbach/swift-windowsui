@@ -2172,6 +2172,66 @@ public extension View {
         }
     }
 
+    func fontWeight(_ weight: Font.Weight?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                if let weight {
+                    updateTextStyles(in: node) { style in
+                        style.weight = weight.textWeight
+                    }
+                }
+                return node
+            }
+        }
+    }
+
+    func bold() -> some View {
+        fontWeight(.bold)
+    }
+
+    func monospaced() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    if style.fontFamily != "Segoe Fluent Icons" {
+                        style.fontFamily = "Cascadia Mono"
+                    }
+                }
+                return node
+            }
+        }
+    }
+
+    func underline(_ active: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.underline = active
+                }
+                return node
+            }
+        }
+    }
+
+    func strikethrough(_ active: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.strikethrough = active
+                }
+                return node
+            }
+        }
+    }
+
     func multilineTextAlignment(_ alignment: TextAlignment) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

@@ -789,6 +789,9 @@ public enum Controls {
         insets: EdgeInsets = .zero,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
+        underline: Bool = false,
+        strikethrough: Bool = false,
+        enableKerning: Bool = true,
         spans: [TextSpan]? = nil
     ) -> ViewNode {
         panel(
@@ -806,6 +809,9 @@ public enum Controls {
                 weight: weight,
                 lineBreakMode: lineBreakMode,
                 maximumNumberOfLines: maximumNumberOfLines,
+                underline: underline,
+                strikethrough: strikethrough,
+                enableKerning: enableKerning,
                 spans: spans
             ),
             isHitTestVisible: false

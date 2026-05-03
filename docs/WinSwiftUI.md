@@ -139,7 +139,7 @@ Surface direction:
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `TextField` maps into a retained single-line editable control. Win32 `WM_CHAR` and IME character messages flow through the runtime text-input hook to the focused node, while arrows, home/end, backspace, and delete update the retained caret/editing state.
 - `SecureField` reuses the retained text-field control with masked display text while keeping the bound string unmasked.
-- `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `ProgressView` also supports a string-title initializer that composes a retained label with the progress bar.
+- `Toggle`, `Slider`, and `ProgressView` map into retained controls while exposing SwiftUI-shaped binding/value initializers. `Slider(value:in:step:)` snaps dragged binding updates to the requested step. `ProgressView` also supports a string-title initializer that composes a retained label with the progress bar.
 - `Picker` maps tagged `Text` options into the retained dropdown control and supports hashable selection tags, including integers, strings, and enum values.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `ForEach` expands child views in result builders and assigns stable node tags from the supplied identity. Identifiable collections, explicit `id:` key paths, open integer ranges, and closed integer ranges are supported.

@@ -942,13 +942,15 @@ public struct Slider: View {
 
     private let value: Binding<Double>
     private let bounds: ClosedRange<Double>
+    private let step: Double?
     private var isEnabled: Bool
     private var trackColor: Color
     private var tintColor: Color?
 
-    public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1) {
+    public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1, step: Double? = nil) {
         self.value = value
         self.bounds = bounds
+        self.step = step
         self.isEnabled = true
         self.trackColor = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0)
         self.tintColor = nil
@@ -968,11 +970,21 @@ public struct Slider: View {
                 trackColor: trackColor,
                 filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
                 onValueChanged: { newValue in
-                    value.wrappedValue = newValue
+                    value.wrappedValue = snappedValue(newValue)
                     value.invalidateContextIfNeeded(context)
                 }
             )
         }
+    }
+
+    private func snappedValue(_ rawValue: Double) -> Double {
+        let clampedValue = min(max(rawValue, bounds.lowerBound), bounds.upperBound)
+        guard let step, step > 0 else {
+            return clampedValue
+        }
+
+        let steppedOffset = ((clampedValue - bounds.lowerBound) / step).rounded() * step
+        return min(max(bounds.lowerBound + steppedOffset, bounds.lowerBound), bounds.upperBound)
     }
 
     public func disabled(_ disabled: Bool) -> Slider {

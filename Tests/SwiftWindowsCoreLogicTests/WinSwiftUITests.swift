@@ -463,6 +463,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSliderStepSnapsDraggedBindingValue() async {
+        await MainActor.run {
+            var value = 0.0
+            var invalidationCount = 0
+
+            let node = makeNode(
+                Slider(value: Binding(get: { value }, set: { value = $0 }), in: 0...1, step: 0.25),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            node.onDragStart?(Point(x: 0, y: 0))
+            node.onDragChange?(Point(x: 118, y: 0), Point(x: 118, y: 0))
+
+            XCTAssertEqual(value, 0.75, accuracy: 0.001)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testProgressViewMapsToProgressBar() async {
         await MainActor.run {
             let node = makeNode(ProgressView(value: 0.4, total: 1.0))

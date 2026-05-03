@@ -17,11 +17,17 @@ struct SwiftWindowsUIInspector {
 
         let runtime = makeSampleRuntime()
         let frame = runtime.renderFrame()
-        let bridgedScene = runtime.renderScene()
+        let bridgedResult = GPUIScene.bridgeResult(from: frame, surfaceSize: runtime.root.frame.size)
+        let bridgedScene = bridgedResult.scene
         let paintedScene = ScenePainter.paint(
             root: runtime.root,
             clearColor: runtime.clearColor,
             surfaceSize: runtime.root.frame.size
+        )
+        let bridgeCoverageProbeFrame = makeBridgeCoverageProbeFrame()
+        let bridgeCoverageProbeResult = GPUIScene.bridgeResult(
+            from: bridgeCoverageProbeFrame,
+            surfaceSize: Size(width: 240, height: 180)
         )
         let pathProbeFrame = makePathProbeFrame()
         let pathProbeCounts = CommandCounts(pathProbeFrame.commands)
@@ -48,7 +54,10 @@ struct SwiftWindowsUIInspector {
                 batchCapabilities: batchCapabilities,
                 sampleCommandCounts: commandCounts,
                 bridgedScene: bridgedScene,
+                bridgedSkippedCommands: bridgedResult.skippedCommands,
                 paintedScene: paintedScene,
+                bridgeCoverageProbeScene: bridgeCoverageProbeResult.scene,
+                bridgeCoverageProbeSkippedCommands: bridgeCoverageProbeResult.skippedCommands,
                 pathProbeCounts: pathProbeCounts,
                 textProbeCounts: textProbeCounts,
                 blurProbeCounts: blurProbeCounts,
@@ -74,7 +83,13 @@ struct SwiftWindowsUIInspector {
             gpuSceneBridge: SceneSummary(
                 layers: bridgedScene.layers.count,
                 primitives: bridgedScene.primitiveCount,
-                imageResources: bridgedScene.imageResources.count
+                imageResources: bridgedScene.imageResources.count,
+                skippedCommands: SkippedCommandSummary(bridgedResult.skippedCommands)
+            ),
+            bridgeCoverageProbe: BridgeCoverageProbeSummary(
+                sourceCommands: bridgeCoverageProbeFrame.commands.count,
+                scene: bridgeCoverageProbeResult.scene,
+                skippedCommands: bridgeCoverageProbeResult.skippedCommands
             ),
             scenePainter: ScenePainterSummary(
                 layers: paintedScene.layers.count,
@@ -222,6 +237,7 @@ private struct InspectorReport: Encodable {
     var textBackend: String
     var renderFrame: CommandSummary
     var gpuSceneBridge: SceneSummary
+    var bridgeCoverageProbe: BridgeCoverageProbeSummary
     var scenePainter: ScenePainterSummary
     var pathProbe: PathProbeSummary
     var textProbe: TextProbeSummary
@@ -262,6 +278,27 @@ private struct SceneSummary: Encodable {
     var layers: Int
     var primitives: Int
     var imageResources: Int
+    var skippedCommands: SkippedCommandSummary
+}
+
+private struct BridgeCoverageProbeSummary: Encodable {
+    var sourceCommands: Int
+    var primitives: Int
+    var quads: Int
+    var shadows: Int
+    var images: Int
+    var imageResources: Int
+    var skippedCommands: SkippedCommandSummary
+
+    init(sourceCommands: Int, scene: GPUIScene, skippedCommands: GPUISceneBridgeSkippedCommandCounts) {
+        self.sourceCommands = sourceCommands
+        self.primitives = scene.primitiveCount
+        self.quads = scene.totalQuads
+        self.shadows = scene.totalShadows
+        self.images = scene.totalImages
+        self.imageResources = scene.imageResources.count
+        self.skippedCommands = SkippedCommandSummary(skippedCommands)
+    }
 }
 
 private struct ScenePainterSummary: Encodable {
@@ -300,6 +337,22 @@ private struct PrimitiveCountSummary: Encodable {
         self.quads = counts.quads
         self.glyphs = counts.glyphs
         self.images = counts.images
+    }
+}
+
+private struct SkippedCommandSummary: Encodable {
+    var total: Int
+    var fillPath: Int
+    var strokePath: Int
+    var drawText: Int
+    var applyBlur: Int
+
+    init(_ counts: GPUISceneBridgeSkippedCommandCounts) {
+        self.total = counts.total
+        self.fillPath = counts.fillPath
+        self.strokePath = counts.strokePath
+        self.drawText = counts.drawText
+        self.applyBlur = counts.applyBlur
     }
 }
 
@@ -379,7 +432,8 @@ private func printHumanReport(_ report: InspectorReport) {
     print("  applyBlur: \(report.renderFrame.applyBlur)")
     print("  drawText: \(report.renderFrame.drawText)")
     print("  clip ops: \(report.renderFrame.clipOperations)")
-    print("GPUIScene bridge: \(report.gpuSceneBridge.layers) layers, \(report.gpuSceneBridge.primitives) primitives, \(report.gpuSceneBridge.imageResources) image resources")
+    print("GPUIScene bridge: \(report.gpuSceneBridge.layers) layers, \(report.gpuSceneBridge.primitives) primitives, \(report.gpuSceneBridge.imageResources) image resources, skipped \(formatSkippedCommands(report.gpuSceneBridge.skippedCommands))")
+    print("Bridge coverage probe: \(report.bridgeCoverageProbe.sourceCommands) commands -> \(report.bridgeCoverageProbe.primitives) primitives, \(report.bridgeCoverageProbe.imageResources) image resources, skipped \(formatSkippedCommands(report.bridgeCoverageProbe.skippedCommands))")
     print("ScenePainter batch: \(report.scenePainter.layers) layers, \(report.scenePainter.primitives) primitives")
     print("  quads: \(report.scenePainter.quads)")
     print("  shadows: \(report.scenePainter.shadows)")
@@ -472,6 +526,40 @@ private func makeBlurProbeFrame() -> RenderFrame {
                 color: Color(red: 0.12, green: 0.18, blue: 0.28, alpha: 1.0)
             )),
             .applyBlur(BlurCommand(region: Rect(x: 24, y: 20, width: 132, height: 72), radius: 10)),
+        ]
+    )
+}
+
+private func makeBridgeCoverageProbeFrame() -> RenderFrame {
+    let bitmap = BitmapSurface(
+        width: 1,
+        height: 1,
+        bytesPerRow: 4,
+        pixels: Data([255, 255, 255, 255])
+    )
+    let path = makePathProbePath()
+
+    return RenderFrame(
+        clearColor: .black,
+        commands: [
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 40, height: 32),
+                color: Color(red: 0.18, green: 0.28, blue: 0.42, alpha: 1.0)
+            )),
+            .shadowRect(ShadowRectCommand(
+                rect: Rect(x: 48, y: 0, width: 42, height: 32),
+                color: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.22),
+                cornerRadius: 8,
+                blurRadius: 6
+            )),
+            .drawBitmap(DrawBitmapCommand(
+                rect: Rect(x: 96, y: 0, width: 24, height: 24),
+                bitmap: bitmap
+            )),
+            .fillPath(FillPathCommand(path: path, color: Color(red: 0.42, green: 0.68, blue: 0.96, alpha: 0.72))),
+            .strokePath(StrokePathCommand(path: path, color: .white)),
+            .drawText(DrawTextCommand(text: "BRIDGE TEXT", position: Point(x: 0, y: 48))),
+            .applyBlur(BlurCommand(region: Rect(x: 0, y: 72, width: 96, height: 32), radius: 8)),
         ]
     )
 }
@@ -690,6 +778,10 @@ private func formatPrimitiveCounts(_ counts: PrimitiveCountSummary) -> String {
     "total=\(counts.total) shadows=\(counts.shadows) quads=\(counts.quads) glyphs=\(counts.glyphs) images=\(counts.images)"
 }
 
+private func formatSkippedCommands(_ counts: SkippedCommandSummary) -> String {
+    "total=\(counts.total) fillPath=\(counts.fillPath) strokePath=\(counts.strokePath) drawText=\(counts.drawText) applyBlur=\(counts.applyBlur)"
+}
+
 private func clipSummary(_ clip: (Float, Float, Float, Float)?) -> ClipSummary? {
     guard let clip else {
         return nil
@@ -703,7 +795,10 @@ private func verificationFailures(
     batchCapabilities: BatchPrimitiveCapabilities?,
     sampleCommandCounts: CommandCounts,
     bridgedScene: GPUIScene,
+    bridgedSkippedCommands: GPUISceneBridgeSkippedCommandCounts,
     paintedScene: GPUIScene,
+    bridgeCoverageProbeScene: GPUIScene,
+    bridgeCoverageProbeSkippedCommands: GPUISceneBridgeSkippedCommandCounts,
     pathProbeCounts: CommandCounts,
     textProbeCounts: CommandCounts,
     blurProbeCounts: CommandCounts,
@@ -744,6 +839,9 @@ private func verificationFailures(
     if bridgedScene.primitiveCount == 0 {
         failures.append("RenderFrame -> GPUIScene bridge emitted no primitives")
     }
+    if !bridgedSkippedCommands.isEmpty {
+        failures.append("sample RenderFrame -> GPUIScene bridge skipped \(bridgedSkippedCommands.total) commands")
+    }
     if sampleCommandCounts.drawBitmap > 0 && bridgedScene.imageResources.isEmpty {
         failures.append("RenderFrame -> GPUIScene bridge dropped bitmap image resources")
     }
@@ -761,6 +859,21 @@ private func verificationFailures(
     }
     if paintedScene.totalShadows == 0 {
         failures.append("ScenePainter emitted no shadows")
+    }
+    if bridgeCoverageProbeScene.totalQuads != 1 || bridgeCoverageProbeScene.totalShadows != 1 || bridgeCoverageProbeScene.totalImages != 1 {
+        failures.append("bridge coverage probe did not preserve fillRect, shadowRect, and drawBitmap primitives")
+    }
+    if bridgeCoverageProbeScene.imageResources.count != 1 {
+        failures.append("bridge coverage probe did not preserve bitmap image resources")
+    }
+    let expectedSkipped = GPUISceneBridgeSkippedCommandCounts(
+        fillPath: 1,
+        strokePath: 1,
+        drawText: 1,
+        applyBlur: 1
+    )
+    if bridgeCoverageProbeSkippedCommands != expectedSkipped {
+        failures.append("bridge coverage probe did not report skipped path/text/blur commands")
     }
     if pathProbeCounts.fillPath != 1 || pathProbeCounts.strokePath != 1 {
         failures.append("path probe did not emit one fillPath and one strokePath command")

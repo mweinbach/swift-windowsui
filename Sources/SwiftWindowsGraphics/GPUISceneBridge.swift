@@ -2,6 +2,53 @@ import SwiftWindowsCore
 
 // MARK: - RenderFrame to GPUIScene Bridge
 
+public struct GPUISceneBridgeSkippedCommandCounts: Equatable, Sendable {
+    public var fillPath: Int
+    public var strokePath: Int
+    public var drawText: Int
+    public var applyBlur: Int
+
+    public init(fillPath: Int = 0, strokePath: Int = 0, drawText: Int = 0, applyBlur: Int = 0) {
+        self.fillPath = fillPath
+        self.strokePath = strokePath
+        self.drawText = drawText
+        self.applyBlur = applyBlur
+    }
+
+    public var total: Int {
+        fillPath + strokePath + drawText + applyBlur
+    }
+
+    public var isEmpty: Bool {
+        total == 0
+    }
+
+    fileprivate mutating func record(_ command: RenderCommand) {
+        switch command {
+        case .fillPath:
+            fillPath += 1
+        case .strokePath:
+            strokePath += 1
+        case .drawText:
+            drawText += 1
+        case .applyBlur:
+            applyBlur += 1
+        case .fillRect, .shadowRect, .drawBitmap, .pushClip, .popClip:
+            break
+        }
+    }
+}
+
+public struct GPUISceneBridgeResult: Equatable, Sendable {
+    public var scene: GPUIScene
+    public var skippedCommands: GPUISceneBridgeSkippedCommandCounts
+
+    public init(scene: GPUIScene, skippedCommands: GPUISceneBridgeSkippedCommandCounts = GPUISceneBridgeSkippedCommandCounts()) {
+        self.scene = scene
+        self.skippedCommands = skippedCommands
+    }
+}
+
 /// Tracks which primitive type was most recently appended so the bridge
 /// can split layers on type transitions to preserve z-order.
 private enum LastPrimitiveKind {
@@ -25,10 +72,14 @@ extension GPUIScene {
     ///   - surfaceSize: The surface dimensions, used as the default clip rect
     ///     when no explicit clip is active.
     public init(from frame: RenderFrame, surfaceSize: Size) {
-        self.clearColor = frame.clearColor
-        self.layers = [GPUILayer()]
-        self.imageResources = []
-        self.glyphAtlasResource = nil
+        self = Self.bridgeResult(from: frame, surfaceSize: surfaceSize).scene
+    }
+
+    /// Converts a `RenderFrame` while reporting command families that the
+    /// current batch scene shape cannot represent yet.
+    public static func bridgeResult(from frame: RenderFrame, surfaceSize: Size) -> GPUISceneBridgeResult {
+        var scene = GPUIScene(clearColor: frame.clearColor)
+        var skippedCommands = GPUISceneBridgeSkippedCommandCounts()
 
         var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         var lastKind: LastPrimitiveKind = .none
@@ -37,33 +88,33 @@ extension GPUIScene {
             switch command {
             case .shadowRect(let cmd):
                 if lastKind != .none && lastKind != .shadow {
-                    self.pushLayer()
+                    scene.pushLayer()
                 }
                 lastKind = .shadow
                 let shadow = Self.makeShadow(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                self.layers[self.layers.count - 1].shadows.append(shadow)
+                scene.layers[scene.layers.count - 1].shadows.append(shadow)
 
             case .fillRect(let cmd):
                 if lastKind != .none && lastKind != .quad {
-                    self.pushLayer()
+                    scene.pushLayer()
                 }
                 lastKind = .quad
                 let quad = Self.makeQuad(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                self.layers[self.layers.count - 1].quads.append(quad)
+                scene.layers[scene.layers.count - 1].quads.append(quad)
 
             case .drawBitmap(let cmd):
                 if lastKind != .none && lastKind != .image {
-                    self.pushLayer()
+                    scene.pushLayer()
                 }
                 lastKind = .image
-                let textureID = self.addImageResource(cmd.bitmap)
+                let textureID = scene.addImageResource(cmd.bitmap)
                 let image = Self.makeImage(
                     from: cmd,
                     textureID: textureID,
                     clipStack: clipStack,
                     surfaceSize: surfaceSize
                 )
-                self.layers[self.layers.count - 1].images.append(image)
+                scene.layers[scene.layers.count - 1].images.append(image)
 
             case .pushClip(let cmd):
                 clipStack.push(cmd)
@@ -73,9 +124,12 @@ extension GPUIScene {
 
             case .drawText, .fillPath, .strokePath, .applyBlur:
                 // Not handled by the batch pipeline yet; skip.
+                skippedCommands.record(command)
                 break
             }
         }
+
+        return GPUISceneBridgeResult(scene: scene, skippedCommands: skippedCommands)
     }
 
     // MARK: - Primitive Conversion Helpers

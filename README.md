@@ -111,7 +111,7 @@ swift run swift-windowsui-inspect -- --json --verify
 swift run swift-windowsui
 ```
 
-The inspector includes renderer, retained-runtime, text-input, and multi-offset scroll-stress probes so performance-sensitive culling regressions can be caught without launching the GUI demo.
+The inspector includes renderer, retained-runtime, bridge-coverage, text-input, and multi-offset scroll-stress probes so performance-sensitive culling regressions and batch-scene coverage gaps can be caught without launching the GUI demo.
 
 To exercise the demo through the batch renderer, set `SWIFT_WINDOWSUI_RENDERER=batch` before launch. Unset it to return to the default D3D11 renderer.
 

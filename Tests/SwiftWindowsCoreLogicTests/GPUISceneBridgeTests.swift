@@ -388,11 +388,39 @@ struct GPUISceneBridgeTests {
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 100, width: 100, height: 100), color: .black)),
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
-        let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
+        let result = GPUIScene.bridgeResult(from: frame, surfaceSize: surfaceSize)
+        let scene = result.scene
 
         // drawText is skipped, so both fillRects stay in the same layer
         #expect(scene.layers[0].quads.count == 2)
         #expect(scene.layers[0].glyphs.isEmpty)
+        #expect(result.skippedCommands == GPUISceneBridgeSkippedCommandCounts(drawText: 1))
+    }
+
+    @Test("Bridge diagnostics count skipped command families")
+    func bridgeDiagnosticsCountSkippedCommandFamilies() {
+        var path = RenderPath()
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: 12, y: 0))
+        path.addLine(to: Point(x: 12, y: 12))
+        path.close()
+
+        let commands: [RenderCommand] = [
+            .fillPath(FillPathCommand(path: path, color: .white)),
+            .strokePath(StrokePathCommand(path: path, color: .white)),
+            .drawText(DrawTextCommand(text: "Hello", position: Point(x: 10, y: 10))),
+            .applyBlur(BlurCommand(region: Rect(x: 0, y: 0, width: 30, height: 20), radius: 6)),
+        ]
+        let result = GPUIScene.bridgeResult(from: RenderFrame(clearColor: .black, commands: commands), surfaceSize: surfaceSize)
+
+        #expect(result.scene.primitiveCount == 0)
+        #expect(result.skippedCommands == GPUISceneBridgeSkippedCommandCounts(
+            fillPath: 1,
+            strokePath: 1,
+            drawText: 1,
+            applyBlur: 1
+        ))
+        #expect(result.skippedCommands.total == 4)
     }
 
     // MARK: - GPUIScene Structure

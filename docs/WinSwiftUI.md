@@ -64,6 +64,8 @@ Modifiers:
 
 - `frame`
 - `padding`
+- `foregroundColor`
+- `font`
 - `background`
 - `overlay`
 - `cornerRadius`
@@ -122,6 +124,7 @@ Surface direction:
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
+- Generic `foregroundColor` and `font` modifiers walk the retained subtree and update text descendants. `font` preserves the Segoe Fluent Icons family for `Image(systemName:)` glyphs while still changing their size and weight.
 - View `background` and `overlay` content closures map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds.
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.

@@ -896,6 +896,25 @@ func composeComponent(
     }
 }
 
+@MainActor
+private func updateTextStyles(in node: ViewNode, _ update: (inout PixelTextStyle) -> Void) {
+    if node.text != nil {
+        var style = node.textStyle
+        update(&style)
+        if var spans = style.spans {
+            for index in spans.indices {
+                update(&spans[index].style)
+            }
+            style.spans = spans
+        }
+        node.textStyle = style
+    }
+
+    for child in node.children {
+        updateTextStyles(in: child, update)
+    }
+}
+
 extension HorizontalAlignment {
     var stackAlignment: StackCrossAlignment {
         switch self {
@@ -1131,6 +1150,37 @@ private func layeredComponent(
 }
 
 public extension View {
+    func foregroundColor(_ color: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    style.color = color
+                }
+                return node
+            }
+        }
+    }
+
+    func font(_ font: Font) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                updateTextStyles(in: node) { style in
+                    let preservesIconFont = style.fontFamily == "Segoe Fluent Icons"
+                    style.scale = font.resolvedScale
+                    style.weight = font.weight.textWeight
+                    if !preservesIconFont {
+                        style.fontFamily = font.resolvedFamily
+                    }
+                }
+                return node
+            }
+        }
+    }
+
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

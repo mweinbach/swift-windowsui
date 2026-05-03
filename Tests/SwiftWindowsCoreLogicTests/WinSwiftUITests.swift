@@ -44,6 +44,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGenericForegroundColorStylesTextDescendants() async {
+        await MainActor.run {
+            let color = Color(red: 0.3, green: 0.8, blue: 0.7, alpha: 1)
+            let node = makeNode(
+                HStack {
+                    Text("STATUS")
+                    Image(systemName: "star.fill")
+                }
+                .foregroundColor(color)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.color, color)
+            XCTAssertEqual(node.children[1].textStyle.color, color)
+        }
+    }
+
+    func testGenericFontStylesTextDescendantsAndPreservesIconFamily() async {
+        await MainActor.run {
+            let node = makeNode(
+                HStack {
+                    Text("TITLE")
+                    Image(systemName: "star.fill")
+                }
+                .font(.system(size: 18, weight: .bold, design: .monospaced))
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.scale, 1.8)
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[0].textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(node.children[1].textStyle.scale, 1.8)
+            XCTAssertEqual(node.children[1].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.fontFamily, "Segoe Fluent Icons")
+        }
+    }
+
     func testForEachExpandsRowsAndAssignsStableTags() async {
         await MainActor.run {
             struct Row: Identifiable {

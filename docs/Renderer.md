@@ -3,7 +3,7 @@
 `swift-windowsui` currently has two renderer-facing frame shapes:
 
 - `RenderFrame` is the active default path. `RetainedViewRuntime.renderFrame()` emits ordered `RenderCommand` values, and `DefaultRenderBackendFactory.make()` returns `D3D11Renderer`.
-- `GPUIScene` is the batch-oriented path. It groups primitives into typed layer arrays for instanced rendering, and `DefaultRenderBackendFactory.makeBatchBackend()` returns `D3D11BatchRenderer` for tools or callers that want to exercise that path explicitly.
+- `GPUIScene` is the batch-oriented path. It groups primitives into typed layer arrays for instanced rendering, and `DefaultRenderBackendFactory.makeBatchBackend()` returns `D3D11BatchRenderer` for tools or callers that want to exercise that path explicitly. `D3D11BatchRenderer` also conforms to `RenderBackend`, bridging `RenderFrame` into `GPUIScene`, so it can be used as a drop-in renderer-neutral backend as the batch path matures.
 
 The batch scene types expose lightweight inspection helpers:
 

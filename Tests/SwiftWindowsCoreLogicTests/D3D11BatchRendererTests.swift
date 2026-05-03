@@ -18,6 +18,25 @@ final class D3D11BatchRendererTests: XCTestCase {
 
             // Verify protocol conformance
             let _: any BatchRenderBackend = renderer
+            let _: any RenderBackend = renderer
+        }
+    }
+
+    func testBatchRendererCanAcceptRenderFramesBeforeAttach() async throws {
+        try await MainActor.run {
+            let renderer = D3D11BatchRenderer()
+            let frame = RenderFrame(
+                clearColor: .black,
+                commands: [
+                    .fillRect(FillRectCommand(
+                        rect: Rect(x: 0, y: 0, width: 10, height: 10),
+                        color: .white
+                    )),
+                ]
+            )
+
+            try renderer.render(frame: frame)
+            XCTAssertEqual(renderer.backendStatusDescription, "D3D11 BATCH READY")
         }
     }
 

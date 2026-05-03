@@ -10,7 +10,7 @@ import WinSDK.DirectX
 /// Instead of one draw call per rectangle, all primitives of the same type are
 /// uploaded to a single GPU buffer and drawn in one DrawInstanced call.
 @MainActor
-public final class D3D11BatchRenderer: BatchRenderBackend {
+public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     public private(set) var isAttached = false
 
     public var backendDisplayName: String { "D3D11 BATCH" }
@@ -200,6 +200,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         if hr < 0 {
             throw BatchRendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
         }
+    }
+
+    public func render(frame: RenderFrame) throws {
+        guard let surface else {
+            return
+        }
+
+        let logicalSurfaceSize = makeLogicalSurfaceSize(
+            pixelSize: surface.pixelSize,
+            scaleFactor: surface.scaleFactor
+        )
+        try render(scene: GPUIScene(from: frame, surfaceSize: logicalSurfaceSize))
     }
 
     // MARK: - Static Shader Validation (for testing)

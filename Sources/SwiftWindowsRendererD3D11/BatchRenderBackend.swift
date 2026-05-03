@@ -5,9 +5,10 @@ import SwiftWindowsGraphics
 ///
 /// This sits alongside the existing ``RenderBackend`` protocol. A batch
 /// renderer groups primitives by type and issues fewer, larger draw calls
-/// instead of one draw per command. Concrete implementations (e.g. the
-/// D3D11BatchRenderer from Unit 7) will conform to both ``RenderBackend``
-/// and ``BatchRenderBackend``.
+/// instead of one draw per command. `D3D11BatchRenderer` conforms to both
+/// ``RenderBackend`` and ``BatchRenderBackend``: frame callers can use the
+/// normal renderer-neutral path, while tools can still pass `GPUIScene`
+/// directly when they want to inspect or stress the typed primitive path.
 @MainActor
 public protocol BatchRenderBackend: AnyObject {
     /// Human-readable name shown in debug overlays.

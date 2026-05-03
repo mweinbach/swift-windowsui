@@ -46,4 +46,40 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(runtime.root.children.first?.text, "SECOND")
         }
     }
+
+    func testReloadUpdatesEffectPropertiesInPlace() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var opacity = 0.25
+            var blurRadius = 2.0
+            var zIndex = 1.0
+            var transform = Transform2D.translation(x: 4, y: 6)
+
+            host.setContent {
+                Component { _ in
+                    ViewNode(
+                        backgroundColor: .white,
+                        blurRadius: blurRadius,
+                        opacity: opacity,
+                        zIndex: zIndex,
+                        transform: transform
+                    )
+                }
+            }
+
+            let node = runtime.root.children[0]
+            opacity = 0.75
+            blurRadius = 8
+            zIndex = 3
+            transform = .scale(x: 2, y: 2)
+            host.reload()
+
+            XCTAssertTrue(runtime.root.children[0] === node)
+            XCTAssertEqual(node.opacity, 0.75, accuracy: 0.001)
+            XCTAssertEqual(node.blurRadius, 8)
+            XCTAssertEqual(node.zIndex, 3)
+            XCTAssertEqual(node.transform.scaleX, 2, accuracy: 0.001)
+        }
+    }
 }

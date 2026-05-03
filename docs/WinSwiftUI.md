@@ -68,6 +68,12 @@ Modifiers:
 - `cornerRadius`
 - `border`
 - `shadow`
+- `opacity`
+- `blur`
+- `offset`
+- `scaleEffect`
+- `rotationEffect`
+- `zIndex`
 - `layoutPriority`
 - `allowsHitTesting`
 - `tag`
@@ -78,6 +84,7 @@ Compatibility helpers:
 - `Color.opacity(_:)`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
+- `Angle`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `State`, with projected bindings tied into retained-runtime invalidation
 - minimal `ObservableObject`, `Published`, and `ObservedObject`
@@ -103,6 +110,7 @@ Surface direction:
 - `List` maps into a styled vertical retained scroll panel and preserves the same offscreen culling path as `ScrollView`.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size.
+- Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.
 
 ## Observation Model
 

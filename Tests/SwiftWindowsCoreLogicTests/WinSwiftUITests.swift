@@ -147,6 +147,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testVisualEffectModifiersReachRuntimeNode() async {
+        await MainActor.run {
+            let effectNode = makeNode(
+                Text("FX")
+                    .opacity(0.4)
+                    .blur(radius: 6)
+                    .zIndex(5)
+            )
+            let offsetNode = makeNode(Text("MOVE").offset(x: 7, y: 9))
+            let scaleNode = makeNode(Text("ZOOM").scaleEffect(x: 2, y: 0.5))
+            let rotationNode = makeNode(Text("TURN").rotationEffect(.degrees(90)))
+
+            XCTAssertEqual(effectNode.opacity, 0.4, accuracy: 0.001)
+            XCTAssertEqual(effectNode.blurRadius, 6)
+            XCTAssertEqual(effectNode.zIndex, 5)
+            XCTAssertEqual(offsetNode.transform.translationX, 7, accuracy: 0.001)
+            XCTAssertEqual(offsetNode.transform.translationY, 9, accuracy: 0.001)
+            XCTAssertEqual(scaleNode.transform.scaleX, 2, accuracy: 0.001)
+            XCTAssertEqual(scaleNode.transform.scaleY, 0.5, accuracy: 0.001)
+            XCTAssertEqual(rotationNode.transform.rotation, Double.pi / 2, accuracy: 0.001)
+        }
+    }
+
     func testTagModifierSetsSelectionTag() async {
         await MainActor.run {
             let node = makeNode(Text("TAGGED").tag(7))

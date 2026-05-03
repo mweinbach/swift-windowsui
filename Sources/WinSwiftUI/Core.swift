@@ -39,6 +39,26 @@ public struct UnitPoint: Sendable, Equatable {
     public static let bottomTrailing = UnitPoint(x: 1.0, y: 1.0)
 }
 
+public struct Angle: Sendable, Equatable {
+    public var radians: Double
+
+    public init(radians: Double) {
+        self.radians = radians
+    }
+
+    public var degrees: Double {
+        radians * 180.0 / Double.pi
+    }
+
+    public static func radians(_ value: Double) -> Angle {
+        Angle(radians: value)
+    }
+
+    public static func degrees(_ value: Double) -> Angle {
+        Angle(radians: value * Double.pi / 180.0)
+    }
+}
+
 public struct Gradient: Sendable, Equatable {
     public var colors: [Color]
 
@@ -1087,6 +1107,80 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+            }
+        }
+    }
+
+    func opacity(_ opacity: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.opacity = min(max(opacity, 0), 1)
+                return childNode
+            }
+        }
+    }
+
+    func blur(radius: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.blurRadius = max(0, radius)
+                return childNode
+            }
+        }
+    }
+
+    func offset(x: Double = 0, y: Double = 0) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(.translation(x: x, y: y))
+                return childNode
+            }
+        }
+    }
+
+    func offset(_ offset: Size) -> some View {
+        self.offset(x: offset.width, y: offset.height)
+    }
+
+    func zIndex(_ value: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.zIndex = value
+                return childNode
+            }
+        }
+    }
+
+    func scaleEffect(_ scale: Double) -> some View {
+        scaleEffect(x: scale, y: scale)
+    }
+
+    func scaleEffect(x: Double, y: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(.scale(x: x, y: y))
+                return childNode
+            }
+        }
+    }
+
+    func rotationEffect(_ angle: Angle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(Transform2D(rotation: angle.radians))
+                return childNode
             }
         }
     }

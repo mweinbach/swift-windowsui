@@ -129,6 +129,10 @@ public final class ComponentHost {
         if target.shadowSpread != source.shadowSpread { target.shadowSpread = source.shadowSpread }
         if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
+        if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
+        if target.opacity != source.opacity { target.opacity = source.opacity }
+        if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
+        if target.transform != source.transform { target.transform = source.transform }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }

@@ -474,6 +474,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewSupportsLabeledInitializer() async {
+        await MainActor.run {
+            let node = makeNode(
+                ProgressView("IMPORTING", value: 0.25, total: 1.0)
+                    .tint(.mint)
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "IMPORTING")
+            XCTAssertEqual(node.children[0].textStyle.alignment, .leading)
+
+            let progressBar = node.children[1]
+            XCTAssertEqual(progressBar.children.count, 2)
+            XCTAssertEqual(progressBar.children[1].backgroundColor, .mint)
+            XCTAssertEqual(progressBar.children[1].frame.size.width, 50)
+            XCTAssertFalse(node.isHitTestVisible)
+        }
+    }
+
     func testGenericTintStylesControlDescendants() async {
         await MainActor.run {
             let node = makeNode(

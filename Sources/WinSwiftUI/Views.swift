@@ -994,11 +994,20 @@ public struct ProgressView: View {
 
     private static let defaultTintColor = Color(red: 0.24, green: 0.62, blue: 1.0, alpha: 1.0)
 
+    private let title: String?
     private let value: Double?
     private let total: Double
     private var tintColor: Color?
 
     public init(value: Double? = nil, total: Double = 1.0) {
+        self.title = nil
+        self.value = value
+        self.total = total
+        self.tintColor = nil
+    }
+
+    public init(_ title: String, value: Double? = nil, total: Double = 1.0) {
+        self.title = title
         self.value = value
         self.total = total
         self.tintColor = nil
@@ -1010,10 +1019,31 @@ public struct ProgressView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { _ in
-            Controls.progressBar(
+            let progressBar = Controls.progressBar(
                 value: value ?? 0,
                 total: total,
                 filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
+            )
+
+            guard let title, !title.isEmpty else {
+                return progressBar
+            }
+
+            let label = Controls.label(
+                title,
+                layoutPriority: 1,
+                color: Color(red: 0.86, green: 0.91, blue: 0.98, alpha: 0.92),
+                scale: 1.5,
+                weight: .semibold,
+                alignment: .leading,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [label, progressBar]
             )
         }
     }

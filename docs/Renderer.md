@@ -23,6 +23,8 @@ When Direct2D interop is active, the default renderer also translates `fillPath`
 
 When Direct2D interop is active, `drawText` commands are rendered through DirectWrite directly into the Direct2D target with grayscale text antialiasing. The retained UI still normally emits text as bitmap commands through `NativeTextRenderer`; `drawText` is available for renderer-neutral callers and future GPU text work. The pure D3D11 shader fallback still skips `drawText`.
 
+When Direct2D interop is active, `applyBlur` snapshots the requested target region into a temporary bitmap, applies the native Direct2D Gaussian blur effect, and draws the blurred image back over that region. The pure D3D11 shader fallback still skips `applyBlur`.
+
 For a quick console smoke check, run:
 
 ```powershell
@@ -31,4 +33,4 @@ swift run swift-windowsui-inspect
 
 The inspector builds a small retained tree, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes a clip-stack probe without opening a window.
 
-Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, and `drawText`. Blur still needs backend implementation before it can be considered an active visual feature on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.
+Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath`, `strokePath`, `drawText`, and `applyBlur`. Clip-stack support is currently rectangular/bounds-based rather than full vector masking.

@@ -23,6 +23,7 @@ struct SwiftWindowsUIInspector {
         let pathProbeCounts = CommandCounts(pathProbeFrame.commands)
         let pathProbePath = makePathProbePath()
         let textProbeCounts = CommandCounts(makeTextProbeFrame().commands)
+        let blurProbeCounts = CommandCounts(makeBlurProbeFrame().commands)
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
@@ -46,6 +47,7 @@ struct SwiftWindowsUIInspector {
         print("  images: \(paintedScene.totalImages)")
         print("Path probe: \(pathProbeCounts.fillPath) fill, \(pathProbeCounts.strokePath) stroke, \(pathProbePath.segments.count) segments")
         print("Text probe: \(textProbeCounts.drawText) drawText command")
+        print("Blur probe: \(blurProbeCounts.applyBlur) applyBlur command")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
@@ -197,6 +199,19 @@ private func makeTextProbeFrame() -> RenderFrame {
                 color: Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 1.0),
                 maxWidth: 240
             )),
+        ]
+    )
+}
+
+private func makeBlurProbeFrame() -> RenderFrame {
+    RenderFrame(
+        clearColor: .black,
+        commands: [
+            .fillRect(FillRectCommand(
+                rect: Rect(x: 0, y: 0, width: 180, height: 120),
+                color: Color(red: 0.12, green: 0.18, blue: 0.28, alpha: 1.0)
+            )),
+            .applyBlur(BlurCommand(region: Rect(x: 24, y: 20, width: 132, height: 72), radius: 10)),
         ]
     )
 }

@@ -818,13 +818,17 @@ public final class D3D11Renderer: RenderBackend {
                     clipRect: clipStack.resolvedClip(commandClip: drawTextCommand.clipRect),
                     deviceContext: deviceContext
                 )
+            case .applyBlur(let blurCommand):
+                try drawWithDirect2D(
+                    blur: blurCommand,
+                    clipRect: clipStack.resolvedClip(commandClip: nil),
+                    scaleFactor: scaleFactor,
+                    deviceContext: deviceContext
+                )
             case .pushClip(let clipCommand):
                 clipStack.push(clipCommand)
             case .popClip:
                 clipStack.pop()
-            case .applyBlur:
-                // TODO: implement Direct2D path for new render commands
-                break
             }
         }
 
@@ -1054,6 +1058,33 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         try throwIfFailed(hr, operation: "Draw Direct2D drawText")
+    }
+
+    private func drawWithDirect2D(
+        blur command: BlurCommand,
+        clipRect: Rect?,
+        scaleFactor: Double,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        guard command.radius > 0, let region = direct2DBlurRegion(for: command, clipRect: clipRect) else {
+            return
+        }
+
+        let safeScale = max(scaleFactor, 1.0)
+        let dpi = Float(safeScale * logicalDpi)
+        let hr = SWU_D2DApplyGaussianBlur(
+            deviceContext,
+            Float(region.minX),
+            Float(region.minY),
+            Float(region.maxX),
+            Float(region.maxY),
+            Float(command.radius),
+            Float(safeScale),
+            dpi,
+            dpi
+        )
+
+        try throwIfFailed(hr, operation: "Draw Direct2D applyBlur")
     }
 
     private func draw(
@@ -1654,6 +1685,18 @@ func directWriteFontWeight(_ weight: DrawTextCommand.FontWeight) -> Int32 {
     case .black:
         return 900
     }
+}
+
+func direct2DBlurRegion(for command: BlurCommand, clipRect: Rect?) -> Rect? {
+    guard command.radius > 0, command.region.size.width > 0, command.region.size.height > 0 else {
+        return nil
+    }
+
+    guard let clipRect else {
+        return command.region
+    }
+
+    return command.region.intersected(with: clipRect)
 }
 
 private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRectCommand {

@@ -5,9 +5,12 @@
 #endif
 
 #include <d2d1_1.h>
+#include <d2d1effects.h>
 #include <d3d11_1.h>
 #include <dwrite.h>
 #include <dxgi1_2.h>
+
+#include <cmath>
 
 static D2D1_MATRIX_3X2_F swu_identity_matrix() {
     D2D1_MATRIX_3X2_F matrix{};
@@ -23,6 +26,10 @@ static D2D1_COLOR_F swu_color(float red, float green, float blue, float alpha) {
     color.b = blue;
     color.a = alpha;
     return color;
+}
+
+static float swu_max_float(float lhs, float rhs) {
+    return lhs > rhs ? lhs : rhs;
 }
 
 static void swu_release_unknown(IUnknown *object) {
@@ -725,6 +732,108 @@ cleanup:
     swu_release_unknown(brush);
     swu_release_unknown(text_format);
     swu_release_unknown(write_factory);
+    return hr;
+}
+
+extern "C" HRESULT SWU_D2DApplyGaussianBlur(
+    void *context_raw,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float radius,
+    float scale_factor,
+    float dpi_x,
+    float dpi_y
+) {
+    auto context = static_cast<ID2D1DeviceContext *>(context_raw);
+    ID2D1Bitmap1 *source_bitmap = nullptr;
+    ID2D1Effect *blur_effect = nullptr;
+    D2D1_BITMAP_PROPERTIES1 bitmap_properties{};
+    D2D1_SIZE_U bitmap_size{};
+    D2D1_RECT_U source_rect{};
+    D2D1_RECT_F clip_rect{};
+    D2D1_POINT_2F destination{};
+    HRESULT hr = S_OK;
+
+    if (
+        context == nullptr ||
+        right <= left ||
+        bottom <= top ||
+        radius <= 0.0f ||
+        scale_factor <= 0.0f ||
+        dpi_x <= 0.0f ||
+        dpi_y <= 0.0f
+    ) {
+        return E_INVALIDARG;
+    }
+
+    const float safe_scale = swu_max_float(scale_factor, 1.0f);
+    const UINT32 left_px = static_cast<UINT32>(swu_max_float(0.0f, std::floor(left * safe_scale)));
+    const UINT32 top_px = static_cast<UINT32>(swu_max_float(0.0f, std::floor(top * safe_scale)));
+    const UINT32 right_px = static_cast<UINT32>(swu_max_float(0.0f, std::ceil(right * safe_scale)));
+    const UINT32 bottom_px = static_cast<UINT32>(swu_max_float(0.0f, std::ceil(bottom * safe_scale)));
+
+    if (right_px <= left_px || bottom_px <= top_px) {
+        return S_OK;
+    }
+
+    bitmap_size.width = right_px - left_px;
+    bitmap_size.height = bottom_px - top_px;
+    bitmap_properties.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    bitmap_properties.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    bitmap_properties.dpiX = dpi_x;
+    bitmap_properties.dpiY = dpi_y;
+    bitmap_properties.bitmapOptions = D2D1_BITMAP_OPTIONS_NONE;
+
+    hr = context->CreateBitmap(bitmap_size, nullptr, 0, &bitmap_properties, &source_bitmap);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    source_rect.left = left_px;
+    source_rect.top = top_px;
+    source_rect.right = right_px;
+    source_rect.bottom = bottom_px;
+    hr = source_bitmap->CopyFromRenderTarget(nullptr, context, &source_rect);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    hr = context->CreateEffect(CLSID_D2D1GaussianBlur, &blur_effect);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    blur_effect->SetInput(0, source_bitmap);
+    hr = blur_effect->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, radius);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+    hr = blur_effect->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_HARD);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    destination.x = left;
+    destination.y = top;
+    clip_rect.left = left;
+    clip_rect.top = top;
+    clip_rect.right = right;
+    clip_rect.bottom = bottom;
+    context->PushAxisAlignedClip(clip_rect, D2D1_ANTIALIAS_MODE_ALIASED);
+    context->DrawImage(
+        blur_effect,
+        &destination,
+        nullptr,
+        D2D1_INTERPOLATION_MODE_LINEAR,
+        D2D1_COMPOSITE_MODE_SOURCE_OVER
+    );
+    context->PopAxisAlignedClip();
+
+cleanup:
+    swu_release_unknown(blur_effect);
+    swu_release_unknown(source_bitmap);
     return hr;
 }
 

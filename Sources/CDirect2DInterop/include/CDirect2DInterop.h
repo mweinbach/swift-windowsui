@@ -125,6 +125,18 @@ HRESULT SWU_D2DDrawTextUTF16(
     float alpha
 );
 
+HRESULT SWU_D2DApplyGaussianBlur(
+    void *context,
+    float left,
+    float top,
+    float right,
+    float bottom,
+    float radius,
+    float scale_factor,
+    float dpi_x,
+    float dpi_y
+);
+
 HRESULT SWU_D2DDrawBitmapBGRA(
     void *context,
     const void *pixels,

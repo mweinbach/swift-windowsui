@@ -170,4 +170,20 @@ final class D3D11RendererTests: XCTestCase {
         XCTAssertEqual(directWriteFontWeight(.heavy), 800)
         XCTAssertEqual(directWriteFontWeight(.black), 900)
     }
+
+    func testDirect2DBlurRegionIntersectsClip() {
+        let command = BlurCommand(region: Rect(x: 20, y: 30, width: 120, height: 100), radius: 14)
+        let clip = Rect(x: 80, y: 10, width: 100, height: 80)
+
+        XCTAssertEqual(direct2DBlurRegion(for: command, clipRect: clip), Rect(x: 80, y: 30, width: 60, height: 60))
+    }
+
+    func testDirect2DBlurRegionRejectsEmptyOrZeroRadius() {
+        XCTAssertNil(direct2DBlurRegion(for: BlurCommand(region: Rect(x: 0, y: 0, width: 10, height: 10), radius: 0), clipRect: nil))
+        XCTAssertNil(direct2DBlurRegion(for: BlurCommand(region: Rect(x: 0, y: 0, width: 0, height: 10), radius: 4), clipRect: nil))
+        XCTAssertNil(direct2DBlurRegion(
+            for: BlurCommand(region: Rect(x: 0, y: 0, width: 10, height: 10), radius: 4),
+            clipRect: Rect(x: 20, y: 20, width: 10, height: 10)
+        ))
+    }
 }

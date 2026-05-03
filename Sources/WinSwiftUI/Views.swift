@@ -3423,12 +3423,22 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
         return .folder
     case "gearshape", "gearshape.fill":
         return .settings
+    case "plus", "plus.circle", "plus.circle.fill", "plus.square", "plus.square.fill":
+        return .plus
+    case "minus", "minus.circle", "minus.circle.fill", "minus.square", "minus.square.fill":
+        return .minus
+    case "xmark", "xmark.circle", "xmark.circle.fill", "xmark.square", "xmark.square.fill":
+        return .xmark
     case "bolt", "bolt.fill":
         return .lightning
     case "rectangle.3.group", "square.grid.3x1.folder.badge.plus":
         return .layout
     case "keyboard":
         return .keyboard
+    case "star", "star.circle", "star.square":
+        return .star
+    case "star.fill", "star.circle.fill", "star.square.fill":
+        return .starFill
     case "sparkles":
         return .sparkle
     case "info.circle", "info.circle.fill":
@@ -3441,6 +3451,34 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
         return .split
     case "trash", "trash.fill", "delete.left", "delete.left.fill":
         return .trash
+    case "checkmark", "checkmark.circle", "checkmark.circle.fill", "checkmark.square", "checkmark.square.fill":
+        return .checkmark
+    case "chevron.up", "chevron.up.circle", "chevron.up.circle.fill":
+        return .chevronUp
+    case "chevron.down", "chevron.down.circle", "chevron.down.circle.fill":
+        return .chevronDown
+    case "chevron.left", "chevron.left.circle", "chevron.left.circle.fill":
+        return .chevronLeft
+    case "chevron.right", "chevron.right.circle", "chevron.right.circle.fill":
+        return .chevronRight
+    case "calendar", "calendar.circle", "calendar.circle.fill":
+        return .calendar
+    case "person", "person.fill", "person.circle", "person.circle.fill", "person.crop.circle":
+        return .person
+    case "person.2", "person.2.fill", "person.2.circle", "person.2.circle.fill":
+        return .people
+    case "play", "play.fill", "play.circle", "play.circle.fill":
+        return .play
+    case "pause", "pause.fill", "pause.circle", "pause.circle.fill":
+        return .pause
+    case "arrow.clockwise", "arrow.clockwise.circle", "arrow.clockwise.circle.fill":
+        return .refresh
+    case "square.and.arrow.up", "square.and.arrow.up.fill":
+        return .share
+    case "lock", "lock.fill", "lock.circle", "lock.circle.fill":
+        return .lock
+    case "lock.open", "lock.open.fill", "lock.open.circle", "lock.open.circle.fill":
+        return .unlock
     default:
         return .sparkle
     }

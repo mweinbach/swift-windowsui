@@ -168,7 +168,7 @@ Surface direction:
 ## Mapping Notes
 
 - `Text` maps into retained label nodes and the current text renderer path. Plain strings, `StringProtocol` values, `Text(verbatim:)`, `Text` concatenation with retained span style metadata, and common inline styling modifiers such as `bold`, `fontWeight`, `fontDesign`, `textCase`, `monospaced`, `kerning`, `tracking`, `lineSpacing`, `truncationMode`, `underline`, and `strikethrough` are accepted for source compatibility.
-- `Image(systemName:)` maps known SF Symbol names into the project icon set, including common action glyphs such as `trash`.
+- `Image(systemName:)` maps known SF Symbol names into the project icon set, including common action, status, navigation, people, media, lock, and share glyph aliases.
 - `Label` maps system-image labels and custom `title`/`icon` builder labels into retained horizontal stacks. Label-level `foregroundColor` and `font` modifiers style descendant text while preserving the icon font family.
 - `ContentUnavailableView` maps common empty-state and search-empty call sites into centered retained stacks with title/icon, optional description, and optional action content.
 - `LabeledContent` maps common settings rows into retained horizontal stacks with leading labels and trailing value/content views.

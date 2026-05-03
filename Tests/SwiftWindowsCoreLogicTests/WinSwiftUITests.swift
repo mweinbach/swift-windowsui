@@ -415,6 +415,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSystemImageAliasesMapToRetainedSymbolIcons() async {
+        await MainActor.run {
+            let node = makeNode(
+                HStack {
+                    Image(systemName: "plus.circle.fill")
+                    Image(systemName: "minus.square")
+                    Image(systemName: "xmark.circle")
+                    Image(systemName: "checkmark.square.fill")
+                    Image(systemName: "chevron.left")
+                    Image(systemName: "chevron.right.circle.fill")
+                    Image(systemName: "person.2.fill")
+                    Image(systemName: "arrow.clockwise")
+                }
+            )
+
+            XCTAssertEqual(
+                node.children.map(\.text),
+                [
+                    SymbolIcon.plus.rawValue,
+                    SymbolIcon.minus.rawValue,
+                    SymbolIcon.xmark.rawValue,
+                    SymbolIcon.checkmark.rawValue,
+                    SymbolIcon.chevronLeft.rawValue,
+                    SymbolIcon.chevronRight.rawValue,
+                    SymbolIcon.people.rawValue,
+                    SymbolIcon.refresh.rawValue
+                ]
+            )
+
+            let labelNode = makeNode(Label("ADD", systemImage: "plus.circle"))
+
+            XCTAssertEqual(labelNode.children[0].text, SymbolIcon.plus.rawValue)
+            XCTAssertTrue(containsText("ADD", in: labelNode.children[1]))
+        }
+    }
+
     func testGenericFontStylesTextDescendantsAndPreservesIconFamily() async {
         await MainActor.run {
             let node = makeNode(

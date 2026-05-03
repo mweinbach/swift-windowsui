@@ -21,6 +21,34 @@ final class D3D11BatchRendererTests: XCTestCase {
         }
     }
 
+    func testBatchFrameUniformsUseLogicalSurfaceSizeAndScale() {
+        let uniforms = makeBatchFrameUniforms(
+            pixelSize: IntSize(width: 900, height: 600),
+            scaleFactor: 1.5
+        )
+
+        XCTAssertEqual(uniforms.surfaceWidth, 600)
+        XCTAssertEqual(uniforms.surfaceHeight, 400)
+        XCTAssertEqual(uniforms.scaleFactor, 1.5, accuracy: 0.001)
+        XCTAssertEqual(uniforms.pad0, 0)
+    }
+
+    func testBatchFrameUniformsClampInvalidScaleToOne() {
+        let uniforms = makeBatchFrameUniforms(
+            pixelSize: IntSize(width: 320, height: 180),
+            scaleFactor: 0
+        )
+
+        XCTAssertEqual(uniforms.surfaceWidth, 320)
+        XCTAssertEqual(uniforms.surfaceHeight, 180)
+        XCTAssertEqual(uniforms.scaleFactor, 1)
+    }
+
+    func testBatchFrameUniformStride() {
+        // Four floats keep the D3D11 constant buffer aligned to 16 bytes.
+        XCTAssertEqual(MemoryLayout<BatchFrameUniforms>.stride, 16)
+    }
+
     func testGPUISceneConstruction() {
         var scene = GPUIScene(clearColor: .white)
         XCTAssertEqual(scene.layers.count, 1)

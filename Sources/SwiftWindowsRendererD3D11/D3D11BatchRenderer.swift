@@ -153,10 +153,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
-        try updateFrameUniforms(surfaceSize: surface.pixelSize)
+        try updateFrameUniforms(pixelSize: surface.pixelSize, scaleFactor: surface.scaleFactor)
 
         var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
+        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
         for layer in scene.layers {
             if !layer.shadows.isEmpty {
@@ -645,24 +646,12 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     // MARK: - Frame Uniforms
 
-    private struct FrameUniforms {
-        var surfaceWidth: Float
-        var surfaceHeight: Float
-        var pad0: Float
-        var pad1: Float
-    }
-
-    private func updateFrameUniforms(surfaceSize: IntSize) throws {
+    private func updateFrameUniforms(pixelSize: IntSize, scaleFactor: Double) throws {
         guard let deviceContext, let frameUniformBuffer else {
             return
         }
 
-        var uniforms = FrameUniforms(
-            surfaceWidth: Float(surfaceSize.width),
-            surfaceHeight: Float(surfaceSize.height),
-            pad0: 0,
-            pad1: 0
-        )
+        var uniforms = makeBatchFrameUniforms(pixelSize: pixelSize, scaleFactor: scaleFactor)
 
         let resource = UnsafeMutableRawPointer(frameUniformBuffer).assumingMemoryBound(to: ID3D11Resource.self)
         withUnsafePointer(to: &uniforms) { ptr in
@@ -765,6 +754,24 @@ private func releaseCOMPointer<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
     _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
     pointer = nil
+}
+
+struct BatchFrameUniforms: Equatable {
+    var surfaceWidth: Float
+    var surfaceHeight: Float
+    var scaleFactor: Float
+    var pad0: Float
+}
+
+func makeBatchFrameUniforms(pixelSize: IntSize, scaleFactor: Double) -> BatchFrameUniforms {
+    let safeScale = max(scaleFactor, 1.0)
+    let logicalSurfaceSize = makeLogicalSurfaceSize(pixelSize: pixelSize, scaleFactor: safeScale)
+    return BatchFrameUniforms(
+        surfaceWidth: Float(logicalSurfaceSize.width),
+        surfaceHeight: Float(logicalSurfaceSize.height),
+        scaleFactor: Float(safeScale),
+        pad0: 0
+    )
 }
 
 private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)

@@ -4,7 +4,8 @@ let batchQuadShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float2 _pad0;
+    float scaleFactor;
+    float _pad0;
 };
 
 struct QuadInstance
@@ -80,20 +81,22 @@ float roundedRectDistance(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    float safeScale = max(scaleFactor, 1.0);
+    float2 logicalPixelPosition = input.position.xy / safeScale;
+
     // Per-pixel clip check: if clip rect has positive dimensions, discard outside it
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.position.xy;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
+            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
-    float aa = max(fwidth(distance), 0.75);
+    float aa = max(fwidth(distance), 0.75 / safeScale);
     float alpha = saturate(0.5 - distance / aa);
 
     float gradientT = input.gradientAxis > 0.5
@@ -111,7 +114,8 @@ let batchImageShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float2 _pad0;
+    float scaleFactor;
+    float _pad0;
 };
 
 struct ImageInstance
@@ -171,13 +175,15 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    float safeScale = max(scaleFactor, 1.0);
+    float2 logicalPixelPosition = input.position.xy / safeScale;
+
     // Per-pixel clip check
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.position.xy;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
+            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -195,7 +201,8 @@ let batchShadowShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float2 _pad0;
+    float scaleFactor;
+    float _pad0;
 };
 
 struct ShadowInstance
@@ -273,12 +280,14 @@ float roundedRectDistanceShadow(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
+    float safeScale = max(scaleFactor, 1.0);
+    float2 logicalPixelPosition = input.position.xy / safeScale;
+
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        float2 pixelPos = input.position.xy;
-        if (pixelPos.x < input.clipRect.x || pixelPos.y < input.clipRect.y ||
-            pixelPos.x > input.clipRect.x + input.clipRect.z ||
-            pixelPos.y > input.clipRect.y + input.clipRect.w)
+        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
+            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }

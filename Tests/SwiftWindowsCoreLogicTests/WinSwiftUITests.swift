@@ -1322,6 +1322,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationSplitViewMapsThreeColumnsToNestedRetainedSplitViews() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationSplitView {
+                    Text("SIDEBAR")
+                } content: {
+                    Text("CONTENT")
+                } detail: {
+                    Text("DETAIL")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertTrue(node.children[2].isHitTestVisible)
+            XCTAssertTrue(containsText("SIDEBAR", in: node))
+            XCTAssertTrue(containsText("CONTENT", in: node))
+            XCTAssertTrue(containsText("DETAIL", in: node))
+
+            let nestedSplit = node.children[1].children[0]
+            XCTAssertEqual(nestedSplit.children.count, 3)
+            XCTAssertTrue(nestedSplit.children[2].isHitTestVisible)
+        }
+    }
+
+    func testNavigationSplitViewSupportsTwoColumnSyntax() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationSplitView {
+                    Text("SIDEBAR")
+                } detail: {
+                    Text("DETAIL")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertTrue(node.children[2].isHitTestVisible)
+            XCTAssertTrue(containsText("SIDEBAR", in: node))
+            XCTAssertTrue(containsText("DETAIL", in: node))
+        }
+    }
+
     func testGroupBoxMapsTitleAndCustomLabelToRetainedSection() async {
         await MainActor.run {
             let titledNode = makeNode(

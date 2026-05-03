@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 20
+            maximumTextSamples: 24
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -679,6 +679,15 @@ private struct WinSwiftUIProbeView: View {
                 }
             }
             .frame(height: 126)
+
+            NavigationSplitView {
+                Text("NAV SIDEBAR")
+            } content: {
+                Text("NAV CONTENT")
+            } detail: {
+                Text("NAV DETAIL")
+            }
+            .frame(height: 92)
         }
         .padding(16)
         .foregroundColor(Color(red: 0.92, green: 0.96, blue: 1.0, alpha: 1.0))

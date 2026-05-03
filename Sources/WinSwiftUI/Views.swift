@@ -758,6 +758,75 @@ public struct Form: View {
 }
 
 @MainActor
+public struct NavigationSplitView: View {
+    public typealias Body = Never
+
+    private let sidebar: [AnyView]
+    private let content: [AnyView]
+    private let detail: [AnyView]
+    private let usesContentColumn: Bool
+
+    public init(
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.sidebar = sidebar()
+        self.content = content()
+        self.detail = detail()
+        self.usesContentColumn = true
+    }
+
+    public init(
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.sidebar = sidebar()
+        self.content = []
+        self.detail = detail()
+        self.usesContentColumn = false
+    }
+
+    public var body: Never {
+        fatalError("NavigationSplitView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        if usesContentColumn {
+            return HSplitView(
+                ratio: 0.28,
+                minPrimaryExtent: 180,
+                minSecondaryExtent: 360,
+                dividerThickness: 12
+            ) {
+                NavigationSplitColumn(kind: .sidebar, content: sidebar)
+                HSplitView(
+                    ratio: 0.44,
+                    minPrimaryExtent: 220,
+                    minSecondaryExtent: 260,
+                    dividerThickness: 12
+                ) {
+                    NavigationSplitColumn(kind: .content, content: content)
+                    NavigationSplitColumn(kind: .detail, content: detail)
+                }
+            }
+            .makeComponent(context: context)
+        }
+
+        return HSplitView(
+            ratio: 0.30,
+            minPrimaryExtent: 180,
+            minSecondaryExtent: 300,
+            dividerThickness: 12
+        ) {
+            NavigationSplitColumn(kind: .sidebar, content: sidebar)
+            NavigationSplitColumn(kind: .detail, content: detail)
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct GroupBox: View {
     public typealias Body = Never
 
@@ -1649,6 +1718,53 @@ private extension VSplitView {
             onRatioChanged: onRatioChanged,
             context: context
         )
+    }
+}
+
+private enum NavigationSplitColumnKind {
+    case sidebar
+    case content
+    case detail
+
+    var backgroundColor: Color {
+        switch self {
+        case .sidebar:
+            return Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
+        case .content:
+            return Color(red: 0.09, green: 0.13, blue: 0.20, alpha: 0.72)
+        case .detail:
+            return Color(red: 0.07, green: 0.10, blue: 0.16, alpha: 0.80)
+        }
+    }
+
+    var borderColor: Color {
+        Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.08)
+    }
+}
+
+@MainActor
+private struct NavigationSplitColumn: View {
+    typealias Body = Never
+
+    let kind: NavigationSplitColumnKind
+    let content: [AnyView]
+
+    var body: Never {
+        fatalError("NavigationSplitColumn has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        VStack(alignment: .leading, spacing: 10) {
+            content
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(kind.backgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(kind.borderColor, lineWidth: 1)
+        )
+        .makeComponent(context: context)
     }
 }
 

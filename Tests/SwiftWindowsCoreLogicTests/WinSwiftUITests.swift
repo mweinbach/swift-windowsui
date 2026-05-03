@@ -240,6 +240,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlGroupMapsChildrenIntoRoundedRetainedStack() async {
+        await MainActor.run {
+            let node = makeNode(
+                ControlGroup {
+                    Button("ONE") {}
+                    Button("TWO") {}
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected ControlGroup to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .horizontal(spacing: 4, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center))
+            XCTAssertEqual(node.cornerRadius, 18)
+            XCTAssertEqual(node.borderWidth, 1)
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(node.children.allSatisfy(\.isFocusable))
+            XCTAssertEqual(node.children[0].children.first?.text, "ONE")
+            XCTAssertEqual(node.children[1].children.first?.text, "TWO")
+        }
+    }
+
     func testInspectionSnapshotSummarizesWinSwiftUIViewTree() async {
         await MainActor.run {
             let snapshot = WinSwiftUIInspection.snapshot(

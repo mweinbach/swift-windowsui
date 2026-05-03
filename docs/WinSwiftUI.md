@@ -43,6 +43,7 @@ Views and containers:
 - `Image(systemName:)`
 - `Label`
 - `LabeledContent`
+- `ControlGroup`
 - `Spacer`
 - `Divider`
 - `Rectangle`
@@ -137,6 +138,7 @@ Surface direction:
 - `Text` maps into retained label nodes and the current text renderer path. Plain strings, `StringProtocol` values, and `Text(verbatim:)` are accepted for source compatibility.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set, including common action glyphs such as `trash`.
 - `LabeledContent` maps common settings rows into retained horizontal stacks with leading labels and trailing value/content views.
+- `ControlGroup` maps grouped controls into a rounded retained horizontal stack with translucent chrome while preserving each child control's focus and activation behavior.
 - `Divider` maps into a thin retained panel and uses the nearest stack axis to choose a horizontal or vertical separator.
 - `Rectangle`, `RoundedRectangle`, `Circle`, `Ellipse`, and `Capsule` map into passive retained panels. Shape fills set panel backgrounds or gradients; shape strokes set retained border color and width.
 - `RoundedRectangle` carries its corner radius into the retained node so fills, strokes, overlays, and clipping stay aligned. `Circle`, `Ellipse`, and `Capsule` use the retained rounded-rect renderer's maximum capsule radius until path-backed shape views provide true vector ellipse masking.

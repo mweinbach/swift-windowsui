@@ -319,6 +319,44 @@ public struct LabeledContent: View {
 }
 
 @MainActor
+public struct ControlGroup: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ControlGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let childContext = context.withContainerAxis(.horizontal)
+        return Component { runtime in
+            Controls.stackPanel(
+                backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.58),
+                borderColor: Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.12),
+                shadowOffset: Point(x: 0, y: 10),
+                shadowSpread: 6,
+                cornerRadius: 18,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct TextField: View {
     public typealias Body = Never
 

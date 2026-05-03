@@ -112,6 +112,18 @@ struct DWRITE_OVERHANG_METRICS {
     var bottom: FLOAT = 0
 }
 
+struct DWRITE_HIT_TEST_METRICS {
+    var textPosition: UINT32 = 0
+    var length: UINT32 = 0
+    var left: FLOAT = 0
+    var top: FLOAT = 0
+    var width: FLOAT = 0
+    var height: FLOAT = 0
+    var bidiLevel: UINT32 = 0
+    var isText: WindowsBool = WindowsBool(false)
+    var isTrimmed: WindowsBool = WindowsBool(false)
+}
+
 struct IDWriteFactory { var lpVtbl: UnsafeMutablePointer<IDWriteFactoryVtbl>? }
 struct IDWriteTextFormat { var lpVtbl: UnsafeMutablePointer<IDWriteTextFormatVtbl>? }
 struct IDWriteTextLayout { var lpVtbl: UnsafeMutablePointer<IDWriteTextLayoutVtbl>? }
@@ -137,6 +149,7 @@ typealias DWSetLineSpacingProc = @convention(c) (UnsafeMutableRawPointer?, DWrit
 typealias DWDrawTextLayoutProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) -> HRESULT
 typealias DWGetMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWGetOverhangMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWHitTestTextPositionProc = @convention(c) (UnsafeMutableRawPointer?, UINT32, WindowsBool, UnsafeMutablePointer<FLOAT>?, UnsafeMutablePointer<FLOAT>?, UnsafeMutableRawPointer?) -> HRESULT
 // SetUnderline, SetStrikethrough, SetFontWeight, SetFontSize, SetTypography
 // use DWRITE_TEXT_RANGE which is a custom struct not representable in @convention(c).
 // These vtable slots are accessed via unsafeBitCast at call sites instead,

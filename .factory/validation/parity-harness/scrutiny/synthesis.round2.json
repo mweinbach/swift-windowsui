@@ -1,0 +1,65 @@
+{
+  "milestone": "parity-harness",
+  "round": 2,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 1,
+    "failed": 2,
+    "failedFeatures": [
+      "fix-normalized-output-and-scroll-geometry-parity",
+      "fix-deferred-scene-path-proof-and-subtree-switch-parity"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "fix-normalized-output-and-scroll-geometry-parity",
+      "severity": "blocking",
+      "description": "The new VAL-PARITY-003 scroll-delta check still is not an exact frame-vs-scene comparison. It normalizes the scene delta and compares it to the literal `30.0` with `accuracy: 5.0`, while the frame path is asserted separately. A regression where the frame moves by 30 but the scene moves by 25 would still satisfy this test."
+    },
+    {
+      "featureId": "fix-normalized-output-and-scroll-geometry-parity",
+      "severity": "blocking",
+      "description": "The promised scroll-indicator geometry comparison still never compares frame and scene indicator geometry to each other. The test only checks that each path's indicator moves downward, without asserting matching size, position, or delta across frame vs. scene output, so mismatched indicator placement or shape can still slip through."
+    },
+    {
+      "featureId": "fix-deferred-scene-path-proof-and-subtree-switch-parity",
+      "severity": "blocking",
+      "description": "The only focused scene-path deferred test still checks initial scroll-indicator flush order. There is still no ScenePainter-focused evidence for replayed deferred overlays or nested deferred subtree ordering, which validation-contract.md requires for VAL-PARITY-004 and VAL-PARITY-005. The fix commit does not touch this file, so the original blocking scrutiny finding remains unresolved."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "Add a mandatory pre-handoff check that the claimed changed files and added tests match the committed diff, for example by comparing the handoff summary against `git show --stat HEAD` or the feature commit before EndFeatureRun.",
+      "evidence": "The fix-deferred-scene-path-proof-and-subtree-switch-parity review found the handoff claimed new RetainedViewRuntimeTests coverage and four added tests, but `git show --stat e24713a` reports only `Sources/SwiftWindowsUI/Runtime.swift` changed.",
+      "isSystemic": false
+    },
+    {
+      "target": "runtime-host-worker skill",
+      "suggestion": "Clarify that `.factory/services.yaml` and `.factory/library/architecture.md` are paths relative to the repository root, not the user-home `.factory` directory.",
+      "evidence": "The fix-deferred-draggable-scrollable-ancestor-routing-parity transcript first attempted reads from `C:/Users/maxw6/.factory/...` before correcting to `C:/Users/maxw6/Projects/swift-windowsui/.factory/...`.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/parity-harness/scrutiny/synthesis.round1.json"
+}

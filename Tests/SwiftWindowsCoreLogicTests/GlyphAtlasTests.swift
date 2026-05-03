@@ -1,8 +1,13 @@
 import XCTest
 import Foundation
+import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
 
 final class GlyphAtlasTests: XCTestCase {
+
+    private static func pixelData(width: Int32, height: Int32, value: UInt8 = 255) -> Data {
+        Data(repeating: value, count: Int(width * height * 4))
+    }
 
     // MARK: - Atlas Allocation
 
@@ -225,6 +230,24 @@ final class GlyphAtlasTests: XCTestCase {
         }
     }
 
+    func testDirtyRegionAccumulatesWritesAndResetsAfterMarkClean() async {
+        let atlas = await MainActor.run { GlyphAtlas(width: 32, height: 32) }
+        let firstPixels = Self.pixelData(width: 4, height: 4, value: 10)
+        let secondPixels = Self.pixelData(width: 6, height: 5, value: 20)
+
+        await MainActor.run {
+            atlas.writePixels(firstPixels, at: 2, y: 3, width: 4, height: 4)
+            XCTAssertEqual(atlas.dirtyRegion, GlyphAtlasRegion(x: 2, y: 3, width: 4, height: 4))
+
+            atlas.writePixels(secondPixels, at: 10, y: 12, width: 6, height: 5)
+            XCTAssertEqual(atlas.dirtyRegion, GlyphAtlasRegion(x: 2, y: 3, width: 14, height: 14))
+
+            atlas.markClean()
+            XCTAssertFalse(atlas.isDirty)
+            XCTAssertNil(atlas.dirtyRegion)
+        }
+    }
+
     // MARK: - Atlas Clear
 
     func testClearResetsAllocations() async {
@@ -287,6 +310,41 @@ final class GlyphAtlasTests: XCTestCase {
         }
     }
 
+    func testDistinctGlyphIdentitiesDoNotAliasAtlasEntries() async {
+        let atlas = await MainActor.run { GlyphAtlas(width: 256, height: 256) }
+        let cache = await MainActor.run { GlyphAtlasCache(atlas: atlas) }
+        let pixels = Self.pixelData(width: 4, height: 4)
+
+        await MainActor.run {
+            let characterKey = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+            let otherCharacterKey = GlyphKey(character: "B", fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+            let otherFamilyKey = GlyphKey(character: "A", fontFamily: "Arial", fontSize: 16, weight: .regular)
+            let otherSizeKey = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 20, weight: .regular)
+            let otherWeightKey = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 16, weight: .bold)
+            let faceOneKey = GlyphKey(glyphID: 77, fontFaceID: 1, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+            let faceTwoKey = GlyphKey(glyphID: 77, fontFaceID: 2, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+
+            let entries = [
+                cache.insert(key: characterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: otherCharacterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: otherFamilyKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: otherSizeKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: otherWeightKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: faceOneKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(key: faceTwoKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+            ]
+
+            XCTAssertEqual(entries.count, 7)
+            XCTAssertFalse(entries.contains(where: { $0 == nil }))
+
+            let atlasPositions = Set(entries.compactMap { entry in
+                entry.map { "\($0.atlasX),\($0.atlasY)" }
+            })
+            XCTAssertEqual(atlasPositions.count, 7)
+            XCTAssertEqual(cache.lookup(characterKey), entries[0])
+        }
+    }
+
     // MARK: - LRU Eviction
 
     func testLRUEvictsOldestEntries() async {
@@ -342,6 +400,36 @@ final class GlyphAtlasTests: XCTestCase {
             XCTAssertNil(cache.lookup(keyB), "B should have been evicted as the oldest")
             XCTAssertNotNil(cache.lookup(keyC))
             XCTAssertNotNil(cache.lookup(keyD))
+        }
+    }
+
+    func testCacheRecoversAfterAtlasExhaustionWithoutDroppingNewGlyph() async {
+        let atlas = await MainActor.run { GlyphAtlas(width: 4, height: 4) }
+        let cache = await MainActor.run { GlyphAtlasCache(atlas: atlas, maxEntries: 16) }
+        let fullAtlasPixels = Self.pixelData(width: 4, height: 4)
+        let singleGlyphPixels = Self.pixelData(width: 1, height: 1)
+
+        await MainActor.run {
+            let firstKey = GlyphKey(character: "A", fontFamily: "F", fontSize: 16, weight: .regular)
+            let secondKey = GlyphKey(character: "B", fontFamily: "F", fontSize: 16, weight: .regular)
+
+            XCTAssertNotNil(cache.insert(key: firstKey, pixels: fullAtlasPixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4))
+            atlas.markClean()
+
+            let recoveredEntry = cache.insert(
+                key: secondKey,
+                pixels: singleGlyphPixels,
+                width: 1,
+                height: 1,
+                bearingX: 0,
+                bearingY: 0,
+                advance: 1
+            )
+
+            XCTAssertNotNil(recoveredEntry, "Atlas exhaustion should recover so new glyphs are not dropped")
+            XCTAssertNil(cache.lookup(firstKey), "Recovery should clear stale atlas-backed entries that no longer exist")
+            XCTAssertNotNil(cache.lookup(secondKey))
+            XCTAssertEqual(atlas.dirtyRegion, GlyphAtlasRegion(x: 0, y: 0, width: 4, height: 4))
         }
     }
 

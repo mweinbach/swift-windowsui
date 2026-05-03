@@ -1,0 +1,28 @@
+{
+  "featureId": "bridge-clip-and-soft-failure-contract",
+  "reviewedAt": "2026-03-28T23:20:08.829782Z",
+  "commitId": "ac52099",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "I reviewed the feature metadata, the rerun handoff/transcript skeleton for worker session `9adc56fc-610c-4758-8797-644d31cd1fa9`, the prior failed review, commit `ac52099`, and the current `GPUISceneBridge` implementation/tests. The rerun does resolve the previously missing blend-mode coverage: commit `ac52099` adds focused blend-mode fallback tests and updates the blend-mode documentation. However, the other blocking unsupported-style contract mismatch remains: the bridge's top-level fallback documentation still disagrees with the implemented and tested behavior for path clips and radial/conic gradients, so VAL-SCENE-011 is still not fully satisfied.",
+    "issues": [
+      {
+        "file": "Sources/SwiftWindowsGraphics/GPUISceneBridge.swift",
+        "line": 42,
+        "severity": "blocking",
+        "description": "The explicit fallback contract is still internally inconsistent. The public soft-failure docs say path clips fall back to a bounding rect and radial/conic gradients fall back to the gradient start color (`GPUISceneBridge.swift:42-43`, `182`), but the implementation uses a full-surface no-op for `.path` clips (`GPUISceneBridge.swift:109-111`) and preserves the command's base color for radial/conic gradients (`GPUISceneBridge.swift:209-211`). The focused tests codify those implemented behaviors instead (`GPUISceneBridgeTests.swift:443-445`, `473-475`, `519-524`). Because this feature is specifically about explicit unsupported-style fallback choices, the prior documentation mismatch remains unresolved."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The rerun worker did not follow the `graphics-scene-worker` startup procedure that requires reading architecture/environment/reference docs before implementation, and the handoff did not record that deviation.",
+      "evidence": "`C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\skills\\graphics-scene-worker\\SKILL.md:26` requires reading `.factory/library/architecture.md`, `.factory/library/environment.md`, and `.factory/library/zed-reference.md`. The transcript skeleton for worker session `9adc56fc-610c-4758-8797-644d31cd1fa9` shows reads for `mission.md`, `validation-contract.md`, `features.json`, `GPUISceneBridge.swift`, `GPUISceneBridgeTests.swift`, `.factory/services.yaml`, and `RenderGraph.swift`, but no reads of those library files before editing."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/scene-contract-foundation/scrutiny/reviews/bridge-clip-and-soft-failure-contract.json",
+  "summary": "Fail. The rerun fixes the missing blend-mode fallback coverage, but the bridge still documents the wrong explicit fallback behavior for path clips and radial/conic gradients, so the prior VAL-SCENE-011 documentation mismatch remains open."
+}

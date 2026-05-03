@@ -1161,9 +1161,10 @@ public final class FoundationApp: WindowDelegate {
     }
 
     private func logicalSize(for pixelSize: IntSize, scaleFactor: Double) -> IntSize {
-        IntSize(
-            width: Int32((Double(pixelSize.width) / max(scaleFactor, 1.0)).rounded(.down)),
-            height: Int32((Double(pixelSize.height) / max(scaleFactor, 1.0)).rounded(.down))
+        let logicalScale = max(scaleFactor, 1.0)
+        return IntSize(
+            width: Int32((Double(pixelSize.width) / logicalScale).rounded(.toNearestOrAwayFromZero)),
+            height: Int32((Double(pixelSize.height) / logicalScale).rounded(.toNearestOrAwayFromZero))
         )
     }
 

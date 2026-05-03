@@ -1,0 +1,34 @@
+{
+  "featureId": "normalized-frame-scene-output-and-scroll-parity",
+  "reviewedAt": "2026-03-28T21:57:36.3043232-04:00",
+  "commitId": "d2d7469",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The feature adds focused parity tests, but the new coverage does not fully prove the three contract assertions it claims to satisfy. In particular, the tests stop short of comparing normalized frame-versus-scene output for unchanged content and scroll geometry, so regressions in visible parity can still slip through while the suite remains green.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1297,
+        "severity": "blocking",
+        "description": "VAL-PARITY-001 requires normalized visible output to show that only the mutated region changes while unchanged sibling output is preserved. This test never captures the pre-mutation frame/scene output or compares unchanged-sibling geometry/color before vs. after the mutation; it only checks replay counts and the mutated node's final color. A regression that incorrectly shifts or recolors the unchanged left sibling in both paths would still pass."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1501,
+        "severity": "blocking",
+        "description": "VAL-PARITY-003 is supposed to prove frame-vs-scene scroll parity, but the scene assertions only require the content to move 'significantly' (`deltaY > 20`) and the last quad to move downward. They never compare the scene output against the frame output, never assert the exact scroll delta, and never verify equivalent indicator geometry. A scene-path bug that scrolls by the wrong amount or emits a differently sized/misplaced indicator would still satisfy this test."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `runtime-host-worker` skill currently tells every worker to read `.factory/library/user-testing.md` up front, but this transcript completed a pure retained-runtime parity-test feature without needing any user-testing context. That startup requirement appears broader than necessary for validation-harness-only work.",
+      "evidence": "Skill step 1 in `.factory/skills/runtime-host-worker/SKILL.md` requires reading `.factory/library/user-testing.md`, but the transcript skeleton for worker session `850703a7-62e2-44dd-af5e-0088eaf87d38` only shows reads of mission/contract/features, architecture, services, runtime, scene painter, and test files before implementation."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed. The added tests are directionally useful, but they do not yet provide the normalized frame-vs-scene parity evidence required for VAL-PARITY-001 and VAL-PARITY-003."
+}

@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-deferred-draggable-scrollable-ancestor-routing-parity",
+  "reviewedAt": "2026-03-29T02:34:09.122850Z",
+  "commitId": "e3e14f7d319279e9403d2d48b075cafc179ffdc8",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "Pass. I reviewed the original failed feature commit `fa01c1cb91126a9faa42d05fda9f4cc42c4dbcb0`, the fix commit `e3e14f7d319279e9403d2d48b075cafc179ffdc8`, the prior failed review, and the fix worker transcript skeleton. The fix directly addresses the blocker by expanding VAL-PARITY-009 coverage from focusable/activatable ancestor routing to explicit draggable and scrollable ancestor routing for both descendant hits and deferred-phase hits. The added tests in `Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift` at lines 1941, 1983, 2057, and 2100 exercise the same runtime seams used by `pointerDown` and `mouseWheel` ancestor resolution in `Sources/SwiftWindowsUI/Runtime.swift` (`nearestDraggableNode`, `nearestScrollableNode`, `scrollTarget`, and `hitTest`), so the previously missing deferred draggable/scrollable proof is now covered.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The runtime-host-worker skill references `.factory/services.yaml` and `.factory/library/architecture.md` without making it explicit that those paths are repo-root-relative, and this worker first tried the user-home `.factory` paths before correcting to the repository-local files.",
+      "evidence": "The transcript skeleton for session `a3c3876c-d09d-47d1-a9b8-4257f79e729e` in `C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\worker-transcripts.jsonl` shows failed reads of `C:/Users/maxw6/.factory/services.yaml` and `C:/Users/maxw6/.factory/library/architecture.md`, followed later by successful reads of `C:/Users/maxw6/Projects/swift-windowsui/.factory/services.yaml` and the repo-local architecture file."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\parity-harness\\scrutiny\\reviews\\prepaint-ancestor-routing-and-pacing-parity.json",
+  "summary": "Fix review passed. The original blocking finding for VAL-PARITY-009 is resolved: the fix commit adds explicit descendant and deferred draggable/scrollable ancestor-routing tests, completing coverage across focusable, activatable, draggable, and scrollable retained-ancestor resolution. No remaining code issues were found in scope."
+}

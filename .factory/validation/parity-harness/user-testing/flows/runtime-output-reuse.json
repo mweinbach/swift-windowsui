@@ -1,0 +1,92 @@
+{
+  "milestone": "parity-harness",
+  "groupId": "runtime-output-reuse",
+  "testedAt": "2026-03-29T11:48:43.1993510-04:00",
+  "surface": "Swift test suites",
+  "tool": "powershell via .factory/windows-swift-env.ps1",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "wrapper": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1",
+    "concurrency": "single-lane Swift validation only",
+    "assignedAssertions": [
+      "VAL-PARITY-001",
+      "VAL-PARITY-002",
+      "VAL-PARITY-003"
+    ]
+  },
+  "toolsUsed": [
+    "powershell",
+    ".factory/windows-swift-env.ps1",
+    "swift test"
+  ],
+  "commands": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter RetainedViewRuntimeTests",
+      "capture": "stdout/stderr redirected to the mission evidence log",
+      "exitCode": 0,
+      "evidenceFiles": [
+        "parity-harness/runtime-output-reuse/retainedviewruntimetests-output.txt"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PARITY-001",
+      "title": "Localized mutations change only the mutated region on both presentation paths",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.016 (0.016) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testLocalizedMutationChangesOnlyMutatedRegionOnBothPaths' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The focused test mutates only the right sibling's color, then verifies on fresh frame and scene runtimes that lastFrameReplayCount == 1 and lastSceneReplayCount == 1, the unchanged left sibling keeps identical normalized rect/color output before and after mutation, and only the mutated region's color changes while geometry stays stable.",
+        "artifacts": [
+          "parity-harness/runtime-output-reuse/retainedviewruntimetests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-002",
+      "title": "Unchanged sibling subtrees replay on both frame and scene paths",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.016 (0.016) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testUnchangedSiblingSubtreesReplayOnBothPaths' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The focused test mutates only the right child subtree, then verifies frame and scene replay counts are both 1, the unchanged left parent and child rects are still present on both outputs, and the mutated right child reflects the new yellow color on both presentation paths.",
+        "artifacts": [
+          "parity-harness/runtime-output-reuse/retainedviewruntimetests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-003",
+      "title": "Paint-only scroll updates reuse layout and update geometry on both paths",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suiteSummary": "Executed 60 tests, with 0 failures (0 unexpected) in 0.016 (0.016) seconds.",
+        "tests": [
+          "Test Case 'RetainedViewRuntimeTests.testPaintOnlyScrollUpdateReusesLayoutAndUpdatesGeometryOnBothPaths' passed (0.0 seconds)"
+        ],
+        "assertionMapping": "The focused test applies scrollOffset = 30 after initial frame and scene renders, confirms contentLayouts == 1 and scrollLayouts == 1 with lastLayoutReuseCount >= 1, and directly compares normalized frame-versus-scene content scroll delta plus scroll-indicator delta and height to prove layout reuse with matching geometry updates on both paths.",
+        "artifacts": [
+          "parity-harness/runtime-output-reuse/retainedviewruntimetests-output.txt"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 3 assertions with RetainedViewRuntimeTests: 3 passed, 0 failed, 0 blocked."
+}

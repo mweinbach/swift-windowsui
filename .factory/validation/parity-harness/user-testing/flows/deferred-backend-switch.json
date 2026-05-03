@@ -1,0 +1,241 @@
+{
+  "milestone": "parity-harness",
+  "groupId": "deferred-backend-switch",
+  "testedAt": "2026-03-29T11:53:05.9007980-04:00",
+  "surface": "Swift test suites",
+  "tool": "powershell via .factory/windows-swift-env.ps1",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "wrapper": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1",
+    "concurrency": "single-lane Swift validation only",
+    "assignedAssertions": [
+      "VAL-PARITY-004",
+      "VAL-PARITY-005",
+      "VAL-PARITY-006",
+      "VAL-PARITY-007"
+    ]
+  },
+  "toolsUsed": [
+    "powershell",
+    ".factory/windows-swift-env.ps1",
+    "swift test"
+  ],
+  "commands": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter RetainedViewRuntimeTests",
+      "capture": "stdout/stderr redirected to the mission evidence log",
+      "exitCode": 0,
+      "evidenceFiles": [
+        "parity-harness/deferred-backend-switch/retainedviewruntimetests-output.txt"
+      ]
+    },
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter ScenePainterTests",
+      "capture": "stdout/stderr redirected to the mission evidence log",
+      "exitCode": 0,
+      "evidenceFiles": [
+        "parity-harness/deferred-backend-switch/scenepaintertests-output.txt"
+      ]
+    }
+  ],
+  "assertions": [
+    {
+      "id": "VAL-PARITY-004",
+      "title": "Deferred overlays paint after base content on initial and replayed passes",
+      "status": "pass",
+      "evidence": {
+        "suites": [
+          {
+            "suite": "RetainedViewRuntimeTests",
+            "commandExitCode": 0,
+            "suitePass": {
+              "line": 248,
+              "text": "Test Suite 'RetainedViewRuntimeTests' passed at 2026-03-29 11:52:10.950"
+            },
+            "suiteSummary": {
+              "line": 250,
+              "text": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds."
+            },
+            "tests": [
+              {
+                "line": 46,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredPhaseChildPaintsAfterBaseSiblings' passed (0.0 seconds)"
+              },
+              {
+                "line": 62,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredScrollIndicatorPrepaintReplaysUnchangedSiblingSubtree' passed (0.0 seconds)"
+              },
+              {
+                "line": 70,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredScrollIndicatorsFlushAfterSiblingBaseContent' passed (0.0 seconds)"
+              },
+              {
+                "line": 38,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredOverlaySceneReplayReusesUnchangedSiblingSubtree' passed (0.0 seconds)"
+              },
+              {
+                "line": 42,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredOverlaysPaintAfterBaseContentOnScenePath' passed (0.0 seconds)"
+              }
+            ]
+          },
+          {
+            "suite": "ScenePainterTests",
+            "commandExitCode": 0,
+            "suiteSummary": {
+              "line": 116,
+              "text": "Test run with 24 tests in 1 suite passed after 0.032 seconds."
+            },
+            "tests": [
+              {
+                "line": 74,
+                "text": "Test \"Replayed deferred overlays stay after base content on scene path - VAL-PARITY-004\" passed after 0.014 seconds."
+              },
+              {
+                "line": 108,
+                "text": "Test \"Deferred scroll indicators flush after sibling base quads\" passed after 0.031 seconds."
+              },
+              {
+                "line": 112,
+                "text": "Test \"Replayed deferred scroll indicators stay last after unchanged sibling subtree - VAL-PARITY-004\" passed after 0.031 seconds."
+              }
+            ]
+          }
+        ],
+        "assertionMapping": "Frame evidence shows deferred children and scroll indicators flush after base siblings, and replay after an unrelated sibling mutation records lastPrepaintReplayCount == 1 with deferred overlay/frame replay counts == 1. Scene/runtime and ScenePainter evidence show the base quad remains first and the deferred overlay or scroll-indicator quads remain last on both the initial render and the replayed render.",
+        "artifacts": [
+          "parity-harness/deferred-backend-switch/retainedviewruntimetests-output.txt",
+          "parity-harness/deferred-backend-switch/scenepaintertests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-005",
+      "title": "Nested deferred subtrees keep parent-before-child ordering on both paths",
+      "status": "pass",
+      "evidence": {
+        "suites": [
+          {
+            "suite": "RetainedViewRuntimeTests",
+            "commandExitCode": 0,
+            "suitePass": {
+              "line": 248,
+              "text": "Test Suite 'RetainedViewRuntimeTests' passed at 2026-03-29 11:52:10.950"
+            },
+            "suiteSummary": {
+              "line": 250,
+              "text": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds."
+            },
+            "tests": [
+              {
+                "line": 142,
+                "text": "Test Case 'RetainedViewRuntimeTests.testNestedDeferredPhaseSubtreesPaintInDeferredOrder' passed (0.0 seconds)"
+              },
+              {
+                "line": 54,
+                "text": "Test Case 'RetainedViewRuntimeTests.testDeferredPhaseReplayKeepsNestedDeferredSubtreeOrdering' passed (0.0 seconds)"
+              },
+              {
+                "line": 146,
+                "text": "Test Case 'RetainedViewRuntimeTests.testNestedDeferredSceneReplayPreservesParentBeforeChildOrdering' passed (0.0 seconds)"
+              },
+              {
+                "line": 150,
+                "text": "Test Case 'RetainedViewRuntimeTests.testNestedDeferredSceneSubtreesPreserveParentBeforeChildOrdering' passed (0.0 seconds)"
+              }
+            ]
+          },
+          {
+            "suite": "ScenePainterTests",
+            "commandExitCode": 0,
+            "suiteSummary": {
+              "line": 116,
+              "text": "Test run with 24 tests in 1 suite passed after 0.032 seconds."
+            },
+            "tests": [
+              {
+                "line": 94,
+                "text": "Test \"Nested deferred subtrees keep parent-before-child ordering on scene path - VAL-PARITY-005\" passed after 0.031 seconds."
+              },
+              {
+                "line": 96,
+                "text": "Test \"Nested deferred scene replay preserves parent-before-child ordering - VAL-PARITY-005\" passed after 0.031 seconds."
+              }
+            ]
+          }
+        ],
+        "assertionMapping": "The frame-path tests prove parent deferred content is emitted before child deferred content on both fresh and replayed frame renders, with replay counts showing the nested deferred subtree was replayed instead of reordered. The scene/runtime and ScenePainter tests confirm the same parent-before-child quad order on fresh scene output and after replay-triggering mutations.",
+        "artifacts": [
+          "parity-harness/deferred-backend-switch/retainedviewruntimetests-output.txt",
+          "parity-harness/deferred-backend-switch/scenepaintertests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-006",
+      "title": "Scene-to-frame switching reruns incompatible deferred payloads safely",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suitePass": {
+          "line": 248,
+          "text": "Test Suite 'RetainedViewRuntimeTests' passed at 2026-03-29 11:52:10.950"
+        },
+        "suiteSummary": {
+          "line": 250,
+          "text": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds."
+        },
+        "tests": [
+          {
+            "line": 214,
+            "text": "Test Case 'RetainedViewRuntimeTests.testSceneToFrameSwitchRerunsIncompatibleDeferredPayloads' passed (0.0 seconds)"
+          },
+          {
+            "line": 218,
+            "text": "Test Case 'RetainedViewRuntimeTests.testSceneToFrameSwitchRerunsSubtreeDeferredPayload' passed (0.0 seconds)"
+          }
+        ],
+        "assertionMapping": "The runtime starts on the scene path, mutates unrelated content, then renders the frame path. The focused tests verify prepaint metadata replays while frame deferred payload replay stays at 0, and they confirm the expected scroll-indicator rect or nested deferred subtree rects appear exactly once in the resulting frame output instead of reusing stale scene-only payloads.",
+        "artifacts": [
+          "parity-harness/deferred-backend-switch/retainedviewruntimetests-output.txt"
+        ]
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-PARITY-007",
+      "title": "Frame-to-scene switching reruns incompatible deferred payloads safely",
+      "status": "pass",
+      "evidence": {
+        "suite": "RetainedViewRuntimeTests",
+        "commandExitCode": 0,
+        "suitePass": {
+          "line": 248,
+          "text": "Test Suite 'RetainedViewRuntimeTests' passed at 2026-03-29 11:52:10.950"
+        },
+        "suiteSummary": {
+          "line": 250,
+          "text": "Executed 60 tests, with 0 failures (0 unexpected) in 0.015 (0.015) seconds."
+        },
+        "tests": [
+          {
+            "line": 94,
+            "text": "Test Case 'RetainedViewRuntimeTests.testFrameToSceneSwitchRerunsSubtreeDeferredPayload' passed (0.0 seconds)"
+          }
+        ],
+        "assertionMapping": "The focused backend-switch test renders a nested deferred subtree on the frame path first, mutates unrelated base content, then switches to renderScene(). It verifies lastPrepaintReplayCount == 2, lastDeferredDrawSceneReplayCount == 0, and the final scene contains the base rect, deferred parent rect, and deferred child rect exactly once, showing incompatible cached frame payloads were rerun safely for scene output.",
+        "artifacts": [
+          "parity-harness/deferred-backend-switch/retainedviewruntimetests-output.txt"
+        ]
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 4 assertions across RetainedViewRuntimeTests and ScenePainterTests: 4 passed, 0 failed, 0 blocked."
+}

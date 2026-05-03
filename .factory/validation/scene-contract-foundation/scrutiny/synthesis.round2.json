@@ -1,0 +1,64 @@
+{
+  "milestone": "scene-contract-foundation",
+  "round": 2,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 3,
+    "passed": 0,
+    "failed": 3,
+    "failedFeatures": [
+      "scene-family-ordering-and-batching",
+      "scene-replay-range-safety",
+      "bridge-clip-and-soft-failure-contract"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "scene-replay-range-safety",
+      "severity": "blocking",
+      "description": "`validateReplayRange` still only validates the selected `scene.paintRecords[range]` slice and ignores scoped-layer depth that was already open before `range.lowerBound` or remains open after `range.upperBound`. Marker-free interior subranges can therefore replay without their required enclosing scoped-layer markers. This keeps `scene-replay-range-safety` red and also leaves the bundled replay code reviewed under `scene-family-ordering-and-batching` unsafe."
+    },
+    {
+      "featureId": "bridge-clip-and-soft-failure-contract",
+      "severity": "blocking",
+      "description": "`GPUISceneBridge` still documents unsupported-style fallbacks that disagree with the implemented and tested behavior: `.path` clips are described as bounding-rect fallback even though the code/tests treat them as a full-surface no-op, and radial/conic gradients are described as using the gradient start color even though the code/tests preserve `cmd.color`."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": ".factory/skills/graphics-scene-worker/SKILL.md",
+      "suggestion": "For scrutiny-driven reruns, add an explicit step to reproduce each previously reported blocking finding with a targeted adversarial test or direct probe before declaring success.",
+      "evidence": "The rerun for `scene-replay-range-safety` passed the existing GPUIScene/full test/build flow and handed off success without adding a targeted interior-subrange regression, leaving the exact previously reported scoped-layer replay bug reproducible in the current branch.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "The rerun handoff for `scene-replay-range-safety` points to commit `0362f71` even though that commit only changes skill docs.",
+      "reason": "worker-specific handoff error; there is not enough evidence that repository guidance or skills are missing a separate rule beyond the existing handoff requirements"
+    },
+    {
+      "observation": "The rerun worker for `bridge-clip-and-soft-failure-contract` skipped startup context reads that the graphics-scene-worker skill already requires.",
+      "reason": "already-documented"
+    }
+  ],
+  "previousRound": ".factory/validation/scene-contract-foundation/scrutiny/synthesis.round1.json"
+}

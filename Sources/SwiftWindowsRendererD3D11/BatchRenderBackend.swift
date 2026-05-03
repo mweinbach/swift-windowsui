@@ -99,6 +99,13 @@ public protocol BatchRenderBackend: AnyObject {
     /// Handle surface resize.
     func resize(to size: IntSize) throws
 
+    /// Bind any scene-owned resources needed before rendering.
+    func bindResources(for scene: GPUIScene)
+
     /// Render a complete GPUIScene.
     func render(scene: GPUIScene) throws
+}
+
+public extension BatchRenderBackend {
+    func bindResources(for scene: GPUIScene) {}
 }

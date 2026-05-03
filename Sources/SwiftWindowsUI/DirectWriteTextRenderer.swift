@@ -1,16 +1,20 @@
-import Foundation
+﻿import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK
 
 @MainActor
 enum DirectWriteTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
+    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
         guard let system = DirectWriteSystem.shared else {
             return nil
         }
 
-        return system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+        return system.layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+    }
+
+    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
+        layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
     }
 
     static func appendCommands(
@@ -40,6 +44,99 @@ enum DirectWriteTextRenderer {
 
         return true
     }
+
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        guard let system = DirectWriteSystem.shared,
+              let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
+        else {
+            return nil
+        }
+
+        return system.rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        guard let system = DirectWriteSystem.shared else {
+            return nil
+        }
+
+        return system.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        guard let system = DirectWriteSystem.shared else {
+            return nil
+        }
+
+        return system.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
+    }
+}
+
+struct CapturedGlyphRasterMetrics: Equatable, Sendable {
+    var renderScale: Double
+    var fontSize: Double
+    var baselineYOffset: Double
+    var paddingPixels: Int32
+    var targetWidth: Int32
+    var targetHeight: Int32
+    var advance: Double
+}
+
+func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFactor: Double) -> CapturedGlyphRasterMetrics? {
+    guard scaleFactor.isFinite else {
+        return nil
+    }
+
+    let renderScale = max(scaleFactor, 1.0)
+    guard glyph.fontSize.isFinite, glyph.origin.y.isFinite, glyph.advance.isFinite else {
+        return nil
+    }
+
+    let fontSize = max(glyph.fontSize, 1)
+    let baselineYOffset = max(glyph.origin.y, fontSize * 0.8)
+    let paddingValue = (fontSize * renderScale * 0.75).rounded(.up)
+    guard let paddingPixels = roundedUpInt32(paddingValue, minimum: 2) else {
+        return nil
+    }
+
+    let advance = max(glyph.advance, fontSize * 0.5)
+    let logicalWidth = max(advance * 2.0, fontSize * 2.5)
+    let logicalHeight = max((baselineYOffset + fontSize) * 1.5, fontSize * 2.5)
+
+    guard let contentWidth = roundedUpInt32(logicalWidth * renderScale, minimum: 8),
+          let contentHeight = roundedUpInt32(logicalHeight * renderScale, minimum: 8)
+    else {
+        return nil
+    }
+
+    let paddedWidth = Int64(contentWidth) + Int64(paddingPixels) * 2
+    let paddedHeight = Int64(contentHeight) + Int64(paddingPixels) * 2
+    guard paddedWidth <= Int64(Int32.max), paddedHeight <= Int64(Int32.max) else {
+        return nil
+    }
+
+    return CapturedGlyphRasterMetrics(
+        renderScale: renderScale,
+        fontSize: fontSize,
+        baselineYOffset: baselineYOffset,
+        paddingPixels: paddingPixels,
+        targetWidth: Int32(paddedWidth),
+        targetHeight: Int32(paddedHeight),
+        advance: advance
+    )
+}
+
+private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
+    guard value.isFinite else {
+        return nil
+    }
+
+    let rounded = value.rounded(.up)
+    guard rounded <= Double(Int32.max), rounded >= Double(Int32.min) else {
+        return nil
+    }
+
+    return max(minimum, Int32(rounded))
 }
 
 @MainActor
@@ -88,11 +185,18 @@ private final class DirectWriteSystem {
     }
 
     func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
+        layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
+    }
+
+    func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
         guard !text.isEmpty else {
-            return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
+            let emptySize = snapLogicalTextSize(
+                Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom),
+                scaleFactor: scaleFactor
+            )
+            return NativeTextLayoutResult(lines: [], contentSize: .zero, measuredSize: emptySize)
         }
 
-        let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
         guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
             return nil
         }
@@ -101,6 +205,7 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
+        let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
         let resolvedLayout = resolveTextLayout(
             for: text,
             style: style,
@@ -110,8 +215,43 @@ private final class DirectWriteSystem {
             }
         )
 
-        let layoutSize = Size(width: maxContentWidth ?? 4096, height: 4096)
-        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style)) else {
+        var lines: [NativeTextLineLayout] = []
+        lines.reserveCapacity(resolvedLayout.lines.count)
+        var contentWidth = 0.0
+        var contentHeight = 0.0
+
+        for (index, line) in resolvedLayout.lines.enumerated() {
+            guard let lineLayout = layoutLine(line, style: style) else {
+                return nil
+            }
+            lines.append(lineLayout)
+            contentWidth = max(contentWidth, lineLayout.width)
+            contentHeight += lineLayout.height
+            if index < resolvedLayout.lines.count - 1 {
+                contentHeight += style.lineSpacing
+            }
+        }
+
+        let measuredWidth = clampedMeasuredWidth(contentWidth, style: style, maxWidth: maxWidth)
+        let measuredSize = snapLogicalTextSize(
+            Size(
+                width: measuredWidth + style.insets.leading + style.insets.trailing,
+                height: contentHeight + style.insets.top + style.insets.bottom
+            ),
+            scaleFactor: scaleFactor
+        )
+
+        return NativeTextLayoutResult(
+            lines: lines,
+            contentSize: Size(width: contentWidth, height: contentHeight),
+            measuredSize: measuredSize
+        )
+    }
+
+    func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        let glyphStyle = atlasRasterizationStyle(from: style)
+
+        guard let format = createTextFormat(style: glyphStyle, wrapping: dwriteWordWrappingNoWrap) else {
             return nil
         }
         defer {
@@ -119,7 +259,10 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: layoutSize, style: style) else {
+        let text = String(character)
+        guard let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: glyphStyle),
+              let bounds = textBounds(for: layout)
+        else {
             return nil
         }
         defer {
@@ -127,18 +270,87 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableLayout)
         }
 
-        guard let bounds = textBounds(for: layout) else {
+        let logicalSize = snapLogicalTextSize(
+            Size(width: max(bounds.width, 1), height: max(bounds.height, 1)),
+            scaleFactor: scaleFactor
+        )
+        let pixelWidth = max(1, UInt32((logicalSize.width * scaleFactor).rounded(.up)))
+        let pixelHeight = max(1, UInt32((logicalSize.height * scaleFactor).rounded(.up)))
+
+        var bitmapTargetRaw: UnsafeMutableRawPointer?
+        let bitmapTargetHR = gdiInterop.pointee.lpVtbl!.pointee.CreateBitmapRenderTarget(
+            UnsafeMutableRawPointer(gdiInterop),
+            nil,
+            pixelWidth,
+            pixelHeight,
+            &bitmapTargetRaw
+        )
+        guard isSuccess(bitmapTargetHR), let bitmapTargetRaw else {
             return nil
         }
 
-        let measuredWidth = clampedMeasuredWidth(bounds.width, style: style, maxWidth: maxWidth)
-        return snapLogicalTextSize(
-            Size(
-                width: measuredWidth + style.insets.leading + style.insets.trailing,
-                height: bounds.height + style.insets.top + style.insets.bottom
-            ),
-            scaleFactor: scaleFactor
+        let bitmapTarget = bitmapTargetRaw.assumingMemoryBound(to: IDWriteBitmapRenderTarget.self)
+        defer {
+            var releasableBitmapTarget: UnsafeMutablePointer<IDWriteBitmapRenderTarget>? = bitmapTarget
+            releaseDirectWriteCOM(&releasableBitmapTarget)
+        }
+
+        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
+        guard clearBitmapTarget(bitmapTarget) else {
+            return nil
+        }
+
+        var drawingContext = DirectWriteDrawingContext(
+            bitmapRenderTarget: bitmapTarget,
+            renderingParams: renderingParams,
+            pixelsPerDip: FLOAT(scaleFactor),
+            textColor: COLORREF(0x00FFFFFF)
         )
+
+        guard let renderer = createTextRenderer() else {
+            return nil
+        }
+        defer {
+            var releasableRenderer: UnsafeMutablePointer<IDWriteTextRenderer>? = renderer
+            releaseDirectWriteCOM(&releasableRenderer)
+        }
+
+        let drawHR = withUnsafeMutablePointer(to: &drawingContext) { contextPointer in
+            layout.pointee.lpVtbl!.pointee.Draw(
+                UnsafeMutableRawPointer(layout),
+                UnsafeMutableRawPointer(contextPointer),
+                UnsafeMutableRawPointer(renderer),
+                FLOAT(bounds.overhangLeft),
+                FLOAT(bounds.overhangTop)
+            )
+        }
+        guard isSuccess(drawHR), var surface = extractBitmapSurface(from: bitmapTarget) else {
+            return nil
+        }
+
+        var pixels = [UInt8](surface.pixels)
+        GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: glyphStyle)
+        surface.pixels = Data(pixels)
+
+        let advance = measureSingleLine(text, format: format) ?? bounds.width
+        return NativeGlyphBitmap(
+            surface: surface,
+            bearingX: Float(-(bounds.overhangLeft * scaleFactor)),
+            bearingY: Float(-(bounds.overhangTop * scaleFactor)),
+            advance: Float(advance * scaleFactor)
+        )
+    }
+
+    func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        if let bitmap = rasterizeCapturedGlyph(glyph, scaleFactor: scaleFactor) {
+            return bitmap
+        }
+
+        var glyphStyle = style
+        glyphStyle.fontFamily = glyph.fontFamily
+        glyphStyle.weight = glyph.weight
+        glyphStyle.nativeFontSize = glyph.fontSize
+        return rasterizeGlyph(glyph.character, style: glyphStyle, scaleFactor: scaleFactor)
     }
 
     func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
@@ -207,7 +419,7 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        let bounds = textBounds(for: layout) ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangTop: 0)
+        let bounds = textBounds(for: layout) ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangLeft: 0, overhangTop: 0)
         let origin = textOrigin(size: size, style: style, bounds: bounds)
 
         var drawingContext = DirectWriteDrawingContext(
@@ -246,6 +458,223 @@ private final class DirectWriteSystem {
         GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: style)
         surface.pixels = Data(pixels)
         return surface
+    }
+
+    private func layoutLine(_ text: String, style: PixelTextStyle) -> NativeTextLineLayout? {
+        guard !text.isEmpty else {
+            let lineHeight = max(style.nativeFontPixelSize, 1)
+            return NativeTextLineLayout(
+                text: text,
+                width: 0,
+                height: lineHeight,
+                ascent: lineHeight * 0.8,
+                descent: lineHeight * 0.2,
+                glyphs: []
+            )
+        }
+
+        guard let format = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap),
+              let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: style),
+              let bounds = textBounds(for: layout)
+        else {
+            return nil
+        }
+        defer {
+            var releasableLayout: UnsafeMutablePointer<IDWriteTextLayout>? = layout
+            releaseDirectWriteCOM(&releasableLayout)
+            var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = format
+            releaseDirectWriteCOM(&releasableFormat)
+        }
+
+        let glyphs = captureGlyphLayouts(from: layout, text: text, style: style)
+            ?? fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: style)
+
+        let lineHeight = max(bounds.height, style.nativeFontPixelSize)
+        let ascent = max(style.nativeFontPixelSize * 0.8, lineHeight * 0.7)
+        let descent = max(0, lineHeight - ascent)
+        return NativeTextLineLayout(
+            text: text,
+            width: bounds.width,
+            height: lineHeight,
+            ascent: ascent,
+            descent: descent,
+            glyphs: glyphs
+        )
+    }
+
+    private func atlasRasterizationStyle(from style: PixelTextStyle) -> PixelTextStyle {
+        var glyphStyle = style
+        glyphStyle.color = .white
+        glyphStyle.insets = .zero
+        glyphStyle.maximumNumberOfLines = 1
+        return glyphStyle
+    }
+
+    private func rasterizeCapturedGlyph(_ glyph: NativeTextGlyphLayout, scaleFactor: Double) -> NativeGlyphBitmap? {
+        guard let fontFace = glyph.fontFace?.rawPointer, let glyphID = glyph.glyphID else {
+            return nil
+        }
+
+        guard let metrics = makeCapturedGlyphRasterMetrics(for: glyph, scaleFactor: scaleFactor) else {
+            return nil
+        }
+
+        guard let bitmapTarget = createBitmapRenderTarget(
+            width: metrics.targetWidth,
+            height: metrics.targetHeight,
+            scaleFactor: metrics.renderScale
+        ) else {
+            return nil
+        }
+        defer {
+            var releasableBitmapTarget: UnsafeMutablePointer<IDWriteBitmapRenderTarget>? = bitmapTarget
+            releaseDirectWriteCOM(&releasableBitmapTarget)
+        }
+
+        guard clearBitmapTarget(bitmapTarget) else {
+            return nil
+        }
+
+        var drawingContext = DirectWriteDrawingContext(
+            bitmapRenderTarget: bitmapTarget,
+            renderingParams: renderingParams,
+            pixelsPerDip: FLOAT(metrics.renderScale),
+            textColor: COLORREF(0x00FFFFFF)
+        )
+
+        let glyphIndices: [UINT16] = [UINT16(truncatingIfNeeded: glyphID)]
+        let glyphAdvances: [FLOAT] = [FLOAT(metrics.advance)]
+        let glyphOffsets: [DWRITE_GLYPH_OFFSET] = [DWRITE_GLYPH_OFFSET()]
+
+        let baselineX = FLOAT(Double(metrics.paddingPixels) / metrics.renderScale)
+        let baselineY = FLOAT(Double(metrics.paddingPixels) / metrics.renderScale + metrics.baselineYOffset)
+
+        let drawHR = glyphIndices.withUnsafeBufferPointer { indices in
+            glyphAdvances.withUnsafeBufferPointer { advances in
+                glyphOffsets.withUnsafeBufferPointer { offsets in
+                    var glyphRun = DWRITE_GLYPH_RUN(
+                        fontFace: fontFace,
+                        fontEmSize: FLOAT(metrics.fontSize),
+                        glyphCount: 1,
+                        glyphIndices: indices.baseAddress,
+                        glyphAdvances: advances.baseAddress,
+                        glyphOffsets: offsets.baseAddress,
+                        isSideways: WindowsBool(false),
+                        bidiLevel: 0
+                    )
+
+                    return withUnsafeMutablePointer(to: &drawingContext) { contextPointer in
+                        drawGlyphRun(
+                            glyphRun: &glyphRun,
+                            baselineX: baselineX,
+                            baselineY: baselineY,
+                            contextPointer: contextPointer
+                        )
+                    }
+                }
+            }
+        }
+
+        guard isSuccess(drawHR),
+              let surface = extractBitmapSurface(from: bitmapTarget),
+              var cropped = cropGlyphSurface(surface, paddingPixels: metrics.paddingPixels)
+        else {
+            return nil
+        }
+
+        var pixels = [UInt8](cropped.surface.pixels)
+        GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: PixelTextStyle(color: .white))
+        cropped.surface.pixels = Data(pixels)
+
+        return NativeGlyphBitmap(
+            surface: cropped.surface,
+            bearingX: cropped.bearingX,
+            bearingY: cropped.bearingY - Float(metrics.baselineYOffset * metrics.renderScale),
+            advance: Float(metrics.advance * metrics.renderScale)
+        )
+    }
+
+    private func captureGlyphLayouts(
+        from layout: UnsafeMutablePointer<IDWriteTextLayout>,
+        text: String,
+        style: PixelTextStyle
+    ) -> [NativeTextGlyphLayout]? {
+        guard let renderer = createGlyphLayoutRenderer() else {
+            return nil
+        }
+        defer {
+            var releasableRenderer: UnsafeMutablePointer<IDWriteTextRenderer>? = renderer
+            releaseDirectWriteCOM(&releasableRenderer)
+        }
+
+        var context = DirectWriteGlyphLayoutContext(glyphs: [])
+        let drawHR = withUnsafeMutablePointer(to: &context) { contextPointer in
+            layout.pointee.lpVtbl!.pointee.Draw(
+                UnsafeMutableRawPointer(layout),
+                UnsafeMutableRawPointer(contextPointer),
+                UnsafeMutableRawPointer(renderer),
+                0,
+                0
+            )
+        }
+        guard isSuccess(drawHR), !context.glyphs.isEmpty else {
+            return nil
+        }
+
+        let characterInfo = characterInfoByUTF16Offset(for: text)
+        return context.glyphs.map { glyph in
+            let resolvedCharacter = glyph.textPosition.flatMap { characterInfo[$0] }
+            return NativeTextGlyphLayout(
+                character: resolvedCharacter?.character ?? " ",
+                origin: glyph.origin,
+                advance: glyph.advance,
+                glyphID: glyph.glyphID,
+                fontFace: glyph.fontFace,
+                fontFamily: style.fontFamily,
+                weight: style.weight,
+                fontSize: glyph.fontSize,
+                sourceIndex: resolvedCharacter?.index
+            )
+        }
+    }
+
+    private func fallbackGlyphLayouts(
+        from layout: UnsafeMutablePointer<IDWriteTextLayout>,
+        text: String,
+        bounds: TextBounds,
+        style: PixelTextStyle
+    ) -> [NativeTextGlyphLayout] {
+        let characters = Array(text)
+        let utf16Offsets = utf16CharacterOffsets(for: text)
+        var glyphs: [NativeTextGlyphLayout] = []
+        glyphs.reserveCapacity(characters.count)
+
+        for index in characters.indices {
+            guard let hit = hitTestTextPosition(layout: layout, textPosition: utf16Offsets[index]) else {
+                continue
+            }
+
+            let nextX: Double
+            if index + 1 < utf16Offsets.count, let nextHit = hitTestTextPosition(layout: layout, textPosition: utf16Offsets[index + 1]) {
+                nextX = nextHit.x
+            } else {
+                nextX = bounds.width
+            }
+
+            glyphs.append(
+                NativeTextGlyphLayout(
+                    character: characters[index],
+                    origin: Point(x: hit.x, y: 0),
+                    advance: max(0, nextX - hit.x),
+                    fontFamily: style.fontFamily,
+                    weight: style.weight,
+                    fontSize: style.nativeFontPixelSize,
+                    sourceIndex: index
+                )
+            )
+        }
+
+        return glyphs
     }
 
     private static let fallbackFontFamilies = ["Segoe UI", "Arial", "sans-serif"]
@@ -338,7 +767,7 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        return String(decodingCString: buffer, as: UTF16.self)
+        return String(decoding: buffer.prefix(Int(nameLength)), as: UTF16.self)
     }
 
     private func createTextLayout(text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, size: Size, style: PixelTextStyle? = nil) -> UnsafeMutablePointer<IDWriteTextLayout>? {
@@ -496,6 +925,7 @@ private final class DirectWriteSystem {
         return TextBounds(
             width: Double(metrics.widthIncludingTrailingWhitespace) + overhangLeft + overhangRight,
             height: Double(metrics.height) + overhangTop + overhangBottom,
+            overhangLeft: overhangLeft,
             overhangTop: overhangTop
         )
     }
@@ -512,9 +942,35 @@ private final class DirectWriteSystem {
             verticalOffset = max(0, contentHeight - bounds.height)
         }
         return Point(
-            x: style.insets.leading,
+            x: style.insets.leading + bounds.overhangLeft,
             y: style.insets.top + verticalOffset + bounds.overhangTop
         )
+    }
+
+    private func hitTestTextPosition(layout: UnsafeMutablePointer<IDWriteTextLayout>, textPosition: UINT32) -> (x: Double, y: Double)? {
+        guard let rawProc = layout.pointee.lpVtbl!.pointee.HitTestTextPosition else {
+            return nil
+        }
+
+        let proc = unsafeBitCast(rawProc, to: DWHitTestTextPositionProc.self)
+        var pointX: FLOAT = 0
+        var pointY: FLOAT = 0
+        var metrics = DWRITE_HIT_TEST_METRICS()
+        let hr = withUnsafeMutablePointer(to: &metrics) { metricsPointer in
+            proc(
+                UnsafeMutableRawPointer(layout),
+                textPosition,
+                WindowsBool(false),
+                &pointX,
+                &pointY,
+                UnsafeMutableRawPointer(metricsPointer)
+            )
+        }
+        guard isSuccess(hr) else {
+            return nil
+        }
+
+        return (Double(pointX), Double(pointY))
     }
 
     private static func makeRenderingParams(factory: UnsafeMutablePointer<IDWriteFactory>) throws -> UnsafeMutablePointer<IDWriteRenderingParams> {
@@ -583,6 +1039,102 @@ private final class DirectWriteSystem {
         return BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
     }
 
+    private func createBitmapRenderTarget(width: Int32, height: Int32, scaleFactor: Double) -> UnsafeMutablePointer<IDWriteBitmapRenderTarget>? {
+        var bitmapTargetRaw: UnsafeMutableRawPointer?
+        let hr = gdiInterop.pointee.lpVtbl!.pointee.CreateBitmapRenderTarget(
+            UnsafeMutableRawPointer(gdiInterop),
+            nil,
+            UINT(max(width, 1)),
+            UINT(max(height, 1)),
+            &bitmapTargetRaw
+        )
+        guard isSuccess(hr), let bitmapTargetRaw else {
+            return nil
+        }
+
+        let bitmapTarget = bitmapTargetRaw.assumingMemoryBound(to: IDWriteBitmapRenderTarget.self)
+        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
+        return bitmapTarget
+    }
+
+    private func drawGlyphRun(
+        glyphRun: inout DWRITE_GLYPH_RUN,
+        baselineX: FLOAT,
+        baselineY: FLOAT,
+        contextPointer: UnsafeMutablePointer<DirectWriteDrawingContext>
+    ) -> HRESULT {
+        guard let renderer = createTextRenderer() else {
+            return HRESULT(bitPattern: 0x80004005)
+        }
+        defer {
+            var releasableRenderer: UnsafeMutablePointer<IDWriteTextRenderer>? = renderer
+            releaseDirectWriteCOM(&releasableRenderer)
+        }
+
+        return directWriteRendererDrawGlyphRun(
+            UnsafeMutableRawPointer(renderer),
+            UnsafeMutableRawPointer(contextPointer),
+            baselineX,
+            baselineY,
+            dwriteMeasuringModeNatural,
+            &glyphRun,
+            nil,
+            nil
+        )
+    }
+
+    private func cropGlyphSurface(_ surface: BitmapSurface, paddingPixels: Int32) -> (surface: BitmapSurface, bearingX: Float, bearingY: Float)? {
+        let width = Int(surface.width)
+        let height = Int(surface.height)
+        let stride = Int(surface.bytesPerRow)
+        let bytes = [UInt8](surface.pixels)
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let alphaIndex = y * stride + x * 4 + 3
+                guard alphaIndex < bytes.count, bytes[alphaIndex] > 0 else {
+                    continue
+                }
+
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+
+        guard maxX >= minX, maxY >= minY else {
+            return nil
+        }
+
+        let croppedWidth = maxX - minX + 1
+        let croppedHeight = maxY - minY + 1
+        var cropped = [UInt8](repeating: 0, count: croppedWidth * croppedHeight * 4)
+
+        for row in 0..<croppedHeight {
+            let sourceOffset = (minY + row) * stride + minX * 4
+            let destinationOffset = row * croppedWidth * 4
+            let count = croppedWidth * 4
+            cropped[destinationOffset..<(destinationOffset + count)] = bytes[sourceOffset..<(sourceOffset + count)]
+        }
+
+        return (
+            surface: BitmapSurface(
+                width: Int32(croppedWidth),
+                height: Int32(croppedHeight),
+                bytesPerRow: Int32(croppedWidth * 4),
+                pixels: Data(cropped)
+            ),
+            bearingX: Float(minX) - Float(paddingPixels),
+            bearingY: Float(minY) - Float(paddingPixels)
+        )
+    }
+
     private func measureSingleLine(_ text: String, format: UnsafeMutablePointer<IDWriteTextFormat>) -> Double? {
         guard !text.isEmpty else {
             return 0
@@ -611,6 +1163,7 @@ private final class DirectWriteSystem {
 private struct TextBounds {
     var width: Double
     var height: Double
+    var overhangLeft: Double
     var overhangTop: Double
 }
 
@@ -645,11 +1198,48 @@ func snapLogicalTextExtent(_ extent: Double, scaleFactor: Double) -> Double {
     return (extent * scaleFactor).rounded(.up) / scaleFactor
 }
 
+private func utf16CharacterOffsets(for text: String) -> [UINT32] {
+    var offsets: [UINT32] = []
+    offsets.reserveCapacity(text.count)
+    var utf16Offset: UInt32 = 0
+    for character in text {
+        offsets.append(utf16Offset)
+        utf16Offset += UInt32(String(character).utf16.count)
+    }
+    return offsets
+}
+
+private func characterInfoByUTF16Offset(for text: String) -> [UInt32: (index: Int, character: Character)] {
+    let characters = Array(text)
+    let offsets = utf16CharacterOffsets(for: text)
+    var result: [UInt32: (index: Int, character: Character)] = [:]
+    result.reserveCapacity(characters.count)
+
+    for index in characters.indices {
+        result[offsets[index]] = (index, characters[index])
+    }
+
+    return result
+}
+
 private struct DirectWriteDrawingContext {
     var bitmapRenderTarget: UnsafeMutablePointer<IDWriteBitmapRenderTarget>
     var renderingParams: UnsafeMutablePointer<IDWriteRenderingParams>
     var pixelsPerDip: FLOAT
     var textColor: COLORREF
+}
+
+private struct DirectWriteGlyphLayoutContext {
+    var glyphs: [DirectWriteCapturedGlyph]
+}
+
+private struct DirectWriteCapturedGlyph {
+    var glyphID: UInt32
+    var textPosition: UInt32?
+    var origin: Point
+    var advance: Double
+    var fontFace: NativeFontFaceHandle?
+    var fontSize: Double
 }
 
 private struct SwiftTextRendererCOM {
@@ -672,9 +1262,30 @@ private var directWriteTextRendererVTable = IDWriteTextRendererVtbl(
 )
 
 @MainActor
+private var directWriteGlyphLayoutRendererVTable = IDWriteTextRendererVtbl(
+    QueryInterface: directWriteRendererQueryInterface,
+    AddRef: directWriteRendererAddRef,
+    Release: directWriteRendererRelease,
+    IsPixelSnappingDisabled: directWriteRendererIsPixelSnappingDisabled,
+    GetCurrentTransform: directWriteRendererGetCurrentTransform,
+    GetPixelsPerDip: directWriteRendererGetPixelsPerDip,
+    DrawGlyphRun: directWriteGlyphLayoutDrawGlyphRun,
+    DrawUnderline: directWriteGlyphLayoutDrawUnderline,
+    DrawStrikethrough: directWriteGlyphLayoutDrawStrikethrough,
+    DrawInlineObject: directWriteGlyphLayoutDrawInlineObject
+)
+
+@MainActor
 private func createTextRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? {
     let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
     storage.initialize(to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteTextRendererVTable), refCount: 1))
+    return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
+}
+
+@MainActor
+private func createGlyphLayoutRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? {
+    let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
+    storage.initialize(to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteGlyphLayoutRendererVTable), refCount: 1))
     return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
 }
 
@@ -692,6 +1303,14 @@ private func drawingContext(from rawPointer: UnsafeMutableRawPointer?) -> Unsafe
     }
 
     return rawPointer.assumingMemoryBound(to: DirectWriteDrawingContext.self)
+}
+
+private func glyphLayoutContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<DirectWriteGlyphLayoutContext>? {
+    guard let rawPointer else {
+        return nil
+    }
+
+    return rawPointer.assumingMemoryBound(to: DirectWriteGlyphLayoutContext.self)
 }
 
 private func directWriteRendererQueryInterface(_ rawSelf: UnsafeMutableRawPointer?, _ iid: UnsafePointer<GUID>?, _ object: UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT {
@@ -794,6 +1413,94 @@ private func directWriteRendererDrawInlineObject(_ rawSelf: UnsafeMutableRawPoin
     return 0
 }
 
+private func directWriteGlyphLayoutDrawGlyphRun(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRunRaw: UnsafeMutableRawPointer?, _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+    guard
+        let context = glyphLayoutContext(from: clientDrawingContext),
+        let glyphRunRaw
+    else {
+        return HRESULT(bitPattern: 0x80004003)
+    }
+
+    let glyphRun = glyphRunRaw.assumingMemoryBound(to: DWRITE_GLYPH_RUN.self).pointee
+    let glyphCount = Int(glyphRun.glyphCount)
+    guard
+        glyphCount > 0,
+        let glyphIndices = glyphRun.glyphIndices
+    else {
+        return 0
+    }
+
+    let fontFace = NativeFontFaceHandle(glyphRun.fontFace)
+    let indices = UnsafeBufferPointer(start: glyphIndices, count: glyphCount)
+    let advancesStorage: [FLOAT]
+    if let glyphAdvances = glyphRun.glyphAdvances {
+        advancesStorage = Array(UnsafeBufferPointer(start: glyphAdvances, count: glyphCount))
+    } else {
+        advancesStorage = Array(repeating: FLOAT(glyphRun.fontEmSize * 0.5), count: glyphCount)
+    }
+
+    let offsetsStorage: [DWRITE_GLYPH_OFFSET]
+    if let glyphOffsets = glyphRun.glyphOffsets {
+        offsetsStorage = Array(UnsafeBufferPointer(start: glyphOffsets, count: glyphCount))
+    } else {
+        offsetsStorage = Array(repeating: DWRITE_GLYPH_OFFSET(), count: glyphCount)
+    }
+
+    var textPositions = Array<UInt32?>(repeating: nil, count: glyphCount)
+    if let glyphRunDescription {
+        let description = glyphRunDescription.assumingMemoryBound(to: DWRITE_GLYPH_RUN_DESCRIPTION.self).pointee
+        if let clusterMap = description.clusterMap {
+            let clusters = UnsafeBufferPointer(start: clusterMap, count: Int(description.stringLength))
+            for textOffset in clusters.indices {
+                let glyphIndex = Int(clusters[textOffset])
+                guard glyphIndex >= 0, glyphIndex < glyphCount, textPositions[glyphIndex] == nil else {
+                    continue
+                }
+
+                textPositions[glyphIndex] = description.textPosition + UInt32(textOffset)
+            }
+        } else {
+            let count = min(Int(description.stringLength), glyphCount)
+            for index in 0..<count {
+                textPositions[index] = description.textPosition + UInt32(index)
+            }
+        }
+    }
+
+    var cursorX = Double(baselineOriginX)
+    for index in 0..<glyphCount {
+        let offset = offsetsStorage[index]
+        context.pointee.glyphs.append(
+            DirectWriteCapturedGlyph(
+                glyphID: UInt32(indices[index]),
+                textPosition: textPositions[index],
+                origin: Point(
+                    x: cursorX + Double(offset.advanceOffset),
+                    y: Double(baselineOriginY) - Double(offset.ascenderOffset)
+                ),
+                advance: Double(advancesStorage[index]),
+                fontFace: fontFace,
+                fontSize: Double(glyphRun.fontEmSize)
+            )
+        )
+        cursorX += Double(advancesStorage[index])
+    }
+
+    return 0
+}
+
+private func directWriteGlyphLayoutDrawUnderline(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ underlineRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+    0
+}
+
+private func directWriteGlyphLayoutDrawStrikethrough(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ strikethroughRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+    0
+}
+
+private func directWriteGlyphLayoutDrawInlineObject(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ originX: FLOAT, _ originY: FLOAT, _ inlineObject: UnsafeMutableRawPointer?, _ isSideways: WindowsBool, _ isRightToLeft: WindowsBool, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+    0
+}
+
 private func drawDecoration(width: FLOAT, thickness: FLOAT, offset: FLOAT, baselineOriginX: FLOAT, baselineOriginY: FLOAT, context: DirectWriteDrawingContext) {
     guard let dc = context.bitmapRenderTarget.pointee.lpVtbl!.pointee.GetMemoryDC(UnsafeMutableRawPointer(context.bitmapRenderTarget)) else {
         return
@@ -866,3 +1573,5 @@ private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCH
     wide.append(0)
     return wide.withUnsafeBufferPointer { body($0.baseAddress!) }
 }
+
+

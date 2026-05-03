@@ -1,0 +1,34 @@
+{
+  "featureId": "fix-input-routing-observable-assertions",
+  "reviewedAt": "2026-03-29T16:42:57.821229Z",
+  "commitId": "132054d",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix replaces the prior vacuous assertions with concrete value checks, but the new evidence is gathered through a test-only `TestableInputRecordingHost`/`TestableInputRecordingRuntime` pair instead of the real `WinSwiftUIWindowHost` input-routing methods. Because the production host path is no longer exercised, and the recorder logs events before delegation, the review still cannot treat VAL-CROSS-004/005/006 as proven through host integration.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 273,
+        "severity": "blocking",
+        "description": "The new observable tests drive `TestableInputRecordingHost` directly (`testPointerMoveConvertsCoordinatesCorrectly`, `testMouseWheelConvertsCoordinatesAndDelta`, `testKeyDownDispatchesCorrectlyToRuntime`, etc.) rather than calling `WinSwiftUIWindowHost.window(_:pointerMovedTo:)`, `window(_:mouseWheelAt:delta:)`, `window(_:keyDown:)`, or `windowDidLoseKeyboardFocus(_:)`. That wrapper is a parallel reimplementation of the production host logic, so regressions in the real host path shown in `Sources/WinSwiftUI/App.swift:235-272` would not be caught. The original blocking proof gap for VAL-CROSS-004/005/006 therefore remains unresolved."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 204,
+        "severity": "blocking",
+        "description": "`TestableInputRecordingRuntime` records each event before delegating to `RetainedViewRuntime` (lines 204-236), and the new assertions only inspect those recorder arrays (for example lines 998-1316). That proves the wrapper bookkeeping ran, but it does not prove the runtime actually consumed the dispatched pointer, wheel, keyboard, or focus-loss event. If a future change broke the runtime call while leaving the recorder write in place, these tests would still pass."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `runtime-host-worker` guidance does not make it explicit enough that scrutiny evidence-hardening must keep exercising the real `WinSwiftUIWindowHost` seam; otherwise workers can satisfy the letter of 'observable hooks' by building a shadow host in tests.",
+      "evidence": "In the 3bc02c5e-e93d-4dd5-b8fc-0e80bff54398 transcript, the worker hit final-method subclassing problems, then pivoted to a composition-based `TestableInputRecordingHost`. Commit `132054d` touches only `Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift`, and the new tests call that wrapper directly instead of the production methods in `Sources/WinSwiftUI/App.swift`."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\host-runtime-integration\\scrutiny\\reviews\\windowhost-input-resize-and-downgrade-harness.json",
+  "summary": "Review failed. The fix removes the original `XCTAssertTrue(true)`/non-crash assertions, but the replacement evidence is collected from a duplicated test-only host/runtime wrapper, not from `WinSwiftUIWindowHost` itself, and it does not prove runtime dispatch after recording. VAL-CROSS-004, VAL-CROSS-005, and VAL-CROSS-006 are still not validator-visible through the real host integration path."
+}

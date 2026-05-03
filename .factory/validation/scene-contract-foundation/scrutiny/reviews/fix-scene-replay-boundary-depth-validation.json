@@ -1,0 +1,15 @@
+{
+  "featureId": "fix-scene-replay-boundary-depth-validation",
+  "reviewedAt": "2026-03-28T19:35:21.2053487-04:00",
+  "commitId": "06f7537",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix resolves the prior replay-range blocker: `GPUIScene.validateReplayRange` now rejects ranges that begin inside already-open scoped layers by scanning the prefix before `range.lowerBound`, and the existing in-range balance check still rejects ranges that end with unmatched scoped layers. The new focused GPUIScene tests explicitly cover marker-free interior subranges like `1..<2` and nested-depth cases, while preserving successful replay for root-depth and fully balanced ranges.",
+    "issues": []
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": ".factory/validation/scene-contract-foundation/scrutiny/reviews/scene-replay-range-safety.json",
+  "summary": "Pass: the current implementation now safely rejects replay slices that start inside open scoped layers, still rejects ranges that end inside unmatched scopes, and includes focused regression coverage proving the previously reported `1..<2` interior-subrange failure mode is closed."
+}

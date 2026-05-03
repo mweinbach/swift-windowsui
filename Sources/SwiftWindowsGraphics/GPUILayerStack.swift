@@ -47,10 +47,11 @@ public struct GPUILayerStack: Sendable {
     /// Determine if a node requires its own compositing layer.
     ///
     /// Reasons a node might need its own layer:
-    /// - opacity < 1.0 AND has children (group opacity compositing)
     /// - has a blur effect
     ///
     /// Notes:
+    /// - GPUI/Zed carries subtree opacity as an inherited paint scalar rather
+    ///   than introducing a generic save-layer for `opacity < 1`.
     /// - A transform alone does not require a layer (transforms can be applied per-primitive).
     /// - Opacity without children does not require a layer (single-element opacity is fine).
     ///
@@ -66,7 +67,9 @@ public struct GPUILayerStack: Sendable {
         hasBlur: Bool,
         hasTransform: Bool
     ) -> Bool {
-        if opacity < 1.0 && hasChildren { return true }
+        _ = opacity
+        _ = hasChildren
+        _ = hasTransform
         if hasBlur { return true }
         return false
     }

@@ -1,0 +1,45 @@
+{
+  "featureId": "windowhost-input-resize-and-downgrade-harness",
+  "reviewedAt": "2026-03-29T16:13:14.044499Z",
+  "commitId": "cd6b62e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The commit successfully adds a dedicated `WinSwiftUIWindowHostTests` harness and fake backends/windows, but several of the new tests do not actually prove the feature's required behaviors. Attach failure and resize-failure downgrade are covered, yet render-failure downgrade, DPI propagation, and most input-routing assertions are only checked indirectly or not at all.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 255,
+        "severity": "blocking",
+        "description": "`testBatchRenderFailureDowngradesToFrameSameSession` only checks that the frame backend was attached after a batch render failure. It never asserts that `frameRenderer.renderedFrames` increased or that the triggering frame was successfully presented through the frame path, so the core VAL-RENDER-004 requirement ('still presents the triggering frame') remains unproven."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 450,
+        "severity": "blocking",
+        "description": "The pointer/wheel/keyboard/focus-loss tests are effectively no-ops: they invoke host methods and then assert `XCTAssertTrue(true)` or 'did not crash'. That does not verify device-pixel to logical-point conversion or that the runtime received the routed event. The same vacuous pattern appears at lines 450, 483-491, 524, 561, 594, 630, 664, and 699."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift",
+        "line": 409,
+        "severity": "blocking",
+        "description": "`testResizeUpdatesLogicalSizeWithScaleFactor` does not exercise a resize or DPI-change path and only reasserts the injected surface descriptor's `pixelSize` and `scaleFactor`. It never checks the runtime's logical root size/display scale after propagation, so the resize/DPI synchronization required by VAL-CROSS-003 is only partially covered."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The `runtime-host-worker` skill says to read `.factory/library/user-testing.md` when a feature changes validation surfaces, but this worker introduced a brand-new focused host suite without doing that read. Either the skill needs stronger emphasis or the workflow should capture this as explicit feedback.",
+      "evidence": "`.factory/skills/runtime-host-worker/SKILL.md` step 1 requires reading `user-testing.md` for validation-surface changes; the ba64d503-c775-495e-af7c-e541b8649463 transcript shows reads of mission/validation/features, `.factory/library/architecture.md`, and `.factory/services.yaml`, then creation of `Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift`, but no read of `.factory/library/user-testing.md`."
+    },
+    {
+      "area": "skills",
+      "observation": "The worker initially looked for mission files under the repo-local `.factory/missions/...` path and had to recover after ENOENT. The mission-worker guidance should make the absolute `missionDir` location harder to miss so workers do not burn time rediscovering it.",
+      "evidence": "The transcript skeleton starts with failed reads of `C:/Users/maxw6/Projects/swift-windowsui/.factory/missions/5d62c514-a5fc-4389-9107-8af5d18bcb58/mission.md` and `validation-contract.md`, then falls back to searching for the real mission location."
+    }
+  ],
+  "addressesFailureFrom": null,
+  "summary": "Review failed. The harness file was added, but key assertions are not actually validated: render-failure downgrade only checks attachment, DPI propagation is not exercised through the host/runtime seam, and most input-routing tests only prove that the calls do not crash."
+}

@@ -5,9 +5,38 @@ import WinSDK
 
 @MainActor
 enum NativeTextRenderer {
+    struct TestingOverrides {
+        var measure: ((String, PixelTextStyle, Double, Double?) -> Size?)?
+        var layout: ((String, PixelTextStyle, Double, Double?) -> NativeTextLayoutResult?)?
+        var appendCommands: ((String, Rect, PixelTextStyle, Double, Rect?, inout [RenderCommand]) -> Bool)?
+        var rasterize: ((String, PixelTextStyle, Double) -> BitmapSurface?)?
+        var rasterizeGlyphForCharacter: ((Character, PixelTextStyle, Double) -> NativeGlyphBitmap?)?
+        var rasterizeGlyphForLayout: ((NativeTextGlyphLayout, PixelTextStyle, Double) -> NativeGlyphBitmap?)?
+    }
+
+    static var testingOverrides = TestingOverrides()
+
+    static func resetTestingOverrides() {
+        testingOverrides = TestingOverrides()
+    }
+
     static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
-        DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+        if let override = testingOverrides.measure {
+            return override(text, style, scaleFactor, maxWidth)
+        }
+        if let layout = layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth) {
+            return layout.measuredSize
+        }
+
+        return DirectWriteTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
             ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
+    }
+
+    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
+        if let override = testingOverrides.layout {
+            return override(text, style, scaleFactor, maxWidth)
+        }
+        return DirectWriteTextRenderer.layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
     }
 
     static func appendCommands(
@@ -18,7 +47,10 @@ enum NativeTextRenderer {
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
-        DirectWriteTextRenderer.appendCommands(
+        if let override = testingOverrides.appendCommands {
+            return override(text, rect, style, scaleFactor, clipRect, &commands)
+        }
+        return DirectWriteTextRenderer.appendCommands(
             for: text,
             in: rect,
             style: style,
@@ -33,6 +65,29 @@ enum NativeTextRenderer {
             clipRect: clipRect,
             into: &commands
         )
+    }
+
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        if let override = testingOverrides.rasterize {
+            return override(text, style, scaleFactor)
+        }
+        return DirectWriteTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+            ?? GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        if let override = testingOverrides.rasterizeGlyphForCharacter {
+            return override(character, style, scaleFactor)
+        }
+        return DirectWriteTextRenderer.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+        if let override = testingOverrides.rasterizeGlyphForLayout {
+            return override(glyph, style, scaleFactor)
+        }
+        return DirectWriteTextRenderer.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
+            ?? DirectWriteTextRenderer.rasterizeGlyph(glyph.character, style: style, scaleFactor: scaleFactor)
     }
 }
 
@@ -124,7 +179,15 @@ enum GDIRasterTextRenderer {
         return true
     }
 
-    private static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+        guard let size = measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil) else {
+            return nil
+        }
+
+        return rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
+    }
+
+    static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
         let rasterSize = size.scaled(by: scaleFactor)
         let pixelWidth = max(1, Int32(rasterSize.width.rounded(.up)))
         let pixelHeight = max(1, Int32(rasterSize.height.rounded(.up)))
@@ -333,7 +396,7 @@ private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle,
 
 extension PixelTextStyle {
     var nativeFontPixelSize: Double {
-        max(12, scale * 6 + 8)
+        nativeFontSize ?? max(12, scale * 6 + 8)
     }
 }
 

@@ -1,0 +1,33 @@
+{
+  "featureId": "scene-replay-range-safety",
+  "reviewedAt": "2026-03-28T23:21:00.226827+00:00",
+  "commitId": "0362f71",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The current replay-range validator still only balances markers inside the selected paint-record slice, so it does not satisfy VAL-SCENE-007's requirement to reject ranges that begin or end inside an already-open scoped layer.",
+    "issues": [
+      {
+        "file": "Sources/SwiftWindowsGraphics/GPUIScene.swift",
+        "line": 480,
+        "severity": "blocking",
+        "description": "validateReplayRange() only iterates scene.paintRecords[range] and never accounts for scopes that were already open before range.lowerBound or still open after range.upperBound. That means a marker-free interior subrange inside an outer scoped layer, or a subrange that contains a balanced nested scope but omits the surrounding outer markers, is incorrectly accepted as .success. replay() then re-emits primitives without the required enclosing scoped-layer markers, which violates VAL-SCENE-007 and undermines VAL-SCENE-006's guarantee that balanced replay reconstructs equivalent scoped-layer structure."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The rerun handoff points to commit 0362f71 even though that commit only changes skill docs and does not contain scene-replay code or test changes, so the evidence trail for this feature rerun is misleading.",
+      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-28T23-14-26-009Z__scene-replay-range-safety__4eed1003-8d36-4436-a380-ca38e046b3bf.json records commitId 0362f71, but git show --stat 0362f71 shows only .factory/skills/graphics-scene-worker/SKILL.md and .factory/skills/runtime-host-worker/SKILL.md changed."
+    },
+    {
+      "area": "skills",
+      "observation": "The graphics-scene-worker procedure does not explicitly require rerun workers to reproduce previously reported blocking findings with a targeted adversarial case before declaring success, which let this session rely on existing passing tests and miss the still-open interior-subrange bug.",
+      "evidence": "The prior review at .factory/validation/scene-contract-foundation/scrutiny/reviews/scene-replay-range-safety.json flagged marker-free interior subranges inside an already-open scoped layer. The 4eed1003-8d36-4436-a380-ca38e046b3bf transcript only rereads the existing implementation, reruns GPUISceneTests/full test/build, and then reports success; it adds no new targeted test or direct probe for that prior failure mode."
+    }
+  ],
+  "addressesFailureFrom": ".factory/validation/scene-contract-foundation/scrutiny/reviews/scene-replay-range-safety.json",
+  "summary": "Fail: the prior blocking issue remains unresolved because replay-range validation still ignores scope depth outside the selected slice and can accept interior scoped-layer subranges without their enclosing markers."
+}

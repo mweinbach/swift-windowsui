@@ -1,0 +1,52 @@
+{
+  "groupId": "host-suite",
+  "milestone": "batch-renderer-capability",
+  "testedAt": "2026-03-29T20:03:54.625264+00:00",
+  "surface": "Swift test suites",
+  "isolation": {
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "evidenceDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\evidence\\batch-renderer-capability\\host-suite",
+    "reportPath": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\batch-renderer-capability\\user-testing\\flows\\host-suite.json",
+    "singleLane": true,
+    "networkUsed": false,
+    "suiteFilter": "WinSwiftUIWindowHostTests"
+  },
+  "assertions": [
+    {
+      "id": "VAL-RENDER-007",
+      "title": "Unresolved image primitives never remain on the batch presenter",
+      "status": "pass",
+      "reason": "The focused host suite passed, and the relevant test showed unresolved image resources trigger batch rejection and a same-session downgrade to the frame presenter.",
+      "evidence": {
+        "suite": "WinSwiftUIWindowHostTests",
+        "test": "testUnresolvedImageBatchFailureDowngradesToFrameSameSession",
+        "logs": [
+          "batch-renderer-capability/host-suite/VAL-RENDER-007-WinSwiftUIWindowHostTests.txt"
+        ],
+        "terminalSnapshots": [
+          "batch-renderer-capability/host-suite/VAL-RENDER-007-terminal-snapshot.txt"
+        ],
+        "sourceReferences": [
+          "Tests/SwiftWindowsCoreLogicTests/WinSwiftUIWindowHostTests.swift:368-410"
+        ],
+        "mapping": "The terminal snapshot shows WinSwiftUI logging batch failure and switching to the frame renderer because image primitives had no valid bound resources for texture ID -1. The cited test then asserts frameRenderer.attachedSurfaces.count == 1 and frameRenderer.renderedFrames.count == 1 after the failure, proving same-session host downgrade and frame presentation."
+      }
+    }
+  ],
+  "commandsRun": [
+    {
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter WinSwiftUIWindowHostTests",
+      "exitCode": 0,
+      "observation": "Passed. WinSwiftUIWindowHostTests executed 32 tests with 0 failures; the relevant case logged unresolved image resource rejection and frame-presenter downgrade in the same suite run."
+    }
+  ],
+  "toolsUsed": [
+    "powershell",
+    "swift test",
+    ".factory/windows-swift-env.ps1"
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Validated VAL-RENDER-007 via the required WinSwiftUIWindowHostTests suite. The suite passed, and host-level evidence confirmed unresolved image primitives trigger batch rejection and same-session downgrade to frame presentation."
+}

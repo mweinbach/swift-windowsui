@@ -1,0 +1,78 @@
+{
+  "milestone": "host-runtime-integration",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\"",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File \".factory/windows-swift-env.ps1\" swift build --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --product swift-windowsui",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "powershell -NoProfile -Command \"Write-Output 'No dedicated lint command for this Swift package yet.'\"",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 2,
+    "passed": 0,
+    "failed": 2,
+    "failedFeatures": [
+      "windowhost-input-resize-and-downgrade-harness",
+      "host-refresh-and-observation-batching"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "severity": "blocking",
+      "description": "`testBatchRenderFailureDowngradesToFrameSameSession` only proves frame-backend attachment after fallback, not that the triggering frame was actually rendered via the frame path, so VAL-RENDER-004 remains unproven."
+    },
+    {
+      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "severity": "blocking",
+      "description": "The pointer, wheel, keyboard, and focus-loss host tests mostly assert that calls do not crash instead of proving coordinate conversion or runtime event routing, leaving VAL-CROSS-004/005/006 unvalidated."
+    },
+    {
+      "featureId": "windowhost-input-resize-and-downgrade-harness",
+      "severity": "blocking",
+      "description": "`testResizeUpdatesLogicalSizeWithScaleFactor` rechecks the injected surface descriptor instead of exercising resize/DPI propagation through host and runtime state, so VAL-CROSS-003 is only partially covered."
+    },
+    {
+      "featureId": "host-refresh-and-observation-batching",
+      "severity": "blocking",
+      "description": "The VAL-CROSS-009 tests do not verify refresh-rate propagation or timer enable/disable behavior; they only inspect `useHighResolutionTimer` or a local cadence helper, so regressions in host pacing could still pass."
+    },
+    {
+      "featureId": "host-refresh-and-observation-batching",
+      "severity": "blocking",
+      "description": "The VAL-CROSS-010 tests are placeholders that neither register observed dependencies nor assert reload/presentation counts after notifications, so same-turn coalescing and dependency filtering remain unproven."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "mission-worker-base skill",
+      "suggestion": "Make the startup checklist explicitly restate that mission files live in the absolute `missionDir` from the worker bootstrap, not under a repo-local `.factory/missions/...` path.",
+      "evidence": "The `windowhost-input-resize-and-downgrade-harness` worker first attempted to read `C:/Users/maxw6/Projects/swift-windowsui/.factory/missions/5d62c514-a5fc-4389-9107-8af5d18bcb58/...` before recovering to the real mission directory, wasting startup time.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Strengthen `runtime-host-worker` guidance because the worker that added `WinSwiftUIWindowHostTests` did not read `.factory/library/user-testing.md` before changing validation surfaces.",
+      "reason": "already-documented; the current skill already requires reading `user-testing.md`, so this round shows worker non-compliance rather than missing guidance"
+    },
+    {
+      "observation": "Document a standard timer-state assertion seam for host tests because the worker fell back to placeholder assertions after discovering `Win32Window` is final.",
+      "reason": "ambiguous and feature-specific; the blocking issue is missing test observability in the codebase, not yet a proven cross-worker guidance gap"
+    }
+  ],
+  "previousRound": null
+}

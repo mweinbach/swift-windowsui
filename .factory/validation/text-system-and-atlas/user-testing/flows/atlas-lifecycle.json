@@ -1,0 +1,169 @@
+{
+  "groupId": "atlas-lifecycle",
+  "testedAt": "2026-03-29T19:10:52.3164490Z",
+  "isolation": {
+    "surface": "Swift test suites",
+    "repoRoot": "C:\\Users\\maxw6\\Projects\\swift-windowsui",
+    "missionDir": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58",
+    "milestone": "text-system-and-atlas",
+    "focusedSuites": [
+      "GlyphAtlasTests",
+      "IntegrationTests"
+    ]
+  },
+  "toolsUsed": [
+    "swift test"
+  ],
+  "commandsRun": [
+    "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter GlyphAtlasTests",
+    "powershell -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\windows-swift-env.ps1\" swift test --package-path \"C:\\Users\\maxw6\\Projects\\swift-windowsui\" --filter IntegrationTests"
+  ],
+  "assertions": [
+    {
+      "id": "VAL-TEXT-004",
+      "title": "Fresh or text-mutated scenes attach atlas payloads only when text becomes dirty",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run IntegrationTests through the Windows Swift wrapper",
+          "expected": "Relevant atlas lifecycle tests pass",
+          "observed": "Command exited 0 and IntegrationTests passed with 20 tests, 0 failures."
+        },
+        {
+          "action": "Map passing IntegrationTests cases back to atlas payload attachment behavior",
+          "expected": "Fresh text scenes attach atlas data, unchanged scenes omit it, and text mutations reattach payloads with a dirty region",
+          "observed": "Passed test cases: testRenderSceneEmitsGlyphsAndAtlasSnapshotForText, testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild, and testTextMutationReattachesAtlasPayloadWithDirtyRegion."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/atlas-lifecycle/integration-tests.txt"
+        ],
+        "mappedTests": [
+          "IntegrationTests.testRenderSceneEmitsGlyphsAndAtlasSnapshotForText",
+          "IntegrationTests.testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild",
+          "IntegrationTests.testTextMutationReattachesAtlasPayloadWithDirtyRegion"
+        ],
+        "suiteSummary": "IntegrationTests passed at 2026-03-29 15:09:37.907; 20 tests, 0 failures."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-005",
+      "title": "Cached atlas-free scene replays preserve equivalent glyph output",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run IntegrationTests through the Windows Swift wrapper",
+          "expected": "Relevant cached-scene replay tests pass",
+          "observed": "Command exited 0 and IntegrationTests passed with 20 tests, 0 failures."
+        },
+        {
+          "action": "Inspect cached atlas-free replay coverage in IntegrationTests output",
+          "expected": "Atlas-free rebuilt scenes preserve equivalent native and pixel glyph primitives",
+          "observed": "Passed test case: testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/atlas-lifecycle/integration-tests.txt"
+        ],
+        "mappedTests": [
+          "IntegrationTests.testRebuiltSceneWithoutTextMutationOmitsAtlasPayloadButPreservesGlyphOutput"
+        ],
+        "suiteSummary": "IntegrationTests passed at 2026-03-29 15:09:37.907; 20 tests, 0 failures."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-006",
+      "title": "Distinct glyph identities do not alias atlas entries",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run GlyphAtlasTests through the Windows Swift wrapper",
+          "expected": "Relevant atlas identity tests pass",
+          "observed": "Command exited 0 and GlyphAtlasTests passed with 23 tests, 0 failures."
+        },
+        {
+          "action": "Map passing GlyphAtlasTests cases back to atlas identity reuse and non-aliasing",
+          "expected": "Identical glyph identity reuses atlas coordinates while distinct character, glyph ID, face, family, size, or weight inputs do not alias",
+          "observed": "Passed test cases: testCacheLookupAfterInsert and testDistinctGlyphIdentitiesDoNotAliasAtlasEntries."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/atlas-lifecycle/glyph-atlas-tests.txt"
+        ],
+        "mappedTests": [
+          "GlyphAtlasTests.testCacheLookupAfterInsert",
+          "GlyphAtlasTests.testDistinctGlyphIdentitiesDoNotAliasAtlasEntries"
+        ],
+        "suiteSummary": "GlyphAtlasTests passed at 2026-03-29 15:09:27.380; 23 tests, 0 failures."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-007",
+      "title": "Atlas dirty regions accumulate new writes and reset after snapshot consumption",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run GlyphAtlasTests and IntegrationTests through the Windows Swift wrapper",
+          "expected": "Dirty-region growth and clean-reset coverage passes in both focused suites",
+          "observed": "Both commands exited 0; GlyphAtlasTests passed with 23 tests, 0 failures and IntegrationTests passed with 20 tests, 0 failures."
+        },
+        {
+          "action": "Map dirty-region and snapshot-consumption cases to the assertion",
+          "expected": "Dirty regions expand across writes, reset after clean/snapshot consumption, and reappear only when new text becomes dirty",
+          "observed": "Passed test cases: testDirtyRegionAccumulatesWritesAndResetsAfterMarkClean, testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild, and testTextMutationReattachesAtlasPayloadWithDirtyRegion."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/atlas-lifecycle/glyph-atlas-tests.txt",
+          "text-system-and-atlas/atlas-lifecycle/integration-tests.txt"
+        ],
+        "mappedTests": [
+          "GlyphAtlasTests.testDirtyRegionAccumulatesWritesAndResetsAfterMarkClean",
+          "IntegrationTests.testCachedRenderSceneDropsAtlasSnapshotsAfterInitialBuild",
+          "IntegrationTests.testTextMutationReattachesAtlasPayloadWithDirtyRegion"
+        ],
+        "suiteSummary": "GlyphAtlasTests passed with 23 tests, 0 failures; IntegrationTests passed with 20 tests, 0 failures."
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-TEXT-014",
+      "title": "Atlas exhaustion fails safely without permanently dropping new text",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Run GlyphAtlasTests and IntegrationTests through the Windows Swift wrapper",
+          "expected": "Atlas exhaustion recovery tests pass in both focused suites",
+          "observed": "Both commands exited 0; GlyphAtlasTests passed with 23 tests, 0 failures and IntegrationTests passed with 20 tests, 0 failures."
+        },
+        {
+          "action": "Map atlas exhaustion and recovery cases to the assertion",
+          "expected": "Atlas-full conditions recover or rerasterize safely so newly introduced text remains visible",
+          "observed": "Passed test cases: testCacheRecoversAfterAtlasExhaustionWithoutDroppingNewGlyph and testAtlasRecoveryBypassesCachedTextSceneReplayAndRerasterizesGlyphUVs."
+        }
+      ],
+      "evidence": {
+        "terminalLogs": [
+          "text-system-and-atlas/atlas-lifecycle/glyph-atlas-tests.txt",
+          "text-system-and-atlas/atlas-lifecycle/integration-tests.txt"
+        ],
+        "mappedTests": [
+          "GlyphAtlasTests.testCacheRecoversAfterAtlasExhaustionWithoutDroppingNewGlyph",
+          "IntegrationTests.testAtlasRecoveryBypassesCachedTextSceneReplayAndRerasterizesGlyphUVs"
+        ],
+        "suiteSummary": "GlyphAtlasTests passed with 23 tests, 0 failures; IntegrationTests passed with 20 tests, 0 failures."
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 5 assertions for atlas lifecycle: 5 passed, 0 failed, 0 blocked."
+}

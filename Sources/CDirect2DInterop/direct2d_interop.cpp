@@ -319,7 +319,7 @@ extern "C" HRESULT SWU_D2DConfigureSwapChainTarget(void *context_raw, void *swap
     }
 
     bitmap_properties.pixelFormat.format = DXGI_FORMAT_B8G8R8A8_UNORM;
-    bitmap_properties.pixelFormat.alphaMode = D2D1_ALPHA_MODE_PREMULTIPLIED;
+    bitmap_properties.pixelFormat.alphaMode = D2D1_ALPHA_MODE_IGNORE;
     bitmap_properties.dpiX = dpi_x;
     bitmap_properties.dpiY = dpi_y;
     bitmap_properties.bitmapOptions = D2D1_BITMAP_OPTIONS_TARGET | D2D1_BITMAP_OPTIONS_CANNOT_DRAW;

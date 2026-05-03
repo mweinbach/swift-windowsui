@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-atlas-exhaustion-replay-stale-uvs",
+  "reviewedAt": "2026-03-29T18:44:35.731328Z",
+  "commitId": "73ea2da5d3a31a7bf5971cae77383f073ccbf6e8",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The fix addresses the prior blocking stale-UV replay bug. `ScenePainter.paint` now retries once with `previousScene` disabled after atlas recovery, which prevents `scene.replay(...)` from reusing cached text ranges against a cleared native atlas, and the new integration regression proves unchanged text is rerasterized with fresh atlas coordinates after recovery.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Windows worker startup guidance still points workers at `.factory/init.sh` even though this mission's documented source of truth is `.factory/windows-swift-env.ps1` / `.factory/services.yaml`, so graphics workers keep tripping over the missing bash/WSL dependency before falling back manually.",
+      "evidence": "The fix transcript skeleton for worker session 3d5187e5-95fd-4f5f-88f3-c31f9d5c06d6 shows `bash C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\init.sh` failing before `windows-swift-env.ps1 -CheckOnly` succeeded; the original feature session 61d1f614-3b97-4466-8159-7b9fe18f6933 hit the same deviation. `.factory/init.sh` is only a bash wrapper over the PowerShell check, while mission AGENTS.md and `.factory/library/environment.md` say to use `.factory/windows-swift-env.ps1` / `.factory/services.yaml`."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\text-system-and-atlas\\scrutiny\\reviews\\atlas-lifecycle-identity-and-exhaustion.json",
+  "summary": "Reviewed the prior failed scrutiny report, both worker transcript skeletons, the original and fix handoffs, and the relevant diffs for commit 73ea2da5d3a31a7bf5971cae77383f073ccbf6e8. The fix is adequate: atlas recovery now forces a no-replay rebuild before returning the scene, and the added integration regression demonstrates that cached text replay is bypassed and glyph UVs are refreshed after exhaustion without introducing a new blocking issue."
+}

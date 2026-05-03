@@ -1,0 +1,28 @@
+{
+  "featureId": "fix-normalized-output-and-scroll-geometry-parity",
+  "reviewedAt": "2026-03-29T02:34:16.676087+00:00",
+  "commitId": "0326de0",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The fix resolves the original VAL-PARITY-001 blocker by capturing and comparing pre- vs post-mutation normalized output for the unchanged sibling, but VAL-PARITY-003 is still not fully proven. The updated scroll test still stops short of directly proving exact frame-vs-scene scroll parity and equivalent scroll-indicator geometry.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1573,
+        "severity": "blocking",
+        "description": "The new VAL-PARITY-003 scroll-delta check still is not an exact frame-vs-scene comparison. It normalizes the scene delta and compares it to the literal `30.0` with `accuracy: 5.0`, while the frame path is asserted separately. A regression where the frame moves by 30 but the scene moves by 25 would still satisfy this test."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1590,
+        "severity": "blocking",
+        "description": "The promised scroll-indicator geometry comparison still never compares frame and scene indicator geometry to each other. The test only checks that each path's indicator moves downward, without asserting matching size, position, or delta across frame vs. scene output, so mismatched indicator placement/shape can still slip through."
+      }
+    ]
+  },
+  "sharedStateObservations": [],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\parity-harness\\scrutiny\\reviews\\normalized-frame-scene-output-and-scroll-parity.json",
+  "summary": "Re-review failed. The fix adequately addresses the original VAL-PARITY-001 evidence gap, but VAL-PARITY-003 still lacks a direct exact frame-vs-scene scroll-delta comparison and an explicit frame-vs-scene scroll-indicator geometry comparison."
+}

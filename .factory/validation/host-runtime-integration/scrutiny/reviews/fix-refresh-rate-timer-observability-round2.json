@@ -1,0 +1,21 @@
+{
+  "featureId": "fix-refresh-rate-timer-observability-round2",
+  "reviewedAt": "2026-03-29T13:25:30.962388-04:00",
+  "commitId": "5b61f1e",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "pass",
+  "codeReview": {
+    "summary": "The round-two fix resolves the prior blocker: it adds a test seam for Win32Window monitor refresh rate, drives a 60 Hz to 144 Hz change through WinSwiftUIWindowHost.windowDidChangeDisplay(_:) and now asserts both timer cadence and runtime minimum-frame-interval updates for VAL-CROSS-009.",
+    "issues": []
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "Windows worker bootstrap still has a tooling gap: the init entrypoint is a bash-only wrapper even though this mission runs on Windows, so the worker had to bypass the documented init step and call windows-swift-env.ps1 directly.",
+      "evidence": ".factory/init.sh:1-5 is a bash script that only forwards to windows-swift-env.ps1 -CheckOnly; the fix handoff skillFeedback and transcript skeleton show bash .factory/init.sh failed in this Windows environment and the worker switched to the PowerShell command directly."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\host-runtime-integration\\scrutiny\\reviews\\fix-refresh-rate-timer-observability.json",
+  "summary": "Pass: the new fix closes the remaining VAL-CROSS-009 gap by exercising a real monitorRefreshRate change through WinSwiftUIWindowHost and asserting the resulting timer and runtime pacing updates."
+}

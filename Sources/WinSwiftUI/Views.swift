@@ -158,6 +158,7 @@ public struct Text: View {
                 scale: font.resolvedScale,
                 weight: font.weight.textWeight,
                 fontFamily: font.resolvedFamily,
+                nativeFontSize: font.resolvedNativeTextSize,
                 alignment: alignment.horizontalAlignment.textAlignment,
                 letterSpacing: letterSpacing,
                 lineSpacing: lineSpacing,

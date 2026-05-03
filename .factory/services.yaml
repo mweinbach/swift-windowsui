@@ -1,0 +1,15 @@
+commands:
+  install: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" -CheckOnly
+  test: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui"
+  build: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift build --package-path "C:\Users\maxw6\Projects\swift-windowsui" --product swift-windowsui
+  typecheck: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift build --package-path "C:\Users\maxw6\Projects\swift-windowsui" --product swift-windowsui
+  lint: powershell -NoProfile -Command "Write-Output 'No dedicated lint command for this Swift package yet.'"
+  test_scene: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter GPUISceneTests
+  test_runtime: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter RetainedViewRuntimeTests
+  test_text: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter TextSystemTests
+  test_host: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/windows-swift-env.ps1" swift test --package-path "C:\Users\maxw6\Projects\swift-windowsui" --filter WinSwiftUIWindowHostTests
+  demo_default: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/demo_default.ps1"
+  demo_frame: powershell -NoProfile -ExecutionPolicy Bypass -File ".factory/demo_frame.ps1"
+  demo_batch: powershell -NoProfile -Command "$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH='1'; & 'C:\Users\maxw6\Projects\swift-windowsui\.factory\windows-swift-env.ps1' swift run --package-path 'C:\Users\maxw6\Projects\swift-windowsui' swift-windowsui"
+
+services: {}

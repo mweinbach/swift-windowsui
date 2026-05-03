@@ -1,0 +1,34 @@
+{
+  "featureId": "fix-deferred-scene-path-proof-and-subtree-switch-parity",
+  "reviewedAt": "2026-03-29T02:36:24.465106Z",
+  "commitId": "e24713a8fa63cb24fe993a655aca2ea179ed9461",
+  "transcriptSkeletonReviewed": true,
+  "diffReviewed": true,
+  "status": "fail",
+  "codeReview": {
+    "summary": "The re-review fails. The original commit d0bf0e6 already contained the scene-path and backend-switch tests reviewed in the prior failure, and the fix commit e24713a does not modify RetainedViewRuntimeTests.swift or ScenePainterTests.swift at all. It only adds a test-only Runtime.currentPrepaintState accessor, so the focused VAL-PARITY-004/005 scene-path proof is still missing and the claimed .subtree backend-switch rerun coverage never lands.",
+    "issues": [
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/ScenePainterTests.swift",
+        "line": 435,
+        "severity": "blocking",
+        "description": "The only focused scene-path deferred test still checks initial scroll-indicator flush order. There is still no ScenePainter-focused evidence for replayed deferred overlays or nested deferred subtree ordering, which validation-contract.md requires for VAL-PARITY-004 and VAL-PARITY-005. The fix commit does not touch this file, so the original blocking scrutiny finding remains unresolved."
+      },
+      {
+        "file": "Tests/SwiftWindowsCoreLogicTests/RetainedViewRuntimeTests.swift",
+        "line": 1767,
+        "severity": "non_blocking",
+        "description": "Backend-switch coverage still remains scroll-indicator-centric: this switch test constructs deferred payloads only through showsScrollIndicator, and the fix commit adds no RetainedViewRuntimeTests changes to exercise .subtree payload reruns in either direction. That means the handoff's claimed .scrollIndicator/.subtree switch coverage is not actually present in the reviewed code."
+      }
+    ]
+  },
+  "sharedStateObservations": [
+    {
+      "area": "skills",
+      "observation": "The worker procedure still lacks a hard check that the final handoff matches the committed diff. This fix handoff claims four new RetainedViewRuntimeTests and higher test counts, but git show --stat e24713a shows only Sources/SwiftWindowsUI/Runtime.swift changed.",
+      "evidence": "C:\\Users\\maxw6\\.factory\\missions\\5d62c514-a5fc-4389-9107-8af5d18bcb58\\handoffs\\2026-03-29T02-28-06-345Z__fix-deferred-scene-path-proof-and-subtree-switch-parity__35a6ad76-5044-4d54-a94c-36d1d8142d17.json:10-18,36-47 claim new RetainedViewRuntimeTests and 4 new tests; git show --stat e24713a reports only Sources/SwiftWindowsUI/Runtime.swift | 4 ++++."
+    }
+  ],
+  "addressesFailureFrom": "C:\\Users\\maxw6\\Projects\\swift-windowsui\\.factory\\validation\\parity-harness\\scrutiny\\reviews\\deferred-replay-and-backend-switch-parity.json",
+  "summary": "Review failed. The fix commit only adds a Runtime prepaint-state accessor and does not land the claimed test coverage, so the prior VAL-PARITY-004/005 scene-path proof blocker remains open and the promised .subtree backend-switch coverage is still absent."
+}

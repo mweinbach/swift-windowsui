@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 56
+            maximumTextSamples: 64
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -615,6 +615,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR SHEET") {
         failures.append("WinSwiftUI probe text samples are missing the sheet overlay")
     }
+    if !winSwiftUIProbe.textSamples.contains("INSPECTOR POPOVER") {
+        failures.append("WinSwiftUI probe text samples are missing the popover overlay")
+    }
     if textInputProbeValue != "AxC" {
         failures.append("text input probe expected AxC, got \(textInputProbeValue)")
     }
@@ -781,6 +784,12 @@ private struct WinSwiftUIProbeView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("INSPECTOR SHEET")
                 Text("SHEET DETAIL")
+            }
+        }
+        .popover(isPresented: Binding(get: { true }, set: { _ in }), arrowEdge: .trailing) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("INSPECTOR POPOVER")
+                Text("POPOVER DETAIL")
             }
         }
     }

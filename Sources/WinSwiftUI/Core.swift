@@ -733,7 +733,17 @@ public struct GridItem: Sendable {
     }
 }
 
-public enum Edge {
+public enum Anchor<Value>: Sendable {
+    public enum Source: Sendable, Equatable {
+        case bounds
+    }
+}
+
+public enum PopoverAttachmentAnchor: Sendable, Equatable {
+    case rect(Anchor<CGRect>.Source)
+}
+
+public enum Edge: Sendable, Equatable {
     case top
     case leading
     case bottom
@@ -1882,6 +1892,120 @@ private func sheetComponent(
     }
 }
 
+@MainActor
+private func popoverComponent(
+    base: Component,
+    isPresented: Binding<Bool>,
+    attachmentAnchor: PopoverAttachmentAnchor,
+    arrowEdge: Edge,
+    content popoverViews: [AnyView],
+    context: ViewBuildContext
+) -> Component {
+    Component { runtime in
+        _ = attachmentAnchor
+
+        let baseNode = base.makeNode(runtime: runtime)
+        guard isPresented.wrappedValue else {
+            return baseNode
+        }
+
+        let popoverContext = context.withContainerAxis(.vertical)
+        let popoverContent = composeComponent(
+            from: popoverViews,
+            context: popoverContext,
+            fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+        )
+        .makeNode(runtime: runtime)
+        let dismissLayer = Controls.panel(
+            backgroundColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.01),
+            isHitTestVisible: true
+        )
+        let card = Controls.stackPanel(
+            preferredSize: Size(width: 300, height: 0),
+            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.22, alpha: 0.95),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
+            shadowOffset: Point(x: 0, y: 16),
+            shadowSpread: 20,
+            cornerRadius: 20,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 10,
+                padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+                alignment: .stretch
+            ),
+            isHitTestVisible: true,
+            children: [popoverContent]
+        )
+        card.blurRadius = 16
+
+        dismissLayer.onPointerUpInside = {
+            isPresented.wrappedValue = false
+            isPresented.invalidateContextIfNeeded(context)
+        }
+
+        let overlayRoot = Controls.panel(
+            preferredSize: context.canvasSize,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, dismissLayer, card]
+        )
+
+        overlayRoot.onLayout = { bounds in
+            let fullFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != fullFrame {
+                baseNode.frame = fullFrame
+            }
+            if dismissLayer.frame != fullFrame {
+                dismissLayer.frame = fullFrame
+            }
+
+            let outerInset = min(24.0, max(10.0, min(bounds.size.width, bounds.size.height) * 0.06))
+            let popoverWidth = min(340.0, max(220.0, bounds.size.width - outerInset * 2))
+            let preferredPopoverSize = Size(width: popoverWidth, height: 0)
+            if card.preferredSize != preferredPopoverSize {
+                card.preferredSize = preferredPopoverSize
+            }
+
+            let measuredSize = card.intrinsicContentSize()
+            let cardSize = Size(
+                width: popoverWidth,
+                height: min(max(0, bounds.size.height - outerInset * 2), measuredSize.height)
+            )
+            let cardFrame = popoverFrame(
+                in: bounds.size,
+                cardSize: cardSize,
+                arrowEdge: arrowEdge,
+                inset: outerInset
+            )
+            if card.frame != cardFrame {
+                card.frame = cardFrame
+            }
+        }
+
+        return overlayRoot
+    }
+}
+
+private func popoverFrame(in bounds: Size, cardSize: Size, arrowEdge: Edge, inset: Double) -> Rect {
+    let centeredX = max(inset, (bounds.width - cardSize.width) * 0.5)
+    let centeredY = max(inset, (bounds.height - cardSize.height) * 0.5)
+    let trailingX = max(inset, bounds.width - cardSize.width - inset)
+    let bottomY = max(inset, bounds.height - cardSize.height - inset)
+
+    switch arrowEdge {
+    case .top:
+        return Rect(x: centeredX, y: inset, width: cardSize.width, height: cardSize.height)
+    case .bottom:
+        return Rect(x: centeredX, y: bottomY, width: cardSize.width, height: cardSize.height)
+    case .leading:
+        return Rect(x: inset, y: centeredY, width: cardSize.width, height: cardSize.height)
+    case .trailing:
+        return Rect(x: trailingX, y: centeredY, width: cardSize.width, height: cardSize.height)
+    }
+}
+
 private func finiteFrameExtent(_ extent: Double?) -> Double? {
     guard let extent, extent.isFinite else {
         return nil
@@ -2237,6 +2361,26 @@ public extension View {
                 isPresented: isPresented,
                 onDismiss: onDismiss,
                 content: sheetViews,
+                context: context
+            )
+        }
+    }
+
+    func popover(
+        isPresented: Binding<Bool>,
+        attachmentAnchor: PopoverAttachmentAnchor = .rect(.bounds),
+        arrowEdge: Edge = .top,
+        @ViewBuilder content: () -> [AnyView]
+    ) -> some View {
+        let popoverViews = content()
+
+        return ModifiedView(content: self) { baseContent, context in
+            popoverComponent(
+                base: baseContent.makeComponent(context: context),
+                isPresented: isPresented,
+                attachmentAnchor: attachmentAnchor,
+                arrowEdge: arrowEdge,
+                content: popoverViews,
                 context: context
             )
         }

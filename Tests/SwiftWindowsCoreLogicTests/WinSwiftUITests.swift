@@ -1008,6 +1008,74 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPopoverModifierBuildsFloatingOverlayWhenPresented() async {
+        await MainActor.run {
+            var isPresented = true
+            let node = laidOutNode(
+                Text("BASE")
+                    .popover(
+                        isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }),
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .trailing
+                    ) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("POPOVER TITLE")
+                            Text("POPOVER DETAIL")
+                        }
+                    },
+                size: Size(width: 420, height: 260)
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
+            XCTAssertEqual(node.children[1].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
+            XCTAssertTrue(node.children[1].isHitTestVisible)
+            XCTAssertTrue(containsText("BASE", in: node.children[0]))
+            XCTAssertTrue(containsText("POPOVER TITLE", in: node.children[2]))
+            XCTAssertTrue(containsText("POPOVER DETAIL", in: node.children[2]))
+            XCTAssertEqual(node.children[2].cornerRadius, 20)
+            XCTAssertGreaterThan(node.children[2].shadowSpread, 0)
+            XCTAssertGreaterThan(node.children[2].resolvedFrame.origin.x, 0)
+        }
+    }
+
+    func testPopoverModifierSkipsOverlayWhenNotPresented() async {
+        await MainActor.run {
+            var isPresented = false
+            let node = makeNode(
+                Text("BASE")
+                    .popover(isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })) {
+                        Text("HIDDEN POPOVER")
+                    }
+            )
+
+            XCTAssertEqual(node.text, "BASE")
+            XCTAssertFalse(containsText("HIDDEN POPOVER", in: node))
+        }
+    }
+
+    func testPopoverDismissLayerClearsBindingAndInvalidates() async {
+        await MainActor.run {
+            var isPresented = true
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .popover(isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }), arrowEdge: .bottom) {
+                        Text("POPOVER CONTENT")
+                    },
+                size: Size(width: 420, height: 260),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            node.children[1].onPointerUpInside?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
     func testLifecycleModifiersRouteToRetainedCallbacks() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

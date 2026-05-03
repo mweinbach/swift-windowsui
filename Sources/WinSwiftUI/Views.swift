@@ -105,6 +105,14 @@ public struct Text: View {
         self.lineLimit = nil
     }
 
+    public init<S: StringProtocol>(_ content: S) {
+        self.init(String(content))
+    }
+
+    public init(verbatim content: String) {
+        self.init(content)
+    }
+
     public var body: Never {
         fatalError("Text has no body")
     }

@@ -125,7 +125,7 @@ Surface direction:
 
 ## Mapping Notes
 
-- `Text` maps into retained label nodes and the current text renderer path.
+- `Text` maps into retained label nodes and the current text renderer path. Plain strings, `StringProtocol` values, and `Text(verbatim:)` are accepted for source compatibility.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Divider` maps into a thin retained panel and uses the nearest stack axis to choose a horizontal or vertical separator.
 - `Rectangle` and `RoundedRectangle` map into passive retained panels. Shape fills set panel backgrounds or gradients; shape strokes set retained border color and width.

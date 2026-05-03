@@ -24,6 +24,17 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextSupportsVerbatimAndStringProtocolInitializers() async {
+        await MainActor.run {
+            let title = "PREFIX-VALUE".suffix(5)
+            let verbatimNode = makeNode(Text(verbatim: "literal.value"))
+            let substringNode = makeNode(Text(title))
+
+            XCTAssertEqual(verbatimNode.text, "literal.value")
+            XCTAssertEqual(substringNode.text, "VALUE")
+        }
+    }
+
     func testVStackMapsToVerticalStackPanel() async {
         await MainActor.run {
             let node = makeNode(

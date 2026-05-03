@@ -45,6 +45,178 @@ static void swu_fill_geometry(
     context->FillRectangle(&rect, brush);
 }
 
+static D2D1_POINT_2F swu_read_point(const float *points, int32_t point_count, int32_t *point_index) {
+    D2D1_POINT_2F point{};
+    if (points == nullptr || point_index == nullptr || *point_index + 1 >= point_count) {
+        return point;
+    }
+
+    point.x = points[*point_index];
+    point.y = points[*point_index + 1];
+    *point_index += 2;
+    return point;
+}
+
+static bool swu_has_points(int32_t point_index, int32_t point_count, int32_t required_floats) {
+    return required_floats >= 0 && point_index <= point_count && point_count - point_index >= required_floats;
+}
+
+static HRESULT swu_create_path_geometry(
+    ID2D1DeviceContext *context,
+    const int32_t *segment_types,
+    int32_t segment_count,
+    const float *points,
+    int32_t point_count,
+    ID2D1PathGeometry **geometry_out
+) {
+    ID2D1Factory *factory = nullptr;
+    ID2D1PathGeometry *geometry = nullptr;
+    ID2D1GeometrySink *sink = nullptr;
+    HRESULT hr = S_OK;
+    int32_t point_index = 0;
+    bool figure_open = false;
+    bool saw_figure = false;
+
+    if (
+        context == nullptr ||
+        segment_types == nullptr ||
+        segment_count <= 0 ||
+        points == nullptr ||
+        point_count < 0 ||
+        geometry_out == nullptr
+    ) {
+        return E_INVALIDARG;
+    }
+
+    *geometry_out = nullptr;
+    context->GetFactory(&factory);
+    if (factory == nullptr) {
+        return E_FAIL;
+    }
+
+    hr = factory->CreatePathGeometry(&geometry);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    hr = geometry->Open(&sink);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    sink->SetFillMode(D2D1_FILL_MODE_WINDING);
+
+    for (int32_t i = 0; i < segment_count; ++i) {
+        switch (segment_types[i]) {
+        case SWU_D2D_PATH_MOVE_TO: {
+            if (!swu_has_points(point_index, point_count, 2)) {
+                hr = E_INVALIDARG;
+                goto cleanup;
+            }
+            if (figure_open) {
+                sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                figure_open = false;
+            }
+            auto point = swu_read_point(points, point_count, &point_index);
+            sink->BeginFigure(point, D2D1_FIGURE_BEGIN_FILLED);
+            figure_open = true;
+            saw_figure = true;
+            break;
+        }
+        case SWU_D2D_PATH_LINE_TO: {
+            if (!figure_open || !swu_has_points(point_index, point_count, 2)) {
+                hr = E_INVALIDARG;
+                goto cleanup;
+            }
+            auto point = swu_read_point(points, point_count, &point_index);
+            sink->AddLine(point);
+            break;
+        }
+        case SWU_D2D_PATH_QUAD_TO: {
+            if (!figure_open || !swu_has_points(point_index, point_count, 4)) {
+                hr = E_INVALIDARG;
+                goto cleanup;
+            }
+            D2D1_QUADRATIC_BEZIER_SEGMENT segment{};
+            segment.point1 = swu_read_point(points, point_count, &point_index);
+            segment.point2 = swu_read_point(points, point_count, &point_index);
+            sink->AddQuadraticBezier(segment);
+            break;
+        }
+        case SWU_D2D_PATH_CUBIC_TO: {
+            if (!figure_open || !swu_has_points(point_index, point_count, 6)) {
+                hr = E_INVALIDARG;
+                goto cleanup;
+            }
+            D2D1_BEZIER_SEGMENT segment{};
+            segment.point1 = swu_read_point(points, point_count, &point_index);
+            segment.point2 = swu_read_point(points, point_count, &point_index);
+            segment.point3 = swu_read_point(points, point_count, &point_index);
+            sink->AddBezier(segment);
+            break;
+        }
+        case SWU_D2D_PATH_CLOSE:
+            if (!figure_open) {
+                hr = E_INVALIDARG;
+                goto cleanup;
+            }
+            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            figure_open = false;
+            break;
+        default:
+            hr = E_INVALIDARG;
+            goto cleanup;
+        }
+    }
+
+    if (figure_open) {
+        sink->EndFigure(D2D1_FIGURE_END_OPEN);
+    }
+
+    if (!saw_figure || point_index != point_count) {
+        hr = E_INVALIDARG;
+        goto cleanup;
+    }
+
+    hr = sink->Close();
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    *geometry_out = geometry;
+    geometry = nullptr;
+
+cleanup:
+    swu_release_unknown(sink);
+    swu_release_unknown(geometry);
+    swu_release_unknown(factory);
+    return hr;
+}
+
+static D2D1_CAP_STYLE swu_cap_style(int32_t cap) {
+    switch (cap) {
+    case SWU_D2D_LINE_CAP_ROUND:
+        return D2D1_CAP_STYLE_ROUND;
+    case SWU_D2D_LINE_CAP_SQUARE:
+        return D2D1_CAP_STYLE_SQUARE;
+    case SWU_D2D_LINE_CAP_BUTT:
+    default:
+        return D2D1_CAP_STYLE_FLAT;
+    }
+}
+
+static D2D1_LINE_JOIN swu_line_join(int32_t line_join) {
+    switch (line_join) {
+    case SWU_D2D_LINE_JOIN_ROUND:
+        return D2D1_LINE_JOIN_ROUND;
+    case SWU_D2D_LINE_JOIN_BEVEL:
+        return D2D1_LINE_JOIN_BEVEL;
+    case SWU_D2D_LINE_JOIN_MITER:
+    default:
+        return D2D1_LINE_JOIN_MITER;
+    }
+}
+
 extern "C" HRESULT SWU_D2DCreateFactory1(void **factory_out) {
     D2D1_FACTORY_OPTIONS options{};
 
@@ -330,6 +502,130 @@ extern "C" HRESULT SWU_D2DFillRectGradient(
 cleanup:
     swu_release_unknown(brush);
     swu_release_unknown(stop_collection);
+    return hr;
+}
+
+extern "C" HRESULT SWU_D2DFillPathSolid(
+    void *context_raw,
+    const int32_t *segment_types,
+    int32_t segment_count,
+    const float *points,
+    int32_t point_count,
+    float red,
+    float green,
+    float blue,
+    float alpha
+) {
+    auto context = static_cast<ID2D1DeviceContext *>(context_raw);
+    ID2D1PathGeometry *geometry = nullptr;
+    ID2D1SolidColorBrush *brush = nullptr;
+    D2D1_BRUSH_PROPERTIES brush_properties{};
+    HRESULT hr = S_OK;
+
+    if (context == nullptr) {
+        return E_INVALIDARG;
+    }
+
+    hr = swu_create_path_geometry(context, segment_types, segment_count, points, point_count, &geometry);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    brush_properties.opacity = 1.0f;
+    brush_properties.transform = swu_identity_matrix();
+    {
+        auto color = swu_color(red, green, blue, alpha);
+        hr = context->CreateSolidColorBrush(&color, &brush_properties, &brush);
+    }
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    context->FillGeometry(geometry, brush);
+
+cleanup:
+    swu_release_unknown(brush);
+    swu_release_unknown(geometry);
+    return hr;
+}
+
+extern "C" HRESULT SWU_D2DStrokePathSolid(
+    void *context_raw,
+    const int32_t *segment_types,
+    int32_t segment_count,
+    const float *points,
+    int32_t point_count,
+    float red,
+    float green,
+    float blue,
+    float alpha,
+    float line_width,
+    const float *dash_pattern,
+    int32_t dash_count,
+    float dash_offset,
+    int32_t line_cap,
+    int32_t line_join
+) {
+    auto context = static_cast<ID2D1DeviceContext *>(context_raw);
+    ID2D1Factory *factory = nullptr;
+    ID2D1PathGeometry *geometry = nullptr;
+    ID2D1SolidColorBrush *brush = nullptr;
+    ID2D1StrokeStyle *stroke_style = nullptr;
+    D2D1_BRUSH_PROPERTIES brush_properties{};
+    D2D1_STROKE_STYLE_PROPERTIES stroke_properties{};
+    HRESULT hr = S_OK;
+
+    if (context == nullptr || line_width <= 0.0f || dash_count < 0 || (dash_count > 0 && dash_pattern == nullptr)) {
+        return E_INVALIDARG;
+    }
+
+    hr = swu_create_path_geometry(context, segment_types, segment_count, points, point_count, &geometry);
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    brush_properties.opacity = 1.0f;
+    brush_properties.transform = swu_identity_matrix();
+    {
+        auto color = swu_color(red, green, blue, alpha);
+        hr = context->CreateSolidColorBrush(&color, &brush_properties, &brush);
+    }
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    context->GetFactory(&factory);
+    if (factory == nullptr) {
+        hr = E_FAIL;
+        goto cleanup;
+    }
+
+    stroke_properties.startCap = swu_cap_style(line_cap);
+    stroke_properties.endCap = swu_cap_style(line_cap);
+    stroke_properties.dashCap = swu_cap_style(line_cap);
+    stroke_properties.lineJoin = swu_line_join(line_join);
+    stroke_properties.miterLimit = 10.0f;
+    stroke_properties.dashStyle = dash_count > 0 ? D2D1_DASH_STYLE_CUSTOM : D2D1_DASH_STYLE_SOLID;
+    stroke_properties.dashOffset = dash_offset;
+    hr = factory->CreateStrokeStyle(
+        stroke_properties,
+        dash_pattern,
+        static_cast<UINT32>(dash_count),
+        &stroke_style
+    );
+    if (FAILED(hr)) {
+        goto cleanup;
+    }
+
+    context->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    context->DrawGeometry(geometry, brush, line_width, stroke_style);
+
+cleanup:
+    swu_release_unknown(stroke_style);
+    swu_release_unknown(brush);
+    swu_release_unknown(geometry);
+    swu_release_unknown(factory);
     return hr;
 }
 

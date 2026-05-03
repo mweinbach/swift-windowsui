@@ -800,11 +800,23 @@ public final class D3D11Renderer: RenderBackend {
                     scaleFactor: scaleFactor,
                     deviceContext: deviceContext
                 )
+            case .fillPath(let fillPathCommand):
+                try drawWithDirect2D(
+                    fillPath: fillPathCommand,
+                    clipRect: clipStack.resolvedClip(commandClip: nil),
+                    deviceContext: deviceContext
+                )
+            case .strokePath(let strokePathCommand):
+                try drawWithDirect2D(
+                    strokePath: strokePathCommand,
+                    clipRect: clipStack.resolvedClip(commandClip: nil),
+                    deviceContext: deviceContext
+                )
             case .pushClip(let clipCommand):
                 clipStack.push(clipCommand)
             case .popClip:
                 clipStack.pop()
-            case .fillPath, .strokePath, .applyBlur, .drawText:
+            case .applyBlur, .drawText:
                 // TODO: implement Direct2D path for new render commands
                 break
             }
@@ -910,6 +922,86 @@ public final class D3D11Renderer: RenderBackend {
         }
 
         try throwIfFailed(hr, operation: "Draw Direct2D bitmap")
+    }
+
+    private func drawWithDirect2D(
+        fillPath command: FillPathCommand,
+        clipRect: Rect?,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        let fillColor = solidPathFillColor(for: command)
+        guard fillColor.alpha > 0 else {
+            return
+        }
+
+        let pathBuffer = d2dPathBuffer(from: command.path, transform: command.transform)
+        guard !pathBuffer.segmentTypes.isEmpty, !pathBuffer.points.isEmpty else {
+            return
+        }
+
+        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
+            pathBuffer.segmentTypes.withUnsafeBufferPointer { segments in
+                pathBuffer.points.withUnsafeBufferPointer { points in
+                    SWU_D2DFillPathSolid(
+                        deviceContext,
+                        segments.baseAddress,
+                        Int32(segments.count),
+                        points.baseAddress,
+                        Int32(points.count),
+                        fillColor.red,
+                        fillColor.green,
+                        fillColor.blue,
+                        fillColor.alpha
+                    )
+                }
+            }
+        }
+
+        try throwIfFailed(hr, operation: "Draw Direct2D fillPath")
+    }
+
+    private func drawWithDirect2D(
+        strokePath command: StrokePathCommand,
+        clipRect: Rect?,
+        deviceContext: UnsafeMutableRawPointer
+    ) throws {
+        guard command.color.alpha > 0, command.style.lineWidth > 0 else {
+            return
+        }
+
+        let pathBuffer = d2dPathBuffer(from: command.path, transform: command.transform)
+        guard !pathBuffer.segmentTypes.isEmpty, !pathBuffer.points.isEmpty else {
+            return
+        }
+
+        let dashPattern = command.style.dashPattern.map { Float(max(0, $0)) }
+        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
+            pathBuffer.segmentTypes.withUnsafeBufferPointer { segments in
+                pathBuffer.points.withUnsafeBufferPointer { points in
+                    dashPattern.withUnsafeBufferPointer { dashes in
+                        SWU_D2DStrokePathSolid(
+                            deviceContext,
+                            segments.baseAddress,
+                            Int32(segments.count),
+                            points.baseAddress,
+                            Int32(points.count),
+                            command.color.red,
+                            command.color.green,
+                            command.color.blue,
+                            command.color.alpha,
+                            Float(command.style.lineWidth),
+                            dashes.baseAddress,
+                            Int32(dashes.count),
+                            Float(command.style.dashOffset),
+                            d2dLineCap(command.style.lineCap),
+                            d2dLineJoin(command.style.lineJoin)
+                        )
+                    }
+                }
+            }
+        }
+
+        try throwIfFailed(hr, operation: "Draw Direct2D strokePath")
     }
 
     private func draw(
@@ -1390,6 +1482,93 @@ func d3d11BlendMode(for blendMode: BlendMode) -> D3D11BlendMode {
     case .overlay:
         // Overlay needs shader/effect composition; keep it safe for now.
         return .normal
+    }
+}
+
+struct D2DPathBuffer: Equatable {
+    var segmentTypes: [Int32]
+    var points: [Float]
+}
+
+func d2dPathBuffer(
+    from path: RenderPath,
+    transform: SwiftWindowsGraphics.AffineTransform = .identity
+) -> D2DPathBuffer {
+    var segmentTypes: [Int32] = []
+    var points: [Float] = []
+
+    func append(_ point: Point) {
+        let transformed = transformedPoint(point, by: transform)
+        points.append(Float(transformed.x))
+        points.append(Float(transformed.y))
+    }
+
+    for segment in path.segments {
+        switch segment {
+        case .moveTo(let point):
+            segmentTypes.append(Int32(SWU_D2D_PATH_MOVE_TO))
+            append(point)
+        case .lineTo(let point):
+            segmentTypes.append(Int32(SWU_D2D_PATH_LINE_TO))
+            append(point)
+        case .quadCurveTo(let control, let end):
+            segmentTypes.append(Int32(SWU_D2D_PATH_QUAD_TO))
+            append(control)
+            append(end)
+        case .cubicCurveTo(let control1, let control2, let end):
+            segmentTypes.append(Int32(SWU_D2D_PATH_CUBIC_TO))
+            append(control1)
+            append(control2)
+            append(end)
+        case .close:
+            segmentTypes.append(Int32(SWU_D2D_PATH_CLOSE))
+        }
+    }
+
+    return D2DPathBuffer(segmentTypes: segmentTypes, points: points)
+}
+
+func transformedPoint(_ point: Point, by transform: SwiftWindowsGraphics.AffineTransform) -> Point {
+    Point(
+        x: point.x * transform.a + point.y * transform.c + transform.tx,
+        y: point.x * transform.b + point.y * transform.d + transform.ty
+    )
+}
+
+func d2dLineCap(_ cap: StrokeStyle.LineCap) -> Int32 {
+    switch cap {
+    case .butt:
+        return Int32(SWU_D2D_LINE_CAP_BUTT)
+    case .round:
+        return Int32(SWU_D2D_LINE_CAP_ROUND)
+    case .square:
+        return Int32(SWU_D2D_LINE_CAP_SQUARE)
+    }
+}
+
+func d2dLineJoin(_ join: StrokeStyle.LineJoin) -> Int32 {
+    switch join {
+    case .miter:
+        return Int32(SWU_D2D_LINE_JOIN_MITER)
+    case .round:
+        return Int32(SWU_D2D_LINE_JOIN_ROUND)
+    case .bevel:
+        return Int32(SWU_D2D_LINE_JOIN_BEVEL)
+    }
+}
+
+func solidPathFillColor(for command: FillPathCommand) -> Color {
+    guard let gradient = command.gradient else {
+        return command.color
+    }
+
+    switch gradient {
+    case .linear(let linearGradient):
+        return linearGradient.startColor
+    case .radial(let radialGradient):
+        return radialGradient.stops.first?.color ?? command.color
+    case .conic(let conicGradient):
+        return conicGradient.stops.first?.color ?? command.color
     }
 }
 

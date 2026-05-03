@@ -80,4 +80,72 @@ final class D3D11RendererTests: XCTestCase {
         XCTAssertEqual(d3d11BlendMode(for: .screen), .screen)
         XCTAssertEqual(d3d11BlendMode(for: .overlay), .normal)
     }
+
+    func testPathBufferEncodesSegmentsAndPoints() {
+        var path = RenderPath()
+        path.move(to: Point(x: 10, y: 20))
+        path.addLine(to: Point(x: 30, y: 40))
+        path.addQuadCurve(to: Point(x: 70, y: 80), control: Point(x: 50, y: 60))
+        path.addCubicCurve(
+            to: Point(x: 130, y: 140),
+            control1: Point(x: 90, y: 100),
+            control2: Point(x: 110, y: 120)
+        )
+        path.close()
+
+        let buffer = d2dPathBuffer(from: path)
+
+        XCTAssertEqual(buffer.segmentTypes, [
+            0,
+            1,
+            2,
+            3,
+            4,
+        ])
+        XCTAssertEqual(buffer.points, [
+            10, 20,
+            30, 40,
+            50, 60, 70, 80,
+            90, 100, 110, 120, 130, 140,
+        ])
+    }
+
+    func testPathBufferAppliesAffineTransform() {
+        var path = RenderPath()
+        path.move(to: Point(x: 10, y: 20))
+        path.addLine(to: Point(x: 30, y: 40))
+
+        let transform = SwiftWindowsGraphics.AffineTransform(a: 2, b: 0, c: 0, d: 3, tx: 5, ty: 7)
+        let buffer = d2dPathBuffer(from: path, transform: transform)
+
+        XCTAssertEqual(buffer.points, [
+            25, 67,
+            65, 127,
+        ])
+    }
+
+    func testStrokeStyleMappingUsesDirect2DConstants() {
+        XCTAssertEqual(d2dLineCap(.butt), 0)
+        XCTAssertEqual(d2dLineCap(.round), 1)
+        XCTAssertEqual(d2dLineCap(.square), 2)
+
+        XCTAssertEqual(d2dLineJoin(.miter), 0)
+        XCTAssertEqual(d2dLineJoin(.round), 1)
+        XCTAssertEqual(d2dLineJoin(.bevel), 2)
+    }
+
+    func testPathFillGradientFallsBackToFirstStopColor() {
+        var path = RenderPath()
+        path.move(to: Point(x: 0, y: 0))
+        path.addLine(to: Point(x: 10, y: 0))
+
+        let color = Color(red: 0.7, green: 0.2, blue: 0.1, alpha: 0.9)
+        let command = FillPathCommand(
+            path: path,
+            color: .white,
+            gradient: .linear(LinearGradient(startColor: color, endColor: .black))
+        )
+
+        XCTAssertEqual(solidPathFillColor(for: command), color)
+    }
 }

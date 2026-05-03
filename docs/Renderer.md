@@ -19,6 +19,8 @@ Use these helpers in tests and diagnostics when checking primitive emission, lay
 
 The D3D11 fallback path activates per-command blend states for `.normal`, `.additive`, `.multiply`, and `.screen` on `fillRect` and `drawBitmap`. `.overlay` is still mapped to normal blending until the renderer has shader/effect composition for it, and the Direct2D path currently uses normal source-over blending.
 
+When Direct2D interop is active, the default renderer also translates `fillPath` and `strokePath` commands into native Direct2D path geometries with per-primitive antialiasing. Path fills currently use a solid color; path gradients fall back to the first gradient stop. Stroke width, dash pattern, cap, and join are forwarded to Direct2D. The pure D3D11 shader fallback still skips path commands.
+
 For a quick console smoke check, run:
 
 ```powershell
@@ -27,4 +29,4 @@ swift run swift-windowsui-inspect
 
 The inspector builds a small retained tree, reports backend/text capabilities, prints `RenderFrame`, `GPUIScene`, and `ScenePainter` primitive counts, and includes a clip-stack probe without opening a window.
 
-Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths. Newer renderer-neutral commands such as paths, blur, and first-class text need backend implementation before they can be considered active visual features on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.
+Current important limit: the default `D3D11Renderer` still renders only the established `fillRect` and `drawBitmap` command paths on the pure shader fallback, while Direct2D interop additionally covers `fillPath` and `strokePath`. Newer renderer-neutral commands such as blur and first-class text need backend implementation before they can be considered active visual features on the default renderer; clip-stack support is currently rectangular/bounds-based rather than full vector masking.

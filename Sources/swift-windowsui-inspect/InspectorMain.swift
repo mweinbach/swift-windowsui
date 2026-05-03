@@ -19,6 +19,9 @@ struct SwiftWindowsUIInspector {
             clearColor: runtime.clearColor,
             surfaceSize: runtime.root.frame.size
         )
+        let pathProbeFrame = makePathProbeFrame()
+        let pathProbeCounts = CommandCounts(pathProbeFrame.commands)
+        let pathProbePath = makePathProbePath()
         let clipProbeScene = GPUIScene(from: makeClipProbeFrame(), surfaceSize: Size(width: 240, height: 180))
         let commandCounts = CommandCounts(frame.commands)
 
@@ -40,6 +43,7 @@ struct SwiftWindowsUIInspector {
         print("  shadows: \(paintedScene.totalShadows)")
         print("  glyphs: \(paintedScene.totalGlyphs)")
         print("  images: \(paintedScene.totalImages)")
+        print("Path probe: \(pathProbeCounts.fillPath) fill, \(pathProbeCounts.strokePath) stroke, \(pathProbePath.segments.count) segments")
         print("Clip stack probe: \(formatClip(clipProbeScene.layers.first?.quads.first?.clipRect))")
     }
 }
@@ -145,6 +149,35 @@ private func makeClipProbeFrame() -> RenderFrame {
             )),
             .popClip,
             .popClip,
+        ]
+    )
+}
+
+private func makePathProbePath() -> RenderPath {
+    var path = RenderPath()
+    path.move(to: Point(x: 32, y: 120))
+    path.addCubicCurve(
+        to: Point(x: 208, y: 120),
+        control1: Point(x: 80, y: 32),
+        control2: Point(x: 160, y: 32)
+    )
+    path.addLine(to: Point(x: 180, y: 152))
+    path.addLine(to: Point(x: 60, y: 152))
+    path.close()
+    return path
+}
+
+private func makePathProbeFrame() -> RenderFrame {
+    let path = makePathProbePath()
+    return RenderFrame(
+        clearColor: .black,
+        commands: [
+            .fillPath(FillPathCommand(path: path, color: Color(red: 0.42, green: 0.68, blue: 0.96, alpha: 0.72))),
+            .strokePath(StrokePathCommand(
+                path: path,
+                color: Color(red: 0.94, green: 0.98, blue: 1.0, alpha: 1.0),
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )),
         ]
     )
 }

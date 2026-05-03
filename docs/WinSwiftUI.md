@@ -100,6 +100,7 @@ Modifiers:
 - `background`
 - `overlay`
 - `alert`
+- `sheet`
 - `cornerRadius`
 - `clipped`
 - `clipShape`
@@ -191,6 +192,7 @@ Surface direction:
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
 - View `background` and `overlay` overloads map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds. Zero-intrinsic layers such as `Color`, `Rectangle`, stroked `RoundedRectangle`, and `Material` fill the base bounds by default.
 - `alert(_:isPresented:actions:message:)` maps to a retained modal overlay with a dimming scrim, rounded glass-style card, message content, and action buttons. Default alerts provide an `OK` button, custom retained actions dismiss after activation, and the current implementation is an in-window overlay rather than a separate native dialog surface.
+- `sheet(isPresented:onDismiss:content:)` maps to a retained in-window sheet with a dimming scrim and a wider glass-style bottom panel. Scrim dismissal updates the presentation binding and calls `onDismiss`; content-driven dismissal should update the supplied binding directly.
 - `Material` presets lower to passive retained layers with translucent fills, blur radius, border, rounded corners, and soft shadow values for macOS-style glass surfaces.
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
 - `onSubmit` is carried through the build context and currently routes the retained `TextField` enter-key submit hook.

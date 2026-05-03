@@ -33,7 +33,7 @@ struct SwiftWindowsUIInspector {
         let winSwiftUIProbe = WinSwiftUIInspection.snapshot(
             of: WinSwiftUIProbeView(),
             size: Size(width: 360, height: 260),
-            maximumTextSamples: 48
+            maximumTextSamples: 56
         )
         let textInputProbeValue = runTextInputProbe()
         let scrollStress = runScrollStressProbe()
@@ -612,6 +612,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR ALERT") {
         failures.append("WinSwiftUI probe text samples are missing the alert overlay")
     }
+    if !winSwiftUIProbe.textSamples.contains("INSPECTOR SHEET") {
+        failures.append("WinSwiftUI probe text samples are missing the sheet overlay")
+    }
     if textInputProbeValue != "AxC" {
         failures.append("text input probe expected AxC, got \(textInputProbeValue)")
     }
@@ -773,6 +776,12 @@ private struct WinSwiftUIProbeView: View {
             Button("ACK") {}
         } message: {
             Text("RETAINED MODAL")
+        }
+        .sheet(isPresented: Binding(get: { true }, set: { _ in })) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("INSPECTOR SHEET")
+                Text("SHEET DETAIL")
+            }
         }
     }
 }

@@ -1778,6 +1778,110 @@ private func installAlertDismissal(
     }
 }
 
+@MainActor
+private func sheetComponent(
+    base: Component,
+    isPresented: Binding<Bool>,
+    onDismiss: (@MainActor () -> Void)?,
+    content sheetViews: [AnyView],
+    context: ViewBuildContext
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        guard isPresented.wrappedValue else {
+            return baseNode
+        }
+
+        let sheetContext = context.withContainerAxis(.vertical)
+        let sheetContent = composeComponent(
+            from: sheetViews,
+            context: sheetContext,
+            fallbackLayout: .stack(.vertical(spacing: 12, alignment: .stretch))
+        )
+        .makeNode(runtime: runtime)
+        let grabber = Controls.panel(
+            preferredSize: Size(width: 46, height: 5),
+            backgroundColor: Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 0.36),
+            cornerRadius: 3,
+            isHitTestVisible: false
+        )
+        let grabberRow = Controls.stackPanel(
+            stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .center),
+            isHitTestVisible: false,
+            children: [grabber]
+        )
+        let scrim = Controls.panel(
+            backgroundColor: Color(red: 0.01, green: 0.02, blue: 0.04, alpha: 0.38),
+            isHitTestVisible: true
+        )
+        let sheetPanel = Controls.stackPanel(
+            preferredSize: Size(width: 520, height: 0),
+            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.21, alpha: 0.94),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.34),
+            shadowOffset: Point(x: 0, y: 24),
+            shadowSpread: 28,
+            cornerRadius: 30,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 18,
+                padding: EdgeInsets(top: 14, leading: 22, bottom: 22, trailing: 22),
+                alignment: .stretch
+            ),
+            isHitTestVisible: true,
+            children: [grabberRow, sheetContent]
+        )
+        sheetPanel.blurRadius = 20
+
+        scrim.onPointerUpInside = {
+            isPresented.wrappedValue = false
+            onDismiss?()
+            isPresented.invalidateContextIfNeeded(context)
+        }
+
+        let overlayRoot = Controls.panel(
+            preferredSize: context.canvasSize,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, scrim, sheetPanel]
+        )
+
+        overlayRoot.onLayout = { bounds in
+            let fullFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != fullFrame {
+                baseNode.frame = fullFrame
+            }
+            if scrim.frame != fullFrame {
+                scrim.frame = fullFrame
+            }
+
+            let horizontalMargin = min(36.0, max(12.0, bounds.size.width * 0.06))
+            let sheetWidth = min(560.0, max(260.0, bounds.size.width - horizontalMargin * 2))
+            let preferredSheetSize = Size(width: sheetWidth, height: 0)
+            if sheetPanel.preferredSize != preferredSheetSize {
+                sheetPanel.preferredSize = preferredSheetSize
+            }
+
+            let measuredSheetSize = sheetPanel.intrinsicContentSize()
+            let maxSheetHeight = max(0, bounds.size.height - 32)
+            let sheetSize = Size(width: sheetWidth, height: min(maxSheetHeight, measuredSheetSize.height))
+            let bottomInset = min(28.0, max(12.0, bounds.size.height * 0.05))
+            let sheetFrame = Rect(
+                x: max(0, (bounds.size.width - sheetSize.width) * 0.5),
+                y: max(0, bounds.size.height - sheetSize.height - bottomInset),
+                width: sheetSize.width,
+                height: sheetSize.height
+            )
+            if sheetPanel.frame != sheetFrame {
+                sheetPanel.frame = sheetFrame
+            }
+        }
+
+        return overlayRoot
+    }
+}
+
 private func finiteFrameExtent(_ extent: Double?) -> Double? {
     guard let extent, extent.isFinite else {
         return nil
@@ -2115,6 +2219,24 @@ public extension View {
                 isPresented: isPresented,
                 actions: actionViews,
                 message: messageViews,
+                context: context
+            )
+        }
+    }
+
+    func sheet(
+        isPresented: Binding<Bool>,
+        onDismiss: (@MainActor () -> Void)? = nil,
+        @ViewBuilder content: () -> [AnyView]
+    ) -> some View {
+        let sheetViews = content()
+
+        return ModifiedView(content: self) { baseContent, context in
+            sheetComponent(
+                base: baseContent.makeComponent(context: context),
+                isPresented: isPresented,
+                onDismiss: onDismiss,
+                content: sheetViews,
                 context: context
             )
         }

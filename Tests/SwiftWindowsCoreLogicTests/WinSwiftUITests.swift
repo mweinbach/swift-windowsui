@@ -937,6 +937,77 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSheetModifierBuildsModalOverlayWhenPresented() async {
+        await MainActor.run {
+            var isPresented = true
+            let node = laidOutNode(
+                Text("BASE")
+                    .sheet(isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("SHEET TITLE")
+                            Text("SHEET DETAIL")
+                        }
+                    },
+                size: Size(width: 420, height: 260)
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
+            XCTAssertEqual(node.children[1].resolvedFrame, Rect(x: 0, y: 0, width: 420, height: 260))
+            XCTAssertTrue(node.children[1].isHitTestVisible)
+            XCTAssertTrue(containsText("BASE", in: node.children[0]))
+            XCTAssertTrue(containsText("SHEET TITLE", in: node.children[2]))
+            XCTAssertTrue(containsText("SHEET DETAIL", in: node.children[2]))
+            XCTAssertEqual(node.children[2].cornerRadius, 30)
+            XCTAssertGreaterThan(node.children[2].shadowSpread, 0)
+            XCTAssertGreaterThan(node.children[2].resolvedFrame.origin.y, 0)
+        }
+    }
+
+    func testSheetModifierSkipsOverlayWhenNotPresented() async {
+        await MainActor.run {
+            var isPresented = false
+            let node = makeNode(
+                Text("BASE")
+                    .sheet(isPresented: Binding(get: { isPresented }, set: { isPresented = $0 })) {
+                        Text("HIDDEN SHEET")
+                    }
+            )
+
+            XCTAssertEqual(node.text, "BASE")
+            XCTAssertFalse(containsText("HIDDEN SHEET", in: node))
+        }
+    }
+
+    func testSheetScrimDismissesBindingRunsDismissAndInvalidates() async {
+        await MainActor.run {
+            var isPresented = true
+            var didDismiss = false
+            var invalidations = 0
+            let node = makeNode(
+                Text("BASE")
+                    .sheet(
+                        isPresented: Binding(get: { isPresented }, set: { isPresented = $0 }),
+                        onDismiss: {
+                            didDismiss = true
+                        }
+                    ) {
+                        Text("SHEET CONTENT")
+                    },
+                size: Size(width: 420, height: 260),
+                onInvalidate: {
+                    invalidations += 1
+                }
+            )
+
+            node.children[1].onPointerUpInside?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didDismiss)
+            XCTAssertGreaterThanOrEqual(invalidations, 1)
+        }
+    }
+
     func testLifecycleModifiersRouteToRetainedCallbacks() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

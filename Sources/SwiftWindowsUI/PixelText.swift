@@ -52,6 +52,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var weight: TextWeight
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
+    public var italic: Bool
     public var underline: Bool
     public var strikethrough: Bool
     public var enableKerning: Bool
@@ -69,6 +70,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         weight: TextWeight = .regular,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
+        italic: Bool = false,
         underline: Bool = false,
         strikethrough: Bool = false,
         enableKerning: Bool = true,
@@ -85,6 +87,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.weight = weight
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
+        self.italic = italic
         self.underline = underline
         self.strikethrough = strikethrough
         self.enableKerning = enableKerning

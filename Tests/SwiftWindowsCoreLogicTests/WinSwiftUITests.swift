@@ -149,6 +149,7 @@ final class WinSwiftUITests: XCTestCase {
             let styledNode = makeNode(
                 Text("DECORATED")
                     .bold()
+                    .italic()
                     .monospaced()
                     .kerning(1.75)
                     .lineSpacing(4.25)
@@ -157,6 +158,7 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(styledNode.textStyle.weight, .bold)
+            XCTAssertTrue(styledNode.textStyle.italic)
             XCTAssertEqual(styledNode.textStyle.fontFamily, "Cascadia Mono")
             XCTAssertEqual(styledNode.textStyle.letterSpacing, 1.75, accuracy: 0.001)
             XCTAssertEqual(styledNode.textStyle.lineSpacing, 4.25, accuracy: 0.001)
@@ -167,6 +169,7 @@ final class WinSwiftUITests: XCTestCase {
                 (
                     Text("UNDER")
                         .underline()
+                        .italic()
                         .tracking(2.25)
                     + Text(" STRIKE")
                         .strikethrough()
@@ -182,6 +185,8 @@ final class WinSwiftUITests: XCTestCase {
             }
 
             XCTAssertEqual(spans.count, 2)
+            XCTAssertTrue(spans[0].style.italic)
+            XCTAssertFalse(spans[1].style.italic)
             XCTAssertTrue(spans[0].style.underline)
             XCTAssertFalse(spans[0].style.strikethrough)
             XCTAssertFalse(spans[1].style.underline)
@@ -239,6 +244,7 @@ final class WinSwiftUITests: XCTestCase {
                     Text("TWO")
                 }
                 .fontWeight(.semibold)
+                .italic()
                 .monospaced()
                 .tracking(2.5)
                 .lineSpacing(5.25)
@@ -248,6 +254,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(allTextDescendants(in: node) { child in
                 child.textStyle.weight == .semibold
+                    && child.textStyle.italic
                     && child.textStyle.fontFamily == "Cascadia Mono"
                     && child.textStyle.letterSpacing == 2.5
                     && child.textStyle.lineSpacing == 5.25

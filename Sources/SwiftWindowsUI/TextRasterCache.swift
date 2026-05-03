@@ -23,6 +23,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var colorGreen: Float
     var colorBlue: Float
     var colorAlpha: Float
+    var italic: Bool
     var underline: Bool
     var strikethrough: Bool
     var enableKerning: Bool
@@ -48,6 +49,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.colorGreen = style.color.green
         self.colorBlue = style.color.blue
         self.colorAlpha = style.color.alpha
+        self.italic = style.italic
         self.underline = style.underline
         self.strikethrough = style.strikethrough
         self.enableKerning = style.enableKerning

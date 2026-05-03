@@ -114,6 +114,7 @@ public struct Text: View {
     private var truncationMode: TruncationMode
     private var letterSpacing: Double
     private var lineSpacing: Double
+    private var isItalic: Bool
     private var underline: Bool
     private var strikethrough: Bool
     private var enableKerning: Bool
@@ -128,6 +129,7 @@ public struct Text: View {
         self.truncationMode = .tail
         self.letterSpacing = 1
         self.lineSpacing = 2
+        self.isItalic = false
         self.underline = false
         self.strikethrough = false
         self.enableKerning = true
@@ -159,6 +161,7 @@ public struct Text: View {
                 lineSpacing: lineSpacing,
                 lineBreakMode: resolvedLineBreakMode,
                 maximumNumberOfLines: lineLimit,
+                italic: isItalic,
                 underline: underline,
                 strikethrough: strikethrough,
                 enableKerning: enableKerning,
@@ -271,6 +274,15 @@ public struct Text: View {
         fontWeight(.bold)
     }
 
+    public func italic() -> Text {
+        var copy = self
+        copy.isItalic = true
+        copy.updateSpanStyles { style in
+            style.italic = true
+        }
+        return copy
+    }
+
     public func monospaced() -> Text {
         var copy = self
         copy.font.family = "Cascadia Mono"
@@ -318,6 +330,7 @@ public struct Text: View {
         combined.truncationMode = lhs.truncationMode
         combined.letterSpacing = lhs.letterSpacing
         combined.lineSpacing = lhs.lineSpacing
+        combined.isItalic = lhs.isItalic
         combined.underline = lhs.underline
         combined.strikethrough = lhs.strikethrough
         combined.enableKerning = lhs.enableKerning
@@ -361,6 +374,7 @@ public struct Text: View {
             weight: font.weight.textWeight,
             lineBreakMode: resolvedLineBreakMode,
             maximumNumberOfLines: lineLimit,
+            italic: isItalic,
             underline: underline,
             strikethrough: strikethrough,
             enableKerning: enableKerning

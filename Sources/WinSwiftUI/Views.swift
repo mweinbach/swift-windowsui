@@ -100,6 +100,7 @@ public struct Text: View {
     private var font: Font
     private var alignment: TextAlignment
     private var lineLimit: Int?
+    private var spans: [TextSpan]?
 
     public init(_ content: String) {
         self.content = content
@@ -107,6 +108,7 @@ public struct Text: View {
         self.font = .system(size: 2)
         self.alignment = .center
         self.lineLimit = nil
+        self.spans = nil
     }
 
     public init<S: StringProtocol>(_ content: S) {
@@ -131,7 +133,8 @@ public struct Text: View {
                 fontFamily: font.resolvedFamily,
                 alignment: alignment.horizontalAlignment.textAlignment,
                 lineBreakMode: resolvedLineBreakMode,
-                maximumNumberOfLines: lineLimit
+                maximumNumberOfLines: lineLimit,
+                spans: spans
             )
         }
     }
@@ -139,25 +142,51 @@ public struct Text: View {
     public func foregroundColor(_ color: Color) -> Text {
         var copy = self
         copy.color = color
+        copy.updateSpanStyles { style in
+            style.color = color
+        }
         return copy
     }
 
     public func font(_ font: Font) -> Text {
         var copy = self
         copy.font = font
+        copy.updateSpanStyles { style in
+            style.scale = font.resolvedScale
+            style.weight = font.weight.textWeight
+            style.fontFamily = font.resolvedFamily
+        }
         return copy
     }
 
     public func multilineTextAlignment(_ alignment: TextAlignment) -> Text {
         var copy = self
         copy.alignment = alignment
+        copy.updateSpanStyles { style in
+            style.alignment = alignment.horizontalAlignment.textAlignment
+        }
         return copy
     }
 
     public func lineLimit(_ lineLimit: Int?) -> Text {
         var copy = self
         copy.lineLimit = lineLimit
+        copy.updateSpanStyles { style in
+            style.maximumNumberOfLines = lineLimit
+            style.lineBreakMode = lineLimit == 1 ? .truncateTail : .wrap
+        }
         return copy
+    }
+
+    public static func + (lhs: Text, rhs: Text) -> Text {
+        let content = lhs.content + rhs.content
+        var combined = Text(content)
+        combined.color = lhs.color
+        combined.font = lhs.font
+        combined.alignment = lhs.alignment
+        combined.lineLimit = lhs.lineLimit ?? rhs.lineLimit
+        combined.spans = spans(for: lhs.segments + rhs.segments, in: content)
+        return combined
     }
 
     private var resolvedLineBreakMode: TextLineBreakMode {
@@ -170,6 +199,59 @@ public struct Text: View {
 
     fileprivate var promptContent: String {
         content
+    }
+
+    private struct Segment {
+        var text: String
+        var style: PixelTextStyle
+    }
+
+    private var segments: [Segment] {
+        if let spans, !spans.isEmpty {
+            return spans.map { Segment(text: $0.text, style: $0.style) }
+        }
+
+        return [Segment(text: content, style: segmentStyle)]
+    }
+
+    private var segmentStyle: PixelTextStyle {
+        PixelTextStyle(
+            color: color,
+            scale: font.resolvedScale,
+            alignment: alignment.horizontalAlignment.textAlignment,
+            fontFamily: font.resolvedFamily,
+            weight: font.weight.textWeight,
+            lineBreakMode: resolvedLineBreakMode,
+            maximumNumberOfLines: lineLimit
+        )
+    }
+
+    private mutating func updateSpanStyles(_ update: (inout PixelTextStyle) -> Void) {
+        guard var spans else {
+            return
+        }
+
+        for index in spans.indices {
+            update(&spans[index].style)
+        }
+        self.spans = spans
+    }
+
+    private static func spans(for segments: [Segment], in content: String) -> [TextSpan] {
+        var cursor = content.startIndex
+        var spans: [TextSpan] = []
+        spans.reserveCapacity(segments.count)
+
+        for segment in segments {
+            guard !segment.text.isEmpty else {
+                continue
+            }
+            let nextCursor = content.index(cursor, offsetBy: segment.text.count)
+            spans.append(TextSpan(text: segment.text, style: segment.style, range: cursor..<nextCursor))
+            cursor = nextCursor
+        }
+
+        return spans
     }
 }
 

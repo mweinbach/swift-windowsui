@@ -646,6 +646,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("DECLARATIVE INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the title")
     }
+    if !winSwiftUIProbe.textSamples.contains("INLINE SPAN") {
+        failures.append("WinSwiftUI probe text samples are missing the concatenated Text sample")
+    }
     if !winSwiftUIProbe.textSamples.contains("INSPECTOR ALERT") {
         failures.append("WinSwiftUI probe text samples are missing the alert overlay")
     }
@@ -708,6 +711,14 @@ private struct WinSwiftUIProbeView: View {
             Text("DECLARATIVE INSPECTOR")
                 .font(.system(size: 2.1, weight: .bold))
                 .lineLimit(1)
+
+            (
+                Text("INLINE ")
+                    .foregroundColor(Color(red: 0.64, green: 0.82, blue: 1.0, alpha: 1.0))
+                + Text("SPAN")
+                    .font(.system(size: 1.7, weight: .bold))
+            )
+            .lineLimit(1)
 
             HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")

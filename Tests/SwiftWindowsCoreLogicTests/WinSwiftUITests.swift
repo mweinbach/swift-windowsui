@@ -35,6 +35,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextConcatenationPreservesSpanStyles() async {
+        await MainActor.run {
+            let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)
+            let node = makeNode(
+                Text("CPU ")
+                    .foregroundColor(accent)
+                + Text("READY")
+                    .font(.system(size: 2.6, weight: .bold))
+            )
+
+            XCTAssertEqual(node.text, "CPU READY")
+
+            guard let spans = node.textStyle.spans else {
+                return XCTFail("Expected concatenated Text to carry text spans")
+            }
+
+            XCTAssertEqual(spans.count, 2)
+            XCTAssertEqual(spans[0].text, "CPU ")
+            XCTAssertEqual(spans[1].text, "READY")
+            XCTAssertEqual(spans[0].style.color, accent)
+            XCTAssertEqual(spans[1].style.scale, 2.6, accuracy: 0.001)
+            XCTAssertEqual(spans[1].style.weight, .bold)
+
+            guard let text = node.text,
+                  let firstRange = spans[0].range,
+                  let secondRange = spans[1].range else {
+                return XCTFail("Expected spans to keep concrete text ranges")
+            }
+
+            XCTAssertEqual(String(text[firstRange]), "CPU ")
+            XCTAssertEqual(String(text[secondRange]), "READY")
+
+            let restyledNode = makeNode(
+                (Text("LEFT").foregroundColor(.white) + Text(" RIGHT"))
+                    .foregroundColor(accent)
+            )
+            XCTAssertEqual(restyledNode.textStyle.spans?.map(\.style.color), [accent, accent])
+        }
+    }
+
     func testNamedFontPresetsMapToRetainedTextStyle() async {
         await MainActor.run {
             let headlineNode = makeNode(Text("HEADLINE").font(.headline))

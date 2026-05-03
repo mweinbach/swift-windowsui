@@ -788,7 +788,8 @@ public enum Controls {
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero,
         lineBreakMode: TextLineBreakMode = .truncateTail,
-        maximumNumberOfLines: Int? = nil
+        maximumNumberOfLines: Int? = nil,
+        spans: [TextSpan]? = nil
     ) -> ViewNode {
         panel(
             frame: frame,
@@ -804,7 +805,8 @@ public enum Controls {
                 fontFamily: fontFamily,
                 weight: weight,
                 lineBreakMode: lineBreakMode,
-                maximumNumberOfLines: maximumNumberOfLines
+                maximumNumberOfLines: maximumNumberOfLines,
+                spans: spans
             ),
             isHitTestVisible: false
         )

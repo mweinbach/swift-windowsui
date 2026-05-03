@@ -398,6 +398,7 @@ public struct ViewBuildContext {
     private let observedObjectHandler: (any ObservableObject) -> Void
     var tintColor: Color?
     var submitAction: (() -> Void)?
+    var containerAxis: Axis?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -408,13 +409,15 @@ public struct ViewBuildContext {
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         tintColor: Color? = nil,
-        submitAction: (() -> Void)? = nil
+        submitAction: (() -> Void)? = nil,
+        containerAxis: Axis? = nil
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
         self.tintColor = tintColor
         self.submitAction = submitAction
+        self.containerAxis = containerAxis
     }
 
     func invalidate() {
@@ -431,7 +434,8 @@ public struct ViewBuildContext {
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
             tintColor: color,
-            submitAction: submitAction
+            submitAction: submitAction,
+            containerAxis: containerAxis
         )
     }
 
@@ -441,7 +445,19 @@ public struct ViewBuildContext {
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
             tintColor: tintColor,
-            submitAction: action
+            submitAction: action,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withContainerAxis(_ axis: Axis?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            submitAction: submitAction,
+            containerAxis: axis
         )
     }
 }

@@ -44,6 +44,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDividerUsesStackAxisForRuleDirection() async {
+        await MainActor.run {
+            let verticalStack = laidOutNode(
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("ONE").frame(width: 80, height: 20)
+                    Divider()
+                    Text("TWO").frame(width: 80, height: 20)
+                },
+                size: Size(width: 160, height: 80)
+            )
+            let horizontalRule = verticalStack.children[1]
+
+            let horizontalStack = laidOutNode(
+                HStack(alignment: .top, spacing: 2) {
+                    Text("ONE").frame(width: 40, height: 20)
+                    Divider()
+                    Text("TWO").frame(width: 40, height: 20)
+                },
+                size: Size(width: 120, height: 60)
+            )
+            let verticalRule = horizontalStack.children[1]
+
+            XCTAssertEqual(horizontalRule.resolvedFrame, Rect(x: 0, y: 22, width: 160, height: 1))
+            XCTAssertEqual(horizontalRule.backgroundColor?.alpha ?? 0, 0.16, accuracy: 0.001)
+            XCTAssertEqual(verticalRule.resolvedFrame, Rect(x: 42, y: 0, width: 1, height: 60))
+            XCTAssertEqual(verticalRule.backgroundColor?.alpha ?? 0, 0.16, accuracy: 0.001)
+        }
+    }
+
     func testGenericForegroundColorStylesTextDescendants() async {
         await MainActor.run {
             let color = Color(red: 0.3, green: 0.8, blue: 0.7, alpha: 1)

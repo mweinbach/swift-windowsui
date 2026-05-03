@@ -380,6 +380,38 @@ public struct Spacer: View {
 }
 
 @MainActor
+public struct Divider: View {
+    public typealias Body = Never
+
+    private static let defaultColor = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.16)
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("Divider has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let axis = context.containerAxis ?? .vertical
+        let size: Size
+        switch axis {
+        case .horizontal:
+            size = Size(width: 1, height: max(1, context.canvasSize.height))
+        case .vertical:
+            size = Size(width: max(1, context.canvasSize.width), height: 1)
+        }
+
+        return Component { _ in
+            Controls.panel(
+                preferredSize: size,
+                backgroundColor: Self.defaultColor,
+                isHitTestVisible: false
+            )
+        }
+    }
+}
+
+@MainActor
 public struct VStack: View {
     public typealias Body = Never
 
@@ -398,11 +430,12 @@ public struct VStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let childContext = context.withContainerAxis(.vertical)
+        return Component { runtime in
             Controls.stackPanel(
                 stackLayout: .vertical(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }
@@ -427,11 +460,12 @@ public struct HStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let childContext = context.withContainerAxis(.horizontal)
+        return Component { runtime in
             Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }
@@ -514,7 +548,8 @@ public struct ScrollView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let childContext = context.withContainerAxis(axis)
+        return Component { runtime in
             Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: style.backgroundColor,
@@ -531,7 +566,7 @@ public struct ScrollView: View {
                 scrollIndicatorActiveColor: style.indicatorActiveColor,
                 scrollIndicatorThickness: style.indicatorThickness,
                 isHitTestVisible: style.isHitTestVisible,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }
@@ -600,7 +635,8 @@ public struct Section: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let childContext = context.withContainerAxis(.vertical)
+        return Component { runtime in
             Controls.section(
                 title: title,
                 backgroundColor: style.backgroundColor,
@@ -618,7 +654,7 @@ public struct Section: View {
                 headerColor: style.headerColor,
                 headerScale: style.headerFont.size,
                 isHitTestVisible: style.isHitTestVisible,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }

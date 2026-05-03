@@ -107,10 +107,12 @@ final class WinSwiftUITests: XCTestCase {
     func testTextConcatenationPreservesSpanStyles() async {
         await MainActor.run {
             let accent = Color(red: 0.20, green: 0.72, blue: 1.0, alpha: 1.0)
+            let warning = Color(red: 1.0, green: 0.42, blue: 0.16, alpha: 1.0)
             let node = makeNode(
                 Text("CPU ")
-                    .foregroundColor(accent)
+                    .foregroundStyle(accent)
                 + Text("READY")
+                    .foregroundStyle(warning)
                     .font(.system(size: 2.6, weight: .bold))
             )
 
@@ -124,6 +126,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(spans[0].text, "CPU ")
             XCTAssertEqual(spans[1].text, "READY")
             XCTAssertEqual(spans[0].style.color, accent)
+            XCTAssertEqual(spans[1].style.color, warning)
             XCTAssertEqual(spans[1].style.scale, 2.6, accuracy: 0.001)
             XCTAssertEqual(spans[1].style.weight, .bold)
 
@@ -523,6 +526,27 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Color.red.red, 1.0, accuracy: 0.001)
             XCTAssertEqual(Color.green.green, 0.78, accuracy: 0.001)
             XCTAssertEqual(Color.blue, .accentColor)
+        }
+    }
+
+    func testTypedForegroundStylePreservesConcreteViewModifiers() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("TITLE")
+                        .foregroundStyle(.green)
+                        .bold()
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.red)
+                    Label("READY", systemImage: "checkmark")
+                        .foregroundStyle(.blue)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.color, .green)
+            XCTAssertEqual(node.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.color, .red)
+            XCTAssertTrue(allTextDescendants(in: node.children[2]) { $0.textStyle.color == .blue })
         }
     }
 

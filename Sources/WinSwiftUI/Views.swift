@@ -179,6 +179,10 @@ public struct Text: View {
         return copy
     }
 
+    public func foregroundStyle(_ color: Color) -> Text {
+        foregroundColor(color)
+    }
+
     public func font(_ font: Font) -> Text {
         var copy = self
         copy.font = font
@@ -461,6 +465,10 @@ public struct Image: View {
         return copy
     }
 
+    public func foregroundStyle(_ color: Color) -> Image {
+        foregroundColor(color)
+    }
+
     public func font(_ font: Font) -> Image {
         var copy = self
         copy.font = font
@@ -544,6 +552,10 @@ public struct Label: View {
         var copy = self
         copy.color = color
         return copy
+    }
+
+    public func foregroundStyle(_ color: Color) -> Label {
+        foregroundColor(color)
     }
 
     public func font(_ font: Font) -> Label {

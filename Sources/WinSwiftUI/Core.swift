@@ -1024,8 +1024,22 @@ public extension SwiftWindowsCore.Color {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
     }
 
+    static let primary = SwiftWindowsCore.Color(red: 0.12, green: 0.14, blue: 0.18, alpha: 1.0)
+    static let secondary = SwiftWindowsCore.Color(red: 0.36, green: 0.40, blue: 0.48, alpha: 1.0)
+    static let accentColor = SwiftWindowsCore.Color(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)
+    static let orange = SwiftWindowsCore.Color(red: 1.0, green: 0.58, blue: 0.0, alpha: 1.0)
+    static let yellow = SwiftWindowsCore.Color(red: 1.0, green: 0.80, blue: 0.0, alpha: 1.0)
+    static let mint = SwiftWindowsCore.Color(red: 0.0, green: 0.78, blue: 0.75, alpha: 1.0)
+    static let teal = SwiftWindowsCore.Color(red: 0.0, green: 0.78, blue: 0.88, alpha: 1.0)
+    static let cyan = SwiftWindowsCore.Color(red: 0.20, green: 0.68, blue: 0.90, alpha: 1.0)
+    static let indigo = SwiftWindowsCore.Color(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
+    static let purple = SwiftWindowsCore.Color(red: 0.69, green: 0.32, blue: 0.87, alpha: 1.0)
+    static let pink = SwiftWindowsCore.Color(red: 1.0, green: 0.18, blue: 0.45, alpha: 1.0)
+    static let brown = SwiftWindowsCore.Color(red: 0.64, green: 0.52, blue: 0.37, alpha: 1.0)
+    static let gray = SwiftWindowsCore.Color(red: 0.56, green: 0.56, blue: 0.58, alpha: 1.0)
+
     func opacity(_ value: Double) -> SwiftWindowsCore.Color {
-        SwiftWindowsCore.Color(red: red, green: green, blue: blue, alpha: Float(value))
+        SwiftWindowsCore.Color(red: self.red, green: self.green, blue: self.blue, alpha: Float(value))
     }
 }
 
@@ -1161,6 +1175,10 @@ public extension View {
                 return node
             }
         }
+    }
+
+    func foregroundStyle(_ color: Color) -> some View {
+        foregroundColor(color)
     }
 
     func font(_ font: Font) -> some View {

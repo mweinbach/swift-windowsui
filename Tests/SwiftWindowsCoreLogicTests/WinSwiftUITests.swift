@@ -60,6 +60,18 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForegroundStyleUsesNamedColor() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("ACCENT")
+                    .foregroundStyle(.accentColor)
+            )
+
+            XCTAssertEqual(node.textStyle.color, .accentColor)
+            XCTAssertEqual(Color.secondary.opacity(0.5).alpha, 0.5, accuracy: 0.001)
+        }
+    }
+
     func testGenericFontStylesTextDescendantsAndPreservesIconFamily() async {
         await MainActor.run {
             let node = makeNode(

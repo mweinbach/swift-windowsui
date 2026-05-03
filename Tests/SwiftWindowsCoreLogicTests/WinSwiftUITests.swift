@@ -569,6 +569,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldOnSubmitRunsFromEnterKey() async {
+        await MainActor.run {
+            var text = ""
+            var submissions = 0
+            let node = makeNode(
+                TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                    .onSubmit {
+                        submissions += 1
+                    }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(submissions, 1)
+        }
+    }
+
+    func testParentOnSubmitRoutesToTextFieldDescendant() async {
+        await MainActor.run {
+            var text = ""
+            var submissions = 0
+            let node = makeNode(
+                VStack {
+                    TextField("Search", text: Binding(get: { text }, set: { text = $0 }))
+                }
+                .onSubmit {
+                    submissions += 1
+                }
+            )
+
+            let textFieldNode = node.children[0]
+            textFieldNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(submissions, 1)
+        }
+    }
+
     func testStateBindingPersistsAcrossRebuilds() async {
         await MainActor.run {
             struct SearchView: View {

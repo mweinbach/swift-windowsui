@@ -397,6 +397,7 @@ public struct ViewBuildContext {
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
     var tintColor: Color?
+    var submitAction: (() -> Void)?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -406,12 +407,14 @@ public struct ViewBuildContext {
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
-        tintColor: Color? = nil
+        tintColor: Color? = nil,
+        submitAction: (() -> Void)? = nil
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
         self.tintColor = tintColor
+        self.submitAction = submitAction
     }
 
     func invalidate() {
@@ -427,7 +430,18 @@ public struct ViewBuildContext {
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
             observedObjectHandler: observedObjectHandler,
-            tintColor: color
+            tintColor: color,
+            submitAction: submitAction
+        )
+    }
+
+    func withSubmitAction(_ action: @escaping () -> Void) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            submitAction: action
         )
     }
 }
@@ -1196,6 +1210,12 @@ public extension View {
     func tint(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTint(color))
+        }
+    }
+
+    func onSubmit(_ action: @escaping @MainActor () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withSubmitAction(action))
         }
     }
 

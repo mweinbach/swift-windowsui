@@ -89,6 +89,7 @@ Modifiers:
 - `disabled`
 - `onAppear`
 - `onDisappear`
+- `onSubmit`
 - `onTapGesture`
 - `gesture` with `DragGesture`
 - `tag`
@@ -134,6 +135,7 @@ Surface direction:
 - `tint` is carried through the build context so descendant `Toggle`, `Slider`, and `ProgressView` controls inherit a shared accent color unless they set their own control-specific tint.
 - View `background` and `overlay` content closures map to retained absolute-layout wrappers; the base view keeps layout ownership while the added layer is aligned within the resolved base bounds.
 - `disabled` maps to retained hit-testing/focus state for generic views. Controls with dedicated disabled support, including `Button`, also update retained control chrome and suppress activation.
+- `onSubmit` is carried through the build context and currently routes the retained `TextField` enter-key submit hook.
 - Visual effect modifiers map to existing retained node properties (`opacity`, `blurRadius`, `transform`, and `zIndex`) so the shared render-frame path can paint them without a separate compatibility layer.
 - Clipping modifiers map to retained `clipsToBounds`; `RoundedRectangle` also sets the retained corner radius. Current renderer clipping is rectangular/bounds-based, so this is API-compatible but not full vector mask parity.
 - Lifecycle modifiers map to retained `onAppear` and `onDisappear` callbacks. Reconciliation refreshes node handlers in place so rebuilt declarative closures stay current without replacing the retained node.

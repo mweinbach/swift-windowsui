@@ -284,7 +284,8 @@ public struct TextField: View {
                 onTextChanged: { newText in
                     text.wrappedValue = newText
                     text.invalidateContextIfNeeded(context)
-                }
+                },
+                onSubmit: context.submitAction
             )
         }
     }

@@ -643,6 +643,9 @@ private func verificationFailures(
     if winSwiftUIProbe.renderCommands.fillPath == 0 {
         failures.append("WinSwiftUI probe did not emit a vector path for popover chrome")
     }
+    if winSwiftUIProbe.renderCommands.strokePath == 0 {
+        failures.append("WinSwiftUI probe did not emit a stroked path for circular progress/gauge chrome")
+    }
     if !winSwiftUIProbe.textSamples.contains("DECLARATIVE INSPECTOR") {
         failures.append("WinSwiftUI probe text samples are missing the title")
     }
@@ -774,6 +777,7 @@ private struct WinSwiftUIProbeView: View {
                 Text("100")
             }
             .tint(.mint)
+            .gaugeStyle(.accessoryCircularCapacity)
 
             TextEditor(text: Binding(get: { "EDITOR LINE A\nEDITOR LINE B" }, set: { _ in }))
                 .frame(height: 74)

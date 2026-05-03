@@ -464,6 +464,8 @@ public struct ViewBuildContext {
     var pickerStyle: PickerStyle?
     var controlSize: ControlSize
     var textFieldStyle: TextFieldStyle
+    var progressViewStyle: ProgressViewStyle
+    var gaugeStyle: GaugeStyle
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -483,6 +485,8 @@ public struct ViewBuildContext {
         pickerStyle: PickerStyle? = nil,
         controlSize: ControlSize = .regular,
         textFieldStyle: TextFieldStyle = .automatic,
+        progressViewStyle: ProgressViewStyle = .automatic,
+        gaugeStyle: GaugeStyle = .automatic,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -497,6 +501,8 @@ public struct ViewBuildContext {
         self.pickerStyle = pickerStyle
         self.controlSize = controlSize
         self.textFieldStyle = textFieldStyle
+        self.progressViewStyle = progressViewStyle
+        self.gaugeStyle = gaugeStyle
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -522,6 +528,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -540,6 +548,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -558,6 +568,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -576,6 +588,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -594,6 +608,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -612,6 +628,8 @@ public struct ViewBuildContext {
             pickerStyle: style,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -630,6 +648,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: size,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -648,6 +668,48 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: style,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withProgressViewStyle(_ style: ProgressViewStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: style,
+            gaugeStyle: gaugeStyle,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withGaugeStyle(_ style: GaugeStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlSize: controlSize,
+            textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: style,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -666,6 +728,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -684,6 +748,8 @@ public struct ViewBuildContext {
             pickerStyle: pickerStyle,
             controlSize: controlSize,
             textFieldStyle: textFieldStyle,
+            progressViewStyle: progressViewStyle,
+            gaugeStyle: gaugeStyle,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1092,6 +1158,7 @@ struct ControlSizeMetrics: Sendable {
     var textEditorPreferredSize: Size
     var sliderPreferredSize: Size
     var progressPreferredSize: Size
+    var progressRingPreferredSize: Size
     var pickerMenuPreferredSize: Size
     var pickerSegmentedPreferredSize: Size
     var pickerRadioRowPreferredSize: Size?
@@ -1135,6 +1202,7 @@ public struct ControlSize: Sendable, Equatable {
                 textEditorPreferredSize: Size(width: 260, height: 84),
                 sliderPreferredSize: Size(width: 160, height: 24),
                 progressPreferredSize: Size(width: 160, height: 5),
+                progressRingPreferredSize: Size(width: 22, height: 22),
                 pickerMenuPreferredSize: Size(width: 160, height: 30),
                 pickerSegmentedPreferredSize: Size(width: 180, height: 30),
                 pickerRadioRowPreferredSize: Size(width: 180, height: 30)
@@ -1154,6 +1222,7 @@ public struct ControlSize: Sendable, Equatable {
                 textEditorPreferredSize: Size(width: 290, height: 102),
                 sliderPreferredSize: Size(width: 180, height: 26),
                 progressPreferredSize: Size(width: 180, height: 6),
+                progressRingPreferredSize: Size(width: 26, height: 26),
                 pickerMenuPreferredSize: Size(width: 180, height: 34),
                 pickerSegmentedPreferredSize: Size(width: 200, height: 34),
                 pickerRadioRowPreferredSize: Size(width: 200, height: 34)
@@ -1173,6 +1242,7 @@ public struct ControlSize: Sendable, Equatable {
                 textEditorPreferredSize: Size(width: 320, height: 120),
                 sliderPreferredSize: Size(width: 200, height: 28),
                 progressPreferredSize: Size(width: 200, height: 8),
+                progressRingPreferredSize: Size(width: 30, height: 30),
                 pickerMenuPreferredSize: Size(width: 200, height: 36),
                 pickerSegmentedPreferredSize: Size(width: 220, height: 38),
                 pickerRadioRowPreferredSize: nil
@@ -1192,6 +1262,7 @@ public struct ControlSize: Sendable, Equatable {
                 textEditorPreferredSize: Size(width: 360, height: 148),
                 sliderPreferredSize: Size(width: 240, height: 34),
                 progressPreferredSize: Size(width: 240, height: 10),
+                progressRingPreferredSize: Size(width: 36, height: 36),
                 pickerMenuPreferredSize: Size(width: 240, height: 42),
                 pickerSegmentedPreferredSize: Size(width: 260, height: 44),
                 pickerRadioRowPreferredSize: Size(width: 240, height: 42)
@@ -1211,6 +1282,7 @@ public struct ControlSize: Sendable, Equatable {
                 textEditorPreferredSize: Size(width: 420, height: 180),
                 sliderPreferredSize: Size(width: 280, height: 40),
                 progressPreferredSize: Size(width: 280, height: 12),
+                progressRingPreferredSize: Size(width: 44, height: 44),
                 pickerMenuPreferredSize: Size(width: 280, height: 50),
                 pickerSegmentedPreferredSize: Size(width: 300, height: 52),
                 pickerRadioRowPreferredSize: Size(width: 280, height: 50)
@@ -1299,6 +1371,118 @@ public struct RoundedBorderTextFieldStyle: Sendable {
 }
 
 public struct PlainTextFieldStyle: Sendable {
+    public init() {}
+}
+
+enum ProgressViewControlKind: Sendable {
+    case linear
+    case circular
+}
+
+public struct ProgressViewStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case linear
+        case circular
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ProgressViewStyle(kind: .automatic)
+    public static let linear = ProgressViewStyle(kind: .linear)
+    public static let circular = ProgressViewStyle(kind: .circular)
+
+    var controlKind: ProgressViewControlKind {
+        switch kind {
+        case .automatic, .linear:
+            return .linear
+        case .circular:
+            return .circular
+        }
+    }
+}
+
+public struct DefaultProgressViewStyle: Sendable {
+    public init() {}
+}
+
+public struct LinearProgressViewStyle: Sendable {
+    public init() {}
+}
+
+public struct CircularProgressViewStyle: Sendable {
+    public init() {}
+}
+
+enum GaugeControlKind: Sendable {
+    case linear
+    case circular
+}
+
+public struct GaugeStyle: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case linear
+        case accessoryLinear
+        case accessoryLinearCapacity
+        case circular
+        case accessoryCircular
+        case accessoryCircularCapacity
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = GaugeStyle(kind: .automatic)
+    public static let linear = GaugeStyle(kind: .linear)
+    public static let accessoryLinear = GaugeStyle(kind: .accessoryLinear)
+    public static let accessoryLinearCapacity = GaugeStyle(kind: .accessoryLinearCapacity)
+    public static let circular = GaugeStyle(kind: .circular)
+    public static let accessoryCircular = GaugeStyle(kind: .accessoryCircular)
+    public static let accessoryCircularCapacity = GaugeStyle(kind: .accessoryCircularCapacity)
+
+    var controlKind: GaugeControlKind {
+        switch kind {
+        case .automatic, .linear, .accessoryLinear, .accessoryLinearCapacity:
+            return .linear
+        case .circular, .accessoryCircular, .accessoryCircularCapacity:
+            return .circular
+        }
+    }
+}
+
+public struct DefaultGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct LinearGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct AccessoryLinearGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct AccessoryLinearCapacityGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct CircularGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct AccessoryCircularGaugeStyle: Sendable {
+    public init() {}
+}
+
+public struct AccessoryCircularCapacityGaugeStyle: Sendable {
     public init() {}
 }
 
@@ -3039,6 +3223,58 @@ public extension View {
 
     func textFieldStyle(_ style: PlainTextFieldStyle) -> some View {
         textFieldStyle(.plain)
+    }
+
+    func progressViewStyle(_ style: ProgressViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withProgressViewStyle(style))
+        }
+    }
+
+    func progressViewStyle(_ style: DefaultProgressViewStyle) -> some View {
+        progressViewStyle(.automatic)
+    }
+
+    func progressViewStyle(_ style: LinearProgressViewStyle) -> some View {
+        progressViewStyle(.linear)
+    }
+
+    func progressViewStyle(_ style: CircularProgressViewStyle) -> some View {
+        progressViewStyle(.circular)
+    }
+
+    func gaugeStyle(_ style: GaugeStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withGaugeStyle(style))
+        }
+    }
+
+    func gaugeStyle(_ style: DefaultGaugeStyle) -> some View {
+        gaugeStyle(.automatic)
+    }
+
+    func gaugeStyle(_ style: LinearGaugeStyle) -> some View {
+        gaugeStyle(.linear)
+    }
+
+    func gaugeStyle(_ style: AccessoryLinearGaugeStyle) -> some View {
+        gaugeStyle(.accessoryLinear)
+    }
+
+    func gaugeStyle(_ style: AccessoryLinearCapacityGaugeStyle) -> some View {
+        gaugeStyle(.accessoryLinearCapacity)
+    }
+
+    func gaugeStyle(_ style: CircularGaugeStyle) -> some View {
+        gaugeStyle(.circular)
+    }
+
+    func gaugeStyle(_ style: AccessoryCircularGaugeStyle) -> some View {
+        gaugeStyle(.accessoryCircular)
+    }
+
+    func gaugeStyle(_ style: AccessoryCircularCapacityGaugeStyle) -> some View {
+        gaugeStyle(.accessoryCircularCapacity)
     }
 
     func buttonStyle(_ style: ButtonStyle) -> some View {

@@ -3132,15 +3132,10 @@ public struct ProgressView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { _ in
-            let progressBar = Controls.progressBar(
-                value: value ?? 0,
-                total: total,
-                preferredSize: context.controlSize.metrics.progressPreferredSize,
-                filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
-            )
+            let progressNode = makeProgressNode(context: context)
 
             guard let title, !title.isEmpty else {
-                return progressBar
+                return progressNode
             }
 
             let label = Controls.label(
@@ -3157,7 +3152,32 @@ public struct ProgressView: View {
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [label, progressBar]
+                children: [label, progressNode]
+            )
+        }
+    }
+
+    private func makeProgressNode(context: ViewBuildContext) -> ViewNode {
+        let metrics = context.controlSize.metrics
+        let filledColor = tintColor ?? context.tintColor ?? Self.defaultTintColor
+
+        switch context.progressViewStyle.controlKind {
+        case .linear:
+            return Controls.progressBar(
+                value: value ?? 0,
+                total: total,
+                preferredSize: metrics.progressPreferredSize,
+                filledColor: filledColor
+            )
+        case .circular:
+            let ringSize = metrics.progressRingPreferredSize
+            let lineWidth = max(3, min(ringSize.width, ringSize.height) * 0.14)
+            return Controls.progressRing(
+                value: value ?? total * 0.25,
+                total: total,
+                preferredSize: ringSize,
+                filledColor: filledColor,
+                lineWidth: lineWidth
             )
         }
     }
@@ -3225,12 +3245,7 @@ public struct Gauge: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
             let metrics = context.controlSize.metrics
-            let progressBar = Controls.progressBar(
-                value: value - bounds.lowerBound,
-                total: bounds.upperBound - bounds.lowerBound,
-                preferredSize: metrics.progressPreferredSize,
-                filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
-            )
+            let progressNode = makeGaugeValueNode(context: context, metrics: metrics)
 
             var children: [ViewNode] = []
             if let labelNode = makeLabelNode(from: label, context: context, runtime: runtime) {
@@ -3239,7 +3254,7 @@ public struct Gauge: View {
                 children.append(labelNode)
             }
 
-            children.append(progressBar)
+            children.append(progressNode)
 
             if let valueRow = makeValueLabelRow(context: context, runtime: runtime) {
                 valueRow.fillsAvailableWidth = true
@@ -3247,13 +3262,39 @@ public struct Gauge: View {
             }
 
             guard children.count > 1 else {
-                return progressBar
+                return progressNode
             }
 
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
                 children: children
+            )
+        }
+    }
+
+    private func makeGaugeValueNode(context: ViewBuildContext, metrics: ControlSizeMetrics) -> ViewNode {
+        let filledColor = tintColor ?? context.tintColor ?? Self.defaultTintColor
+        let valueOffset = value - bounds.lowerBound
+        let total = bounds.upperBound - bounds.lowerBound
+
+        switch context.gaugeStyle.controlKind {
+        case .linear:
+            return Controls.progressBar(
+                value: valueOffset,
+                total: total,
+                preferredSize: metrics.progressPreferredSize,
+                filledColor: filledColor
+            )
+        case .circular:
+            let ringSize = metrics.progressRingPreferredSize
+            let lineWidth = max(3, min(ringSize.width, ringSize.height) * 0.14)
+            return Controls.progressRing(
+                value: valueOffset,
+                total: total,
+                preferredSize: ringSize,
+                filledColor: filledColor,
+                lineWidth: lineWidth
             )
         }
     }

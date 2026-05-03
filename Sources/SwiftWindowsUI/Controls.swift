@@ -1,3 +1,4 @@
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
@@ -1573,6 +1574,133 @@ public enum Controls {
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [trackNode, filledNode]
+        )
+    }
+
+    public static func progressRing(
+        value: Double,
+        total: Double = 1.0,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        trackColor: Color = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0),
+        filledColor: Color = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0),
+        lineWidth: Double = 4
+    ) -> ViewNode {
+        let resolvedSize = preferredSize ?? Size(width: 32, height: 32)
+        let diameter = max(0, min(resolvedSize.width, resolvedSize.height))
+        let strokeWidth = min(max(1, lineWidth), max(1, diameter))
+        let radius = max(0, (diameter - strokeWidth) * 0.5)
+        let center = Point(x: resolvedSize.width * 0.5, y: resolvedSize.height * 0.5)
+        let progress = total > 0 ? min(max(value / total, 0), 1) : 0
+
+        let trackNode = path(
+            circlePath(center: center, radius: radius),
+            frame: Rect(origin: .zero, size: resolvedSize),
+            preferredSize: resolvedSize,
+            fillColor: .clear,
+            strokeColor: trackColor,
+            strokeStyle: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
+        )
+
+        let filledNode = path(
+            progressArcPath(center: center, radius: radius, progress: progress),
+            frame: Rect(origin: .zero, size: resolvedSize),
+            preferredSize: resolvedSize,
+            fillColor: .clear,
+            strokeColor: filledColor,
+            strokeStyle: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
+        )
+
+        return panel(
+            preferredSize: resolvedSize,
+            layoutPriority: layoutPriority,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [trackNode, filledNode]
+        )
+    }
+
+    private static func circlePath(center: Point, radius: Double) -> RenderPath {
+        progressArcPath(center: center, radius: radius, progress: 1)
+    }
+
+    private static func progressArcPath(center: Point, radius: Double, progress: Double) -> RenderPath {
+        var path = RenderPath()
+        guard radius > 0, progress > 0 else {
+            path.move(to: Point(x: center.x, y: center.y - radius))
+            return path
+        }
+
+        let startAngle = -Double.pi * 0.5
+        let sweep = min(max(progress, 0), 1) * Double.pi * 2
+        appendArc(
+            to: &path,
+            center: center,
+            radius: radius,
+            startAngle: startAngle,
+            endAngle: startAngle + sweep
+        )
+        return path
+    }
+
+    private static func appendArc(
+        to path: inout RenderPath,
+        center: Point,
+        radius: Double,
+        startAngle: Double,
+        endAngle: Double
+    ) {
+        let sweep = endAngle - startAngle
+        let segmentCount = max(1, Int(ceil(abs(sweep) / (Double.pi * 0.5))))
+        let segmentSweep = sweep / Double(segmentCount)
+
+        var currentAngle = startAngle
+        path.move(to: pointOnCircle(center: center, radius: radius, angle: currentAngle))
+
+        for _ in 0..<segmentCount {
+            let nextAngle = currentAngle + segmentSweep
+            appendArcSegment(
+                to: &path,
+                center: center,
+                radius: radius,
+                startAngle: currentAngle,
+                endAngle: nextAngle
+            )
+            currentAngle = nextAngle
+        }
+    }
+
+    private static func appendArcSegment(
+        to path: inout RenderPath,
+        center: Point,
+        radius: Double,
+        startAngle: Double,
+        endAngle: Double
+    ) {
+        let delta = endAngle - startAngle
+        let controlDistance = 4.0 / 3.0 * tan(delta * 0.25) * radius
+        let start = pointOnCircle(center: center, radius: radius, angle: startAngle)
+        let end = pointOnCircle(center: center, radius: radius, angle: endAngle)
+        let startTangent = Point(x: -sin(startAngle), y: cos(startAngle))
+        let endTangent = Point(x: -sin(endAngle), y: cos(endAngle))
+
+        path.addCubicCurve(
+            to: end,
+            control1: Point(
+                x: start.x + startTangent.x * controlDistance,
+                y: start.y + startTangent.y * controlDistance
+            ),
+            control2: Point(
+                x: end.x - endTangent.x * controlDistance,
+                y: end.y - endTangent.y * controlDistance
+            )
+        )
+    }
+
+    private static func pointOnCircle(center: Point, radius: Double, angle: Double) -> Point {
+        Point(
+            x: center.x + cos(angle) * radius,
+            y: center.y + sin(angle) * radius
         )
     }
 

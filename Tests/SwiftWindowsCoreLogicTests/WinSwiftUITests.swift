@@ -1547,6 +1547,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewStyleCircularMapsToRetainedRing() async {
+        await MainActor.run {
+            let node = makeNode(
+                ProgressView(value: 0.5)
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .controlSize(.large)
+                    .tint(.mint)
+            )
+
+            XCTAssertEqual(node.preferredSize, Size(width: 36, height: 36))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertNotNil(node.children[0].renderPath)
+            XCTAssertNotNil(node.children[1].renderPath)
+            XCTAssertEqual(node.children[1].pathStrokeColor, .mint)
+            XCTAssertEqual(node.children[1].pathStrokeStyle?.lineCap, .round)
+        }
+    }
+
+    func testInheritedProgressViewStyleAppliesToDescendantProgressViews() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    ProgressView(value: 0.5)
+                    ProgressView(value: 0.5)
+                        .progressViewStyle(.linear)
+                }
+                .progressViewStyle(.circular)
+            )
+
+            let inheritedRing = node.children[0]
+            let explicitLinear = node.children[1]
+
+            XCTAssertEqual(inheritedRing.preferredSize, Size(width: 30, height: 30))
+            XCTAssertNotNil(inheritedRing.children[1].renderPath)
+            XCTAssertEqual(explicitLinear.preferredSize, Size(width: 200, height: 8))
+            XCTAssertNil(explicitLinear.children[1].renderPath)
+        }
+    }
+
     func testGaugeMapsLabelsAndBoundsToRetainedProgressBar() async {
         await MainActor.run {
             let node = makeNode(
@@ -1574,6 +1613,51 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(containsText("0", in: valueRow))
             XCTAssertTrue(containsText("40%", in: valueRow))
             XCTAssertTrue(containsText("100", in: valueRow))
+        }
+    }
+
+    func testGaugeStyleCircularMapsToRetainedRing() async {
+        await MainActor.run {
+            let node = makeNode(
+                Gauge(value: 40, in: 0...100) {
+                    Text("CPU")
+                } currentValueLabel: {
+                    Text("40%")
+                }
+                .gaugeStyle(AccessoryCircularGaugeStyle())
+                .controlSize(.large)
+                .tint(.purple)
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].text, "CPU")
+
+            let ring = node.children[1]
+            XCTAssertEqual(ring.preferredSize, Size(width: 36, height: 36))
+            XCTAssertNotNil(ring.children[0].renderPath)
+            XCTAssertNotNil(ring.children[1].renderPath)
+            XCTAssertEqual(ring.children[1].pathStrokeColor, .purple)
+        }
+    }
+
+    func testInheritedGaugeStyleAppliesToDescendantGauges() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Gauge("FIRST", value: 0.5)
+                    Gauge("SECOND", value: 0.5)
+                        .gaugeStyle(.linear)
+                }
+                .gaugeStyle(.accessoryCircularCapacity)
+            )
+
+            let inheritedCircularGauge = node.children[0]
+            let explicitLinearGauge = node.children[1]
+
+            XCTAssertEqual(inheritedCircularGauge.children[1].preferredSize, Size(width: 30, height: 30))
+            XCTAssertNotNil(inheritedCircularGauge.children[1].children[1].renderPath)
+            XCTAssertEqual(explicitLinearGauge.children[1].preferredSize, Size(width: 200, height: 8))
+            XCTAssertNil(explicitLinearGauge.children[1].children[1].renderPath)
         }
     }
 

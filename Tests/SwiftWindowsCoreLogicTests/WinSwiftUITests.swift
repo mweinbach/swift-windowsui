@@ -1432,6 +1432,50 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlSizeModifierSizesButtonToggleAndTextFieldDescendants() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Button("RUN") {}
+                    Toggle("POWER", isOn: Binding(get: { true }, set: { _ in }))
+                        .labelsHidden()
+                    TextField("NAME", text: Binding(get: { "" }, set: { _ in }))
+                }
+                .controlSize(.large)
+            )
+
+            let button = node.children[0]
+            XCTAssertEqual(button.cornerRadius, 18)
+            if case .stack(let layout) = button.layoutMode {
+                XCTAssertEqual(layout.padding, EdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18))
+            } else {
+                XCTFail("Expected button stack layout")
+            }
+
+            XCTAssertEqual(node.children[1].preferredSize, Size(width: 60, height: 38))
+            XCTAssertEqual(node.children[2].preferredSize, Size(width: 260, height: 44))
+        }
+    }
+
+    func testExplicitControlSizeOverridesInheritedControlSize() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    TextField("SMALL", text: Binding(get: { "" }, set: { _ in }))
+                        .controlSize(.mini)
+                    Slider(value: Binding(get: { 0.5 }, set: { _ in }))
+                    ProgressView(value: 0.5)
+                        .controlSize(.extraLarge)
+                }
+                .controlSize(.large)
+            )
+
+            XCTAssertEqual(node.children[0].preferredSize, Size(width: 180, height: 30))
+            XCTAssertEqual(node.children[1].preferredSize, Size(width: 240, height: 34))
+            XCTAssertEqual(node.children[2].preferredSize, Size(width: 280, height: 12))
+        }
+    }
+
     func testSliderUpdatesBindingFromDrag() async {
         await MainActor.run {
             var value = 0.25
@@ -2291,13 +2335,15 @@ final class WinSwiftUITests: XCTestCase {
                     Text("Render").tag("render")
                 }
                 .labelsHidden()
-                .pickerStyle(SegmentedPickerStyle()),
+                .pickerStyle(SegmentedPickerStyle())
+                .controlSize(.large),
                 onInvalidate: {
                     didInvalidate = true
                 }
             )
 
             XCTAssertFalse(node.isHitTestVisible)
+            XCTAssertEqual(node.preferredSize, Size(width: 260, height: 44))
             XCTAssertEqual(node.children.count, 3)
             XCTAssertTrue(node.children[0].isFocusable)
             XCTAssertTrue(node.children[1].isFocusable)
@@ -2323,6 +2369,7 @@ final class WinSwiftUITests: XCTestCase {
                     Text("Render").tag(2)
                 }
                 .pickerStyle(.radioGroup)
+                .controlSize(.large)
                 .tint(.mint),
                 onInvalidate: {
                     didInvalidate = true
@@ -2334,6 +2381,7 @@ final class WinSwiftUITests: XCTestCase {
             let radioGroup = node.children[1]
             XCTAssertEqual(radioGroup.children.count, 3)
             XCTAssertTrue(radioGroup.children[0].isFocusable)
+            XCTAssertEqual(radioGroup.children[0].preferredSize, Size(width: 240, height: 42))
             XCTAssertEqual(radioGroup.children[0].children[0].children.first?.backgroundColor, .mint)
             XCTAssertTrue(containsText("Render", in: radioGroup.children[2]))
 

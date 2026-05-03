@@ -828,6 +828,7 @@ public struct TextField: View {
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.textFieldPreferredSize,
                 textColor: textColor,
                 onTextChanged: { newText in
                     text.wrappedValue = newText
@@ -904,6 +905,7 @@ public struct SecureField: View {
                 text: text.wrappedValue,
                 placeholder: prompt ?? title,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.textFieldPreferredSize,
                 textColor: textColor,
                 isSecure: true,
                 onTextChanged: { newText in
@@ -956,6 +958,7 @@ public struct TextEditor: View {
                 runtime: runtime,
                 text: text.wrappedValue,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.textEditorPreferredSize,
                 textColor: textColor,
                 onTextChanged: { newText in
                     text.wrappedValue = newText
@@ -2409,6 +2412,7 @@ public struct Button: View {
     private let role: ButtonRole?
     private var style: ButtonSurfaceStyle
     private var resolvedButtonStyle: ButtonStyle?
+    private var usesExplicitSurface: Bool
     private var isEnabled: Bool
 
     public init(role: ButtonRole? = nil, action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
@@ -2417,6 +2421,7 @@ public struct Button: View {
         self.role = role
         self.style = .default
         self.resolvedButtonStyle = nil
+        self.usesExplicitSurface = false
         self.isEnabled = true
     }
 
@@ -2433,6 +2438,7 @@ public struct Button: View {
         self.role = role
         self.style = .default
         self.resolvedButtonStyle = nil
+        self.usesExplicitSurface = false
         self.isEnabled = true
     }
 
@@ -2451,6 +2457,7 @@ public struct Button: View {
         self.role = role
         self.style = .default
         self.resolvedButtonStyle = nil
+        self.usesExplicitSurface = false
         self.isEnabled = true
     }
 
@@ -2470,16 +2477,17 @@ public struct Button: View {
         )
 
         return Component { runtime in
+            let metrics = context.controlSize.metrics
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let surfaceStyle = resolvedSurfaceStyle(inheritedStyle: context.buttonStyle)
             return Controls.button(
                 runtime: runtime,
-                cornerRadius: surfaceStyle.cornerRadius,
+                cornerRadius: resolvedCornerRadius(surfaceStyle: surfaceStyle, context: context, metrics: metrics),
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,
                 isEnabled: isEnabled,
                 clipsToBounds: surfaceStyle.clipsToBounds,
-                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                layoutMode: .stack(.vertical(padding: metrics.buttonPadding, alignment: .stretch, mainAlignment: .center)),
                 animation: surfaceStyle.animation,
                 action: isEnabled ? {
                     action()
@@ -2499,10 +2507,24 @@ public struct Button: View {
         return effectiveButtonStyle == .automatic ? style : effectiveButtonStyle.surfaceStyle
     }
 
+    private func resolvedCornerRadius(
+        surfaceStyle: ButtonSurfaceStyle,
+        context: ViewBuildContext,
+        metrics: ControlSizeMetrics
+    ) -> Double {
+        let effectiveButtonStyle = resolvedButtonStyle ?? context.buttonStyle ?? .automatic
+        if usesExplicitSurface && effectiveButtonStyle == .automatic {
+            return surfaceStyle.cornerRadius
+        }
+
+        return surfaceStyle.cornerRadius == 0 ? 0 : metrics.buttonCornerRadius
+    }
+
     public func buttonSurface(_ style: ButtonSurfaceStyle) -> Button {
         var copy = self
         copy.style = style
         copy.resolvedButtonStyle = .automatic
+        copy.usesExplicitSurface = true
         return copy
     }
 
@@ -2659,10 +2681,12 @@ public struct Toggle: View {
 
     private func makeSwitchComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
+            let metrics = context.controlSize.metrics
             let switchNode = Controls.toggle(
                 runtime: runtime,
                 isOn: isOn.wrappedValue,
                 isEnabled: isEnabled,
+                preferredSize: metrics.switchPreferredSize,
                 onColor: resolvedTintColor(context),
                 offColor: offColor,
                 onToggle: { newValue in
@@ -2699,18 +2723,19 @@ public struct Toggle: View {
 
         return Component { runtime in
             let accent = resolvedTintColor(context)
+            let metrics = context.controlSize.metrics
             let isChecked = isOn.wrappedValue
-            let boxSize: Double = 20
+            let boxSize = metrics.checkboxBoxSize
             let checkmark = isChecked
-                ? Controls.icon(.checkmark, preferredSize: Size(width: 14, height: 14), color: .white, scale: 1.0)
-                : Controls.panel(preferredSize: Size(width: 14, height: 14), isHitTestVisible: false)
+                ? Controls.icon(.checkmark, preferredSize: Size(width: metrics.checkboxIconSize, height: metrics.checkboxIconSize), color: .white, scale: max(0.8, metrics.checkboxIconSize / 14))
+                : Controls.panel(preferredSize: Size(width: metrics.checkboxIconSize, height: metrics.checkboxIconSize), isHitTestVisible: false)
 
             let box = Controls.panel(
                 preferredSize: Size(width: boxSize, height: boxSize),
                 backgroundColor: isChecked ? accent : Color(red: 0.15, green: 0.18, blue: 0.24, alpha: 0.88),
                 borderColor: isChecked ? accent.opacity(0.82) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.20),
                 borderWidth: 1,
-                cornerRadius: 6,
+                cornerRadius: metrics.checkboxCornerRadius,
                 layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
                 isHitTestVisible: false,
                 children: [checkmark]
@@ -2732,8 +2757,8 @@ public struct Toggle: View {
                 clipsToBounds: true,
                 layoutMode: .stack(
                     .horizontal(
-                        spacing: hidesLabel ? 0 : 10,
-                        padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                        spacing: hidesLabel ? 0 : metrics.checkboxSpacing,
+                        padding: metrics.checkboxPadding,
                         alignment: .center
                     )
                 ),
@@ -2754,8 +2779,9 @@ public struct Toggle: View {
 
         return Component { runtime in
             let accent = resolvedTintColor(context)
+            let metrics = context.controlSize.metrics
             let labelNode = hidesLabel || label.isEmpty
-                ? Controls.panel(preferredSize: Size(width: 44, height: 20), isHitTestVisible: false)
+                ? Controls.panel(preferredSize: metrics.toggleButtonPlaceholderSize, isHitTestVisible: false)
                 : labelComponent.makeNode(runtime: runtime)
 
             if !hidesLabel {
@@ -2764,7 +2790,7 @@ public struct Toggle: View {
 
             return Controls.button(
                 runtime: runtime,
-                cornerRadius: 14,
+                cornerRadius: metrics.buttonCornerRadius,
                 palette: isOn.wrappedValue ? buttonOnPalette(accent: accent) : ButtonSurfaceStyle.defaultPalette,
                 chrome: .elevatedButton,
                 isEnabled: isEnabled,
@@ -2772,7 +2798,7 @@ public struct Toggle: View {
                 layoutMode: .stack(
                     .horizontal(
                         spacing: 0,
-                        padding: EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14),
+                        padding: metrics.buttonPadding,
                         alignment: .center,
                         mainAlignment: .center
                     )
@@ -3019,6 +3045,7 @@ public struct Slider: View {
                 value: value.wrappedValue,
                 range: bounds,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.sliderPreferredSize,
                 trackColor: trackColor,
                 filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor,
                 onValueChanged: { newValue in
@@ -3098,6 +3125,7 @@ public struct ProgressView: View {
             let progressBar = Controls.progressBar(
                 value: value ?? 0,
                 total: total,
+                preferredSize: context.controlSize.metrics.progressPreferredSize,
                 filledColor: tintColor ?? context.tintColor ?? Self.defaultTintColor
             )
 
@@ -3186,6 +3214,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 options: optionTitles,
                 selectedIndex: selectedIndex,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.pickerMenuPreferredSize,
                 onSelect: { selectedOptionIndex in
                     guard options.indices.contains(selectedOptionIndex) else {
                         return
@@ -3210,6 +3239,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 tabs: optionTitles,
                 selectedIndex: selectedIndex,
                 isEnabled: isEnabled,
+                preferredSize: context.controlSize.metrics.pickerSegmentedPreferredSize,
                 onSelect: { selectedOptionIndex in
                     selectOption(at: selectedOptionIndex, from: options, context: context)
                 }
@@ -3228,6 +3258,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                     label: option.title,
                     isSelected: option.value == selection.wrappedValue,
                     isEnabled: isEnabled,
+                    preferredSize: context.controlSize.metrics.pickerRadioRowPreferredSize,
                     selectedColor: context.tintColor ?? Color.accentColor,
                     onSelect: {
                         selectOption(at: index, from: options, context: context)

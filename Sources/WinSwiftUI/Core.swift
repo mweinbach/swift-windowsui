@@ -462,6 +462,7 @@ public struct ViewBuildContext {
     var labelStyle: LabelStyle?
     var toggleStyle: ToggleStyle?
     var pickerStyle: PickerStyle?
+    var controlSize: ControlSize
     var submitAction: (() -> Void)?
     var containerAxis: Axis?
 
@@ -479,6 +480,7 @@ public struct ViewBuildContext {
         labelStyle: LabelStyle? = nil,
         toggleStyle: ToggleStyle? = nil,
         pickerStyle: PickerStyle? = nil,
+        controlSize: ControlSize = .regular,
         submitAction: (() -> Void)? = nil,
         containerAxis: Axis? = nil
     ) {
@@ -491,6 +493,7 @@ public struct ViewBuildContext {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.pickerStyle = pickerStyle
+        self.controlSize = controlSize
         self.submitAction = submitAction
         self.containerAxis = containerAxis
     }
@@ -514,6 +517,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -530,6 +534,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -546,6 +551,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -562,6 +568,7 @@ public struct ViewBuildContext {
             labelStyle: style,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -578,6 +585,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: style,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -594,6 +602,24 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: style,
+            controlSize: controlSize,
+            submitAction: submitAction,
+            containerAxis: containerAxis
+        )
+    }
+
+    func withControlSize(_ size: ControlSize) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            tintColor: tintColor,
+            buttonStyle: buttonStyle,
+            listStyle: listStyle,
+            labelStyle: labelStyle,
+            toggleStyle: toggleStyle,
+            pickerStyle: pickerStyle,
+            controlSize: size,
             submitAction: submitAction,
             containerAxis: containerAxis
         )
@@ -610,6 +636,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: action,
             containerAxis: containerAxis
         )
@@ -626,6 +653,7 @@ public struct ViewBuildContext {
             labelStyle: labelStyle,
             toggleStyle: toggleStyle,
             pickerStyle: pickerStyle,
+            controlSize: controlSize,
             submitAction: submitAction,
             containerAxis: axis
         )
@@ -1018,6 +1046,147 @@ public struct Material: Sendable, Equatable {
         shadowOffset: Point(x: 0, y: 8),
         shadowSpread: 12
     )
+}
+
+struct ControlSizeMetrics: Sendable {
+    var buttonPadding: EdgeInsets
+    var buttonCornerRadius: Double
+    var switchPreferredSize: Size
+    var checkboxBoxSize: Double
+    var checkboxIconSize: Double
+    var checkboxCornerRadius: Double
+    var checkboxPadding: EdgeInsets
+    var checkboxSpacing: Double
+    var toggleButtonPlaceholderSize: Size
+    var textFieldPreferredSize: Size
+    var textEditorPreferredSize: Size
+    var sliderPreferredSize: Size
+    var progressPreferredSize: Size
+    var pickerMenuPreferredSize: Size
+    var pickerSegmentedPreferredSize: Size
+    var pickerRadioRowPreferredSize: Size?
+}
+
+public struct ControlSize: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case mini
+        case small
+        case regular
+        case large
+        case extraLarge
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let mini = ControlSize(kind: .mini)
+    public static let small = ControlSize(kind: .small)
+    public static let regular = ControlSize(kind: .regular)
+    public static let large = ControlSize(kind: .large)
+    public static let extraLarge = ControlSize(kind: .extraLarge)
+
+    var metrics: ControlSizeMetrics {
+        switch kind {
+        case .mini:
+            return ControlSizeMetrics(
+                buttonPadding: EdgeInsets(top: 3, leading: 7, bottom: 3, trailing: 7),
+                buttonCornerRadius: 10,
+                switchPreferredSize: Size(width: 46, height: 28),
+                checkboxBoxSize: 16,
+                checkboxIconSize: 10,
+                checkboxCornerRadius: 4,
+                checkboxPadding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
+                checkboxSpacing: 7,
+                toggleButtonPlaceholderSize: Size(width: 34, height: 16),
+                textFieldPreferredSize: Size(width: 180, height: 30),
+                textEditorPreferredSize: Size(width: 260, height: 84),
+                sliderPreferredSize: Size(width: 160, height: 24),
+                progressPreferredSize: Size(width: 160, height: 5),
+                pickerMenuPreferredSize: Size(width: 160, height: 30),
+                pickerSegmentedPreferredSize: Size(width: 180, height: 30),
+                pickerRadioRowPreferredSize: Size(width: 180, height: 30)
+            )
+        case .small:
+            return ControlSizeMetrics(
+                buttonPadding: EdgeInsets(top: 5, leading: 10, bottom: 5, trailing: 10),
+                buttonCornerRadius: 12,
+                switchPreferredSize: Size(width: 48, height: 30),
+                checkboxBoxSize: 18,
+                checkboxIconSize: 12,
+                checkboxCornerRadius: 5,
+                checkboxPadding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7),
+                checkboxSpacing: 8,
+                toggleButtonPlaceholderSize: Size(width: 38, height: 18),
+                textFieldPreferredSize: Size(width: 200, height: 34),
+                textEditorPreferredSize: Size(width: 290, height: 102),
+                sliderPreferredSize: Size(width: 180, height: 26),
+                progressPreferredSize: Size(width: 180, height: 6),
+                pickerMenuPreferredSize: Size(width: 180, height: 34),
+                pickerSegmentedPreferredSize: Size(width: 200, height: 34),
+                pickerRadioRowPreferredSize: Size(width: 200, height: 34)
+            )
+        case .regular:
+            return ControlSizeMetrics(
+                buttonPadding: EdgeInsets(top: 8, leading: 14, bottom: 8, trailing: 14),
+                buttonCornerRadius: 16,
+                switchPreferredSize: Size(width: 52, height: 32),
+                checkboxBoxSize: 20,
+                checkboxIconSize: 14,
+                checkboxCornerRadius: 6,
+                checkboxPadding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                checkboxSpacing: 10,
+                toggleButtonPlaceholderSize: Size(width: 44, height: 20),
+                textFieldPreferredSize: Size(width: 220, height: 38),
+                textEditorPreferredSize: Size(width: 320, height: 120),
+                sliderPreferredSize: Size(width: 200, height: 28),
+                progressPreferredSize: Size(width: 200, height: 8),
+                pickerMenuPreferredSize: Size(width: 200, height: 36),
+                pickerSegmentedPreferredSize: Size(width: 220, height: 38),
+                pickerRadioRowPreferredSize: nil
+            )
+        case .large:
+            return ControlSizeMetrics(
+                buttonPadding: EdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18),
+                buttonCornerRadius: 18,
+                switchPreferredSize: Size(width: 60, height: 38),
+                checkboxBoxSize: 24,
+                checkboxIconSize: 16,
+                checkboxCornerRadius: 7,
+                checkboxPadding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10),
+                checkboxSpacing: 12,
+                toggleButtonPlaceholderSize: Size(width: 52, height: 24),
+                textFieldPreferredSize: Size(width: 260, height: 44),
+                textEditorPreferredSize: Size(width: 360, height: 148),
+                sliderPreferredSize: Size(width: 240, height: 34),
+                progressPreferredSize: Size(width: 240, height: 10),
+                pickerMenuPreferredSize: Size(width: 240, height: 42),
+                pickerSegmentedPreferredSize: Size(width: 260, height: 44),
+                pickerRadioRowPreferredSize: Size(width: 240, height: 42)
+            )
+        case .extraLarge:
+            return ControlSizeMetrics(
+                buttonPadding: EdgeInsets(top: 13, leading: 22, bottom: 13, trailing: 22),
+                buttonCornerRadius: 22,
+                switchPreferredSize: Size(width: 68, height: 44),
+                checkboxBoxSize: 28,
+                checkboxIconSize: 18,
+                checkboxCornerRadius: 8,
+                checkboxPadding: EdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 12),
+                checkboxSpacing: 14,
+                toggleButtonPlaceholderSize: Size(width: 60, height: 28),
+                textFieldPreferredSize: Size(width: 300, height: 52),
+                textEditorPreferredSize: Size(width: 420, height: 180),
+                sliderPreferredSize: Size(width: 280, height: 40),
+                progressPreferredSize: Size(width: 280, height: 12),
+                pickerMenuPreferredSize: Size(width: 280, height: 50),
+                pickerSegmentedPreferredSize: Size(width: 300, height: 52),
+                pickerRadioRowPreferredSize: Size(width: 280, height: 50)
+            )
+        }
+    }
 }
 
 public struct ButtonSurfaceStyle: Sendable {
@@ -2733,6 +2902,12 @@ public extension View {
 
     func accentColor(_ color: Color?) -> some View {
         tint(color)
+    }
+
+    func controlSize(_ size: ControlSize) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withControlSize(size))
+        }
     }
 
     func buttonStyle(_ style: ButtonStyle) -> some View {

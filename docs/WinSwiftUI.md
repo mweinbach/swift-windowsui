@@ -62,6 +62,7 @@ Views and containers:
 - `VStack`
 - `HStack`
 - `ZStack`
+- `ViewThatFits`
 - `LazyVStack`
 - `LazyHStack`
 - `LazyVGrid`
@@ -181,6 +182,7 @@ Compatibility helpers:
 - shape `stroke(_:lineWidth:)`
 - `UnitPoint`
 - `Angle`
+- `Axis.Set`
 - `FillStyle`
 - `DragGesture`
 - `ControlSize`
@@ -226,6 +228,7 @@ Surface direction:
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `scrollIndicators(_:)` accepts `.automatic`, `.visible`, and `.hidden` and updates descendant retained scroll containers, including `List`, without changing scroll culling or input behavior.
 - `VStack` and `HStack` accept SwiftUI-style optional spacing; nil spacing currently lowers to the retained stack path's zero-spacing default.
+- `ViewThatFits` accepts the common `in: Axis.Set` initializer shape and chooses the first candidate whose retained intrinsic/preferred size fits the current build context along the requested axes, falling back to the last candidate when none fit.
 - `LazyVStack` and `LazyHStack` preserve common lazy-stack call sites and lower to the retained stack layout path. The runtime already clips and culls offscreen render commands inside scroll panels; child view construction is still eager, and pinned section headers/footers are accepted for compatibility but not pinned yet.
 - `LazyVGrid` maps `GridItem` column declarations into the retained grid layout path. Fixed and flexible columns resolve against the current build context width, and adaptive columns expand from their minimum width; pinned headers/footers are accepted for compatibility but not pinned yet.
 - `LazyHGrid` preserves the SwiftUI-shaped row initializer and currently lowers to retained nested stacks in column-major order. Fixed, flexible, and adaptive row declarations resolve against the current build context height; shared row sizing, true lazy construction, and pinned headers/footers are still future work.

@@ -1149,6 +1149,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testViewThatFitsChoosesFirstCandidateWithinRequestedAxes() async {
+        await MainActor.run {
+            let node = makeNode(
+                ViewThatFits(in: .horizontal) {
+                    Text("WIDE").frame(width: 280, height: 20)
+                    Text("COMPACT FIT").frame(width: 96, height: 20)
+                    Text("FALLBACK").frame(width: 80, height: 20)
+                },
+                size: Size(width: 120, height: 30)
+            )
+
+            XCTAssertFalse(containsText("WIDE", in: node))
+            XCTAssertTrue(containsText("COMPACT FIT", in: node))
+            XCTAssertFalse(containsText("FALLBACK", in: node))
+        }
+    }
+
+    func testViewThatFitsFallsBackToLastCandidateWhenNothingFits() async {
+        await MainActor.run {
+            let node = makeNode(
+                ViewThatFits {
+                    Text("TOO WIDE").frame(width: 300, height: 20)
+                    Text("STILL TOO WIDE").frame(width: 180, height: 20)
+                },
+                size: Size(width: 100, height: 10)
+            )
+
+            XCTAssertFalse(containsText("TOO WIDE", in: node))
+            XCTAssertTrue(containsText("STILL TOO WIDE", in: node))
+        }
+    }
+
+    func testViewThatFitsCanIgnoreUnrequestedAxes() async {
+        await MainActor.run {
+            let node = makeNode(
+                ViewThatFits(in: .vertical) {
+                    Text("WIDE BUT SHORT").frame(width: 320, height: 20)
+                    Text("NARROW").frame(width: 80, height: 20)
+                },
+                size: Size(width: 100, height: 30)
+            )
+
+            XCTAssertTrue(containsText("WIDE BUT SHORT", in: node))
+            XCTAssertFalse(containsText("NARROW", in: node))
+        }
+    }
+
     func testButtonRunsActionAndInvalidates() async {
         await MainActor.run {
             var didRunAction = false

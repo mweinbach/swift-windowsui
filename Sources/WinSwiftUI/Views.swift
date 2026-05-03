@@ -1120,6 +1120,56 @@ public struct HStack: View {
 }
 
 @MainActor
+public struct ViewThatFits: View {
+    public typealias Body = Never
+
+    private let axes: Axis.Set
+    private let content: [AnyView]
+
+    public init(in axes: Axis.Set = .all, @ViewBuilder content: () -> [AnyView]) {
+        self.axes = axes
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ViewThatFits has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            guard !content.isEmpty else {
+                return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+            }
+
+            var fallback: ViewNode?
+            for view in content {
+                let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+                fallback = node
+                if Self.nodeFits(node, axes: axes, availableSize: context.canvasSize) {
+                    return node
+                }
+            }
+
+            return fallback ?? Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+
+    private static func nodeFits(_ node: ViewNode, axes: Axis.Set, availableSize: Size) -> Bool {
+        let measuredSize = node.intrinsicContentSize()
+
+        if axes.contains(.horizontal), measuredSize.width > max(0, availableSize.width) {
+            return false
+        }
+
+        if axes.contains(.vertical), measuredSize.height > max(0, availableSize.height) {
+            return false
+        }
+
+        return true
+    }
+}
+
+@MainActor
 public struct LazyVStack: View {
     public typealias Body = Never
 

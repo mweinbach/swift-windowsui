@@ -673,6 +673,9 @@ private func verificationFailures(
     if !winSwiftUIProbe.textSamples.contains("DOCS LINK") {
         failures.append("WinSwiftUI probe text samples are missing the Link control")
     }
+    if !winSwiftUIProbe.textSamples.contains("COMPACT FIT") {
+        failures.append("WinSwiftUI probe text samples are missing the ViewThatFits selection")
+    }
     if !winSwiftUIProbe.textSamples.contains("Value Detail") {
         failures.append("WinSwiftUI probe text samples are missing the value NavigationLink")
     }
@@ -782,6 +785,11 @@ private struct WinSwiftUIProbeView: View {
                 .disabled(true)
 
             Link("DOCS LINK", destination: URL(string: "https://example.com/docs")!)
+
+            ViewThatFits(in: .horizontal) {
+                Text("WIDE FIT").frame(width: 420, height: 24)
+                Text("COMPACT FIT").frame(width: 140, height: 24)
+            }
 
             Toggle("LIVE SWITCH", isOn: Binding(get: { true }, set: { _ in }))
 

@@ -279,6 +279,19 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children.count, 3)
             XCTAssertEqual(node.children.map(\.text), ["ROW 0", "ROW 1", "ROW 2"].map(Optional.some))
             XCTAssertEqual(node.children[2].nodeTag, "2:0")
+
+            let closedRangeNode = makeNode(
+                VStack {
+                    ForEach(1...3) { index in
+                        Text("STEP \(index)")
+                    }
+                }
+            )
+
+            XCTAssertEqual(closedRangeNode.children.count, 3)
+            XCTAssertEqual(closedRangeNode.children.map(\.text), ["STEP 1", "STEP 2", "STEP 3"].map(Optional.some))
+            XCTAssertEqual(closedRangeNode.children[0].nodeTag, "1:0")
+            XCTAssertEqual(closedRangeNode.children[2].nodeTag, "3:0")
         }
     }
 
@@ -736,6 +749,16 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.nodeTag, "7")
             XCTAssertEqual(node.text, "TAGGED")
+        }
+    }
+
+    func testIdModifierAcceptsHashableValues() async {
+        await MainActor.run {
+            let numericNode = makeNode(Text("NUMERIC").id(42))
+            let stringNode = makeNode(Text("STRING").id("stable-row"))
+
+            XCTAssertEqual(numericNode.nodeTag, "42")
+            XCTAssertEqual(stringNode.nodeTag, "stable-row")
         }
     }
 

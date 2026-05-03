@@ -66,6 +66,10 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
         self.init(data, id: \.self, content: content)
     }
 
+    public init(_ data: ClosedRange<Int>, @ViewBuilder content: (Int) -> [AnyView]) where Data == ClosedRange<Int>, ID == Int {
+        self.init(data, id: \.self, content: content)
+    }
+
     public var body: Never {
         fatalError("ForEach has no body")
     }

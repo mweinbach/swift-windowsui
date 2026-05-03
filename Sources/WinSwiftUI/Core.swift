@@ -2162,11 +2162,11 @@ public extension View {
 
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
-    func id(_ identifier: String) -> some View {
+    func id<ID: Hashable>(_ identifier: ID) -> some View {
         var modified = ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
         }
-        modified.id = identifier
+        modified.id = String(describing: identifier)
         return modified
     }
 

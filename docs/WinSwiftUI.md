@@ -89,6 +89,7 @@ Views and containers:
   - `ButtonRole.cancel`
 - `TextField`
 - `SecureField`
+- `TextEditor`
 - `Toggle`
 - `Picker`
   - `.pickerStyle(.segmented)`
@@ -215,7 +216,7 @@ Surface direction:
 - `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
 - `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
 - `Menu` maps to a retained menu button and an inline retained action stack. It preserves SwiftUI-shaped menu syntax and button actions, but does not yet present as a native popup overlay.
-- `TextField` and `SecureField` map a `Binding<String>` to a retained focusable input surface with placeholder rendering and basic virtual-key text insertion/backspace. `SecureField` masks the displayed value. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.
+- `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion/backspace. `TextField` and `SecureField` provide placeholder rendering, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.

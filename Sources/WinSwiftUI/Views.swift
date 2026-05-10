@@ -1083,7 +1083,14 @@ public struct TextField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        textInputComponent(title: title, text: text, isSecure: false, context: context)
+        textInputComponent(
+            title: title,
+            text: text,
+            isSecure: false,
+            allowsNewlines: false,
+            preferredSize: Size(width: 220, height: 36),
+            context: context
+        )
     }
 }
 
@@ -1108,15 +1115,50 @@ public struct SecureField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        textInputComponent(title: title, text: text, isSecure: true, context: context)
+        textInputComponent(
+            title: title,
+            text: text,
+            isSecure: true,
+            allowsNewlines: false,
+            preferredSize: Size(width: 220, height: 36),
+            context: context
+        )
+    }
+}
+
+@MainActor
+public struct TextEditor: View {
+    public typealias Body = Never
+
+    private let text: Binding<String>
+
+    public init(text: Binding<String>) {
+        self.text = text
+    }
+
+    public var body: Never {
+        fatalError("TextEditor has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        textInputComponent(
+            title: nil,
+            text: text,
+            isSecure: false,
+            allowsNewlines: true,
+            preferredSize: Size(width: 260, height: 120),
+            context: context
+        )
     }
 }
 
 @MainActor
 private func textInputComponent(
-    title: String,
+    title: String?,
     text: Binding<String>,
     isSecure: Bool,
+    allowsNewlines: Bool,
+    preferredSize: Size,
     context: ViewBuildContext
 ) -> Component {
     let binding = text
@@ -1135,7 +1177,7 @@ private func textInputComponent(
         }
 
         let labelNode = Controls.label(
-            isShowingPlaceholder ? placeholder : displayText,
+            isShowingPlaceholder ? (placeholder ?? "") : displayText,
             color: textColor,
             scale: context.font.resolvedScale,
             weight: (context.fontWeight ?? context.font.weight).textWeight,
@@ -1143,11 +1185,11 @@ private func textInputComponent(
             nativeFontSize: context.font.resolvedNativeTextSize,
             alignment: context.textAlignment.horizontalAlignment.textAlignment,
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-            lineBreakMode: .truncateTail,
-            maximumNumberOfLines: 1
+            lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
+            maximumNumberOfLines: allowsNewlines ? nil : 1
         )
         let node = Controls.stackPanel(
-            preferredSize: Size(width: 220, height: 36),
+            preferredSize: preferredSize,
             backgroundColor: context.isEnabled
                 ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
                 : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
@@ -1187,7 +1229,7 @@ private func textInputComponent(
                 return
             }
 
-            guard let character = textFieldInsertedCharacter(for: event) else {
+            guard let character = textFieldInsertedCharacter(for: event, allowsNewlines: allowsNewlines) else {
                 return
             }
 
@@ -2384,7 +2426,11 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
     }
 }
 
-private func textFieldInsertedCharacter(for event: KeyboardEvent) -> String? {
+private func textFieldInsertedCharacter(for event: KeyboardEvent, allowsNewlines: Bool) -> String? {
+    if event.key == .enter {
+        return allowsNewlines ? "\n" : nil
+    }
+
     if event.key == .space {
         return " "
     }

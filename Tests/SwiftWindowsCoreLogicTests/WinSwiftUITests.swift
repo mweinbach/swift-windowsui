@@ -181,6 +181,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextEditorSupportsBasicMultilineBindingInput() async {
+        await MainActor.run {
+            var value = "hi"
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(TextEditor(text: binding))
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertEqual(node.preferredSize, Size(width: 260, height: 120))
+            XCTAssertEqual(node.children[0].text, "hi")
+            XCTAssertNil(node.children[0].textStyle.maximumNumberOfLines)
+            XCTAssertEqual(node.children[0].textStyle.lineBreakMode, .wrap)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41, modifiers: [.shift]))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x42))
+
+            XCTAssertEqual(value, "hi\nAb")
+
+            let updatedNode = makeNode(TextEditor(text: binding))
+
+            XCTAssertEqual(updatedNode.children[0].text, "hi\nAb")
+        }
+    }
+
     func testRectangleAndRoundedRectangleMapToRetainedShapeNodes() async {
         await MainActor.run {
             let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)

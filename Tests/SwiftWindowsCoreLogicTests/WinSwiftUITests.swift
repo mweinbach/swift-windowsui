@@ -362,6 +362,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPaddingAcceptsSwiftUIOptionalLengthOverloads() async {
+        await MainActor.run {
+            let allPaddingNode = makeNode(Text("ALL").padding(nil))
+            let horizontalPaddingNode = makeNode(Text("HORIZONTAL").padding(.horizontal, nil))
+
+            guard case .stack(let allPaddingLayout) = allPaddingNode.layoutMode else {
+                return XCTFail("Expected padding to wrap content in a stack layout")
+            }
+            guard case .stack(let horizontalPaddingLayout) = horizontalPaddingNode.layoutMode else {
+                return XCTFail("Expected edge padding to wrap content in a stack layout")
+            }
+
+            XCTAssertEqual(allPaddingLayout, .vertical(padding: .all(16), alignment: .stretch))
+            XCTAssertEqual(
+                horizontalPaddingLayout,
+                .vertical(
+                    padding: EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16),
+                    alignment: .stretch
+                )
+            )
+        }
+    }
+
     func testFixedSizeMapsToRetainedMeasurementAxes() async {
         await MainActor.run {
             let defaultFixedNode = makeNode(Text("BOTH").fixedSize())

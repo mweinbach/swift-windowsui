@@ -1711,6 +1711,10 @@ public extension View {
         padding(EdgeInsets.all(length))
     }
 
+    func padding(_ length: Double?) -> some View {
+        padding(length ?? 16)
+    }
+
     func padding(_ edges: Edge.Set, _ length: Double = 16) -> some View {
         padding(
             EdgeInsets(
@@ -1720,6 +1724,10 @@ public extension View {
                 trailing: edges.contains(.trailing) ? length : 0
             )
         )
+    }
+
+    func padding(_ edges: Edge.Set, _ length: Double?) -> some View {
+        padding(edges, length ?? 16)
     }
 
     func padding(_ insets: EdgeInsets) -> some View {

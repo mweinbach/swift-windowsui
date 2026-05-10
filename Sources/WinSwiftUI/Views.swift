@@ -804,12 +804,22 @@ public struct Form: View {
 public struct Section: View {
     public typealias Body = Never
 
-    private let title: String
+    private let header: [AnyView]
+    private let footer: [AnyView]
     private let style: SectionStyle
     private let content: [AnyView]
 
     public init(_ title: String, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
-        self.title = title
+        self.header = [
+            AnyView(
+                Text(title)
+                    .foregroundColor(style.headerColor)
+                    .font(style.headerFont)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.footer = []
         self.style = style
         self.content = content()
     }
@@ -818,31 +828,82 @@ public struct Section: View {
         self.init(titleKey.resolvedString, style: style, content: content)
     }
 
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.header = []
+        self.footer = []
+        self.style = .default
+        self.content = content()
+    }
+
+    public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder header: () -> [AnyView]
+    ) {
+        self.header = header()
+        self.footer = []
+        self.style = .default
+        self.content = content()
+    }
+
+    public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder header: () -> [AnyView],
+        @ViewBuilder footer: () -> [AnyView]
+    ) {
+        self.header = header()
+        self.footer = footer()
+        self.style = .default
+        self.content = content()
+    }
+
     public var body: Never {
         fatalError("Section has no body")
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.section(
-                title: title,
+            let headerContext = context
+                .withForegroundColor(style.headerColor)
+                .withFont(style.headerFont)
+                .withTextAlignment(.leading)
+                .withLineLimit(1)
+            let footerContext = context
+                .withForegroundColor(.secondary)
+                .withFont(.caption)
+                .withTextAlignment(.leading)
+
+            let children =
+                header.map { $0.makeComponent(context: headerContext).makeNode(runtime: runtime) } +
+                content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) } +
+                footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
+
+            let node = Controls.stackPanel(
                 backgroundColor: style.backgroundColor,
                 backgroundGradient: style.backgroundGradient,
                 borderColor: style.borderColor,
+                borderWidth: 1,
                 shadowColor: style.shadowColor,
+                shadowOffset: Point(x: 0, y: 20),
+                shadowSpread: 10,
                 cornerRadius: style.cornerRadius,
+                clipsToBounds: true,
                 stackLayout: .vertical(spacing: style.spacing, padding: style.padding, alignment: style.alignment.stackAlignment),
-                scrollAxis: style.scrollAxis?.scrollAxis,
-                scrollStep: style.scrollStep,
-                scrollIndicatorColor: style.indicatorColor,
-                scrollIndicatorHoverColor: style.indicatorHoverColor,
-                scrollIndicatorActiveColor: style.indicatorActiveColor,
-                scrollIndicatorThickness: style.indicatorThickness,
-                headerColor: style.headerColor,
-                headerScale: style.headerFont.size,
                 isHitTestVisible: style.isHitTestVisible,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: children
             )
+
+            if let scrollAxis = style.scrollAxis?.scrollAxis {
+                node.scrollAxis = scrollAxis
+                node.scrollStep = style.scrollStep
+                node.showsScrollIndicator = true
+                node.scrollIndicatorColor = style.indicatorColor
+                node.scrollIndicatorIdleColor = style.indicatorColor
+                node.scrollIndicatorHoverColor = style.indicatorHoverColor
+                node.scrollIndicatorActiveColor = style.indicatorActiveColor
+                node.scrollIndicatorThickness = style.indicatorThickness
+            }
+
+            return node
         }
     }
 }

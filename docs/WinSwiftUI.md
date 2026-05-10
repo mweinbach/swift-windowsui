@@ -80,6 +80,7 @@ Views and containers:
 - `List`
 - `Form`
 - `Section`
+  - `Section { content } header: { header } footer: { footer }`
 - `GroupBox`
 - `DisclosureGroup`
 - `HSplitView`
@@ -191,6 +192,7 @@ Surface direction:
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
+- `Section` supports title, header, footer, and content-only forms, all mapped to the retained vertical section panel.
 - `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.

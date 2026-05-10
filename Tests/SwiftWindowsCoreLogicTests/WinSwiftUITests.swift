@@ -948,6 +948,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSectionSupportsHeaderFooterBuilderSyntax() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("ROW")
+                } header: {
+                    Text("HEADER")
+                } footer: {
+                    Text("FOOTER")
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected Section to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .vertical(spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18), alignment: .leading))
+            XCTAssertEqual(node.borderWidth, 1)
+            XCTAssertEqual(node.cornerRadius, 28)
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].text, "HEADER")
+            XCTAssertEqual(node.children[1].text, "ROW")
+            XCTAssertEqual(node.children[2].text, "FOOTER")
+            XCTAssertEqual(node.children[0].textStyle.color, SectionStyle.default.headerColor)
+            XCTAssertEqual(node.children[2].textStyle.color, .secondary)
+        }
+    }
+
+    func testSectionContentOnlySyntaxBuildsRowsWithoutHeader() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertEqual(node.children[1].text, "TWO")
+        }
+    }
+
     func testGroupBoxMapsToRetainedPanelWithTitleAndContent() async {
         await MainActor.run {
             let node = makeNode(

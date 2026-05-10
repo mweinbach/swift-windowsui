@@ -213,7 +213,7 @@ Surface direction:
 - `TabView` renders retained tab chrome from `.tabItem` labels, shows the first page by default, and shows the page whose `.tag(_:)` matches the `selection:` binding. Activating a tab updates local selection state or writes through a tagged `selection:` binding, but platform-specific tab styling and overflow behavior are still minimal.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
-- `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
+- `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` are accepted for source compatibility but currently pass through unchanged for icon glyph rendering; bitmap image sizing is not implemented yet.

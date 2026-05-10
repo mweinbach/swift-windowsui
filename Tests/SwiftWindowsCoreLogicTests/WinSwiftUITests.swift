@@ -9,8 +9,10 @@ import SwiftWindowsLayout
 private struct PointerHandlerProbe: View {
     typealias Body = Never
 
-    let onEnter: () -> Void
-    let onExit: () -> Void
+    var onEnter: (() -> Void)? = nil
+    var onExit: (() -> Void)? = nil
+    var onUpInside: (() -> Void)? = nil
+    var onUpOutside: (() -> Void)? = nil
 
     var body: Never {
         fatalError("PointerHandlerProbe has no body")
@@ -21,6 +23,8 @@ private struct PointerHandlerProbe: View {
             let node = Controls.panel(preferredSize: Size(width: 80, height: 24))
             node.onPointerEnter = onEnter
             node.onPointerExit = onExit
+            node.onPointerUpInside = onUpInside
+            node.onPointerUpOutside = onUpOutside
             return node
         }
     }
@@ -2656,6 +2660,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnTapGestureCountRequiresConsecutiveInsideTaps() async {
+        await MainActor.run {
+            var tapCount = 0
+            let node = makeNode(
+                Text("TAP")
+                    .onTapGesture(count: 2) {
+                        tapCount += 1
+                    }
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 0)
+
+            node.onPointerUpOutside?()
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 0)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 1)
+
+            node.onPointerUpInside?()
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 2)
+        }
+    }
+
     func testOnTapGesturePreservesExistingPointerUpHandler() async {
         await MainActor.run {
             var buttonActionCount = 0
@@ -2676,6 +2708,37 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(tapCount, 1)
             XCTAssertEqual(buttonActionCount, 1)
+        }
+    }
+
+    func testOnTapGestureCountPreservesExistingPointerUpHandlers() async {
+        await MainActor.run {
+            var insideCount = 0
+            var outsideCount = 0
+            var tapCount = 0
+            let node = makeNode(
+                PointerHandlerProbe(
+                    onUpInside: {
+                        insideCount += 1
+                    },
+                    onUpOutside: {
+                        outsideCount += 1
+                    }
+                )
+                .onTapGesture(count: 3) {
+                    tapCount += 1
+                }
+            )
+
+            node.onPointerUpInside?()
+            node.onPointerUpOutside?()
+            node.onPointerUpInside?()
+            node.onPointerUpInside?()
+            node.onPointerUpInside?()
+
+            XCTAssertEqual(insideCount, 4)
+            XCTAssertEqual(outsideCount, 1)
+            XCTAssertEqual(tapCount, 1)
         }
     }
 

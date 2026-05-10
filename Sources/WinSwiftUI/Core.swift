@@ -2772,18 +2772,28 @@ public extension View {
     func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
+            let requiredTapCount = max(1, count)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isHitTestVisible = true
-
-                guard count == 1 else {
-                    return childNode
-                }
+                var tapProgress = 0
 
                 let existingOnPointerUpInside = childNode.onPointerUpInside
                 childNode.onPointerUpInside = {
                     existingOnPointerUpInside?()
+                    tapProgress += 1
+                    guard tapProgress >= requiredTapCount else {
+                        return
+                    }
+
+                    tapProgress = 0
                     action()
+                }
+
+                let existingOnPointerUpOutside = childNode.onPointerUpOutside
+                childNode.onPointerUpOutside = {
+                    existingOnPointerUpOutside?()
+                    tapProgress = 0
                 }
                 return childNode
             }

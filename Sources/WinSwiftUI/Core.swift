@@ -1096,6 +1096,28 @@ public extension View {
         }
     }
 
+    func opacity(_ opacity: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.opacity = max(0, min(1, opacity))
+                return childNode
+            }
+        }
+    }
+
+    func hidden(_ shouldHide: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHidden = shouldHide
+                return childNode
+            }
+        }
+    }
+
     func disabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnabled(!disabled))

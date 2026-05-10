@@ -208,6 +208,28 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOpacityModifierClampsAndMapsToNodeOpacity() async {
+        await MainActor.run {
+            let fadedNode = makeNode(Text("FADED").opacity(0.42))
+            let overbrightNode = makeNode(Text("BRIGHT").opacity(2.0))
+            let invisibleNode = makeNode(Text("GONE").opacity(-1.0))
+
+            XCTAssertEqual(fadedNode.opacity, 0.42)
+            XCTAssertEqual(overbrightNode.opacity, 1.0)
+            XCTAssertEqual(invisibleNode.opacity, 0.0)
+        }
+    }
+
+    func testHiddenModifierMapsToRetainedNodeVisibility() async {
+        await MainActor.run {
+            let hiddenNode = makeNode(Text("SECRET").hidden())
+            let visibleNode = makeNode(Text("VISIBLE").hidden(false))
+
+            XCTAssertTrue(hiddenNode.isHidden)
+            XCTAssertFalse(visibleNode.isHidden)
+        }
+    }
+
     func testDisabledButtonDoesNotActivate() async {
         await MainActor.run {
             var didRunAction = false

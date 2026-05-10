@@ -329,13 +329,30 @@ public enum ColorScheme: Sendable, Equatable {
     case dark
 }
 
-public struct EnvironmentValues: Sendable {
+public protocol EnvironmentKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+}
+
+public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var isEnabled: Bool
+    private var customValues: [ObjectIdentifier: Any]
 
     public init(colorScheme: ColorScheme = .dark, isEnabled: Bool = true) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
+        self.customValues = [:]
+    }
+
+    public subscript<Key: EnvironmentKey>(_ key: Key.Type) -> Key.Value {
+        get {
+            customValues[ObjectIdentifier(key)] as? Key.Value ?? Key.defaultValue
+        }
+        set {
+            customValues[ObjectIdentifier(key)] = newValue
+        }
     }
 }
 

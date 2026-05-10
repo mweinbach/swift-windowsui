@@ -34,6 +34,17 @@ private struct NavigationDestinationItem: Identifiable {
     let id: String
 }
 
+private struct TestEnvironmentLabelKey: EnvironmentKey {
+    static let defaultValue = "DEFAULT"
+}
+
+private extension EnvironmentValues {
+    var testEnvironmentLabel: String {
+        get { self[TestEnvironmentLabelKey.self] }
+        set { self[TestEnvironmentLabelKey.self] = newValue }
+    }
+}
+
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -2427,6 +2438,39 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(lightNode.text, "ENABLED LIGHT")
             XCTAssertEqual(preferredLightNode.text, "ENABLED LIGHT")
             XCTAssertEqual(inheritedNode.text, "ENABLED LIGHT")
+        }
+    }
+
+    func testCustomEnvironmentKeysPropagateThroughViewContext() async {
+        await MainActor.run {
+            struct CustomEnvironmentReaderView: View {
+                @Environment(\.testEnvironmentLabel) var label
+
+                var body: some View {
+                    Text(label)
+                }
+            }
+
+            let defaultNode = makeNode(CustomEnvironmentReaderView())
+            let overriddenNode = makeNode(
+                VStack {
+                    CustomEnvironmentReaderView()
+                }
+                .environment(\.testEnvironmentLabel, "OVERRIDE")
+            )
+            let nestedOverrideNode = makeNode(
+                VStack {
+                    CustomEnvironmentReaderView()
+                    CustomEnvironmentReaderView()
+                        .environment(\.testEnvironmentLabel, "INNER")
+                }
+                .environment(\.testEnvironmentLabel, "OUTER")
+            )
+
+            XCTAssertEqual(defaultNode.text, "DEFAULT")
+            XCTAssertEqual(overriddenNode.children[0].text, "OVERRIDE")
+            XCTAssertEqual(nestedOverrideNode.children[0].text, "OUTER")
+            XCTAssertEqual(nestedOverrideNode.children[1].text, "INNER")
         }
     }
 

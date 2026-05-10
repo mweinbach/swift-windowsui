@@ -1379,6 +1379,9 @@ public struct Slider: View {
     private let bounds: ClosedRange<Double>
     private let step: Double?
     private let onEditingChanged: @MainActor (Bool) -> Void
+    private let label: [AnyView]
+    private let minimumValueLabel: [AnyView]
+    private let maximumValueLabel: [AnyView]
 
     public init(
         value: Binding<Double>,
@@ -1389,6 +1392,9 @@ public struct Slider: View {
         self.bounds = bounds
         self.step = nil
         self.onEditingChanged = onEditingChanged
+        self.label = []
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
     }
 
     public init(
@@ -1401,6 +1407,44 @@ public struct Slider: View {
         self.bounds = bounds
         self.step = step
         self.onEditingChanged = onEditingChanged
+        self.label = []
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init<MinimumValueLabel: View, MaximumValueLabel: View>(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        minimumValueLabel: MinimumValueLabel,
+        maximumValueLabel: MaximumValueLabel,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = nil
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = [AnyView(minimumValueLabel)]
+        self.maximumValueLabel = [AnyView(maximumValueLabel)]
+    }
+
+    public init<MinimumValueLabel: View, MaximumValueLabel: View>(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        step: Double,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        minimumValueLabel: MinimumValueLabel,
+        maximumValueLabel: MaximumValueLabel,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = step
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = [AnyView(minimumValueLabel)]
+        self.maximumValueLabel = [AnyView(maximumValueLabel)]
     }
 
     public var body: Never {
@@ -1412,13 +1456,35 @@ public struct Slider: View {
         let range = bounds
         let step = step
         let onEditingChanged = onEditingChanged
+        let labelViews = label
+        let minimumLabelViews = minimumValueLabel
+        let maximumLabelViews = maximumValueLabel
+        let labelComponent = composeComponent(
+            from: labelViews,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let minimumLabelComponent = composeComponent(
+            from: minimumLabelViews,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let maximumLabelComponent = composeComponent(
+            from: maximumLabelViews,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
 
         return Component { runtime in
-            Controls.slider(
+            let sliderNode = Controls.slider(
                 runtime: runtime,
                 value: binding.wrappedValue,
                 range: range,
                 isEnabled: context.isEnabled,
+                layoutPriority: minimumLabelViews.isEmpty && maximumLabelViews.isEmpty ? 0 : 1,
                 filledColor: context.tint,
                 onValueChanged: { newValue in
                     binding.wrappedValue = Self.snappedValue(newValue, in: range, step: step)
@@ -1427,6 +1493,36 @@ public struct Slider: View {
                 onEditingChanged: { isEditing in
                     onEditingChanged(isEditing)
                 }
+            )
+
+            guard !labelViews.isEmpty || !minimumLabelViews.isEmpty || !maximumLabelViews.isEmpty else {
+                return sliderNode
+            }
+
+            var rowChildren: [ViewNode] = []
+            if !minimumLabelViews.isEmpty {
+                rowChildren.append(minimumLabelComponent.makeNode(runtime: runtime))
+            }
+            rowChildren.append(sliderNode)
+            if !maximumLabelViews.isEmpty {
+                rowChildren.append(maximumLabelComponent.makeNode(runtime: runtime))
+            }
+
+            let rowNode = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 8, alignment: .center),
+                isHitTestVisible: false,
+                children: rowChildren
+            )
+
+            guard !labelViews.isEmpty else {
+                return rowNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 6, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [labelNode, rowNode]
             )
         }
     }

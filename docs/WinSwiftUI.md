@@ -92,6 +92,7 @@ Views and containers:
 - `Stepper`
 - `Slider`
   - `Slider(value:in:step:onEditingChanged:)`
+  - minimum, maximum, and main label overloads
 - `ProgressView`
   - title and label overloads
 
@@ -196,7 +197,7 @@ Surface direction:
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
 - `Picker` maps tagged child content into a retained segmented selection group by default and writes through a SwiftUI-shaped `Binding` when an option activates. `.tag(_:)` supplies the SwiftUI-style selection value; untagged options fall back to integer indices for `Binding<Int>` pickers. `.pickerStyle(.menu)` maps the same tagged options into the retained dropdown control using the first retained text node as the option title.
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
-- `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle.
+- `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle. Minimum, maximum, and main label overloads wrap the retained slider in small retained stacks while preserving the same binding/editing behavior.
 - `ProgressView(value:total:)` maps into the retained progress bar control; title and builder-label overloads wrap that retained bar in a small retained stack.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.

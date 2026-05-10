@@ -251,6 +251,65 @@ public struct Group: View {
 }
 
 @MainActor
+public struct NavigationStack: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder root: () -> [AnyView]) {
+        self.content = root()
+    }
+
+    public init(path: Binding<NavigationPath>, @ViewBuilder root: () -> [AnyView]) {
+        _ = path
+        self.content = root()
+    }
+
+    public init<Data>(
+        path: Binding<Data>,
+        @ViewBuilder root: () -> [AnyView]
+    ) where Data: MutableCollection & RandomAccessCollection & RangeReplaceableCollection, Data.Element: Hashable {
+        _ = path
+        self.content = root()
+    }
+
+    public var body: Never {
+        fatalError("NavigationStack has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+}
+
+@MainActor
+public struct NavigationView: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("NavigationView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+}
+
+@MainActor
 public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     public typealias Body = Never
 

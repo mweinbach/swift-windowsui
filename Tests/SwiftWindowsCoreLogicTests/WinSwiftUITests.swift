@@ -1229,6 +1229,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationContainersPassThroughRootContent() async {
+        await MainActor.run {
+            var path = NavigationPath()
+            path.append("detail")
+            path.removeLast()
+
+            let stackNode = makeNode(
+                NavigationStack(path: Binding.constant(path)) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("ROOT")
+                        Text("DETAIL")
+                    }
+                    .navigationTitle(Text("HOME"))
+                    .navigationBarTitleDisplayMode(.inline)
+                }
+            )
+            let genericPathNode = makeNode(
+                NavigationStack(path: Binding.constant([1, 2])) {
+                    Text("GENERIC")
+                        .navigationTitle("GENERIC TITLE")
+                }
+            )
+            let legacyNode = makeNode(
+                NavigationView {
+                    Text("LEGACY")
+                        .navigationBarTitle("LEGACY TITLE", displayMode: .large)
+                }
+            )
+
+            guard case .stack(let stackLayout) = stackNode.layoutMode else {
+                return XCTFail("Expected NavigationStack root content to render directly")
+            }
+
+            XCTAssertTrue(path.isEmpty)
+            XCTAssertEqual(stackLayout, .vertical(spacing: 3, alignment: .leading))
+            XCTAssertEqual(stackNode.children.count, 2)
+            XCTAssertEqual(stackNode.children[0].text, "ROOT")
+            XCTAssertEqual(stackNode.children[1].text, "DETAIL")
+            XCTAssertEqual(genericPathNode.text, "GENERIC")
+            XCTAssertEqual(legacyNode.text, "LEGACY")
+        }
+    }
+
     func testForEachFlattensInsideStackAndAssignsStableIDs() async {
         await MainActor.run {
             let node = makeNode(

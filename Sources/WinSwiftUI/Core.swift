@@ -154,6 +154,38 @@ public struct FillStyle: Sendable, Equatable {
     }
 }
 
+public struct NavigationPath: Equatable {
+    private var elements: [AnyHashable]
+
+    public init() {
+        self.elements = []
+    }
+
+    public var count: Int {
+        elements.count
+    }
+
+    public var isEmpty: Bool {
+        elements.isEmpty
+    }
+
+    public mutating func append<Value: Hashable>(_ value: Value) {
+        elements.append(AnyHashable(value))
+    }
+
+    public mutating func removeLast(_ count: Int = 1) {
+        elements.removeLast(Swift.min(Swift.max(0, count), elements.count))
+    }
+}
+
+public enum NavigationBarItem {
+    public enum TitleDisplayMode: Sendable, Equatable {
+        case automatic
+        case inline
+        case large
+    }
+}
+
 @MainActor
 public protocol ObservableObject: AnyObject {}
 
@@ -2015,6 +2047,44 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withPickerStyle(style))
         }
+    }
+
+    func navigationTitle<S: StringProtocol>(_ title: S) -> some View {
+        _ = title
+        return self
+    }
+
+    func navigationTitle(_ titleKey: LocalizedStringKey) -> some View {
+        _ = titleKey
+        return self
+    }
+
+    func navigationTitle(_ title: Text) -> some View {
+        _ = title
+        return self
+    }
+
+    func navigationBarTitle<S: StringProtocol>(
+        _ title: S,
+        displayMode: NavigationBarItem.TitleDisplayMode = .automatic
+    ) -> some View {
+        _ = title
+        _ = displayMode
+        return self
+    }
+
+    func navigationBarTitle(
+        _ title: Text,
+        displayMode: NavigationBarItem.TitleDisplayMode = .automatic
+    ) -> some View {
+        _ = title
+        _ = displayMode
+        return self
+    }
+
+    func navigationBarTitleDisplayMode(_ displayMode: NavigationBarItem.TitleDisplayMode) -> some View {
+        _ = displayMode
+        return self
     }
 
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {

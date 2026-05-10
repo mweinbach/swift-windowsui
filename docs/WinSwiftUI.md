@@ -85,6 +85,7 @@ Views and containers:
   - `ButtonRole.cancel`
 - `Toggle`
 - `Slider`
+  - `Slider(value:in:step:onEditingChanged:)`
 - `ProgressView`
 
 Modifiers:
@@ -182,7 +183,7 @@ Surface direction:
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Button(_:systemImage:...)` maps into the existing retained button path with a `Label`; `.buttonStyle` propagates through `ViewBuildContext`, with `.bordered` and `.borderedProminent` mapping to the default retained button chrome and `.borderless` mapping to plain chrome.
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
-- `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`.
+- `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle.
 - `ProgressView(value:total:)` maps into the retained progress bar control.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.

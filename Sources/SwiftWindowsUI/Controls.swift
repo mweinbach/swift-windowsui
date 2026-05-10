@@ -978,7 +978,8 @@ public enum Controls {
             pressed: .clear
         ),
         chrome: SurfaceChrome = SurfaceChrome(focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
-        onValueChanged: ((Double) -> Void)? = nil
+        onValueChanged: ((Double) -> Void)? = nil,
+        onEditingChanged: ((Bool) -> Void)? = nil
     ) -> ViewNode {
         let sliderWidth = preferredSize?.width ?? 200
         let trackHeight: Double = 6
@@ -1044,6 +1045,7 @@ public enum Controls {
             sliderRoot.onDragStart = { point in
                 state.startX = point.x
                 state.startValue = clampedValue
+                onEditingChanged?(true)
             }
             sliderRoot.onDragChange = { _, delta in
                 let deltaRatio = delta.x / max(1, usableTrackWidth)
@@ -1051,7 +1053,9 @@ public enum Controls {
                 let newValue = min(max(state.startValue + deltaRatio * rangeSpan, range.lowerBound), range.upperBound)
                 onValueChanged?(newValue)
             }
-            sliderRoot.onDragEnd = { _, _ in }
+            sliderRoot.onDragEnd = { _, _ in
+                onEditingChanged?(false)
+            }
         }
 
         return sliderRoot

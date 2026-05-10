@@ -850,10 +850,30 @@ public struct Slider: View {
 
     private let value: Binding<Double>
     private let bounds: ClosedRange<Double>
+    private let step: Double?
+    private let onEditingChanged: @MainActor (Bool) -> Void
 
-    public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1) {
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
         self.value = value
         self.bounds = bounds
+        self.step = nil
+        self.onEditingChanged = onEditingChanged
+    }
+
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        step: Double,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = step
+        self.onEditingChanged = onEditingChanged
     }
 
     public var body: Never {
@@ -863,6 +883,8 @@ public struct Slider: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let binding = value
         let range = bounds
+        let step = step
+        let onEditingChanged = onEditingChanged
 
         return Component { runtime in
             Controls.slider(
@@ -872,11 +894,30 @@ public struct Slider: View {
                 isEnabled: context.isEnabled,
                 filledColor: context.tint,
                 onValueChanged: { newValue in
-                    binding.wrappedValue = newValue
+                    binding.wrappedValue = Self.snappedValue(newValue, in: range, step: step)
                     context.invalidate()
+                },
+                onEditingChanged: { isEditing in
+                    onEditingChanged(isEditing)
                 }
             )
         }
+    }
+
+    private static func snappedValue(_ value: Double, in bounds: ClosedRange<Double>, step: Double?) -> Double {
+        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
+        guard let step, step.isFinite, step > 0 else {
+            return clampedValue
+        }
+        if clampedValue <= bounds.lowerBound {
+            return bounds.lowerBound
+        }
+        if clampedValue >= bounds.upperBound {
+            return bounds.upperBound
+        }
+
+        let snapped = ((clampedValue - bounds.lowerBound) / step).rounded() * step + bounds.lowerBound
+        return min(max(snapped, bounds.lowerBound), bounds.upperBound)
     }
 }
 

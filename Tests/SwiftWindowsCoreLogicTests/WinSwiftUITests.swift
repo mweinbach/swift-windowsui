@@ -846,6 +846,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSliderStepInitializerSnapsValuesAndReportsEditingChanges() async {
+        await MainActor.run {
+            var value = 0.0
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...10,
+                    step: 2,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    }
+                )
+            )
+
+            node.onDragStart?(Point(x: 0, y: 0))
+            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            node.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 6.0, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false])
+        }
+    }
+
+    func testSliderStepInitializerClampsAtRangeBounds() async {
+        await MainActor.run {
+            var upperValue = 9.0
+            var lowerValue = 1.0
+
+            let upperNode = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { upperValue },
+                        set: { upperValue = $0 }
+                    ),
+                    in: 0...10,
+                    step: 3
+                )
+            )
+            let lowerNode = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { lowerValue },
+                        set: { lowerValue = $0 }
+                    ),
+                    in: 0...10,
+                    step: 3
+                )
+            )
+
+            upperNode.onDragStart?(Point(x: 0, y: 0))
+            upperNode.onDragChange?(Point(x: 182, y: 0), Point(x: 182, y: 0))
+            lowerNode.onDragStart?(Point(x: 0, y: 0))
+            lowerNode.onDragChange?(Point(x: -182, y: 0), Point(x: -182, y: 0))
+
+            XCTAssertEqual(upperValue, 10.0, accuracy: 0.001)
+            XCTAssertEqual(lowerValue, 0.0, accuracy: 0.001)
+        }
+    }
+
     func testProgressViewMapsToProgressBarNode() async {
         await MainActor.run {
             let node = makeNode(ProgressView(value: 0.25, total: 1.0))

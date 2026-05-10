@@ -1300,6 +1300,8 @@ public struct Image: View {
     private var resizingMode: ResizingMode
     private var aspectRatioValue: Double?
     private var contentMode: ContentMode?
+    private var accessibilityLabel: String?
+    private var isAccessibilityHidden: Bool
 
     public init(systemName: String) {
         self.init(storage: .systemName(systemName))
@@ -1315,12 +1317,13 @@ public struct Image: View {
     }
 
     public init(_ name: String, bundle: Bundle? = nil, label: Text) {
-        _ = label
         self.init(name, bundle: bundle)
+        self.accessibilityLabel = label.plainContent
     }
 
     public init(decorative name: String, bundle: Bundle? = nil) {
         self.init(name, bundle: bundle)
+        self.isAccessibilityHidden = true
     }
 
     private init(storage: Storage) {
@@ -1332,6 +1335,8 @@ public struct Image: View {
         self.resizingMode = .stretch
         self.aspectRatioValue = nil
         self.contentMode = nil
+        self.accessibilityLabel = nil
+        self.isAccessibilityHidden = false
     }
 
     public var body: Never {
@@ -1348,22 +1353,28 @@ public struct Image: View {
             let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
             let preferredSize = resolvedPreferredSize(baseSize: baseSize, requiresExplicitOptIn: true)
             return Component { _ in
-                Controls.icon(
+                let node = Controls.icon(
                     symbol,
                     preferredSize: preferredSize,
                     color: resolvedColor,
                     scale: resolvedScale,
                     alignment: alignment.horizontalAlignment.textAlignment
                 )
+                applyAccessibility(to: node)
+                return node
             }
         case .bitmap(let bitmap):
             let preferredSize = resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
             return Component { _ in
                 guard let bitmap else {
-                    return Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
+                    let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
+                    applyAccessibility(to: node)
+                    return node
                 }
 
-                return Controls.image(bitmap, preferredSize: preferredSize)
+                let node = Controls.image(bitmap, preferredSize: preferredSize)
+                applyAccessibility(to: node)
+                return node
             }
         }
     }
@@ -1471,11 +1482,22 @@ public struct Image: View {
 
         return nil
     }
+
+    private func applyAccessibility(to node: ViewNode) {
+        node.accessibilityLabel = accessibilityLabel
+        node.isAccessibilityHidden = isAccessibilityHidden
+    }
 }
 
 private extension BitmapSurface {
     var logicalSize: Size {
         Size(width: Double(width), height: Double(height))
+    }
+}
+
+extension Text {
+    var plainContent: String {
+        content
     }
 }
 

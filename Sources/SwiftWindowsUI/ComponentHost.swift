@@ -154,6 +154,11 @@ public final class ComponentHost {
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
+        if target.accessibilityLabel != source.accessibilityLabel { target.accessibilityLabel = source.accessibilityLabel }
+        if target.accessibilityValue != source.accessibilityValue { target.accessibilityValue = source.accessibilityValue }
+        if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
+        if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
+        if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

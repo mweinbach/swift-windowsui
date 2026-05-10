@@ -404,6 +404,26 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var accessibilityLabel: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityValue: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityHint: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityIdentifier: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityHidden: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -502,6 +522,11 @@ public final class ViewNode {
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
+        accessibilityLabel: String? = nil,
+        accessibilityValue: String? = nil,
+        accessibilityHint: String? = nil,
+        accessibilityIdentifier: String? = nil,
+        isAccessibilityHidden: Bool = false,
         paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
@@ -543,6 +568,11 @@ public final class ViewNode {
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
+        self.accessibilityLabel = accessibilityLabel
+        self.accessibilityValue = accessibilityValue
+        self.accessibilityHint = accessibilityHint
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.isAccessibilityHidden = isAccessibilityHidden
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil

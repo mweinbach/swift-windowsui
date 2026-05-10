@@ -3210,6 +3210,97 @@ public extension View {
         }
     }
 
+    func accessibilityLabel<S: StringProtocol>(_ label: S) -> some View {
+        accessibilityLabelText(String(label))
+    }
+
+    func accessibilityLabel(_ labelKey: LocalizedStringKey) -> some View {
+        accessibilityLabelText(labelKey.resolvedString)
+    }
+
+    func accessibilityLabel(_ label: Text) -> some View {
+        accessibilityLabelText(label.plainContent)
+    }
+
+    private func accessibilityLabelText(_ label: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityLabel = label
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityValue<S: StringProtocol>(_ value: S) -> some View {
+        accessibilityValueText(String(value))
+    }
+
+    func accessibilityValue(_ valueKey: LocalizedStringKey) -> some View {
+        accessibilityValueText(valueKey.resolvedString)
+    }
+
+    func accessibilityValue(_ value: Text) -> some View {
+        accessibilityValueText(value.plainContent)
+    }
+
+    private func accessibilityValueText(_ value: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityValue = value
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityHint<S: StringProtocol>(_ hint: S) -> some View {
+        accessibilityHintText(String(hint))
+    }
+
+    func accessibilityHint(_ hintKey: LocalizedStringKey) -> some View {
+        accessibilityHintText(hintKey.resolvedString)
+    }
+
+    func accessibilityHint(_ hint: Text) -> some View {
+        accessibilityHintText(hint.plainContent)
+    }
+
+    private func accessibilityHintText(_ hint: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityHint = hint
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityIdentifier(_ identifier: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityIdentifier = identifier
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityHidden(_ hidden: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityHidden = hidden
+                return childNode
+            }
+        }
+    }
+
     func zIndex(_ value: Double) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

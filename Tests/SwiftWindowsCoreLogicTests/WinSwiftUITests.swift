@@ -986,6 +986,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageLabelAndDecorativeInitializersSetAccessibilityMetadata() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-accessibility-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let labeledNode = makeNode(Image(url.path, label: Text("Preview image")))
+            let decorativeNode = makeNode(Image(decorative: url.path))
+
+            XCTAssertEqual(labeledNode.accessibilityLabel, "Preview image")
+            XCTAssertFalse(labeledNode.isAccessibilityHidden)
+            XCTAssertTrue(decorativeNode.isAccessibilityHidden)
+        }
+    }
+
     func testImageScaleModifierAndEnvironmentScaleSystemIcons() async {
         await MainActor.run {
             struct ImageScaleReaderView: View {
@@ -2976,6 +2993,25 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(hiddenNode.isHidden)
             XCTAssertFalse(visibleNode.isHidden)
+        }
+    }
+
+    func testAccessibilityModifiersMapToRetainedMetadata() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("SAVE")
+                    .accessibilityLabel(Text("Save changes"))
+                    .accessibilityValue(LocalizedStringKey("Ready"))
+                    .accessibilityHint("Writes the current document")
+                    .accessibilityIdentifier("save-button")
+                    .accessibilityHidden(true)
+            )
+
+            XCTAssertEqual(node.accessibilityLabel, "Save changes")
+            XCTAssertEqual(node.accessibilityValue, "Ready")
+            XCTAssertEqual(node.accessibilityHint, "Writes the current document")
+            XCTAssertEqual(node.accessibilityIdentifier, "save-button")
+            XCTAssertTrue(node.isAccessibilityHidden)
         }
     }
 

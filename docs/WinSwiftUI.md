@@ -189,6 +189,11 @@ Modifiers:
 - `onChange`
 - `onHover`
 - `onTapGesture`
+- `accessibilityLabel`
+- `accessibilityValue`
+- `accessibilityHint`
+- `accessibilityIdentifier`
+- `accessibilityHidden`
 - `tag`
 
 Compatibility helpers:
@@ -244,7 +249,7 @@ Surface direction:
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
-- `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths; labels, decorative semantics, and variable symbol values are retained as API-shape compatibility only until accessibility and variable SF Symbol rendering exist.
+- `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
 - `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. `resizingMode` is retained as compatibility metadata; real tile rendering is not implemented yet.
@@ -260,6 +265,7 @@ Surface direction:
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle. Minimum, maximum, and main label overloads wrap the retained slider in small retained stacks while preserving the same binding/editing behavior.
 - `ProgressView(value:total:)` maps into the retained progress bar control; title, builder-label, and current-value label overloads wrap that retained bar in small retained stacks.
+- Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, and hidden state) so the tree has stable semantic data. Native Win32 UI Automation exposure is not implemented yet.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, and `Capsule` to retained bounds clipping with matching retained corner-radius behavior. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.

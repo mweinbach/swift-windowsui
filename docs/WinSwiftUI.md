@@ -77,6 +77,7 @@ Views and containers:
 - `NavigationView`
 - `NavigationSplitView`
 - `NavigationLink`
+- `TabView`
 - `VStack`
 - `HStack`
 - `LazyVStack`
@@ -138,6 +139,7 @@ Modifiers:
 - `navigationBarTitle`
 - `navigationBarTitleDisplayMode`
 - `navigationDestination`
+- `tabItem`
 - `environment`
 - `preferredColorScheme`
 - `font`
@@ -208,6 +210,7 @@ Surface direction:
 - `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome.
 - `NavigationStack` and `NavigationView` currently pass their root content directly into the retained runtime. `NavigationPath`, path-binding initializers, `NavigationLink` destination/value initializers, `navigationTitle`, `navigationBarTitle`, `navigationBarTitleDisplayMode`, and `navigationDestination` are accepted for source compatibility, but WinSwiftUI does not implement push/pop navigation state, destination presentation, or navigation chrome yet. `NavigationLink` renders its label content today.
 - `NavigationSplitView` maps two- and three-column source-compatible initializers to a retained horizontal stack. `NavigationSplitViewVisibility` and column-visibility bindings are accepted, but adaptive column collapsing is not implemented yet.
+- `TabView` renders the first page by default or the page whose `.tag(_:)` matches the `selection:` binding. `.tabItem` labels are accepted for source compatibility, but retained tab chrome and user-driven tab switching are not implemented yet.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.

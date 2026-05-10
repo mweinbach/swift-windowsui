@@ -2121,6 +2121,11 @@ public extension View {
         return self
     }
 
+    func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {
+        _ = label()
+        return self
+    }
+
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(keyPath, value))

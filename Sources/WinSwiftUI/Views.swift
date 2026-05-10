@@ -450,6 +450,55 @@ public struct NavigationLink: View {
 }
 
 @MainActor
+public struct TabView: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+    private let selectedTag: (@MainActor () -> AnyHashable?)?
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+        self.selectedTag = nil
+    }
+
+    public init<SelectionValue: Hashable>(
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.content = content()
+        self.selectedTag = {
+            AnyHashable(selection.wrappedValue)
+        }
+    }
+
+    public var body: Never {
+        fatalError("TabView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let selectedContent = selectedPage()
+        return composeComponent(
+            from: selectedContent,
+            context: context,
+            fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+
+    private func selectedPage() -> [AnyView] {
+        guard !content.isEmpty else {
+            return []
+        }
+
+        guard let selectedTag = selectedTag?(),
+              let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag }) else {
+            return [content[0]]
+        }
+
+        return [content[selectedIndex]]
+    }
+}
+
+@MainActor
 public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     public typealias Body = Never
 

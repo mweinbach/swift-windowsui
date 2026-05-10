@@ -1314,6 +1314,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTabViewRendersSelectedTaggedPage() async {
+        await MainActor.run {
+            let defaultNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Label("FIRST TAB", systemImage: "house") }
+                    Text("SECOND")
+                        .tag("second")
+                        .tabItem { Text("SECOND TAB") }
+                }
+            )
+            let selectedNode = makeNode(
+                TabView(selection: Binding.constant("second")) {
+                    Text("FIRST")
+                        .tag("first")
+                    Text("SECOND")
+                        .tag("second")
+                    Text("THIRD")
+                        .tag("third")
+                }
+            )
+            let fallbackNode = makeNode(
+                TabView(selection: Binding.constant("missing")) {
+                    Text("FALLBACK")
+                        .tag("fallback")
+                    Text("OTHER")
+                        .tag("other")
+                }
+            )
+
+            XCTAssertEqual(defaultNode.text, "FIRST")
+            XCTAssertEqual(selectedNode.text, "SECOND")
+            XCTAssertEqual(fallbackNode.text, "FALLBACK")
+        }
+    }
+
     func testNavigationLinkRendersLabelContent() async {
         await MainActor.run {
             let node = makeNode(

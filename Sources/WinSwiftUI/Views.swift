@@ -1289,12 +1289,20 @@ public struct Image: View {
     private var color: Color?
     private var font: Font
     private var alignment: TextAlignment
+    private var isResizable: Bool
+    private var resizingMode: ResizingMode
+    private var aspectRatioValue: Double?
+    private var contentMode: ContentMode?
 
     public init(systemName: String) {
         self.systemName = systemName
         self.color = nil
         self.font = .system(size: 1.9)
         self.alignment = .center
+        self.isResizable = false
+        self.resizingMode = .stretch
+        self.aspectRatioValue = nil
+        self.contentMode = nil
     }
 
     public var body: Never {
@@ -1304,11 +1312,15 @@ public struct Image: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let symbol = resolvedSymbolIcon(for: systemName)
         let resolvedColor = color ?? context.foregroundColor
+        let imageScale = context.imageScale.resolvedMultiplier
+        let resolvedScale = font.resolvedScale * imageScale
+        let preferredSize = resolvedPreferredSize(imageScale: imageScale)
         return Component { _ in
             Controls.icon(
                 symbol,
+                preferredSize: preferredSize,
                 color: resolvedColor,
-                scale: font.resolvedScale * context.imageScale.resolvedMultiplier,
+                scale: resolvedScale,
                 alignment: alignment.horizontalAlignment.textAlignment
             )
         }
@@ -1333,7 +1345,46 @@ public struct Image: View {
     }
 
     public func resizable(capInsets: EdgeInsets = .zero, resizingMode: ResizingMode = .stretch) -> Image {
-        self
+        var copy = self
+        copy.isResizable = true
+        copy.resizingMode = resizingMode
+        return copy
+    }
+
+    public func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> Image {
+        var copy = self
+        copy.aspectRatioValue = aspectRatio
+        copy.contentMode = contentMode
+        return copy
+    }
+
+    public func scaledToFit() -> Image {
+        aspectRatio(contentMode: .fit)
+    }
+
+    public func scaledToFill() -> Image {
+        aspectRatio(contentMode: .fill)
+    }
+
+    private func resolvedPreferredSize(imageScale: Double) -> Size? {
+        guard isResizable || contentMode != nil else {
+            return nil
+        }
+
+        let baseExtent = font.resolvedNativeTextSize * imageScale
+        let requestedRatio = aspectRatioValue ?? 1
+        let ratio = requestedRatio.isFinite && requestedRatio > 0 ? requestedRatio : 1
+
+        switch contentMode ?? .fit {
+        case .fit:
+            return ratio >= 1
+                ? Size(width: baseExtent, height: baseExtent / ratio)
+                : Size(width: baseExtent * ratio, height: baseExtent)
+        case .fill:
+            return ratio >= 1
+                ? Size(width: baseExtent * ratio, height: baseExtent)
+                : Size(width: baseExtent, height: baseExtent / ratio)
+        }
     }
 }
 

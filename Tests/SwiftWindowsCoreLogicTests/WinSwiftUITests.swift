@@ -910,18 +910,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testImageScalingCompatibilityModifiersPassThroughIconRendering() async {
+    func testImageScalingCompatibilityModifiersMapToPreferredIconSize() async {
         await MainActor.run {
             let color = Color(red: 0.4, green: 0.7, blue: 1.0, alpha: 1)
-            let node = makeNode(
+            let fillNode = makeNode(
                 Image(systemName: "gear")
+                    .font(.system(size: 20))
                     .resizable(resizingMode: .stretch)
-                    .scaledToFit()
                     .aspectRatio(1, contentMode: .fill)
                     .foregroundColor(color)
             )
+            let wideFitNode = makeNode(
+                Image(systemName: "gear")
+                    .font(.system(size: 20))
+                    .resizable()
+                    .aspectRatio(2, contentMode: .fit)
+            )
+            let scaledToFillNode = makeNode(
+                Image(systemName: "gear")
+                    .font(.system(size: 20))
+                    .scaledToFill()
+            )
 
-            XCTAssertEqual(node.textStyle.color, color)
+            XCTAssertEqual(fillNode.textStyle.color, color)
+            XCTAssertEqual(fillNode.preferredSize, Size(width: 20, height: 20))
+            XCTAssertEqual(wideFitNode.preferredSize, Size(width: 20, height: 10))
+            XCTAssertEqual(scaledToFillNode.preferredSize, Size(width: 20, height: 20))
         }
     }
 

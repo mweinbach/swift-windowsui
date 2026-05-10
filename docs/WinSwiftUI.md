@@ -60,6 +60,7 @@ Views and containers:
 - `Image(systemName:)`
 - `Label`
 - `Spacer`
+- `Divider`
 - `Group`
 - `ForEach`
 - `GeometryReader`
@@ -127,6 +128,7 @@ Surface direction:
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
+- `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.

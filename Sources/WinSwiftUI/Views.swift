@@ -297,6 +297,31 @@ public struct Spacer: View {
 }
 
 @MainActor
+public struct Divider: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("Divider has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let isVertical = context.stackAxis == .horizontal
+        return Component { _ in
+            Controls.panel(
+                preferredSize: Size(
+                    width: isVertical ? 1 : 16,
+                    height: isVertical ? 16 : 1
+                ),
+                backgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+                isHitTestVisible: false
+            )
+        }
+    }
+}
+
+@MainActor
 public struct VStack: View {
     public typealias Body = Never
 
@@ -316,10 +341,11 @@ public struct VStack: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.stackPanel(
+            let childContext = context.withStackAxis(.vertical)
+            return Controls.stackPanel(
                 stackLayout: .vertical(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }
@@ -345,10 +371,11 @@ public struct HStack: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.stackPanel(
+            let childContext = context.withStackAxis(.horizontal)
+            return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
     }

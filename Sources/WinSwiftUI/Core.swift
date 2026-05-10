@@ -273,6 +273,7 @@ public struct ViewBuildContext {
     private let fontProvider: () -> Font
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
+    private let stackAxisProvider: () -> StackAxis?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -302,6 +303,10 @@ public struct ViewBuildContext {
         lineLimitProvider()
     }
 
+    public var stackAxis: StackAxis? {
+        stackAxisProvider()
+    }
+
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
@@ -311,7 +316,8 @@ public struct ViewBuildContext {
         tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
         fontProvider: @escaping () -> Font = { .system(size: 2) },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
-        lineLimitProvider: @escaping () -> Int? = { nil }
+        lineLimitProvider: @escaping () -> Int? = { nil },
+        stackAxisProvider: @escaping () -> StackAxis? = { nil }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
@@ -322,6 +328,7 @@ public struct ViewBuildContext {
         self.fontProvider = fontProvider
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
+        self.stackAxisProvider = stackAxisProvider
     }
 
     public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
@@ -346,7 +353,8 @@ public struct ViewBuildContext {
             tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: lineLimitProvider
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
         )
     }
 
@@ -360,7 +368,8 @@ public struct ViewBuildContext {
             tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: lineLimitProvider
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
         )
     }
 
@@ -374,7 +383,8 @@ public struct ViewBuildContext {
             tintProvider: { tint },
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: lineLimitProvider
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
         )
     }
 
@@ -388,7 +398,8 @@ public struct ViewBuildContext {
             tintProvider: tintProvider,
             fontProvider: { font },
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: lineLimitProvider
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
         )
     }
 
@@ -402,7 +413,8 @@ public struct ViewBuildContext {
             tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: { alignment },
-            lineLimitProvider: lineLimitProvider
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
         )
     }
 
@@ -416,7 +428,23 @@ public struct ViewBuildContext {
             tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: { lineLimit }
+            lineLimitProvider: { lineLimit },
+            stackAxisProvider: stackAxisProvider
+        )
+    }
+
+    func withStackAxis(_ axis: StackAxis?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: { axis }
         )
     }
 }

@@ -112,6 +112,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDividerAdaptsToStackAxis() async {
+        await MainActor.run {
+            let verticalStack = makeNode(
+                VStack {
+                    Text("TOP")
+                    Divider()
+                    Text("BOTTOM")
+                }
+            )
+            let horizontalDivider = verticalStack.children[1]
+            XCTAssertEqual(horizontalDivider.preferredSize, Size(width: 16, height: 1))
+            XCTAssertEqual(horizontalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
+            XCTAssertFalse(horizontalDivider.isHitTestVisible)
+
+            let horizontalStack = makeNode(
+                HStack {
+                    Text("LEADING")
+                    Divider()
+                    Text("TRAILING")
+                }
+            )
+            let verticalDivider = horizontalStack.children[1]
+            XCTAssertEqual(verticalDivider.preferredSize, Size(width: 1, height: 16))
+            XCTAssertEqual(verticalDivider.backgroundColor, Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22))
+            XCTAssertFalse(verticalDivider.isHitTestVisible)
+        }
+    }
+
     func testButtonRunsActionAndInvalidates() async {
         await MainActor.run {
             var didRunAction = false

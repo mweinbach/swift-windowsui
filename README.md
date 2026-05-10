@@ -95,7 +95,7 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
+- Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Divider`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`
 - Collection helpers: `ForEach`
 - Controls: `Button`, `Toggle`, `Slider`, `ProgressView`

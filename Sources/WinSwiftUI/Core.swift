@@ -786,6 +786,20 @@ public struct Font: Sendable, Equatable {
         case monospaced
     }
 
+    public enum TextStyle: Sendable, Equatable {
+        case largeTitle
+        case title
+        case title2
+        case title3
+        case headline
+        case subheadline
+        case body
+        case callout
+        case footnote
+        case caption
+        case caption2
+    }
+
     public var size: Double
     public var weight: Weight
     public var design: Design
@@ -802,6 +816,16 @@ public struct Font: Sendable, Equatable {
         Font(size: size, weight: weight, design: design)
     }
 
+    public static func system(_ style: TextStyle, design: Design? = nil, weight: Weight? = nil) -> Font {
+        let font = defaultFont(for: style)
+        return Font(
+            size: font.size,
+            weight: weight ?? font.weight,
+            design: design ?? font.design,
+            family: font.family
+        )
+    }
+
     public static let largeTitle = Font(size: 34)
     public static let title = Font(size: 28)
     public static let title2 = Font(size: 22)
@@ -816,6 +840,33 @@ public struct Font: Sendable, Equatable {
 
     public func weight(_ weight: Weight) -> Font {
         Font(size: size, weight: weight, design: design, family: family)
+    }
+
+    private static func defaultFont(for style: TextStyle) -> Font {
+        switch style {
+        case .largeTitle:
+            return .largeTitle
+        case .title:
+            return .title
+        case .title2:
+            return .title2
+        case .title3:
+            return .title3
+        case .headline:
+            return .headline
+        case .subheadline:
+            return .subheadline
+        case .body:
+            return .body
+        case .callout:
+            return .callout
+        case .footnote:
+            return .footnote
+        case .caption:
+            return .caption
+        case .caption2:
+            return .caption2
+        }
     }
 }
 

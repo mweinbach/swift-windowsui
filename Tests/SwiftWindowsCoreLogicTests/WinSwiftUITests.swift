@@ -194,6 +194,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSystemFontTextStyleOverloadMapsToRetainedTextStyle() async {
+        await MainActor.run {
+            let titleNode = makeNode(
+                Text("TITLE")
+                    .font(.system(.title, design: .monospaced, weight: .bold))
+            )
+            let headlineNode = makeNode(
+                Text("HEADLINE")
+                    .font(.system(.headline))
+            )
+
+            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 28)
+            XCTAssertEqual(titleNode.textStyle.weight, .bold)
+            XCTAssertEqual(titleNode.textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 17)
+            XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

@@ -99,7 +99,7 @@ Included today:
 - Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`
 - Collection helpers: `ForEach`
 - Controls: `Button`, `Toggle`, `Slider`, `ProgressView`
-- Modifiers: `frame`, `padding`, `background`, `foregroundColor`, `foregroundStyle`, `tint`, `accentColor`, `font`, `multilineTextAlignment`, `lineLimit`, `cornerRadius`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`, `opacity`, `hidden`, `zIndex`, `offset`, `scaleEffect`, `rotationEffect`, `blur`, `disabled`, `onAppear`, `onDisappear`, `onTapGesture`
+- Modifiers: `frame`, `padding`, `background`, `foregroundColor`, `foregroundStyle`, `tint`, `accentColor`, `font`, `fontWeight`, `bold`, `multilineTextAlignment`, `lineLimit`, `cornerRadius`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`, `opacity`, `hidden`, `zIndex`, `offset`, `scaleEffect`, `rotationEffect`, `blur`, `disabled`, `onAppear`, `onDisappear`, `onTapGesture`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, common `Color` constants, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `Binding` / `State` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo

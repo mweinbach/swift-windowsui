@@ -73,6 +73,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontWeightAndBoldMapToTextWeight() async {
+        await MainActor.run {
+            let boldNode = makeNode(Text("LOUD").bold())
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .font(.system(size: 14, weight: .regular, design: .monospaced))
+                .fontWeight(.semibold)
+            )
+            let heavyNode = makeNode(Text("HEAVY").fontWeight(.heavy))
+
+            XCTAssertEqual(boldNode.textStyle.weight, .bold)
+            XCTAssertEqual(heavyNode.textStyle.weight, .bold)
+            for child in inheritedNode.children {
+                XCTAssertEqual(child.textStyle.weight, .semibold)
+                XCTAssertEqual(child.textStyle.nativeFontSize, 14)
+                XCTAssertEqual(child.textStyle.fontFamily, "Cascadia Mono")
+            }
+        }
+    }
+
     func testContainerTextStyleModifiersPropagateToText() async {
         await MainActor.run {
             let node = makeNode(

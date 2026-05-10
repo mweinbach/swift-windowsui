@@ -271,6 +271,7 @@ public struct ViewBuildContext {
     private let foregroundColorProvider: () -> Color
     private let tintProvider: () -> Color
     private let fontProvider: () -> Font
+    private let fontWeightProvider: () -> Font.Weight?
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
     private let stackAxisProvider: () -> StackAxis?
@@ -295,6 +296,10 @@ public struct ViewBuildContext {
         fontProvider()
     }
 
+    public var fontWeight: Font.Weight? {
+        fontWeightProvider()
+    }
+
     public var textAlignment: TextAlignment {
         textAlignmentProvider()
     }
@@ -315,6 +320,7 @@ public struct ViewBuildContext {
         foregroundColorProvider: @escaping () -> Color = { .white },
         tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
         fontProvider: @escaping () -> Font = { .system(size: 2) },
+        fontWeightProvider: @escaping () -> Font.Weight? = { nil },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil },
         stackAxisProvider: @escaping () -> StackAxis? = { nil }
@@ -326,6 +332,7 @@ public struct ViewBuildContext {
         self.foregroundColorProvider = foregroundColorProvider
         self.tintProvider = tintProvider
         self.fontProvider = fontProvider
+        self.fontWeightProvider = fontWeightProvider
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
         self.stackAxisProvider = stackAxisProvider
@@ -352,6 +359,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider
@@ -367,6 +375,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: { color },
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider
@@ -382,6 +391,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: { tint },
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider
@@ -397,6 +407,23 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: { font },
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider
+        )
+    }
+
+    func withFontWeight(_ weight: Font.Weight?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: { weight },
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider
@@ -412,6 +439,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider
@@ -427,6 +455,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit },
             stackAxisProvider: stackAxisProvider
@@ -442,6 +471,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: { axis }
@@ -664,9 +694,15 @@ public enum Edge {
 
 public struct Font: Sendable, Equatable {
     public enum Weight: Sendable, Equatable {
+        case ultraLight
+        case thin
+        case light
         case regular
+        case medium
         case semibold
         case bold
+        case heavy
+        case black
     }
 
     public enum Design: Sendable, Equatable {
@@ -689,6 +725,10 @@ public struct Font: Sendable, Equatable {
 
     public static func system(size: Double, weight: Weight = .regular, design: Design = .default) -> Font {
         Font(size: size, weight: weight, design: design)
+    }
+
+    public func weight(_ weight: Weight) -> Font {
+        Font(size: size, weight: weight, design: design, family: family)
     }
 }
 
@@ -1006,11 +1046,11 @@ extension Axis {
 extension Font.Weight {
     var textWeight: TextWeight {
         switch self {
-        case .regular:
+        case .ultraLight, .thin, .light, .regular, .medium:
             return .regular
         case .semibold:
             return .semibold
-        case .bold:
+        case .bold, .heavy, .black:
             return .bold
         }
     }
@@ -1234,6 +1274,16 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withFont(font))
         }
+    }
+
+    func fontWeight(_ weight: Font.Weight?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withFontWeight(weight))
+        }
+    }
+
+    func bold() -> some View {
+        fontWeight(.bold)
     }
 
     func multilineTextAlignment(_ alignment: TextAlignment) -> some View {

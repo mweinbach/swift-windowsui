@@ -88,6 +88,8 @@ Modifiers:
 - `tint`
 - `accentColor`
 - `font`
+- `fontWeight`
+- `bold`
 - `multilineTextAlignment`
 - `lineLimit`
 - `cornerRadius`

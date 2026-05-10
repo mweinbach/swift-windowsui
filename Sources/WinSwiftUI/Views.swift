@@ -122,7 +122,8 @@ public struct Text: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = color ?? context.foregroundColor
-        let resolvedFont = font ?? context.font
+        let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
+        let resolvedFont = font ?? inheritedFont
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
         if let lineLimit {
@@ -156,6 +157,21 @@ public struct Text: View {
         var copy = self
         copy.font = font
         return copy
+    }
+
+    public func fontWeight(_ weight: Font.Weight?) -> Text {
+        guard let weight else {
+            return self
+        }
+
+        var copy = self
+        let baseFont = copy.font ?? .system(size: 2)
+        copy.font = baseFont.weight(weight)
+        return copy
+    }
+
+    public func bold() -> Text {
+        fontWeight(.bold)
     }
 
     public func multilineTextAlignment(_ alignment: TextAlignment) -> Text {

@@ -236,6 +236,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonRoleOverloadsMapToAutomaticSurfaceStyles() async {
+        await MainActor.run {
+            var didRunAction = false
+            let destructiveNode = makeNode(
+                Button("DELETE", role: .destructive) {
+                    didRunAction = true
+                }
+            )
+            let cancelNode = makeNode(
+                Button(role: .cancel, action: {}) {
+                    Text("CANCEL")
+                }
+            )
+
+            XCTAssertEqual(destructiveNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertEqual(cancelNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            destructiveNode.onActivate?()
+            XCTAssertTrue(didRunAction)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(

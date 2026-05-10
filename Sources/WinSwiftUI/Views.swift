@@ -681,14 +681,27 @@ public struct Button: View {
 
     private let action: @MainActor () -> Void
     private let label: [AnyView]
+    private let role: ButtonRole?
     private var style: ButtonSurfaceStyle
     private var resolvedButtonStyle: ButtonStyle
+    private var hasCustomSurfaceStyle: Bool
 
     public init(action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
         self.action = action
         self.label = label()
+        self.role = nil
         self.style = .default
         self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init(role: ButtonRole?, action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
+        self.action = action
+        self.label = label()
+        self.role = role
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
     }
 
     public init(_ title: String, action: @escaping @MainActor () -> Void) {
@@ -701,8 +714,26 @@ public struct Button: View {
                     .lineLimit(1)
             )
         ]
+        self.role = nil
         self.style = .default
         self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init(_ title: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 2, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+            )
+        ]
+        self.role = role
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
     }
 
     public var body: Never {
@@ -718,7 +749,7 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let surfaceStyle = resolvedButtonStyle == .automatic ? style : resolvedButtonStyle.surfaceStyle
+            let surfaceStyle = resolvedSurfaceStyle
             return Controls.button(
                 runtime: runtime,
                 cornerRadius: surfaceStyle.cornerRadius,
@@ -741,6 +772,7 @@ public struct Button: View {
         var copy = self
         copy.style = style
         copy.resolvedButtonStyle = .automatic
+        copy.hasCustomSurfaceStyle = true
         return copy
     }
 
@@ -748,6 +780,23 @@ public struct Button: View {
         var copy = self
         copy.resolvedButtonStyle = style
         return copy
+    }
+
+    private var resolvedSurfaceStyle: ButtonSurfaceStyle {
+        guard resolvedButtonStyle == .automatic else {
+            return resolvedButtonStyle.surfaceStyle
+        }
+
+        if hasCustomSurfaceStyle {
+            return style
+        }
+
+        switch role {
+        case .destructive:
+            return .destructive
+        case .cancel, .none:
+            return style
+        }
     }
 }
 

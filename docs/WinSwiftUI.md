@@ -74,6 +74,8 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+  - `ButtonRole.destructive`
+  - `ButtonRole.cancel`
 - `Toggle`
 - `Slider`
 - `ProgressView`

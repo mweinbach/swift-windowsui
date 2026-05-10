@@ -154,6 +154,7 @@ Modifiers:
 - `kerning`
 - `tracking`
 - `allowsTightening`
+- `textCase`
 - `underline`
 - `strikethrough`
 - `cornerRadius(_:antialiased:)`
@@ -213,7 +214,7 @@ Surface direction:
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.
 - `padding` accepts SwiftUI-style optional lengths; `nil` resolves to the retained default of `16`.
 - `ignoresSafeArea` and `edgesIgnoringSafeArea` are accepted for source compatibility but currently pass through unchanged because the Win32 host does not expose safe-area insets.
-- Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence. `Text.lineSpacing`, `Text.kerning`, and `Text.tracking` map to retained text style; line spacing participates in retained measurement, while letter spacing is carried into the renderer text style for pixel/text-atlas paths. `allowsTightening(_:)` maps to the retained text kerning toggle until true glyph tightening is modeled. `truncationMode(_:)` maps `.head`, `.tail`, and `.middle` to the retained text line-break modes when a line limit is active. `Text.underline` and `Text.strikethrough` map to retained text decoration flags; decoration colors are accepted for source compatibility but currently use the text color.
+- Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence. `Text.lineSpacing`, `Text.kerning`, and `Text.tracking` map to retained text style; line spacing participates in retained measurement, while letter spacing is carried into the renderer text style for pixel/text-atlas paths. `allowsTightening(_:)` maps to the retained text kerning toggle until true glyph tightening is modeled. `textCase(_:)` applies inherited or explicit uppercase/lowercase transforms before retained label creation. `truncationMode(_:)` maps `.head`, `.tail`, and `.middle` to the retained text line-break modes when a line limit is active. `Text.underline` and `Text.strikethrough` map to retained text decoration flags; decoration colors are accepted for source compatibility but currently use the text color.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
 - `Section` supports title, header, footer, and content-only forms, all mapped to the retained vertical section panel.

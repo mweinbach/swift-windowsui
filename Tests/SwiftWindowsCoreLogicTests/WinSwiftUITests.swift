@@ -111,6 +111,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextCaseAppliesExplicitAndInheritedCasing() async {
+        await MainActor.run {
+            let uppercaseNode = makeNode(Text("MiXeD").textCase(.uppercase))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("One")
+                    Text("Two")
+                        .textCase(nil)
+                    Text("THREE")
+                        .textCase(.lowercase)
+                }
+                .textCase(.uppercase)
+            )
+
+            XCTAssertEqual(uppercaseNode.text, "MIXED")
+            XCTAssertEqual(inheritedNode.children[0].text, "ONE")
+            XCTAssertEqual(inheritedNode.children[1].text, "Two")
+            XCTAssertEqual(inheritedNode.children[2].text, "three")
+        }
+    }
+
     func testLocalizedStringKeyInputsMapToPlainRetainedText() async {
         await MainActor.run {
             let count = 7

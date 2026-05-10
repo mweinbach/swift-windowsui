@@ -994,6 +994,11 @@ public struct Text: View {
         case middle
     }
 
+    public enum Case: Sendable, Equatable {
+        case uppercase
+        case lowercase
+    }
+
     private let content: String
     private var color: Color?
     private var font: Font?
@@ -1004,6 +1009,7 @@ public struct Text: View {
     private var letterSpacing: Double?
     private var lineSpacing: Double?
     private var allowsTightening: Bool?
+    private var textCase: Case??
     private var underline: Bool
     private var strikethrough: Bool
 
@@ -1018,6 +1024,7 @@ public struct Text: View {
         self.letterSpacing = nil
         self.lineSpacing = nil
         self.allowsTightening = nil
+        self.textCase = nil
         self.underline = false
         self.strikethrough = false
     }
@@ -1053,9 +1060,11 @@ public struct Text: View {
             resolvedLineLimit = context.lineLimit
         }
 
+        let resolvedContent = content.resolvedTextCase(textCase ?? context.textCase)
+
         return Component { _ in
             Controls.label(
-                content,
+                resolvedContent,
                 color: resolvedColor,
                 scale: resolvedFont.resolvedScale,
                 weight: resolvedFont.weight.textWeight,
@@ -1155,6 +1164,12 @@ public struct Text: View {
         return copy
     }
 
+    public func textCase(_ textCase: Case?) -> Text {
+        var copy = self
+        copy.textCase = .some(textCase)
+        return copy
+    }
+
     public func underline(_ active: Bool = true, color: Color? = nil) -> Text {
         _ = color
         var copy = self
@@ -1184,6 +1199,19 @@ public struct Text: View {
             return .truncateTail
         case .middle:
             return .truncateMiddle
+        }
+    }
+}
+
+private extension String {
+    func resolvedTextCase(_ textCase: Text.Case?) -> String {
+        switch textCase {
+        case .uppercase:
+            return uppercased()
+        case .lowercase:
+            return lowercased()
+        case nil:
+            return self
         }
     }
 }

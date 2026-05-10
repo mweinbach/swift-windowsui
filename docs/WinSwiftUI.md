@@ -57,6 +57,8 @@ App/scene hosting:
 Views and containers:
 
 - `Text`
+  - `Text(verbatim:)`
+  - `StringProtocol` inputs
 - `Image(systemName:)`
 - `Label`
 - `Spacer`

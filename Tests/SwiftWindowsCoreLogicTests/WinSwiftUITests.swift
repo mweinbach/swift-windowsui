@@ -46,6 +46,19 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextSupportsVerbatimAndStringProtocolInitializers() async {
+        await MainActor.run {
+            let source = "PREFIX-VALUE"
+            let substring = source.dropFirst(7)
+
+            let verbatimNode = makeNode(Text(verbatim: "RAW VALUE"))
+            let substringNode = makeNode(Text(substring))
+
+            XCTAssertEqual(verbatimNode.text, "RAW VALUE")
+            XCTAssertEqual(substringNode.text, "VALUE")
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(

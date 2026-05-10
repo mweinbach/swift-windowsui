@@ -793,6 +793,73 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDisclosureGroupTogglesBindingAndRevealsContentWhenRebuilt() async {
+        await MainActor.run {
+            var isExpanded = false
+            var didInvalidate = false
+            let binding = Binding(
+                get: { isExpanded },
+                set: { isExpanded = $0 }
+            )
+
+            let collapsedNode = makeNode(
+                DisclosureGroup("ADVANCED", isExpanded: binding) {
+                    Text("DETAIL")
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(collapsedNode.children.count, 1)
+            XCTAssertTrue(allTexts(in: collapsedNode.children[0]).contains("ADVANCED"))
+
+            collapsedNode.children[0].onActivate?()
+
+            XCTAssertTrue(isExpanded)
+            XCTAssertTrue(didInvalidate)
+
+            let expandedNode = makeNode(
+                DisclosureGroup("ADVANCED", isExpanded: binding) {
+                    Text("DETAIL")
+                }
+            )
+
+            XCTAssertEqual(expandedNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: expandedNode.children[0]).contains("ADVANCED"))
+            XCTAssertEqual(firstText(in: expandedNode.children[1]), "DETAIL")
+        }
+    }
+
+    func testDisclosureGroupCanManageExpansionWithoutExternalBinding() async {
+        await MainActor.run {
+            var didInvalidate = false
+            let disclosure = DisclosureGroup("DETAILS") {
+                Text("NESTED")
+            }
+
+            let collapsedNode = makeNode(
+                disclosure,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(collapsedNode.children.count, 1)
+            XCTAssertTrue(allTexts(in: collapsedNode.children[0]).contains("DETAILS"))
+
+            collapsedNode.children[0].onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let expandedNode = makeNode(disclosure)
+
+            XCTAssertEqual(expandedNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: expandedNode.children[0]).contains("DETAILS"))
+            XCTAssertEqual(firstText(in: expandedNode.children[1]), "NESTED")
+        }
+    }
+
     func testForEachFlattensInsideStackAndAssignsStableIDs() async {
         await MainActor.run {
             let node = makeNode(

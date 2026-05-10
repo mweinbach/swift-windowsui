@@ -833,6 +833,129 @@ public struct Section: View {
 }
 
 @MainActor
+public struct DisclosureGroup: View {
+    public typealias Body = Never
+
+    private final class ExpansionState {
+        var isExpanded = false
+    }
+
+    private let isExpanded: Binding<Bool>?
+    private let expansionState: ExpansionState
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.isExpanded = isExpanded
+        self.expansionState = ExpansionState()
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(
+        _ title: String,
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(isExpanded: isExpanded, content: content) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(titleKey.resolvedString, isExpanded: isExpanded, content: content)
+    }
+
+    public var body: Never {
+        fatalError("DisclosureGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let binding = isExpanded
+        let fallbackState = expansionState
+        let contentViews = content
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let contentComponent = composeComponent(
+            from: contentViews,
+            context: context,
+            fallbackLayout: .stack(.vertical(spacing: 6, alignment: .stretch)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let isOpen = binding?.wrappedValue ?? fallbackState.isExpanded
+            let chevronNode = Controls.label(
+                isOpen ? "V" : ">",
+                preferredSize: Size(width: 18, height: 24),
+                color: context.foregroundColor,
+                scale: 1.3,
+                weight: .semibold,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            let headerContent = Controls.stackPanel(
+                layoutPriority: 1,
+                stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center),
+                isHitTestVisible: false,
+                children: [chevronNode, labelNode]
+            )
+            let headerButton = Controls.button(
+                runtime: runtime,
+                cornerRadius: 8,
+                palette: ButtonSurfaceStyle.plain.palette,
+                chrome: ButtonSurfaceStyle.plain.chrome,
+                clipsToBounds: false,
+                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                isEnabled: context.isEnabled,
+                action: {
+                    if let binding {
+                        binding.wrappedValue.toggle()
+                    } else {
+                        fallbackState.isExpanded.toggle()
+                    }
+                    context.invalidate()
+                },
+                children: [headerContent]
+            )
+
+            var children: [ViewNode] = [headerButton]
+            if isOpen {
+                let contentNode = contentComponent.makeNode(runtime: runtime)
+                let insetContent = Controls.stackPanel(
+                    stackLayout: .vertical(padding: EdgeInsets(top: 2, leading: 34, bottom: 2, trailing: 0), alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [contentNode]
+                )
+                children.append(insetContent)
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 4, alignment: .stretch),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Toggle: View {
     public typealias Body = Never
 

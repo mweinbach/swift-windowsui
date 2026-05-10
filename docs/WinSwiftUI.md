@@ -79,6 +79,7 @@ Views and containers:
 - `List`
 - `Form`
 - `Section`
+- `DisclosureGroup`
 - `HSplitView`
 - `VSplitView`
 - `Button`
@@ -209,6 +210,7 @@ Surface direction:
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
+- `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.

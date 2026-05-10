@@ -1705,6 +1705,21 @@ public struct SafeAreaRegions: OptionSet, Sendable {
     public static let all: SafeAreaRegions = [.container, .keyboard]
 }
 
+public struct ContentShapeKinds: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let interaction = ContentShapeKinds(rawValue: 1 << 0)
+    public static let dragPreview = ContentShapeKinds(rawValue: 1 << 1)
+    public static let contextMenuPreview = ContentShapeKinds(rawValue: 1 << 2)
+    public static let focusEffect = ContentShapeKinds(rawValue: 1 << 3)
+    public static let hoverEffect = ContentShapeKinds(rawValue: 1 << 4)
+    public static let accessibility = ContentShapeKinds(rawValue: 1 << 5)
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -3427,6 +3442,17 @@ public extension View {
                 return root
             }
         }
+    }
+
+    func contentShape<S: Shape>(_ shape: S, eoFill: Bool = false) -> some View {
+        contentShape(.interaction, shape, eoFill: eoFill)
+    }
+
+    func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false) -> some View {
+        _ = kind
+        _ = shape
+        _ = eoFill
+        return self
     }
 
     func border(_ color: Color, width: Double = 1, cornerRadius: Double = 0) -> some View {

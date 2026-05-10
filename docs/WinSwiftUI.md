@@ -193,6 +193,7 @@ Modifiers:
 - `cornerRadius(_:antialiased:)`
 - `clipped(antialiased:)`
 - `clipShape(_:style:)`
+- `contentShape`
 - `border`, including stored `ForegroundStyle` and `LinearGradient` overloads
 - `shadow`, including SwiftUI-style default-color `shadow(radius:x:y:)`
 - `layoutPriority`
@@ -279,6 +280,7 @@ Surface direction:
 - `submitLabel(_:)` accepts SwiftUI return-key label call sites for source compatibility. It does not alter hardware keyboard behavior on the retained Windows input path today.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
+- `contentShape` and `ContentShapeKinds` are accepted for source compatibility. Retained hit testing remains rectangular today, so the shape and kind values do not alter pointer, focus, preview, or accessibility geometry yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.

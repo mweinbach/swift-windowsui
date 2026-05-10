@@ -3923,6 +3923,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentShapeCompatibilityOverloadsPreserveRetainedHitTesting() async {
+        struct CustomContentShape: Shape {}
+
+        await MainActor.run {
+            let plainNode = makeNode(
+                Text("PLAIN")
+                    .contentShape(Rectangle())
+            )
+            let gestureNode = makeNode(
+                Text("TAP")
+                    .contentShape(Circle(), eoFill: true)
+                    .onTapGesture {}
+            )
+            let kindNode = makeNode(
+                Text("KIND")
+                    .onTapGesture {}
+                    .contentShape([.interaction, .hoverEffect, .accessibility], Capsule(), eoFill: true)
+            )
+            let customNode = makeNode(
+                Text("CUSTOM")
+                    .contentShape(.dragPreview, CustomContentShape())
+            )
+
+            XCTAssertEqual(plainNode.text, "PLAIN")
+            XCTAssertTrue(gestureNode.isHitTestVisible)
+            XCTAssertEqual(gestureNode.text, "TAP")
+            XCTAssertTrue(kindNode.isHitTestVisible)
+            XCTAssertEqual(kindNode.text, "KIND")
+            XCTAssertEqual(customNode.text, "CUSTOM")
+        }
+    }
+
     func testCornerRadiusAcceptsAntialiasedArgumentAndClipsBounds() async {
         await MainActor.run {
             let node = makeNode(Text("ROUND").cornerRadius(5, antialiased: false))

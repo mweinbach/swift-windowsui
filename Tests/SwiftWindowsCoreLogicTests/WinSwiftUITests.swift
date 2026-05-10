@@ -795,6 +795,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEllipseMapsToDynamicRoundedRetainedShapeFallback() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.6, green: 0.8, blue: 0.2, alpha: 1)
+            let strokeColor = Color(red: 0.9, green: 0.4, blue: 0.1, alpha: 1)
+            let root = renderedNode(
+                VStack {
+                    Ellipse()
+                        .fill(fillColor)
+                        .frame(width: 48, height: 20)
+                    Ellipse()
+                        .stroke(strokeColor, lineWidth: 3)
+                        .frame(width: 64, height: 24)
+                }
+            )
+
+            let filledEllipse = root.children[0].children[0]
+            let strokedEllipse = root.children[1].children[0]
+            XCTAssertEqual(filledEllipse.backgroundColor, fillColor)
+            XCTAssertEqual(filledEllipse.cornerRadius, 10)
+            XCTAssertEqual(strokedEllipse.backgroundColor, .clear)
+            XCTAssertEqual(strokedEllipse.borderColor, strokeColor)
+            XCTAssertEqual(strokedEllipse.borderWidth, 3)
+            XCTAssertEqual(strokedEllipse.cornerRadius, 12)
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(
@@ -3729,6 +3755,20 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(node.clipsToBounds)
             XCTAssertEqual(node.cornerRadius, 14)
             XCTAssertEqual(node.children[0].preferredSize, Size(width: 28, height: 28))
+        }
+    }
+
+    func testClipShapeEllipseUsesDynamicRoundedRetainedFallback() async {
+        await MainActor.run {
+            let node = renderedNode(
+                Text("OVAL")
+                    .frame(width: 64, height: 24)
+                    .clipShape(Ellipse())
+            )
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, 12)
+            XCTAssertEqual(node.children[0].preferredSize, Size(width: 64, height: 24))
         }
     }
 

@@ -538,9 +538,9 @@ public struct VStack: View {
     private let spacing: Double
     private let content: [AnyView]
 
-    public init(alignment: HorizontalAlignment = .center, spacing: Double = 0, @ViewBuilder content: () -> [AnyView]) {
+    public init(alignment: HorizontalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView]) {
         self.alignment = alignment
-        self.spacing = spacing
+        self.spacing = spacing ?? 0
         self.content = content()
     }
 
@@ -568,9 +568,9 @@ public struct HStack: View {
     private let spacing: Double
     private let content: [AnyView]
 
-    public init(alignment: VerticalAlignment = .center, spacing: Double = 0, @ViewBuilder content: () -> [AnyView]) {
+    public init(alignment: VerticalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView]) {
         self.alignment = alignment
-        self.spacing = spacing
+        self.spacing = spacing ?? 0
         self.content = content()
     }
 

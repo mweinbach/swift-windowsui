@@ -96,7 +96,7 @@ Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
 - Core views: `Text`, including `Text(verbatim:)` and `StringProtocol` inputs, `Image(systemName:)`, `Label`, `Rectangle`, `RoundedRectangle`, `Capsule`, `Spacer`, `Divider`, `Group`, `GeometryReader`
-- Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`
+- Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`; stack spacing accepts SwiftUI-style `nil`
 - Collection helpers: `ForEach`, including open and closed integer ranges
 - Controls: `Button` including `ButtonRole` overloads, `Toggle`, `Slider`, `ProgressView`
 - Modifiers: `frame`, `padding`, `background`, `background(_:alignment:)`, `background(alignment:content:)`, `overlay(_:alignment:)`, `overlay(alignment:content:)`, `foregroundColor`, `foregroundStyle`, `tint`, `accentColor`, `font`, `fontWeight`, `bold`, `multilineTextAlignment`, `lineLimit`, `cornerRadius(_:antialiased:)`, `clipped`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`, `opacity`, `hidden`, `zIndex`, `offset`, `scaleEffect`, `rotationEffect`, `blur`, `disabled`, `onAppear`, `onDisappear`, `onTapGesture`

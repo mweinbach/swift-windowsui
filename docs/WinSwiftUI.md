@@ -59,6 +59,7 @@ Views and containers:
 - `Text`
   - `Text(verbatim:)`
   - `StringProtocol` inputs
+  - `LocalizedStringKey` inputs
 - `Image(systemName:)`
 - `Label`
 - `Rectangle`
@@ -127,6 +128,7 @@ Compatibility helpers:
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `Angle`
+- `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `Binding`, `State`, `ObservableObject`, `Published`, and `ObservedObject`
 
@@ -138,6 +140,7 @@ Surface direction:
 ## Mapping Notes
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
+- `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.

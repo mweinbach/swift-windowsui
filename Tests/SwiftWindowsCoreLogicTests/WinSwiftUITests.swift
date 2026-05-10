@@ -59,6 +59,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLocalizedStringKeyInputsMapToPlainRetainedText() async {
+        await MainActor.run {
+            let count = 7
+            let textKey: LocalizedStringKey = "COUNT \(count)"
+            let labelKey = LocalizedStringKey("SETTINGS")
+            let sectionKey = LocalizedStringKey("GENERAL")
+            let toggleKey = LocalizedStringKey("ENABLED")
+            let buttonKey = LocalizedStringKey("SAVE")
+
+            let textNode = makeNode(Text(textKey))
+            let labelNode = makeNode(Label(labelKey, systemImage: "gear"))
+            let sectionNode = makeNode(Section(sectionKey) { Text("BODY") })
+            let toggleNode = makeNode(
+                Toggle(
+                    toggleKey,
+                    isOn: Binding(get: { false }, set: { _ in })
+                )
+            )
+            let buttonNode = makeNode(Button(buttonKey, role: .cancel, action: {}))
+
+            XCTAssertEqual(textNode.text, "COUNT 7")
+            XCTAssertEqual(labelNode.children[1].text, "SETTINGS")
+            XCTAssertEqual(sectionNode.children[0].text, "GENERAL")
+            XCTAssertEqual(firstText(in: toggleNode), "ENABLED")
+            XCTAssertEqual(firstText(in: buttonNode), "SAVE")
+        }
+    }
+
     func testRectangleAndRoundedRectangleMapToRetainedShapeNodes() async {
         await MainActor.run {
             let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)

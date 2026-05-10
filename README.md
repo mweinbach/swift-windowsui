@@ -95,12 +95,12 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Core views: `Text`, including `Text(verbatim:)` and `StringProtocol` inputs, `Image(systemName:)`, `Label`, `Rectangle`, `RoundedRectangle`, `Capsule`, `Spacer`, `Divider`, `Group`, `GeometryReader`
+- Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Rectangle`, `RoundedRectangle`, `Capsule`, `Spacer`, `Divider`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`; stack spacing accepts SwiftUI-style `nil`
 - Collection helpers: `ForEach`, including open and closed integer ranges
 - Controls: `Button` including `ButtonRole` overloads, `Toggle`, `Slider`, `ProgressView`
 - Modifiers: `frame`, `padding`, `background`, `background(_:alignment:)`, `background(alignment:content:)`, `overlay(_:alignment:)`, `overlay(alignment:content:)`, `foregroundColor`, `foregroundStyle`, `tint`, `accentColor`, `font`, `fontWeight`, `bold`, `multilineTextAlignment`, `lineLimit`, `cornerRadius(_:antialiased:)`, `clipped`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`, `opacity`, `hidden`, `zIndex`, `offset`, `scaleEffect`, `rotationEffect`, `blur`, `disabled`, `onAppear`, `onDisappear`, `onTapGesture`
-- Compatibility helpers: `Color(red:green:blue:opacity:)`, common `Color` constants, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`
+- Compatibility helpers: `Color(red:green:blue:opacity:)`, common `Color` constants, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `LocalizedStringKey`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `Binding` / `State` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 

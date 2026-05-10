@@ -291,6 +291,10 @@ public struct Text: View {
         self.lineLimit = nil
     }
 
+    public init(_ key: LocalizedStringKey) {
+        self.init(key.resolvedString)
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }
@@ -446,6 +450,10 @@ public struct Label: View {
         self.color = nil
         self.font = .system(size: 1.6, weight: .semibold)
         self.spacing = 10
+    }
+
+    public init(_ titleKey: LocalizedStringKey, systemImage: String) {
+        self.init(titleKey.resolvedString, systemImage: systemImage)
     }
 
     public var body: Never {
@@ -713,6 +721,10 @@ public struct Section: View {
         self.content = content()
     }
 
+    public init(_ titleKey: LocalizedStringKey, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, style: style, content: content)
+    }
+
     public var body: Never {
         fatalError("Section has no body")
     }
@@ -759,6 +771,10 @@ public struct Toggle: View {
                     .lineLimit(1)
             )
         ]
+    }
+
+    public init(_ titleKey: LocalizedStringKey, isOn: Binding<Bool>) {
+        self.init(titleKey.resolvedString, isOn: isOn)
     }
 
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> [AnyView]) {
@@ -905,6 +921,10 @@ public struct Button: View {
         self.hasCustomSurfaceStyle = false
     }
 
+    public init(_ titleKey: LocalizedStringKey, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, action: action)
+    }
+
     public init(_ title: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -919,6 +939,10 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+    }
+
+    public init(_ titleKey: LocalizedStringKey, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, role: role, action: action)
     }
 
     public var body: Never {

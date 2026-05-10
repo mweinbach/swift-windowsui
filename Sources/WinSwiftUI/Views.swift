@@ -118,6 +118,49 @@ public struct RoundedRectangle: View {
 }
 
 @MainActor
+public struct Capsule: View {
+    public typealias Body = Never
+
+    private let style: RoundedCornerStyle
+    private var fillColor: Color?
+    private var strokeColor: Color
+    private var lineWidth: Double
+
+    public init(style: RoundedCornerStyle = .circular) {
+        self.style = style
+        self.fillColor = nil
+        self.strokeColor = .clear
+        self.lineWidth = 0
+    }
+
+    public var body: Never {
+        fatalError("Capsule has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        capsuleComponent(
+            fillColor: fillColor ?? context.foregroundColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth
+        )
+    }
+
+    public func fill(_ color: Color) -> Capsule {
+        var copy = self
+        copy.fillColor = color
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> Capsule {
+        var copy = self
+        copy.fillColor = .clear
+        copy.strokeColor = color
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+}
+
+@MainActor
 private func shapeComponent(
     fillColor: Color,
     strokeColor: Color,
@@ -132,6 +175,29 @@ private func shapeComponent(
             cornerRadius: cornerRadius,
             isHitTestVisible: false
         )
+    }
+}
+
+@MainActor
+private func capsuleComponent(
+    fillColor: Color,
+    strokeColor: Color,
+    lineWidth: Double
+) -> Component {
+    Component { _ in
+        let node = Controls.panel(
+            backgroundColor: fillColor,
+            borderColor: strokeColor,
+            borderWidth: lineWidth,
+            isHitTestVisible: false
+        )
+        node.onLayout = { [weak node] bounds in
+            let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+            if node?.cornerRadius != radius {
+                node?.cornerRadius = radius
+            }
+        }
+        return node
     }
 }
 

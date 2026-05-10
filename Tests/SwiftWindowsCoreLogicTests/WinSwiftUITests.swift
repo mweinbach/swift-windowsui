@@ -88,6 +88,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCapsuleMapsToDynamicRoundedRetainedShapeNode() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let fillColor = Color(red: 0.3, green: 0.9, blue: 0.7, alpha: 1)
+            let strokeColor = Color(red: 0.9, green: 0.2, blue: 0.4, alpha: 1)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let root = VStack {
+                Capsule()
+                    .fill(fillColor)
+                    .frame(width: 40, height: 12)
+                Capsule(style: .continuous)
+                    .stroke(strokeColor, lineWidth: 3)
+                    .frame(width: 50, height: 20)
+            }
+            let node = root.makeComponent(context: context).makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            let filledCapsule = node.children[0].children[0]
+            let strokedCapsule = node.children[1].children[0]
+            XCTAssertEqual(filledCapsule.backgroundColor, fillColor)
+            XCTAssertEqual(filledCapsule.cornerRadius, 6)
+            XCTAssertEqual(strokedCapsule.backgroundColor, .clear)
+            XCTAssertEqual(strokedCapsule.borderColor, strokeColor)
+            XCTAssertEqual(strokedCapsule.borderWidth, 3)
+            XCTAssertEqual(strokedCapsule.cornerRadius, 10)
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(

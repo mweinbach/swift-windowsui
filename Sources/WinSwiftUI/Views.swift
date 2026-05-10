@@ -735,6 +735,57 @@ public struct ScrollView: View {
 }
 
 @MainActor
+public struct List: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("List has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            Controls.scrollPanel(
+                axis: .vertical,
+                stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
+public struct Form: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Form has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            Controls.stackPanel(
+                stackLayout: .vertical(spacing: 12, padding: EdgeInsets.all(12), alignment: .stretch),
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Section: View {
     public typealias Body = Never
 

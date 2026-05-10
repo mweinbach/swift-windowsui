@@ -751,6 +751,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListMapsToVerticalRetainedScrollPanel() async {
+        await MainActor.run {
+            let node = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected List to use retained stack layout inside a scroll panel")
+            }
+
+            XCTAssertEqual(node.scrollAxis, .vertical)
+            XCTAssertTrue(node.showsScrollIndicator)
+            XCTAssertEqual(stackLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertEqual(node.children[1].text, "TWO")
+        }
+    }
+
+    func testFormMapsToVerticalRetainedStackPanel() async {
+        await MainActor.run {
+            let node = makeNode(
+                Form {
+                    Text("NAME")
+                    Toggle("ENABLED", isOn: .constant(true))
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected Form to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .vertical(spacing: 12, padding: .all(12), alignment: .stretch))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "NAME")
+            XCTAssertEqual(firstText(in: node.children[1]), "ENABLED")
+        }
+    }
+
     func testForEachFlattensInsideStackAndAssignsStableIDs() async {
         await MainActor.run {
             let node = makeNode(

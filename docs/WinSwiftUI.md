@@ -76,6 +76,8 @@ Views and containers:
 - `HStack`
 - `ZStack`
 - `ScrollView`
+- `List`
+- `Form`
 - `Section`
 - `HSplitView`
 - `VSplitView`
@@ -197,6 +199,7 @@ Surface direction:
 - `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation` accepts SwiftUI-shaped call sites and executes the body immediately.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
+- `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.

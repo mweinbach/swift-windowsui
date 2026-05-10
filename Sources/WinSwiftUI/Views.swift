@@ -588,12 +588,14 @@ private func resolvedNavigationStack(
     registrations: [NavigationDestinationRegistration]
 ) -> [[AnyView]] {
     var stack: [[AnyView]] = []
+    var availableRegistrations = registrations
     for value in values {
-        guard let destination = resolveNavigationDestination(for: value, registrations: registrations) else {
+        guard let destination = resolveNavigationDestination(for: value, registrations: availableRegistrations) else {
             break
         }
 
         stack.append(destination)
+        availableRegistrations += navigationDestinations(in: destination)
     }
 
     return stack

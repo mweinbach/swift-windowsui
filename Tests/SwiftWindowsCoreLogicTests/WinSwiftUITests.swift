@@ -1618,6 +1618,79 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationStackInitialPathBindingResolvesNestedDestinations() async {
+        await MainActor.run {
+            var path = NavigationPath()
+            path.appendAnyHashable(AnyHashable("detail"))
+            path.appendAnyHashable(AnyHashable(7))
+            let stack = NavigationStack(
+                path: Binding(
+                    get: { path },
+                    set: { path = $0 }
+                )
+            ) {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                VStack {
+                    Text("VALUE \(value)")
+                    NavigationLink("COUNT", value: 9)
+                }
+                .navigationTitle("VALUE TITLE")
+                .navigationDestination(for: Int.self) { count in
+                    Text("COUNT \(count)")
+                        .navigationTitle("COUNT TITLE")
+                }
+            }
+
+            let node = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("COUNT TITLE"))
+            XCTAssertEqual(node.children[1].text, "COUNT 7")
+        }
+    }
+
+    func testNavigationStackPathBindingAppendsNestedValueDestinations() async {
+        await MainActor.run {
+            var path = NavigationPath()
+            path.appendAnyHashable(AnyHashable("detail"))
+            let stack = NavigationStack(
+                path: Binding(
+                    get: { path },
+                    set: { path = $0 }
+                )
+            ) {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                VStack {
+                    Text("VALUE \(value)")
+                    NavigationLink("COUNT", value: 9)
+                }
+                .navigationTitle("VALUE TITLE")
+                .navigationDestination(for: Int.self) { count in
+                    Text("COUNT \(count)")
+                        .navigationTitle("COUNT TITLE")
+                }
+            }
+
+            let detailNode = makeNode(stack)
+
+            XCTAssertEqual(path.count, 1)
+            XCTAssertTrue(allTexts(in: detailNode.children[1]).contains("COUNT"))
+
+            detailNode.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(path.count, 2)
+
+            let countNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: countNode.children[0]).contains("COUNT TITLE"))
+            XCTAssertEqual(countNode.children[1].text, "COUNT 9")
+        }
+    }
+
     func testNavigationDestinationModifiersPreserveRootContent() async {
         await MainActor.run {
             let item: NavigationDestinationItem? = nil

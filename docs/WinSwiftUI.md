@@ -97,6 +97,8 @@ Modifiers:
 - `rotationEffect`
 - `blur`
 - `disabled`
+- `onAppear`
+- `onDisappear`
 
 Compatibility helpers:
 
@@ -117,6 +119,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - Text styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text` styling still takes precedence.
+- `onAppear` fires when the retained node first renders, and `onDisappear` fires when an appeared retained subtree is removed or replaced.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id.

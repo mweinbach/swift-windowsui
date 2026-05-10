@@ -553,11 +553,7 @@ public final class ViewNode {
         }
 
         let removed = children.remove(at: index)
-        // Gap/Fix: Lifecycle — fire onDisappear when node is removed from tree.
-        if removed.hasAppeared {
-            removed.onDisappear?()
-            removed.hasAppeared = false
-        }
+        removed.markSubtreeDisappeared()
         removed.parent = nil
         removed.setRuntime(nil)
         invalidateRuntime(.children)
@@ -569,11 +565,7 @@ public final class ViewNode {
 
     public func removeAllChildren() {
         for child in children {
-            // Gap/Fix: Lifecycle — fire onDisappear when node is removed from tree.
-            if child.hasAppeared {
-                child.onDisappear?()
-                child.hasAppeared = false
-            }
+            child.markSubtreeDisappeared()
             child.parent = nil
             child.setRuntime(nil)
         }
@@ -589,6 +581,7 @@ public final class ViewNode {
         }
 
         let old = children[index]
+        old.markSubtreeDisappeared()
         old.parent = nil
         old.setRuntime(nil)
 
@@ -606,6 +599,7 @@ public final class ViewNode {
         }
 
         let removed = children.remove(at: index)
+        removed.markSubtreeDisappeared()
         removed.parent = nil
         removed.setRuntime(nil)
         invalidateRuntime()
@@ -615,6 +609,17 @@ public final class ViewNode {
         self.runtime = runtime
         for child in children {
             child.setRuntime(runtime)
+        }
+    }
+
+    private func markSubtreeDisappeared() {
+        if hasAppeared {
+            onDisappear?()
+            hasAppeared = false
+        }
+
+        for child in children {
+            child.markSubtreeDisappeared()
         }
     }
 

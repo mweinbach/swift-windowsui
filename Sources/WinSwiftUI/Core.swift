@@ -1319,6 +1319,36 @@ public extension View {
         }
     }
 
+    func onAppear(perform action: (() -> Void)? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnAppear = childNode.onAppear
+                childNode.onAppear = {
+                    existingOnAppear?()
+                    action?()
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onDisappear(perform action: (() -> Void)? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnDisappear = childNode.onDisappear
+                childNode.onDisappear = {
+                    existingOnDisappear?()
+                    action?()
+                }
+                return childNode
+            }
+        }
+    }
+
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
     func id(_ identifier: String) -> some View {

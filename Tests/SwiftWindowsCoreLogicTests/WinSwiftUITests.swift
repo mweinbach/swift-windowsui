@@ -395,6 +395,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnAppearModifierRunsOnceWhenRendered() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var appearCount = 0
+
+            let node = Text("HELLO")
+                .onAppear {
+                    appearCount += 1
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(appearCount, 1)
+        }
+    }
+
+    func testOnDisappearModifierRunsWhenRenderedSubtreeIsRemoved() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var isVisible = true
+            var disappearCount = 0
+
+            host.setComponents {
+                guard isVisible else {
+                    return []
+                }
+
+                return [
+                    VStack {
+                        Text("CHILD")
+                            .onDisappear {
+                                disappearCount += 1
+                            }
+                    }
+                    .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            isVisible = false
+            host.reload()
+
+            XCTAssertEqual(disappearCount, 1)
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

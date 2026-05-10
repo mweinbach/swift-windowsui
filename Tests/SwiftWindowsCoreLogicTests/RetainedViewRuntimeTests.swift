@@ -6,6 +6,61 @@ import SwiftWindowsPlatform
 @testable import SwiftWindowsUI
 
 final class RetainedViewRuntimeTests: XCTestCase {
+    func testUnmountLifecycleFiresForRemovedAndReplacedSubtrees() async {
+        await MainActor.run {
+            var events: [String] = []
+
+            let child = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 10, height: 10),
+                backgroundColor: .white
+            )
+            child.onDisappear = {
+                events.append("child")
+            }
+            let parent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 20),
+                backgroundColor: .white,
+                children: [child]
+            )
+            parent.onDisappear = {
+                events.append("parent")
+            }
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                children: [parent]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            root.replaceChild(at: 0, with: ViewNode(frame: Rect(x: 0, y: 0, width: 10, height: 10)))
+
+            XCTAssertEqual(events, ["parent", "child"])
+
+            events.removeAll()
+            let removedChild = ViewNode(
+                frame: Rect(x: 6, y: 6, width: 10, height: 10),
+                backgroundColor: .white
+            )
+            removedChild.onDisappear = {
+                events.append("removedChild")
+            }
+            let removedParent = ViewNode(
+                frame: Rect(x: 30, y: 0, width: 20, height: 20),
+                backgroundColor: .white,
+                children: [removedChild]
+            )
+            removedParent.onDisappear = {
+                events.append("removedParent")
+            }
+
+            root.addChild(removedParent)
+            _ = runtime.renderFrame()
+            root.removeChild(at: 1)
+
+            XCTAssertEqual(events, ["removedParent", "removedChild"])
+        }
+    }
+
     func testVerticalStackLayoutUsesPaddingAlignmentAndMainAlignment() async {
         await MainActor.run {
             let first = ViewNode(

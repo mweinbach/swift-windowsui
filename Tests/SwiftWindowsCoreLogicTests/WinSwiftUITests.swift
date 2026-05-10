@@ -118,6 +118,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextConcatenationFlattensIntoRetainedLabel() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.4, green: 0.8, blue: 0.9, alpha: 1)
+            let leftColor = Color(red: 0.9, green: 0.2, blue: 0.3, alpha: 1)
+            let rightColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)
+            let combinedNode = makeNode(
+                (
+                    Text("HELLO ")
+                        .foregroundColor(leftColor)
+                        .font(.system(size: 18, weight: .bold))
+                        .underline()
+                    + Text("WORLD")
+                        .foregroundColor(rightColor)
+                        .font(.system(size: 12, weight: .regular))
+                        .strikethrough()
+                )
+            )
+            let rightStyledNode = makeNode(
+                Text("PLAIN ") + Text("RIGHT").foregroundColor(rightColor)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("A") + Text("B")
+                }
+                .foregroundColor(inheritedColor)
+            )
+
+            XCTAssertEqual(combinedNode.text, "HELLO WORLD")
+            XCTAssertEqual(combinedNode.textStyle.color, leftColor)
+            XCTAssertEqual(combinedNode.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(combinedNode.textStyle.weight, .bold)
+            XCTAssertTrue(combinedNode.textStyle.underline)
+            XCTAssertTrue(combinedNode.textStyle.strikethrough)
+            XCTAssertEqual(rightStyledNode.text, "PLAIN RIGHT")
+            XCTAssertEqual(rightStyledNode.textStyle.color, rightColor)
+            XCTAssertEqual(inheritedNode.children[0].text, "AB")
+            XCTAssertEqual(inheritedNode.children[0].textStyle.color, inheritedColor)
+        }
+    }
+
     func testStringProtocolInputsMapToLabelBearingControls() async {
         await MainActor.run {
             let source = "PREFIX-SAVE"

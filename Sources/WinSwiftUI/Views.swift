@@ -1166,6 +1166,36 @@ public struct Text: View {
         self.strikethrough = false
     }
 
+    private init(
+        content: String,
+        color: Color?,
+        font: Font??,
+        fontDesign: Font.Design?,
+        alignment: TextAlignment?,
+        lineLimit: Int??,
+        truncationMode: TruncationMode?,
+        letterSpacing: Double?,
+        lineSpacing: Double?,
+        allowsTightening: Bool?,
+        textCase: Case??,
+        underline: Bool,
+        strikethrough: Bool
+    ) {
+        self.content = content
+        self.color = color
+        self.font = font
+        self.fontDesign = fontDesign
+        self.alignment = alignment
+        self.lineLimit = lineLimit
+        self.truncationMode = truncationMode
+        self.letterSpacing = letterSpacing
+        self.lineSpacing = lineSpacing
+        self.allowsTightening = allowsTightening
+        self.textCase = textCase
+        self.underline = underline
+        self.strikethrough = strikethrough
+    }
+
     public init(_ key: LocalizedStringKey) {
         self.init(key.resolvedString)
     }
@@ -1180,6 +1210,24 @@ public struct Text: View {
 
     public var body: Never {
         fatalError("Text has no body")
+    }
+
+    public static func + (lhs: Text, rhs: Text) -> Text {
+        Text(
+            content: lhs.content + rhs.content,
+            color: lhs.color ?? rhs.color,
+            font: lhs.font != nil ? lhs.font : rhs.font,
+            fontDesign: lhs.fontDesign ?? rhs.fontDesign,
+            alignment: lhs.alignment ?? rhs.alignment,
+            lineLimit: lhs.lineLimit != nil ? lhs.lineLimit : rhs.lineLimit,
+            truncationMode: lhs.truncationMode ?? rhs.truncationMode,
+            letterSpacing: lhs.letterSpacing ?? rhs.letterSpacing,
+            lineSpacing: lhs.lineSpacing ?? rhs.lineSpacing,
+            allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
+            textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
+            underline: lhs.underline || rhs.underline,
+            strikethrough: lhs.strikethrough || rhs.strikethrough
+        )
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {

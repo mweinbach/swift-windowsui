@@ -1423,6 +1423,21 @@ public extension View {
         }
     }
 
+    func clipped(antialiased: Bool = false) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    clipsToBounds: true,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
     func border(_ color: Color, width: Double = 1, cornerRadius: Double = 0) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

@@ -609,6 +609,16 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testClippedModifierMapsToRetainedBoundsClip() async {
+        await MainActor.run {
+            let node = makeNode(Text("CLIP").clipped(antialiased: true))
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.children.count, 1)
+            XCTAssertEqual(node.children[0].text, "CLIP")
+        }
+    }
+
     func testZIndexModifierMapsToRetainedNodeZIndex() async {
         await MainActor.run {
             let node = makeNode(Text("FRONT").zIndex(7.5))

@@ -1,4 +1,6 @@
+import Foundation
 import SwiftWindowsCore
+import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsUI
 
@@ -1285,7 +1287,12 @@ public struct Image: View {
         case stretch
     }
 
-    private let systemName: String
+    private enum Storage {
+        case systemName(String)
+        case bitmap(BitmapSurface?)
+    }
+
+    private let storage: Storage
     private var color: Color?
     private var font: Font
     private var alignment: TextAlignment
@@ -1295,7 +1302,18 @@ public struct Image: View {
     private var contentMode: ContentMode?
 
     public init(systemName: String) {
-        self.systemName = systemName
+        self.storage = .systemName(systemName)
+        self.color = nil
+        self.font = .system(size: 1.9)
+        self.alignment = .center
+        self.isResizable = false
+        self.resizingMode = .stretch
+        self.aspectRatioValue = nil
+        self.contentMode = nil
+    }
+
+    public init(_ name: String, bundle: Bundle? = nil) {
+        self.storage = .bitmap(Self.loadResource(named: name, bundle: bundle))
         self.color = nil
         self.font = .system(size: 1.9)
         self.alignment = .center
@@ -1310,19 +1328,32 @@ public struct Image: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let symbol = resolvedSymbolIcon(for: systemName)
-        let resolvedColor = color ?? context.foregroundColor
-        let imageScale = context.imageScale.resolvedMultiplier
-        let resolvedScale = font.resolvedScale * imageScale
-        let preferredSize = resolvedPreferredSize(imageScale: imageScale)
-        return Component { _ in
-            Controls.icon(
-                symbol,
-                preferredSize: preferredSize,
-                color: resolvedColor,
-                scale: resolvedScale,
-                alignment: alignment.horizontalAlignment.textAlignment
-            )
+        switch storage {
+        case .systemName(let systemName):
+            let symbol = resolvedSymbolIcon(for: systemName)
+            let resolvedColor = color ?? context.foregroundColor
+            let imageScale = context.imageScale.resolvedMultiplier
+            let resolvedScale = font.resolvedScale * imageScale
+            let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
+            let preferredSize = resolvedPreferredSize(baseSize: baseSize, requiresExplicitOptIn: true)
+            return Component { _ in
+                Controls.icon(
+                    symbol,
+                    preferredSize: preferredSize,
+                    color: resolvedColor,
+                    scale: resolvedScale,
+                    alignment: alignment.horizontalAlignment.textAlignment
+                )
+            }
+        case .bitmap(let bitmap):
+            let preferredSize = resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
+            return Component { _ in
+                guard let bitmap else {
+                    return Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
+                }
+
+                return Controls.image(bitmap, preferredSize: preferredSize)
+            }
         }
     }
 
@@ -1366,25 +1397,74 @@ public struct Image: View {
         aspectRatio(contentMode: .fill)
     }
 
-    private func resolvedPreferredSize(imageScale: Double) -> Size? {
-        guard isResizable || contentMode != nil else {
+    private func resolvedPreferredSize(baseSize: Size?, requiresExplicitOptIn: Bool) -> Size? {
+        guard let baseSize else {
             return nil
         }
 
-        let baseExtent = font.resolvedNativeTextSize * imageScale
-        let requestedRatio = aspectRatioValue ?? 1
-        let ratio = requestedRatio.isFinite && requestedRatio > 0 ? requestedRatio : 1
-
-        switch contentMode ?? .fit {
-        case .fit:
-            return ratio >= 1
-                ? Size(width: baseExtent, height: baseExtent / ratio)
-                : Size(width: baseExtent * ratio, height: baseExtent)
-        case .fill:
-            return ratio >= 1
-                ? Size(width: baseExtent * ratio, height: baseExtent)
-                : Size(width: baseExtent, height: baseExtent / ratio)
+        guard isResizable || contentMode != nil || !requiresExplicitOptIn else {
+            return nil
         }
+
+        let nativeRatio = baseSize.width > 0 && baseSize.height > 0 ? baseSize.width / baseSize.height : 1
+        let requestedRatio = aspectRatioValue ?? nativeRatio
+        let ratio = requestedRatio.isFinite && requestedRatio > 0 ? requestedRatio : 1
+        guard let contentMode else {
+            return baseSize
+        }
+
+        let baseRatio = nativeRatio.isFinite && nativeRatio > 0 ? nativeRatio : 1
+        switch contentMode {
+        case .fit:
+            return ratio >= baseRatio
+                ? Size(width: baseSize.width, height: baseSize.width / ratio)
+                : Size(width: baseSize.height * ratio, height: baseSize.height)
+        case .fill:
+            return ratio >= baseRatio
+                ? Size(width: baseSize.height * ratio, height: baseSize.height)
+                : Size(width: baseSize.width, height: baseSize.width / ratio)
+        }
+    }
+
+    private static func loadResource(named name: String, bundle: Bundle?) -> BitmapSurface? {
+        guard let path = resolveResourcePath(named: name, bundle: bundle) else {
+            return nil
+        }
+
+        return ImageLoader.load(contentsOfFile: path)
+    }
+
+    private static func resolveResourcePath(named name: String, bundle: Bundle?) -> String? {
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: name) {
+            return name
+        }
+
+        let resourceBundle = bundle ?? .main
+        let fileURL = URL(fileURLWithPath: name)
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+        let extensionName = fileURL.pathExtension
+        if !extensionName.isEmpty, let url = resourceBundle.url(forResource: baseName, withExtension: extensionName) {
+            return url.path
+        }
+
+        if let url = resourceBundle.url(forResource: name, withExtension: nil) {
+            return url.path
+        }
+
+        for extensionName in ["png", "jpg", "jpeg", "bmp"] {
+            if let url = resourceBundle.url(forResource: name, withExtension: extensionName) {
+                return url.path
+            }
+        }
+
+        return nil
+    }
+}
+
+private extension BitmapSurface {
+    var logicalSize: Size {
+        Size(width: Double(width), height: Double(height))
     }
 }
 

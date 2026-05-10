@@ -1,4 +1,4 @@
-// Gap 13: Image/asset loading — loads PNG/JPEG files to BitmapSurface via WIC
+// Gap 13: Image/asset loading -- loads WIC-supported files to BitmapSurface.
 
 import CDirect2DInterop
 import Foundation
@@ -8,7 +8,13 @@ import WinSDK
 
 @MainActor
 public enum ImageLoader {
+    private static var cache: [String: BitmapSurface] = [:]
+
     public static func load(contentsOfFile path: String) -> BitmapSurface? {
+        if let cached = cache[path] {
+            return cached
+        }
+
         var pixelsOut: UnsafeMutableRawPointer?
         var width: Int32 = 0
         var height: Int32 = 0
@@ -25,6 +31,8 @@ public enum ImageLoader {
 
         let byteCount = Int(bytesPerRow * height)
         let data = Data(bytes: pixels, count: byteCount)
-        return BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
+        let surface = BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
+        cache[path] = surface
+        return surface
     }
 }

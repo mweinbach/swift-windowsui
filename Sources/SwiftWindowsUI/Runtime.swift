@@ -257,6 +257,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var bitmapSurface: BitmapSurface? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var text: String? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -463,6 +467,7 @@ public final class ViewNode {
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
+        bitmapSurface: BitmapSurface? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -503,6 +508,7 @@ public final class ViewNode {
         self.frame = frame
         self.backgroundColor = backgroundColor
         self.backgroundGradient = backgroundGradient
+        self.bitmapSurface = bitmapSurface
         self.text = text
         self.textStyle = textStyle
         self.borderColor = borderColor
@@ -1400,6 +1406,19 @@ public final class ViewNode {
             }
         }
 
+        if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+            commands.append(
+                .drawBitmap(
+                    DrawBitmapCommand(
+                        rect: fillRect,
+                        bitmap: bitmapSurface,
+                        opacity: effectiveOpacity,
+                        clipRect: effectiveClip
+                    )
+                )
+            )
+        }
+
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
             if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
@@ -1674,7 +1693,7 @@ public final class ViewNode {
             return cachedMeasuredSize
         }
 
-        var measuredSize = textContentSize(in: effectiveConstraints) ?? .zero
+        var measuredSize = bitmapContentSize() ?? textContentSize(in: effectiveConstraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
@@ -1757,6 +1776,14 @@ public final class ViewNode {
         return runtime?.textSystem.measure(text, style: textStyle, maxWidth: maxWidth, scaleFactor: displayScale)
             ?? NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
             ?? PixelFont.measure(text, style: textStyle, maxWidth: maxWidth)
+    }
+
+    private func bitmapContentSize() -> Size? {
+        guard let bitmapSurface, bitmapSurface.width > 0, bitmapSurface.height > 0 else {
+            return nil
+        }
+
+        return Size(width: Double(bitmapSurface.width), height: Double(bitmapSurface.height))
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {

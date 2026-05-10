@@ -304,6 +304,27 @@ public enum ScenePainter {
             ), toLayer: layerIndex)
         }
 
+        if let bitmapSurface = node.bitmapSurface,
+           fillRect.size.width > 0, fillRect.size.height > 0,
+           clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+        {
+            let scaledFillRect = scaleRect(fillRect, by: displayScale)
+            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
+            let textureID = scene.registerImageResource(bitmapSurface)
+            scene.addImage(ImagePrimitive(
+                screenX: Float(scaledFillRect.origin.x),
+                screenY: Float(scaledFillRect.origin.y),
+                screenW: Float(scaledFillRect.size.width),
+                screenH: Float(scaledFillRect.size.height),
+                opacity: opacity,
+                clipX: clipR.0,
+                clipY: clipR.1,
+                clipWidth: clipR.2,
+                clipHeight: clipR.3,
+                textureID: textureID
+            ), toLayer: layerIndex)
+        }
+
         if let text = node.text, !text.isEmpty,
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)

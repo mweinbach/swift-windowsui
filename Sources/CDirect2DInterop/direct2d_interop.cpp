@@ -411,6 +411,13 @@ extern "C" HRESULT SWU_LoadImageFileToBGRA(
     IWICBitmapFrameDecode *frame = nullptr;
     IWICFormatConverter *converter = nullptr;
     HRESULT hr;
+    HRESULT coinit_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    bool did_initialize_com = SUCCEEDED(coinit_hr);
+
+    if (FAILED(coinit_hr) && coinit_hr != RPC_E_CHANGED_MODE) {
+        hr = coinit_hr;
+        goto cleanup;
+    }
 
     hr = CoCreateInstance(
         CLSID_WICImagingFactory,
@@ -475,6 +482,7 @@ cleanup:
     if (frame) frame->Release();
     if (decoder) decoder->Release();
     if (factory) factory->Release();
+    if (did_initialize_com) CoUninitialize();
     return hr;
 }
 

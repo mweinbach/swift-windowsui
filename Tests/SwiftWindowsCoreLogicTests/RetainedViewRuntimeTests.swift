@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
@@ -529,6 +530,47 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             XCTAssertEqual(drawBitmap.bitmap.width, 160)
             XCTAssertEqual(drawBitmap.bitmap.height, 48)
+        }
+    }
+
+    func testBitmapNodeMeasuresAndRendersThroughFrameAndScene() async {
+        await MainActor.run {
+            let bitmap = BitmapSurface(
+                width: 2,
+                height: 1,
+                bytesPerRow: 8,
+                pixels: Data([0, 0, 255, 255, 0, 255, 0, 255])
+            )
+            let image = Controls.image(bitmap)
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 10),
+                layoutMode: .stack(.vertical()),
+                isHitTestVisible: false,
+                children: [image]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            XCTAssertEqual(image.intrinsicContentSize(), Size(width: 2, height: 1))
+
+            let bitmapCommand = runtime.renderFrame().commands.first { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+            guard case .drawBitmap(let drawBitmap)? = bitmapCommand else {
+                return XCTFail("Expected bitmap image command")
+            }
+            XCTAssertEqual(drawBitmap.rect.size, Size(width: 2, height: 1))
+            XCTAssertEqual(drawBitmap.bitmap, bitmap)
+
+            let scene = runtime.renderScene()
+            let imagePrimitives = scene.layers.flatMap(\.images)
+            XCTAssertEqual(imagePrimitives.count, 1)
+            XCTAssertEqual(scene.imageResources, [ImageResourceBinding(textureID: 0, bitmap: bitmap)])
+            XCTAssertEqual(imagePrimitives[0].screenW, 2)
+            XCTAssertEqual(imagePrimitives[0].screenH, 1)
+            XCTAssertEqual(imagePrimitives[0].textureID, 0)
         }
     }
 

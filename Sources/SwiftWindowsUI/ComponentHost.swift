@@ -120,6 +120,7 @@ public final class ComponentHost {
         if target.frame != source.frame { target.frame = source.frame }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
         if target.backgroundGradient != source.backgroundGradient { target.backgroundGradient = source.backgroundGradient }
+        if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }

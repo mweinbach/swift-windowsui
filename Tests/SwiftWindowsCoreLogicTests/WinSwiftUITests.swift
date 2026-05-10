@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
@@ -936,6 +937,28 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(fillNode.preferredSize, Size(width: 20, height: 20))
             XCTAssertEqual(wideFitNode.preferredSize, Size(width: 20, height: 10))
             XCTAssertEqual(scaledToFillNode.preferredSize, Size(width: 20, height: 20))
+        }
+    }
+
+    func testNamedImageLoadsBitmapAndAppliesAspectSizing() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let nativeNode = makeNode(Image(url.path))
+            let fittedNode = makeNode(
+                Image(url.path)
+                    .resizable()
+                    .aspectRatio(1, contentMode: .fit)
+            )
+
+            XCTAssertEqual(nativeNode.bitmapSurface?.width, 2)
+            XCTAssertEqual(nativeNode.bitmapSurface?.height, 1)
+            XCTAssertEqual(nativeNode.preferredSize, Size(width: 2, height: 1))
+            XCTAssertEqual(fittedNode.preferredSize, Size(width: 1, height: 1))
         }
     }
 
@@ -3660,6 +3683,29 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+private func twoPixelBGRA32BMPData() -> Data {
+    Data([
+        0x42, 0x4D,
+        0x3E, 0x00, 0x00, 0x00,
+        0x00, 0x00,
+        0x00, 0x00,
+        0x36, 0x00, 0x00, 0x00,
+        0x28, 0x00, 0x00, 0x00,
+        0x02, 0x00, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00,
+        0x01, 0x00,
+        0x20, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x08, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0xFF, 0xFF,
+        0x00, 0xFF, 0x00, 0xFF
+    ])
 }
 
 private func assertColor(

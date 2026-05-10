@@ -786,6 +786,20 @@ public enum Controls {
         )
     }
 
+    public static func image(
+        _ bitmap: BitmapSurface,
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        isHitTestVisible: Bool = false
+    ) -> ViewNode {
+        ViewNode(
+            frame: frame,
+            bitmapSurface: bitmap,
+            preferredSize: preferredSize,
+            isHitTestVisible: isHitTestVisible
+        )
+    }
+
     public static func button(
         runtime: RetainedViewRuntime,
         title: String,

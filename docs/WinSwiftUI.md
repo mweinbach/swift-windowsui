@@ -60,6 +60,7 @@ Views and containers:
   - `Text(verbatim:)`
   - `StringProtocol` inputs
   - `LocalizedStringKey` inputs
+- `Image(_:)`
 - `Image(systemName:)`
   - `resizable(capInsets:resizingMode:)`
 - `Label`
@@ -241,7 +242,8 @@ Surface direction:
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
-- `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs to retained preferred sizes based on font size, image scale, and aspect ratio. `resizingMode` is retained as compatibility metadata; bitmap image loading/resizing and real tile rendering are not implemented yet.
+- `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
+- `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. `resizingMode` is retained as compatibility metadata; real tile rendering is not implemented yet.
 - `Rectangle`, `RoundedRectangle`, and `Capsule` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, `strokeBorder` aliases the existing retained stroke behavior, and rounded corner styles currently share the same retained rounded-rect path.
 - `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id. `Range<Int>` and `ClosedRange<Int>` support the SwiftUI-style shorthand initializer.

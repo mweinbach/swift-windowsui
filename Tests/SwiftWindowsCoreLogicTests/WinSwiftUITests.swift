@@ -431,6 +431,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextDecorationModifiersMapToRetainedTextStyle() async {
+        await MainActor.run {
+            let decoratedNode = makeNode(
+                Text("LINK")
+                    .underline(color: .blue)
+                    .strikethrough()
+            )
+            let disabledNode = makeNode(
+                Text("PLAIN")
+                    .underline(false)
+                    .strikethrough(false, color: .red)
+            )
+
+            XCTAssertTrue(decoratedNode.textStyle.underline)
+            XCTAssertTrue(decoratedNode.textStyle.strikethrough)
+            XCTAssertFalse(disabledNode.textStyle.underline)
+            XCTAssertFalse(disabledNode.textStyle.strikethrough)
+        }
+    }
+
     func testContainerTextStyleModifiersPropagateToText() async {
         await MainActor.run {
             let node = makeNode(

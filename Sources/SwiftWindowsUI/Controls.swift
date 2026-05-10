@@ -734,7 +734,9 @@ public enum Controls {
         letterSpacing: Double = 1,
         lineSpacing: Double = 2,
         lineBreakMode: TextLineBreakMode = .truncateTail,
-        maximumNumberOfLines: Int? = nil
+        maximumNumberOfLines: Int? = nil,
+        underline: Bool = false,
+        strikethrough: Bool = false
     ) -> ViewNode {
         panel(
             frame: frame,
@@ -753,7 +755,9 @@ public enum Controls {
                 nativeFontSize: nativeFontSize,
                 weight: weight,
                 lineBreakMode: lineBreakMode,
-                maximumNumberOfLines: maximumNumberOfLines
+                maximumNumberOfLines: maximumNumberOfLines,
+                underline: underline,
+                strikethrough: strikethrough
             ),
             isHitTestVisible: false
         )

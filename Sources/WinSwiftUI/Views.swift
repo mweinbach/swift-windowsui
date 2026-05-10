@@ -995,6 +995,8 @@ public struct Text: View {
     private var lineLimit: Int??
     private var letterSpacing: Double?
     private var lineSpacing: Double?
+    private var underline: Bool
+    private var strikethrough: Bool
 
     public init(_ content: String) {
         self.content = content
@@ -1004,6 +1006,8 @@ public struct Text: View {
         self.lineLimit = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
+        self.underline = false
+        self.strikethrough = false
     }
 
     public init(_ key: LocalizedStringKey) {
@@ -1046,7 +1050,9 @@ public struct Text: View {
                 letterSpacing: letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? 2,
                 lineBreakMode: resolvedLineBreakMode(lineLimit: resolvedLineLimit),
-                maximumNumberOfLines: resolvedLineLimit
+                maximumNumberOfLines: resolvedLineLimit,
+                underline: underline,
+                strikethrough: strikethrough
             )
         }
     }
@@ -1104,6 +1110,20 @@ public struct Text: View {
 
     public func tracking(_ tracking: Double) -> Text {
         kerning(tracking)
+    }
+
+    public func underline(_ active: Bool = true, color: Color? = nil) -> Text {
+        _ = color
+        var copy = self
+        copy.underline = active
+        return copy
+    }
+
+    public func strikethrough(_ active: Bool = true, color: Color? = nil) -> Text {
+        _ = color
+        var copy = self
+        copy.strikethrough = active
+        return copy
     }
 
     private func resolvedLineBreakMode(lineLimit: Int?) -> TextLineBreakMode {

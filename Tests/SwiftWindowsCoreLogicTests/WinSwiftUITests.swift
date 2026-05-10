@@ -275,8 +275,20 @@ final class WinSwiftUITests: XCTestCase {
             let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)
             let strokeColor = Color(red: 0.1, green: 0.4, blue: 1.0, alpha: 1)
             let inheritedColor = Color(red: 0.9, green: 0.6, blue: 0.2, alpha: 1)
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.2, green: 0.4, blue: 1.0, alpha: 1),
+                    Color(red: 0.9, green: 0.3, blue: 0.7, alpha: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
 
             let filledRectangle = makeNode(Rectangle().fill(fillColor))
+            let gradientRoundedRectangle = makeNode(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(gradient)
+            )
             let strokedRoundedRectangle = makeNode(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(strokeColor, lineWidth: 2)
@@ -296,9 +308,19 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .foregroundStyle(inheritedColor)
             )
+            let inheritedGradientRectangle = makeNode(
+                VStack {
+                    Rectangle()
+                        .frame(width: 12, height: 10)
+                }
+                .foregroundStyle(gradient)
+            )
 
             XCTAssertEqual(filledRectangle.backgroundColor, fillColor)
             XCTAssertEqual(filledRectangle.cornerRadius, 0)
+            XCTAssertEqual(gradientRoundedRectangle.backgroundColor, gradient.startColor)
+            XCTAssertEqual(gradientRoundedRectangle.backgroundGradient, gradient)
+            XCTAssertEqual(gradientRoundedRectangle.cornerRadius, 12)
             XCTAssertEqual(strokedRoundedRectangle.backgroundColor, .clear)
             XCTAssertEqual(strokedRoundedRectangle.borderColor, strokeColor)
             XCTAssertEqual(strokedRoundedRectangle.borderWidth, 2)
@@ -311,6 +333,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(strokeBorderRoundedRectangle.borderWidth, 5)
             XCTAssertEqual(strokeBorderRoundedRectangle.cornerRadius, 10)
             XCTAssertEqual(inheritedRectangle.children[0].children[0].backgroundColor, inheritedColor)
+            XCTAssertEqual(inheritedGradientRectangle.children[0].children[0].backgroundColor, gradient.startColor)
+            XCTAssertEqual(inheritedGradientRectangle.children[0].children[0].backgroundGradient, gradient)
         }
     }
 

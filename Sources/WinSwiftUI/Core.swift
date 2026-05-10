@@ -338,6 +338,7 @@ public protocol EnvironmentKey {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var isEnabled: Bool
+    public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
@@ -346,12 +347,14 @@ public struct EnvironmentValues: @unchecked Sendable {
     public init(
         colorScheme: ColorScheme = .dark,
         isEnabled: Bool = true,
+        foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
+        self.foregroundStyle = foregroundStyle
         self.tint = tint
         self.controlSize = controlSize
         self.labelStyle = labelStyle
@@ -522,7 +525,18 @@ public struct ViewBuildContext {
     }
 
     public var foregroundColor: Color {
-        foregroundColorProvider()
+        switch environmentValuesProvider().foregroundStyle {
+        case .color(let color):
+            return color
+        case .linearGradient(let gradient):
+            return gradient.startColor
+        case nil:
+            return foregroundColorProvider()
+        }
+    }
+
+    var foregroundStyle: ForegroundStyle {
+        environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider())
     }
 
     public var tint: Color {
@@ -737,7 +751,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.foregroundStyle = .color(color)
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -766,7 +784,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.tint = tint
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -824,11 +846,7 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: {
-                var values = environmentValuesProvider()
-                values.tint = tint
-                return values
-            },
+            environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -1831,6 +1849,11 @@ public struct PickerStyle: Sendable, Equatable {
     public static let menu = PickerStyle(kind: .menu)
 }
 
+public enum ForegroundStyle: Sendable, Equatable {
+    case color(Color)
+    case linearGradient(LinearGradient)
+}
+
 public enum ControlSize: Sendable, Equatable {
     case mini
     case small
@@ -2678,6 +2701,12 @@ public extension View {
     func foregroundStyle(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withForegroundColor(color))
+        }
+    }
+
+    func foregroundStyle(_ gradient: LinearGradient) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, .linearGradient(gradient)))
         }
     }
 

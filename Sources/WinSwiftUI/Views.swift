@@ -33,12 +33,12 @@ public enum RoundedCornerStyle: Sendable, Equatable {
 public struct Rectangle: View {
     public typealias Body = Never
 
-    private var fillColor: Color?
+    private var fillStyle: ForegroundStyle?
     private var strokeColor: Color
     private var lineWidth: Double
 
     public init() {
-        self.fillColor = nil
+        self.fillStyle = nil
         self.strokeColor = .clear
         self.lineWidth = 0
     }
@@ -49,7 +49,7 @@ public struct Rectangle: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
-            fillColor: fillColor ?? context.foregroundColor,
+            fillStyle: fillStyle ?? context.foregroundStyle,
             strokeColor: strokeColor,
             lineWidth: lineWidth,
             cornerRadius: 0
@@ -58,13 +58,19 @@ public struct Rectangle: View {
 
     public func fill(_ color: Color) -> Rectangle {
         var copy = self
-        copy.fillColor = color
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> Rectangle {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
         return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Rectangle {
         var copy = self
-        copy.fillColor = .clear
+        copy.fillStyle = .color(.clear)
         copy.strokeColor = color
         copy.lineWidth = max(0, lineWidth)
         return copy
@@ -81,14 +87,14 @@ public struct RoundedRectangle: View {
 
     private let cornerRadius: Double
     private let style: RoundedCornerStyle
-    private var fillColor: Color?
+    private var fillStyle: ForegroundStyle?
     private var strokeColor: Color
     private var lineWidth: Double
 
     public init(cornerRadius: Double, style: RoundedCornerStyle = .circular) {
         self.cornerRadius = max(0, cornerRadius)
         self.style = style
-        self.fillColor = nil
+        self.fillStyle = nil
         self.strokeColor = .clear
         self.lineWidth = 0
     }
@@ -99,7 +105,7 @@ public struct RoundedRectangle: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
-            fillColor: fillColor ?? context.foregroundColor,
+            fillStyle: fillStyle ?? context.foregroundStyle,
             strokeColor: strokeColor,
             lineWidth: lineWidth,
             cornerRadius: cornerRadius
@@ -108,13 +114,19 @@ public struct RoundedRectangle: View {
 
     public func fill(_ color: Color) -> RoundedRectangle {
         var copy = self
-        copy.fillColor = color
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> RoundedRectangle {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
         return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
         var copy = self
-        copy.fillColor = .clear
+        copy.fillStyle = .color(.clear)
         copy.strokeColor = color
         copy.lineWidth = max(0, lineWidth)
         return copy
@@ -130,13 +142,13 @@ public struct Capsule: View {
     public typealias Body = Never
 
     private let style: RoundedCornerStyle
-    private var fillColor: Color?
+    private var fillStyle: ForegroundStyle?
     private var strokeColor: Color
     private var lineWidth: Double
 
     public init(style: RoundedCornerStyle = .circular) {
         self.style = style
-        self.fillColor = nil
+        self.fillStyle = nil
         self.strokeColor = .clear
         self.lineWidth = 0
     }
@@ -147,7 +159,7 @@ public struct Capsule: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
-            fillColor: fillColor ?? context.foregroundColor,
+            fillStyle: fillStyle ?? context.foregroundStyle,
             strokeColor: strokeColor,
             lineWidth: lineWidth
         )
@@ -155,13 +167,19 @@ public struct Capsule: View {
 
     public func fill(_ color: Color) -> Capsule {
         var copy = self
-        copy.fillColor = color
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> Capsule {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
         return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Capsule {
         var copy = self
-        copy.fillColor = .clear
+        copy.fillStyle = .color(.clear)
         copy.strokeColor = color
         copy.lineWidth = max(0, lineWidth)
         return copy
@@ -192,14 +210,16 @@ extension Capsule: Shape, RetainedClipShape {
 
 @MainActor
 private func shapeComponent(
-    fillColor: Color,
+    fillStyle: ForegroundStyle,
     strokeColor: Color,
     lineWidth: Double,
     cornerRadius: Double
 ) -> Component {
     Component { _ in
-        Controls.panel(
-            backgroundColor: fillColor,
+        let fill = resolvedFill(from: fillStyle)
+        return Controls.panel(
+            backgroundColor: fill.color,
+            backgroundGradient: fill.gradient,
             borderColor: strokeColor,
             borderWidth: lineWidth,
             cornerRadius: cornerRadius,
@@ -210,13 +230,15 @@ private func shapeComponent(
 
 @MainActor
 private func capsuleComponent(
-    fillColor: Color,
+    fillStyle: ForegroundStyle,
     strokeColor: Color,
     lineWidth: Double
 ) -> Component {
     Component { _ in
+        let fill = resolvedFill(from: fillStyle)
         let node = Controls.panel(
-            backgroundColor: fillColor,
+            backgroundColor: fill.color,
+            backgroundGradient: fill.gradient,
             borderColor: strokeColor,
             borderWidth: lineWidth,
             isHitTestVisible: false
@@ -228,6 +250,15 @@ private func capsuleComponent(
             }
         }
         return node
+    }
+}
+
+private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradient: LinearGradient?) {
+    switch style {
+    case .color(let color):
+        return (color, nil)
+    case .linearGradient(let gradient):
+        return (gradient.startColor, gradient)
     }
 }
 

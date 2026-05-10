@@ -731,6 +731,8 @@ public enum Controls {
         nativeFontSize: Double? = nil,
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero,
+        letterSpacing: Double = 1,
+        lineSpacing: Double = 2,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil
     ) -> ViewNode {
@@ -744,6 +746,8 @@ public enum Controls {
                 color: color,
                 scale: scale,
                 alignment: alignment,
+                letterSpacing: letterSpacing,
+                lineSpacing: lineSpacing,
                 insets: insets,
                 fontFamily: fontFamily,
                 nativeFontSize: nativeFontSize,

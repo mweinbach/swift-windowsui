@@ -409,6 +409,28 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextSpacingModifiersMapToRetainedTextStyleAndMeasurement() async {
+        await MainActor.run {
+            let spacedNode = makeNode(
+                Text("A\nB")
+                    .lineSpacing(6)
+                    .kerning(4)
+            )
+            let trackingNode = makeNode(
+                Text("AB")
+                    .tracking(3)
+            )
+
+            XCTAssertEqual(spacedNode.textStyle.lineSpacing, 6)
+            XCTAssertEqual(spacedNode.textStyle.letterSpacing, 4)
+            XCTAssertEqual(trackingNode.textStyle.letterSpacing, 3)
+
+            let defaultMultilineHeight = makeNode(Text("A\nB")).intrinsicContentSize().height
+            let spacedHeight = spacedNode.intrinsicContentSize().height
+            XCTAssertGreaterThan(spacedHeight, defaultMultilineHeight)
+        }
+    }
+
     func testContainerTextStyleModifiersPropagateToText() async {
         await MainActor.run {
             let node = makeNode(

@@ -993,6 +993,8 @@ public struct Text: View {
     private var font: Font?
     private var alignment: TextAlignment?
     private var lineLimit: Int??
+    private var letterSpacing: Double?
+    private var lineSpacing: Double?
 
     public init(_ content: String) {
         self.content = content
@@ -1000,6 +1002,8 @@ public struct Text: View {
         self.font = nil
         self.alignment = nil
         self.lineLimit = nil
+        self.letterSpacing = nil
+        self.lineSpacing = nil
     }
 
     public init(_ key: LocalizedStringKey) {
@@ -1039,6 +1043,8 @@ public struct Text: View {
                 fontFamily: resolvedFont.resolvedFamily,
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 alignment: resolvedAlignment.horizontalAlignment.textAlignment,
+                letterSpacing: letterSpacing ?? 1,
+                lineSpacing: lineSpacing ?? 2,
                 lineBreakMode: resolvedLineBreakMode(lineLimit: resolvedLineLimit),
                 maximumNumberOfLines: resolvedLineLimit
             )
@@ -1082,6 +1088,22 @@ public struct Text: View {
         var copy = self
         copy.lineLimit = .some(lineLimit)
         return copy
+    }
+
+    public func lineSpacing(_ lineSpacing: Double) -> Text {
+        var copy = self
+        copy.lineSpacing = lineSpacing
+        return copy
+    }
+
+    public func kerning(_ kerning: Double) -> Text {
+        var copy = self
+        copy.letterSpacing = kerning
+        return copy
+    }
+
+    public func tracking(_ tracking: Double) -> Text {
+        kerning(tracking)
     }
 
     private func resolvedLineBreakMode(lineLimit: Int?) -> TextLineBreakMode {

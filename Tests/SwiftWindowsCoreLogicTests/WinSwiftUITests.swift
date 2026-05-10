@@ -944,6 +944,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewLabelInitializersWrapProgressBarWithLabel() async {
+        await MainActor.run {
+            let stringNode = makeNode(ProgressView("LOADING", value: 0.25, total: 1.0))
+            let builderNode = makeNode(
+                ProgressView(value: 0.5, total: 1.0) {
+                    Label("SYNC", systemImage: "arrow.triangle.2.circlepath")
+                }
+            )
+
+            XCTAssertEqual(stringNode.children.count, 2)
+            XCTAssertEqual(stringNode.children[0].text, "LOADING")
+            XCTAssertEqual(stringNode.children[1].children.count, 2)
+            XCTAssertEqual(stringNode.children[1].children[1].frame.size.width, 50)
+
+            XCTAssertEqual(builderNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: builderNode.children[0]).contains("SYNC"))
+            XCTAssertEqual(builderNode.children[1].children[1].frame.size.width, 100)
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true

@@ -927,10 +927,35 @@ public struct ProgressView: View {
 
     private let value: Double?
     private let total: Double
+    private let label: [AnyView]
 
     public init(value: Double? = nil, total: Double = 1.0) {
         self.value = value
         self.total = total
+        self.label = []
+    }
+
+    public init(_ title: String, value: Double? = nil, total: Double = 1.0) {
+        self.value = value
+        self.total = total
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.5, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+    }
+
+    public init(_ titleKey: LocalizedStringKey, value: Double? = nil, total: Double = 1.0) {
+        self.init(titleKey.resolvedString, value: value, total: total)
+    }
+
+    public init(value: Double? = nil, total: Double = 1.0, @ViewBuilder label: () -> [AnyView]) {
+        self.value = value
+        self.total = total
+        self.label = label()
     }
 
     public var body: Never {
@@ -938,8 +963,25 @@ public struct ProgressView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { _ in
-            Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let progressNode = Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
+            guard !label.isEmpty else {
+                return progressNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [labelNode, progressNode]
+            )
         }
     }
 }

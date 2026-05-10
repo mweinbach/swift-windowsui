@@ -86,6 +86,7 @@ Views and containers:
   - `ButtonRole.destructive`
   - `ButtonRole.cancel`
 - `Toggle`
+- `Picker`
 - `Stepper`
 - `Slider`
   - `Slider(value:in:step:onEditingChanged:)`
@@ -139,6 +140,7 @@ Modifiers:
 - `onAppear`
 - `onDisappear`
 - `onTapGesture`
+- `tag`
 
 Compatibility helpers:
 
@@ -189,6 +191,7 @@ Surface direction:
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Button(_:systemImage:...)` maps into the existing retained button path with a `Label`; `.buttonStyle` propagates through `ViewBuildContext`, with `.bordered` and `.borderedProminent` mapping to the default retained button chrome and `.borderless` mapping to plain chrome.
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
+- `Picker` maps tagged child content into a retained segmented selection group and writes through a SwiftUI-shaped `Binding` when an option activates. `.tag(_:)` supplies the SwiftUI-style selection value; untagged options fall back to integer indices for `Binding<Int>` pickers.
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle.
 - `ProgressView(value:total:)` maps into the retained progress bar control; title and builder-label overloads wrap that retained bar in a small retained stack.

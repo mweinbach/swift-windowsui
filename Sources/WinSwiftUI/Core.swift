@@ -771,8 +771,10 @@ public struct AnyView: View {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
+    let selectionTag: AnyHashable?
 
     public init<V: View>(_ view: V) {
+        self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
         self.buildComponent = { context in
             ViewBuildContextScope.withCurrent(context) {
                 view.makeComponent(context: context)
@@ -1279,7 +1281,7 @@ public struct SectionStyle: Sendable {
 }
 
 @MainActor
-struct ModifiedView<Content: View>: View {
+struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     typealias Body = Never
 
     let content: Content
@@ -1289,6 +1291,11 @@ struct ModifiedView<Content: View>: View {
     /// resulting ViewNode so the diffing algorithm can match nodes across
     /// rebuilds by identity rather than position alone.
     var id: String?
+    var selectionTag: AnyHashable?
+
+    var anySelectionTag: AnyHashable? {
+        selectionTag ?? (content as? any TaggedViewMetadata)?.anySelectionTag
+    }
 
     var body: Never {
         fatalError("ModifiedView has no body")
@@ -1307,6 +1314,31 @@ struct ModifiedView<Content: View>: View {
             node.nodeTag = capturedID
             return node
         }
+    }
+}
+
+@MainActor
+protocol TaggedViewMetadata {
+    var anySelectionTag: AnyHashable? { get }
+}
+
+@MainActor
+struct TaggedView<Content: View, Tag: Hashable>: View, TaggedViewMetadata {
+    typealias Body = Never
+
+    let content: Content
+    let tag: Tag
+
+    var anySelectionTag: AnyHashable? {
+        AnyHashable(tag)
+    }
+
+    var body: Never {
+        fatalError("TaggedView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
     }
 }
 
@@ -2201,6 +2233,18 @@ public extension View {
             content.makeComponent(context: context)
         }
         modified.id = identifier
+        return modified
+    }
+
+    func id<ID: Hashable>(_ identifier: ID) -> some View {
+        id(String(describing: identifier))
+    }
+
+    func tag<Tag: Hashable>(_ tag: Tag) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.selectionTag = AnyHashable(tag)
         return modified
     }
 

@@ -885,6 +885,90 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerTaggedContentWritesSelectionAndInvalidates() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED")
+                        .tag("expanded")
+                        .font(.headline)
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0]), "MODE")
+            XCTAssertTrue(allTexts(in: node.children[1].children[0]).contains("COMPACT"))
+            XCTAssertTrue(allTexts(in: node.children[1].children[1]).contains("EXPANDED"))
+            XCTAssertTrue(node.children[1].children[0].isFocusable)
+            XCTAssertTrue(node.children[1].children[1].isFocusable)
+
+            node.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testPickerUsesIntegerIndexForUntaggedContent() async {
+        await MainActor.run {
+            var selection = 0
+
+            let node = makeNode(
+                Picker(
+                    "TAB",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            node.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, 1)
+        }
+    }
+
+    func testPickerDisablesUntaggedNonIntegerOptions() async {
+        await MainActor.run {
+            var selection = "one"
+
+            let node = makeNode(
+                Picker(
+                    "VALUE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+
+            XCTAssertFalse(node.children[1].children[0].isFocusable)
+            XCTAssertFalse(node.children[1].children[1].isFocusable)
+            node.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "one")
+        }
+    }
+
     func testStepperDoubleWritesBindingInvalidatesAndReportsEditingChanges() async {
         await MainActor.run {
             var value = 4.0

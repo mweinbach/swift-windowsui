@@ -896,6 +896,170 @@ public struct Toggle: View {
 }
 
 @MainActor
+public struct Picker<SelectionValue: Hashable>: View {
+    public typealias Body = Never
+
+    private let selection: Binding<SelectionValue>
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(
+        _ title: String,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.6, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.content = content()
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, content: content)
+    }
+
+    public init<Label: View>(
+        selection: Binding<SelectionValue>,
+        label: Label,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.label = [AnyView(label)]
+        self.content = content()
+    }
+
+    public init(
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.label = label()
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Picker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let selection = selection
+        let labelViews = label
+        let contentViews = content
+        let labelComponent = composeComponent(
+            from: labelViews,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let selectedValue = selection.wrappedValue
+            let selectedAnyValue = AnyHashable(selectedValue)
+            let optionNodes: [ViewNode] = contentViews.enumerated().map { index, option in
+                let representedValue = Self.selectionValue(for: option, fallbackIndex: index)
+                let isSelected = option.selectionTag.map { $0 == selectedAnyValue } ?? (representedValue == selectedValue)
+                let optionNode = option.makeComponent(context: context).makeNode(runtime: runtime)
+                let palette = isSelected ? Self.selectedPalette(tint: context.tint) : Self.unselectedPalette
+
+                return Controls.button(
+                    runtime: runtime,
+                    layoutPriority: 1,
+                    cornerRadius: 8,
+                    palette: palette,
+                    chrome: SurfaceChrome(
+                        borderColor: isSelected ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                        borderHoveredColor: isSelected ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                        borderFocusedColor: isSelected ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+                        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                        borderWidth: 1,
+                        focusRingColor: context.tint.opacity(0.28),
+                        focusRingWidth: 2
+                    ),
+                    clipsToBounds: true,
+                    layoutMode: .stack(.vertical(
+                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
+                    isEnabled: context.isEnabled && representedValue != nil,
+                    action: representedValue.map { value in
+                        {
+                            selection.wrappedValue = value
+                            context.invalidate()
+                        }
+                    },
+                    children: [optionNode]
+                )
+            }
+
+            let pickerNode = Controls.stackPanel(
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.90),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 12,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: optionNodes
+            )
+
+            guard !labelViews.isEmpty else {
+                return pickerNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [labelNode, pickerNode]
+            )
+        }
+    }
+
+    private static func selectionValue(for option: AnyView, fallbackIndex: Int) -> SelectionValue? {
+        if let tagValue = option.selectionTag?.base as? SelectionValue {
+            return tagValue
+        }
+        return fallbackIndex as? SelectionValue
+    }
+
+    private static func selectedPalette(tint: Color) -> SurfacePalette {
+        SurfacePalette(
+            idle: tint.opacity(0.82),
+            hovered: tint.opacity(0.90),
+            focused: tint.opacity(0.96),
+            pressed: tint,
+            activated: tint
+        )
+    }
+
+    private static var unselectedPalette: SurfacePalette {
+        SurfacePalette(
+            idle: Color(red: 0.18, green: 0.23, blue: 0.31, alpha: 0.78),
+            hovered: Color(red: 0.22, green: 0.29, blue: 0.39, alpha: 0.86),
+            focused: Color(red: 0.26, green: 0.35, blue: 0.47, alpha: 0.90),
+            pressed: Color(red: 0.31, green: 0.42, blue: 0.56, alpha: 0.96),
+            activated: Color(red: 0.36, green: 0.48, blue: 0.63, alpha: 0.96)
+        )
+    }
+}
+
+@MainActor
 public struct Stepper: View {
     public typealias Body = Never
 

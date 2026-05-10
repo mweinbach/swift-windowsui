@@ -99,6 +99,63 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldDisplaysPlaceholderAndWritesBindingFromKeyboard() async {
+        await MainActor.run {
+            var value = ""
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let placeholderNode = makeNode(
+                TextField("NAME", text: binding),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(placeholderNode.isFocusable)
+            XCTAssertEqual(placeholderNode.children[0].text, "NAME")
+
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: 0x4A))
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: 0x4F))
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.space.rawValue))
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: 0x39))
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            placeholderNode.onKeyDown?(KeyboardEvent(keyCode: 0x4B, modifiers: [.shift]))
+
+            XCTAssertEqual(value, "jo K")
+            XCTAssertEqual(invalidationCount, 6)
+
+            let valueNode = makeNode(TextField("NAME", text: binding))
+
+            XCTAssertEqual(valueNode.children[0].text, "jo K")
+        }
+    }
+
+    func testDisabledTextFieldDoesNotAcceptKeyboardInput() async {
+        await MainActor.run {
+            var value = "LOCKED"
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                TextField("NAME", text: binding)
+                    .disabled()
+            )
+
+            XCTAssertFalse(node.isFocusable)
+            XCTAssertNil(node.onKeyDown)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x58))
+
+            XCTAssertEqual(value, "LOCKED")
+        }
+    }
+
     func testRectangleAndRoundedRectangleMapToRetainedShapeNodes() async {
         await MainActor.run {
             let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)

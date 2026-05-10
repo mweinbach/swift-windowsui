@@ -340,6 +340,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
+    public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
     private var customValues: [ObjectIdentifier: Any]
@@ -349,6 +350,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
+        imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic
     ) {
@@ -356,6 +358,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle
         self.tint = tint
+        self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
         self.customValues = [:]
@@ -541,6 +544,10 @@ public struct ViewBuildContext {
 
     public var tint: Color {
         environmentValuesProvider().tint ?? tintProvider()
+    }
+
+    public var imageScale: Image.Scale {
+        environmentValuesProvider().imageScale
     }
 
     public var font: Font {
@@ -2707,6 +2714,12 @@ public extension View {
     func foregroundStyle(_ gradient: LinearGradient) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, .linearGradient(gradient)))
+        }
+    }
+
+    func imageScale(_ scale: Image.Scale) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.imageScale, scale))
         }
     }
 

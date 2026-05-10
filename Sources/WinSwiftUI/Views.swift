@@ -1251,6 +1251,12 @@ private extension String {
 public struct Image: View {
     public typealias Body = Never
 
+    public enum Scale: Sendable, Equatable {
+        case small
+        case medium
+        case large
+    }
+
     public enum ResizingMode: Sendable {
         case tile
         case stretch
@@ -1279,7 +1285,7 @@ public struct Image: View {
             Controls.icon(
                 symbol,
                 color: resolvedColor,
-                scale: font.resolvedScale,
+                scale: font.resolvedScale * context.imageScale.resolvedMultiplier,
                 alignment: alignment.horizontalAlignment.textAlignment
             )
         }
@@ -1305,6 +1311,19 @@ public struct Image: View {
 
     public func resizable(capInsets: EdgeInsets = .zero, resizingMode: ResizingMode = .stretch) -> Image {
         self
+    }
+}
+
+private extension Image.Scale {
+    var resolvedMultiplier: Double {
+        switch self {
+        case .small:
+            return 0.82
+        case .medium:
+            return 1.0
+        case .large:
+            return 1.25
+        }
     }
 }
 

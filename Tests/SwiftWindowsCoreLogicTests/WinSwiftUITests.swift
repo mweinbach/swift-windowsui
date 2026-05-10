@@ -719,6 +719,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageScaleModifierAndEnvironmentScaleSystemIcons() async {
+        await MainActor.run {
+            struct ImageScaleReaderView: View {
+                @Environment(\.imageScale) var imageScale
+
+                var body: some View {
+                    Text(imageScale == .large ? "LARGE" : imageScale == .small ? "SMALL" : "MEDIUM")
+                }
+            }
+
+            let defaultNode = makeNode(Image(systemName: "gear"))
+            let smallNode = makeNode(Image(systemName: "gear").imageScale(.small))
+            let largeNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                    Label("SETTINGS", systemImage: "gear")
+                }
+                .imageScale(.large)
+            )
+            let environmentNode = makeNode(
+                Image(systemName: "gear")
+                    .environment(\.imageScale, .small)
+            )
+            let readerNode = makeNode(ImageScaleReaderView().imageScale(.large))
+
+            XCTAssertEqual(defaultNode.textStyle.scale, 1.9)
+            XCTAssertEqual(smallNode.textStyle.scale, 1.9 * 0.82)
+            XCTAssertEqual(largeNode.children[0].textStyle.scale, 1.9 * 1.25)
+            XCTAssertEqual(largeNode.children[1].children[0].textStyle.scale, 1.9 * 1.25)
+            XCTAssertEqual(environmentNode.textStyle.scale, 1.9 * 0.82)
+            XCTAssertEqual(readerNode.text, "LARGE")
+        }
+    }
+
     func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
         await MainActor.run {
             let constrainedNode = makeNode(

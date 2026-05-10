@@ -2380,7 +2380,7 @@ public struct ScrollView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.scrollPanel(
+            let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: style.backgroundColor,
                 borderColor: style.borderColor,
@@ -2398,6 +2398,11 @@ public struct ScrollView: View {
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            if !context.isScrollEnabled {
+                node.scrollAxis = nil
+                node.showsScrollIndicator = false
+            }
+            return node
         }
     }
 
@@ -2435,12 +2440,17 @@ public struct List: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.scrollPanel(
+            let node = Controls.scrollPanel(
                 axis: .vertical,
                 stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            if !context.isScrollEnabled {
+                node.scrollAxis = nil
+                node.showsScrollIndicator = false
+            }
+            return node
         }
     }
 }
@@ -2575,7 +2585,7 @@ public struct Section: View {
                 children: children
             )
 
-            if let scrollAxis = style.scrollAxis?.scrollAxis {
+            if context.isScrollEnabled, let scrollAxis = style.scrollAxis?.scrollAxis {
                 node.scrollAxis = scrollAxis
                 node.scrollStep = style.scrollStep
                 node.showsScrollIndicator = true

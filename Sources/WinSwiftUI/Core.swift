@@ -362,6 +362,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textFieldStyle: TextFieldStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
+    public var isScrollEnabled: Bool
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -382,7 +383,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
-        isAutocorrectionDisabled: Bool = false
+        isAutocorrectionDisabled: Bool = false,
+        isScrollEnabled: Bool = true
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
@@ -402,6 +404,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textFieldStyle = textFieldStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
+        self.isScrollEnabled = isScrollEnabled
         self.customValues = [:]
     }
 
@@ -669,6 +672,10 @@ public struct ViewBuildContext {
 
     public var isAutocorrectionDisabled: Bool {
         environmentValuesProvider().isAutocorrectionDisabled
+    }
+
+    public var isScrollEnabled: Bool {
+        environmentValuesProvider().isScrollEnabled
     }
 
     public var environmentValues: EnvironmentValues {
@@ -3718,6 +3725,12 @@ public extension View {
     func disabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnabled(!disabled))
+        }
+    }
+
+    func scrollDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isScrollEnabled, !disabled))
         }
     }
 

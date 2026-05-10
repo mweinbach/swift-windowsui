@@ -2193,6 +2193,64 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollDisabledPropagatesToRetainedScrollContainers() async {
+        await MainActor.run {
+            struct ScrollEnvironmentReader: View {
+                @Environment(\.isScrollEnabled) var isScrollEnabled
+
+                var body: some View {
+                    Text(isScrollEnabled ? "SCROLL" : "LOCKED")
+                }
+            }
+
+            let scrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollDisabled()
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .scrollDisabled(true)
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollDisabled()
+            )
+            let enabledEnvironmentNode = makeNode(ScrollEnvironmentReader())
+            let disabledEnvironmentNode = makeNode(ScrollEnvironmentReader().scrollDisabled())
+            let enabledCallNode = makeNode(
+                ScrollView {
+                    Text("OPEN")
+                }
+                .scrollDisabled(false)
+            )
+
+            XCTAssertNil(scrollViewNode.scrollAxis)
+            XCTAssertFalse(scrollViewNode.showsScrollIndicator)
+            XCTAssertTrue(scrollViewNode.clipsToBounds)
+            XCTAssertEqual(scrollViewNode.children[0].text, "ROW")
+
+            XCTAssertNil(listNode.scrollAxis)
+            XCTAssertFalse(listNode.showsScrollIndicator)
+            XCTAssertEqual(listNode.children.count, 2)
+
+            XCTAssertNil(sectionNode.scrollAxis)
+            XCTAssertFalse(sectionNode.showsScrollIndicator)
+            XCTAssertEqual(sectionNode.children[1].text, "ITEM")
+
+            XCTAssertEqual(enabledEnvironmentNode.text, "SCROLL")
+            XCTAssertEqual(disabledEnvironmentNode.text, "LOCKED")
+            XCTAssertEqual(enabledCallNode.scrollAxis, .vertical)
+            XCTAssertTrue(enabledCallNode.showsScrollIndicator)
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

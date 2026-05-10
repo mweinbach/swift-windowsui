@@ -2435,6 +2435,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListRowBackgroundMapsToRetainedRowBackgrounds() async {
+        await MainActor.run {
+            let rowColor = Color(red: 0.20, green: 0.28, blue: 0.38, alpha: 0.90)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .leading, endPoint: .trailing)
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                        .listRowBackground(rowColor)
+                    Text("TWO")
+                        .listRowBackground(gradient)
+                    Text("THREE")
+                        .listRowBackground(nil as Color?)
+                }
+            )
+            let viewBackgroundNode = makeNode(
+                Text("FOUR")
+                    .listRowBackground(
+                        Rectangle()
+                            .fill(.blue)
+                    )
+            )
+
+            XCTAssertEqual(listNode.children[0].backgroundColor, rowColor)
+            XCTAssertEqual(listNode.children[0].children[0].text, "ONE")
+            XCTAssertEqual(listNode.children[1].backgroundGradient, gradient)
+            XCTAssertEqual(listNode.children[1].children[0].text, "TWO")
+            XCTAssertEqual(listNode.children[2].text, "THREE")
+            XCTAssertEqual(viewBackgroundNode.children.count, 2)
+            XCTAssertEqual(viewBackgroundNode.children[0].backgroundColor, .blue)
+            XCTAssertEqual(viewBackgroundNode.children[1].text, "FOUR")
+        }
+    }
+
     func testListDataInitializerRendersRowsWithStableIDs() async {
         await MainActor.run {
             let node = makeNode(

@@ -3845,6 +3845,77 @@ public extension View {
         }
     }
 
+    func listRowBackground<Background: View>(_ view: Background?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard let view else {
+                return content.makeComponent(context: context)
+            }
+
+            let base = content.makeComponent(context: context)
+            let background = view.makeComponent(context: context)
+            return Component { runtime in
+                let backgroundNode = background.makeNode(runtime: runtime)
+                let baseNode = base.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let frame = Rect(origin: .zero, size: bounds.size)
+                    if backgroundNode.frame != frame {
+                        backgroundNode.frame = frame
+                    }
+                    if baseNode.frame != frame {
+                        baseNode.frame = frame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
+    func listRowBackground(_ color: Color?) -> some View {
+        listRowBackgroundStyle(color: color, gradient: nil)
+    }
+
+    func listRowBackground(_ gradient: LinearGradient?) -> some View {
+        listRowBackgroundStyle(color: nil, gradient: gradient)
+    }
+
+    func listRowBackground(_ style: ForegroundStyle?) -> some View {
+        guard let style else {
+            return listRowBackgroundStyle(color: nil, gradient: nil)
+        }
+
+        let fill = resolvedStyleFill(from: style)
+        return listRowBackgroundStyle(color: fill.color, gradient: fill.gradient)
+    }
+
+    private func listRowBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard color != nil || gradient != nil else {
+                return content.makeComponent(context: context)
+            }
+
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: color,
+                    backgroundGradient: gradient,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
     func onAppear(perform action: (() -> Void)? = nil) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

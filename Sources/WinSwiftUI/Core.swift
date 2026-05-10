@@ -2515,6 +2515,15 @@ private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, g
     }
 }
 
+private func resolvedStyleColor(from style: ForegroundStyle) -> Color {
+    switch style {
+    case .color(let color):
+        return color
+    case .linearGradient(let gradient):
+        return gradient.startColor
+    }
+}
+
 public extension SwiftWindowsGraphics.LinearGradient {
     init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
         self.init(
@@ -3423,6 +3432,14 @@ public extension View {
                 )
             }
         }
+    }
+
+    func border(_ style: ForegroundStyle, width: Double = 1, cornerRadius: Double = 0) -> some View {
+        border(resolvedStyleColor(from: style), width: width, cornerRadius: cornerRadius)
+    }
+
+    func border(_ gradient: LinearGradient, width: Double = 1, cornerRadius: Double = 0) -> some View {
+        border(.linearGradient(gradient), width: width, cornerRadius: cornerRadius)
     }
 
     func shadow(color: Color, radius: Double = 0, x: Double = 0, y: Double = 0) -> some View {

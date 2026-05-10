@@ -3914,6 +3914,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBorderAcceptsStoredForegroundStyleAndGradientOverloads() async {
+        await MainActor.run {
+            let storedColor = Color(red: 0.25, green: 0.7, blue: 0.45, alpha: 1)
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.8, green: 0.2, blue: 0.6, alpha: 1),
+                    Color(red: 0.1, green: 0.4, blue: 0.9, alpha: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let storedColorNode = makeNode(
+                Text("BORDER")
+                    .border(ForegroundStyle.color(storedColor), width: 3, cornerRadius: 7)
+            )
+            let storedGradientNode = makeNode(
+                Text("GRADIENT")
+                    .border(ForegroundStyle.linearGradient(gradient), width: 4, cornerRadius: 9)
+            )
+            let gradientNode = makeNode(
+                Text("DIRECT")
+                    .border(gradient, width: 5, cornerRadius: 11)
+            )
+
+            XCTAssertEqual(storedColorNode.borderColor, storedColor)
+            XCTAssertEqual(storedColorNode.borderWidth, 3)
+            XCTAssertEqual(storedColorNode.cornerRadius, 7)
+            XCTAssertEqual(storedColorNode.children[0].text, "BORDER")
+
+            XCTAssertEqual(storedGradientNode.borderColor, gradient.startColor)
+            XCTAssertEqual(storedGradientNode.borderWidth, 4)
+            XCTAssertEqual(storedGradientNode.cornerRadius, 9)
+            XCTAssertEqual(storedGradientNode.children[0].text, "GRADIENT")
+
+            XCTAssertEqual(gradientNode.borderColor, gradient.startColor)
+            XCTAssertEqual(gradientNode.borderWidth, 5)
+            XCTAssertEqual(gradientNode.cornerRadius, 11)
+            XCTAssertEqual(gradientNode.children[0].text, "DIRECT")
+        }
+    }
+
     func testShadowModifierAcceptsDefaultColorOverload() async {
         await MainActor.run {
             let defaultNode = makeNode(Text("CARD").shadow(radius: 6, x: 2, y: 3))

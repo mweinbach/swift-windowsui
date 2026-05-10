@@ -192,7 +192,7 @@ Modifiers:
 - `cornerRadius(_:antialiased:)`
 - `clipped(antialiased:)`
 - `clipShape(_:style:)`
-- `border`
+- `border`, including stored `ForegroundStyle` and `LinearGradient` overloads
 - `shadow`, including SwiftUI-style default-color `shadow(radius:x:y:)`
 - `layoutPriority`
 - `allowsHitTesting`
@@ -299,6 +299,7 @@ Surface direction:
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, and `Capsule` to retained bounds clipping with matching retained corner-radius behavior. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.
+- `border` maps to retained panel border fields. Stored `ForegroundStyle.color` values map directly, while gradient border inputs use the gradient start color until renderer-neutral gradient stroke primitives exist.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
 - `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.

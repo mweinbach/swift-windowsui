@@ -132,6 +132,7 @@ public final class ComponentHost {
         if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+        if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.opacity != source.opacity { target.opacity = source.opacity }

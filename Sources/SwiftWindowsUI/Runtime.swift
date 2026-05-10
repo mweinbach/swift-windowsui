@@ -299,6 +299,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var layoutConstraints: LayoutConstraints? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var layoutPriority: Double {
         didSet { invalidateRuntime(.layout) }
     }
@@ -458,6 +462,7 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
+        layoutConstraints: LayoutConstraints? = nil,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
@@ -496,6 +501,7 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
+        self.layoutConstraints = layoutConstraints
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
@@ -1644,14 +1650,15 @@ public final class ViewNode {
 
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
         let displayScale = runtime?.displayScale ?? 1.0
-        let cacheKey = ViewMeasureCacheKey(constraints: constraints, displayScale: displayScale)
+        let effectiveConstraints = applyingLayoutConstraints(to: constraints)
+        let cacheKey = ViewMeasureCacheKey(constraints: effectiveConstraints, displayScale: displayScale)
         let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
         if layoutDirtyFlags.isEmpty, cachedMeasureKey == cacheKey, let cachedMeasuredSize {
             runtime?.recordMeasureReuse()
             return cachedMeasuredSize
         }
 
-        var measuredSize = textContentSize(in: constraints) ?? .zero
+        var measuredSize = textContentSize(in: effectiveConstraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
@@ -1660,8 +1667,8 @@ public final class ViewNode {
 
             for child in children where !child.isHidden {
                 let childConstraints = LayoutConstraints(
-                    maxWidth: remainingConstraintExtent(constraints.maxWidth, offset: child.frame.origin.x),
-                    maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: child.frame.origin.y)
+                    maxWidth: remainingConstraintExtent(effectiveConstraints.maxWidth, offset: child.frame.origin.x),
+                    maxHeight: remainingConstraintExtent(effectiveConstraints.maxHeight, offset: child.frame.origin.y)
                 )
                 let childSize = child.sizeThatFits(in: childConstraints)
                 let resolvedWidth = child.explicitWidth ?? childSize.width
@@ -1673,7 +1680,7 @@ public final class ViewNode {
             measuredSize = Size(width: maxChildX, height: maxChildY)
 
         case .stack(let stackLayout):
-            let contentConstraints = insetConstraints(constraints, by: stackLayout.padding)
+            let contentConstraints = insetConstraints(effectiveConstraints, by: stackLayout.padding)
             let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
             let visibleChildren = children.filter { !$0.isHidden }
             let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
@@ -1714,7 +1721,7 @@ public final class ViewNode {
             )
         }
 
-        let resolvedSize = applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+        let resolvedSize = applyingExplicitDimensions(to: measuredSize, constraints: effectiveConstraints)
         cachedMeasureKey = cacheKey
         cachedMeasuredSize = resolvedSize
         return resolvedSize
@@ -1743,6 +1750,22 @@ public final class ViewNode {
         return Size(
             width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
             height: clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
+        )
+    }
+
+    private func applyingLayoutConstraints(to constraints: LayoutConstraints) -> LayoutConstraints {
+        guard let layoutConstraints else {
+            return constraints
+        }
+
+        let minWidth = max(constraints.minWidth, layoutConstraints.minWidth)
+        let minHeight = max(constraints.minHeight, layoutConstraints.minHeight)
+
+        return LayoutConstraints(
+            minWidth: minWidth,
+            maxWidth: max(minWidth, minimumFiniteExtent(constraints.maxWidth, layoutConstraints.maxWidth)),
+            minHeight: minHeight,
+            maxHeight: max(minHeight, minimumFiniteExtent(constraints.maxHeight, layoutConstraints.maxHeight))
         )
     }
 
@@ -2103,6 +2126,18 @@ private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> D
     }
 
     return max(0, maxExtent - offset)
+}
+
+private func minimumFiniteExtent(_ lhs: Double, _ rhs: Double) -> Double {
+    if lhs.isFinite && rhs.isFinite {
+        return min(lhs, rhs)
+    }
+
+    if lhs.isFinite {
+        return lhs
+    }
+
+    return rhs
 }
 
 private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: Double) -> Double {

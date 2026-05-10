@@ -1,5 +1,6 @@
 import XCTest
 import SwiftWindowsCore
+import SwiftWindowsLayout
 @testable import SwiftWindowsUI
 
 final class ComponentHostTests: XCTestCase {
@@ -61,6 +62,9 @@ final class ComponentHostTests: XCTestCase {
                     let eventLabel = useSecondState ? "second" : "first"
                     let opacity = useSecondState ? 0.85 : 0.25
                     let zIndex = useSecondState ? 9.0 : 2.0
+                    let layoutConstraints = useSecondState
+                        ? LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36)
+                        : LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16)
                     let transform = useSecondState
                         ? Transform2D.translation(x: 24, y: 36)
                         : Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1)
@@ -69,6 +73,7 @@ final class ComponentHostTests: XCTestCase {
                     node.text = label
                     node.opacity = opacity
                     node.zIndex = zIndex
+                    node.layoutConstraints = layoutConstraints
                     node.transform = transform
                     node.scrollOffset = scrollOffset
                     node.isFocusable = useSecondState
@@ -92,6 +97,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.text, "FIRST")
             XCTAssertEqual(firstNode?.opacity, 0.25)
             XCTAssertEqual(firstNode?.zIndex, 2)
+            XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
             XCTAssertEqual(firstNode?.isFocusable, false)
@@ -105,6 +111,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.text, "SECOND")
             XCTAssertEqual(reusedNode?.opacity, 0.85)
             XCTAssertEqual(reusedNode?.zIndex, 9)
+            XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
             XCTAssertEqual(reusedNode?.scrollOffset, 48)
             XCTAssertEqual(reusedNode?.isFocusable, true)

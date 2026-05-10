@@ -1270,6 +1270,34 @@ extension Alignment {
     }
 }
 
+private func normalizedFrameMinimum(_ value: Double?) -> Double {
+    guard let value, value.isFinite else {
+        return 0
+    }
+
+    return max(0, value)
+}
+
+private func normalizedFrameMaximum(_ value: Double?, minimum: Double) -> Double {
+    guard let value else {
+        return .infinity
+    }
+
+    guard value.isFinite else {
+        return .infinity
+    }
+
+    return max(minimum, value)
+}
+
+private func normalizedFrameIdeal(_ value: Double?) -> Double? {
+    guard let value, value.isFinite else {
+        return nil
+    }
+
+    return max(0, value)
+}
+
 public extension View {
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
@@ -1293,6 +1321,49 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+            }
+        }
+    }
+
+    func frame(
+        minWidth: Double? = nil,
+        idealWidth: Double? = nil,
+        maxWidth: Double? = nil,
+        minHeight: Double? = nil,
+        idealHeight: Double? = nil,
+        maxHeight: Double? = nil,
+        alignment: Alignment = .center
+    ) -> some View {
+        let resolvedMinWidth = normalizedFrameMinimum(minWidth)
+        let resolvedMinHeight = normalizedFrameMinimum(minHeight)
+        let constraints = LayoutConstraints(
+            minWidth: resolvedMinWidth,
+            maxWidth: normalizedFrameMaximum(maxWidth, minimum: resolvedMinWidth),
+            minHeight: resolvedMinHeight,
+            maxHeight: normalizedFrameMaximum(maxHeight, minimum: resolvedMinHeight)
+        )
+        let idealSize = Size(
+            width: normalizedFrameIdeal(idealWidth) ?? 0,
+            height: normalizedFrameIdeal(idealHeight) ?? 0
+        )
+        let hasIdealSize = idealWidth != nil || idealHeight != nil
+
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let root = Controls.stackPanel(
+                    preferredSize: hasIdealSize ? idealSize : nil,
+                    stackLayout: .vertical(
+                        padding: .zero,
+                        alignment: alignment.horizontal.stackAlignment,
+                        mainAlignment: alignment.vertical.mainAlignment
+                    ),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+                root.layoutConstraints = constraints
+                return root
             }
         }
     }

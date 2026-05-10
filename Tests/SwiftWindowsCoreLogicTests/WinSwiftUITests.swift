@@ -1,6 +1,7 @@
 import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import SwiftWindowsLayout
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
@@ -249,6 +250,52 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(labelNode.children.count, 2)
             XCTAssertEqual(labelNode.children[0].textStyle.color, inheritedColor)
             XCTAssertEqual(labelNode.children[1].textStyle.color, inheritedColor)
+        }
+    }
+
+    func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
+        await MainActor.run {
+            let constrainedNode = makeNode(
+                Text("FRAME")
+                    .frame(
+                        minWidth: 80,
+                        idealWidth: 100,
+                        maxWidth: 120,
+                        minHeight: 20,
+                        idealHeight: 24,
+                        maxHeight: 30,
+                        alignment: .bottomTrailing
+                    )
+            )
+            let flexibleNode = makeNode(
+                Text("FLEX")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            )
+
+            XCTAssertEqual(constrainedNode.preferredSize, Size(width: 100, height: 24))
+            XCTAssertEqual(
+                constrainedNode.layoutConstraints,
+                LayoutConstraints(minWidth: 80, maxWidth: 120, minHeight: 20, maxHeight: 30)
+            )
+            XCTAssertEqual(flexibleNode.layoutConstraints?.maxWidth, .infinity)
+            XCTAssertEqual(flexibleNode.layoutConstraints?.maxHeight, .infinity)
+        }
+    }
+
+    func testFrameConstraintOverloadClampsIntrinsicSize() async {
+        await MainActor.run {
+            let minNode = makeNode(
+                Rectangle()
+                    .frame(minWidth: 80, minHeight: 20)
+            )
+            let maxNode = makeNode(
+                Rectangle()
+                    .frame(width: 100, height: 50)
+                    .frame(maxWidth: 30, maxHeight: 20)
+            )
+
+            XCTAssertEqual(minNode.intrinsicContentSize(), Size(width: 80, height: 20))
+            XCTAssertEqual(maxNode.intrinsicContentSize(), Size(width: 30, height: 20))
         }
     }
 

@@ -988,12 +988,19 @@ public extension ForEach where Data == ClosedRange<Int>, ID == Int {
 public struct Text: View {
     public typealias Body = Never
 
+    public enum TruncationMode: Sendable, Equatable {
+        case head
+        case tail
+        case middle
+    }
+
     private let content: String
     private var color: Color?
     private var font: Font?
     private var fontDesign: Font.Design?
     private var alignment: TextAlignment?
     private var lineLimit: Int??
+    private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
     private var lineSpacing: Double?
     private var underline: Bool
@@ -1006,6 +1013,7 @@ public struct Text: View {
         self.fontDesign = nil
         self.alignment = nil
         self.lineLimit = nil
+        self.truncationMode = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
         self.underline = false
@@ -1054,7 +1062,10 @@ public struct Text: View {
                 alignment: resolvedAlignment.horizontalAlignment.textAlignment,
                 letterSpacing: letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? 2,
-                lineBreakMode: resolvedLineBreakMode(lineLimit: resolvedLineLimit),
+                lineBreakMode: resolvedLineBreakMode(
+                    lineLimit: resolvedLineLimit,
+                    truncationMode: truncationMode ?? context.truncationMode
+                ),
                 maximumNumberOfLines: resolvedLineLimit,
                 underline: underline,
                 strikethrough: strikethrough
@@ -1113,6 +1124,12 @@ public struct Text: View {
         return copy
     }
 
+    public func truncationMode(_ mode: TruncationMode) -> Text {
+        var copy = self
+        copy.truncationMode = mode
+        return copy
+    }
+
     public func lineSpacing(_ lineSpacing: Double) -> Text {
         var copy = self
         copy.lineSpacing = lineSpacing
@@ -1143,12 +1160,22 @@ public struct Text: View {
         return copy
     }
 
-    private func resolvedLineBreakMode(lineLimit: Int?) -> TextLineBreakMode {
-        if let lineLimit, lineLimit == 1 {
-            return .truncateTail
+    private func resolvedLineBreakMode(lineLimit: Int?, truncationMode: TruncationMode?) -> TextLineBreakMode {
+        guard let lineLimit else {
+            return .wrap
+        }
+        guard lineLimit == 1 || truncationMode != nil else {
+            return .wrap
         }
 
-        return .wrap
+        switch truncationMode {
+        case .head:
+            return .truncateHead
+        case .tail, nil:
+            return .truncateTail
+        case .middle:
+            return .truncateMiddle
+        }
     }
 }
 

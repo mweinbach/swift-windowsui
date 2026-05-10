@@ -482,6 +482,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTruncationModeMapsToRetainedLineBreakMode() async {
+        await MainActor.run {
+            let headNode = makeNode(
+                Text("HEAD")
+                    .lineLimit(1)
+                    .truncationMode(.head)
+            )
+            let middleNode = makeNode(
+                Text("MIDDLE")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("EXPLICIT")
+                        .truncationMode(.tail)
+                }
+                .lineLimit(1)
+                .truncationMode(.head)
+            )
+
+            XCTAssertEqual(headNode.textStyle.lineBreakMode, .truncateHead)
+            XCTAssertEqual(middleNode.textStyle.lineBreakMode, .truncateMiddle)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.lineBreakMode, .truncateHead)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.lineBreakMode, .truncateTail)
+        }
+    }
+
     func testTextDecorationModifiersMapToRetainedTextStyle() async {
         await MainActor.run {
             let decoratedNode = makeNode(

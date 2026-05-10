@@ -2859,6 +2859,16 @@ public extension View {
         }
     }
 
+    func foregroundColor(_ color: Color?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard let color else {
+                return content.makeComponent(context: context)
+            }
+
+            return content.makeComponent(context: context.withForegroundColor(color))
+        }
+    }
+
     func foregroundStyle(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withForegroundColor(color))
@@ -2891,6 +2901,12 @@ public extension View {
     func tint(_ tint: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTint(tint))
+        }
+    }
+
+    func tint(_ tint: Color?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTint(tint ?? ViewBuildContext.defaultTint))
         }
     }
 

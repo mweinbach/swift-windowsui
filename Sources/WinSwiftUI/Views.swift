@@ -1075,7 +1075,7 @@ public struct Text: View {
 
     private let content: String
     private var color: Color?
-    private var font: Font?
+    private var font: Font??
     private var fontDesign: Font.Design?
     private var alignment: TextAlignment?
     private var lineLimit: Int??
@@ -1122,7 +1122,12 @@ public struct Text: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = color ?? context.foregroundColor
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
-        var resolvedFont = font ?? inheritedFont
+        var resolvedFont: Font
+        if let font {
+            resolvedFont = font ?? .system(size: 2)
+        } else {
+            resolvedFont = inheritedFont
+        }
         if let fontDesign {
             resolvedFont = resolvedFont.withDesign(fontDesign)
         }
@@ -1165,9 +1170,21 @@ public struct Text: View {
         return copy
     }
 
+    public func foregroundColor(_ color: Color?) -> Text {
+        var copy = self
+        copy.color = color
+        return copy
+    }
+
     public func font(_ font: Font) -> Text {
         var copy = self
-        copy.font = font
+        copy.font = .some(font)
+        return copy
+    }
+
+    public func font(_ font: Font?) -> Text {
+        var copy = self
+        copy.font = .some(font)
         return copy
     }
 
@@ -1189,8 +1206,13 @@ public struct Text: View {
         }
 
         var copy = self
-        let baseFont = copy.font ?? .system(size: 2)
-        copy.font = baseFont.weight(weight)
+        let baseFont: Font
+        if let font = copy.font {
+            baseFont = font ?? .system(size: 2)
+        } else {
+            baseFont = .system(size: 2)
+        }
+        copy.font = .some(baseFont.weight(weight))
         return copy
     }
 
@@ -1408,6 +1430,12 @@ public struct Image: View {
         return copy
     }
 
+    public func foregroundColor(_ color: Color?) -> Image {
+        var copy = self
+        copy.color = color
+        return copy
+    }
+
     public func font(_ font: Font) -> Image {
         var copy = self
         copy.font = font
@@ -1605,6 +1633,12 @@ public struct Label: View {
     }
 
     public func foregroundColor(_ color: Color) -> Label {
+        var copy = self
+        copy.color = color
+        return copy
+    }
+
+    public func foregroundColor(_ color: Color?) -> Label {
         var copy = self
         copy.color = color
         return copy

@@ -148,10 +148,10 @@ Modifiers:
 - `background(alignment:content:)`
 - `overlay(_:alignment:)`
 - `overlay(alignment:content:)`
-- `foregroundColor`
+- `foregroundColor`, including optional `Color?` inputs
 - `foregroundStyle` for solid `Color`, stored `ForegroundStyle`, and `LinearGradient` shape fills
 - `imageScale`
-- `tint`
+- `tint`, including optional `Color?` inputs
 - `accentColor`
 - `buttonStyle`
 - `pickerStyle`
@@ -258,7 +258,7 @@ Surface direction:
 - `imageScale(_:)` propagates through `EnvironmentValues` and maps `.small`, `.medium`, and `.large` to retained symbol icon scale for `Image(systemName:)` and label icons.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `labelsHidden()` propagates through `ViewBuildContext` and suppresses retained label nodes for controls such as `Toggle`, `Picker`, `Stepper`, `Slider`, and `ProgressView`.
-- `font(_:)`, `tint(_:)`, `accentColor(_:)`, and `controlSize(_:)` bridge into `EnvironmentValues`, so `@Environment(\.font)`, `@Environment(\.tint)`, `@Environment(\.controlSize)`, `.environment(\.font, ...)`, `.environment(\.tint, ...)`, and `.environment(\.controlSize, ...)` share the same inherited values consumed by retained text and controls.
+- `font(_:)`, `tint(_:)`, `accentColor(_:)`, and `controlSize(_:)` bridge into `EnvironmentValues`, so `@Environment(\.font)`, `@Environment(\.tint)`, `@Environment(\.controlSize)`, `.environment(\.font, ...)`, `.environment(\.tint, ...)`, and `.environment(\.controlSize, ...)` share the same inherited values consumed by retained text and controls. Optional `Text.font(_:)` accepts concrete fonts and resets `nil` to the retained default text font.
 - `controlSize(_:)` maps to retained preferred sizes for text inputs, toggle, menu picker, stepper buttons, slider, and progress bar surfaces.
 - `labelStyle(_:)` propagates through `EnvironmentValues` and maps `.automatic` / `.titleAndIcon`, `.iconOnly`, and `.titleOnly` to retained `Label` composition.
 - `toggleStyle(_:)` propagates through `EnvironmentValues`; `.automatic` and `.switch` use the retained switch, `.checkbox` maps to retained checkbox chrome with arbitrary SwiftUI-shaped label content, and `.button` maps to retained selected/unselected button chrome.

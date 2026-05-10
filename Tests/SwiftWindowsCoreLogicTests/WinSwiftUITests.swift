@@ -1098,6 +1098,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOptionalForegroundColorAndTextFontModifiersMapToInheritedStyle() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.8, green: 0.2, blue: 0.1, alpha: 1)
+            let optionalColor: Color? = Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1)
+            let nilColor: Color? = nil
+            let inheritedFont = Font.system(size: 16, weight: .bold, design: .monospaced)
+            let optionalFont: Font? = .system(size: 18, weight: .semibold, design: .rounded)
+            let nilFont: Font? = nil
+
+            let node = makeNode(
+                VStack {
+                    Text("OPTIONAL")
+                        .foregroundColor(optionalColor)
+                        .font(optionalFont)
+                    Text("RESET")
+                        .foregroundColor(optionalColor)
+                        .foregroundColor(nilColor)
+                        .font(.system(size: 20, weight: .light))
+                        .font(nilFont)
+                    Image(systemName: "gear")
+                        .foregroundColor(optionalColor)
+                    Label("LABEL", systemImage: "info.circle")
+                        .foregroundColor(optionalColor)
+                    VStack {
+                        Text("INHERITED")
+                    }
+                    .foregroundColor(nilColor)
+                }
+                .foregroundColor(inheritedColor)
+                .font(inheritedFont)
+            )
+
+            XCTAssertEqual(node.children[0].textStyle.color, optionalColor)
+            XCTAssertEqual(node.children[0].textStyle.nativeFontSize, 18)
+            XCTAssertEqual(node.children[0].textStyle.weight, .semibold)
+            XCTAssertEqual(node.children[0].textStyle.fontFamily, "Segoe UI")
+
+            XCTAssertEqual(node.children[1].textStyle.color, inheritedColor)
+            XCTAssertEqual(node.children[1].textStyle.nativeFontSize, 20)
+            XCTAssertEqual(node.children[1].textStyle.weight, .regular)
+            XCTAssertEqual(node.children[1].textStyle.fontFamily, "Segoe UI")
+
+            XCTAssertEqual(node.children[2].textStyle.color, optionalColor)
+            XCTAssertEqual(node.children[3].children[0].textStyle.color, optionalColor)
+            XCTAssertEqual(node.children[3].children[1].textStyle.color, optionalColor)
+            XCTAssertEqual(node.children[4].children[0].textStyle.color, inheritedColor)
+        }
+    }
+
     func testForegroundStyleColorPropagatesToText() async {
         await MainActor.run {
             let styledColor = Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1)
@@ -3364,6 +3413,29 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(progressFilled.backgroundColor, parentAccent)
             XCTAssertEqual(sliderFilled.backgroundColor, nestedTint)
+        }
+    }
+
+    func testOptionalTintModifierMapsToTintOrDefault() async {
+        await MainActor.run {
+            let parentAccent = Color(red: 0.1, green: 0.8, blue: 0.3, alpha: 1)
+            let optionalTint: Color? = Color(red: 0.9, green: 0.2, blue: 0.5, alpha: 1)
+            let nilTint: Color? = nil
+
+            let node = makeNode(
+                VStack {
+                    ProgressView(value: 0.25, total: 1.0)
+                    ProgressView(value: 0.5, total: 1.0)
+                        .tint(optionalTint)
+                    ProgressView(value: 0.75, total: 1.0)
+                        .tint(nilTint)
+                }
+                .accentColor(parentAccent)
+            )
+
+            XCTAssertEqual(node.children[0].children[1].backgroundColor, parentAccent)
+            XCTAssertEqual(node.children[1].children[1].backgroundColor, optionalTint)
+            XCTAssertEqual(node.children[2].children[1].backgroundColor, ViewBuildContext.defaultTint)
         }
     }
 

@@ -431,6 +431,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachSupportsClosedIntegerRanges() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    ForEach(1...3) { value in
+                        Text("ROW \(value)")
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].text, "ROW 1")
+            XCTAssertEqual(node.children[1].text, "ROW 2")
+            XCTAssertEqual(node.children[2].text, "ROW 3")
+            XCTAssertEqual(node.children[0].nodeTag, "1#0")
+            XCTAssertEqual(node.children[2].nodeTag, "3#0")
+        }
+    }
+
     func testToggleWritesBindingAndInvalidates() async {
         await MainActor.run {
             var isEnabled = false

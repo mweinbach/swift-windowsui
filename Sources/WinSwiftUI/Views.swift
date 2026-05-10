@@ -267,6 +267,12 @@ public extension ForEach where Data == Range<Int>, ID == Int {
     }
 }
 
+public extension ForEach where Data == ClosedRange<Int>, ID == Int {
+    init(_ data: ClosedRange<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+        self.init(data, id: \.self, content: content)
+    }
+}
+
 @MainActor
 public struct Text: View {
     public typealias Body = Never

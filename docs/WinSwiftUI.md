@@ -67,7 +67,7 @@ Views and containers:
 - `Spacer`
 - `Divider`
 - `Group`
-- `ForEach`
+- `ForEach`, including open and closed integer ranges
 - `GeometryReader`
 - `VStack`
 - `HStack`
@@ -144,7 +144,7 @@ Surface direction:
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Rectangle`, `RoundedRectangle`, and `Capsule` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, and rounded corner styles currently share the same retained rounded-rect path.
 - `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
-- `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id.
+- `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id. `Range<Int>` and `ClosedRange<Int>` support the SwiftUI-style shorthand initializer.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.

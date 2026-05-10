@@ -846,9 +846,11 @@ public struct AnyView: View {
 
     private let buildComponent: (ViewBuildContext) -> Component
     let selectionTag: AnyHashable?
+    let tabItem: [AnyView]?
 
     public init<V: View>(_ view: V) {
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
+        self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
         self.buildComponent = { context in
             ViewBuildContextScope.withCurrent(context) {
                 view.makeComponent(context: context)
@@ -1395,9 +1397,14 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     /// rebuilds by identity rather than position alone.
     var id: String?
     var selectionTag: AnyHashable?
+    var tabItem: [AnyView]?
 
     var anySelectionTag: AnyHashable? {
         selectionTag ?? (content as? any TaggedViewMetadata)?.anySelectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        tabItem ?? (content as? any TaggedViewMetadata)?.anyTabItem
     }
 
     var body: Never {
@@ -1423,6 +1430,13 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 @MainActor
 protocol TaggedViewMetadata {
     var anySelectionTag: AnyHashable? { get }
+    var anyTabItem: [AnyView]? { get }
+}
+
+extension TaggedViewMetadata {
+    var anyTabItem: [AnyView]? {
+        nil
+    }
 }
 
 @MainActor
@@ -2122,8 +2136,11 @@ public extension View {
     }
 
     func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {
-        _ = label()
-        return self
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.tabItem = label()
+        return modified
     }
 
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {

@@ -1316,13 +1316,18 @@ final class WinSwiftUITests: XCTestCase {
 
     func testTabViewRendersSelectedTaggedPage() async {
         await MainActor.run {
+            var didInvalidate = false
+            let tabView = TabView {
+                Text("FIRST")
+                    .tabItem { Label("FIRST TAB", systemImage: "house") }
+                Text("SECOND")
+                    .tag("second")
+                    .tabItem { Text("SECOND TAB") }
+            }
             let defaultNode = makeNode(
-                TabView {
-                    Text("FIRST")
-                        .tabItem { Label("FIRST TAB", systemImage: "house") }
-                    Text("SECOND")
-                        .tag("second")
-                        .tabItem { Text("SECOND TAB") }
+                tabView,
+                onInvalidate: {
+                    didInvalidate = true
                 }
             )
             let selectedNode = makeNode(
@@ -1344,9 +1349,44 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(defaultNode.text, "FIRST")
-            XCTAssertEqual(selectedNode.text, "SECOND")
-            XCTAssertEqual(fallbackNode.text, "FALLBACK")
+            XCTAssertEqual(defaultNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: defaultNode.children[0]).contains("FIRST TAB"))
+            XCTAssertTrue(allTexts(in: defaultNode.children[0]).contains("SECOND TAB"))
+            XCTAssertEqual(defaultNode.children[1].text, "FIRST")
+            defaultNode.children[0].children[1].onActivate?()
+            XCTAssertTrue(didInvalidate)
+
+            let switchedNode = makeNode(tabView)
+            XCTAssertEqual(switchedNode.children[1].text, "SECOND")
+            XCTAssertEqual(selectedNode.children[1].text, "SECOND")
+            XCTAssertEqual(fallbackNode.children[1].text, "FALLBACK")
+        }
+    }
+
+    func testBoundTabViewWritesSelectionFromTabChrome() async {
+        await MainActor.run {
+            var selection = "first"
+            let tabView = TabView(
+                selection: Binding(
+                    get: { selection },
+                    set: { selection = $0 }
+                )
+            ) {
+                Text("FIRST")
+                    .tag("first")
+                    .tabItem { Text("FIRST TAB") }
+                Text("SECOND")
+                    .tag("second")
+                    .tabItem { Text("SECOND TAB") }
+            }
+            let node = makeNode(tabView)
+
+            XCTAssertEqual(node.children[1].text, "FIRST")
+
+            node.children[0].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "second")
+            XCTAssertEqual(makeNode(tabView).children[1].text, "SECOND")
         }
     }
 

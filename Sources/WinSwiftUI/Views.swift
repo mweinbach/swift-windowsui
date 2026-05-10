@@ -453,12 +453,19 @@ public struct NavigationLink: View {
 public struct TabView: View {
     public typealias Body = Never
 
+    private final class TabState {
+        var selectedIndex = 0
+    }
+
+    private let state = TabState()
     private let content: [AnyView]
     private let selectedTag: (@MainActor () -> AnyHashable?)?
+    private let setSelectedTag: (@MainActor (AnyHashable) -> Void)?
 
     public init(@ViewBuilder content: () -> [AnyView]) {
         self.content = content()
         self.selectedTag = nil
+        self.setSelectedTag = nil
     }
 
     public init<SelectionValue: Hashable>(
@@ -469,6 +476,12 @@ public struct TabView: View {
         self.selectedTag = {
             AnyHashable(selection.wrappedValue)
         }
+        self.setSelectedTag = { tag in
+            guard let value = tag.base as? SelectionValue else {
+                return
+            }
+            selection.wrappedValue = value
+        }
     }
 
     public var body: Never {
@@ -476,25 +489,108 @@ public struct TabView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let selectedContent = selectedPage()
-        return composeComponent(
-            from: selectedContent,
+        guard !content.isEmpty else {
+            return composeComponent(from: [], context: context)
+        }
+
+        let selectedIndex = selectedPageIndex()
+        let page = composeComponent(
+            from: [content[selectedIndex]],
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
+        let tabBar = tabBarComponent(selectedIndex: selectedIndex, context: context)
+
+        return Component { runtime in
+            let tabBarNode = tabBar.makeNode(runtime: runtime)
+            let pageNode = page.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 10, alignment: .stretch),
+                isHitTestVisible: false,
+                children: [tabBarNode, pageNode]
+            )
+        }
     }
 
-    private func selectedPage() -> [AnyView] {
+    private func selectedPageIndex() -> Int {
         guard !content.isEmpty else {
-            return []
+            return 0
         }
 
-        guard let selectedTag = selectedTag?(),
-              let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag }) else {
-            return [content[0]]
+        if let selectedTag = selectedTag?(),
+           let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag }) {
+            return selectedIndex
         }
 
-        return [content[selectedIndex]]
+        if selectedTag == nil {
+            state.selectedIndex = min(max(0, state.selectedIndex), content.count - 1)
+            return state.selectedIndex
+        }
+
+        return 0
+    }
+
+    private func tabBarComponent(selectedIndex: Int, context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let tabNodes = content.enumerated().map { index, view in
+                let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
+                let labelNode = composeComponent(
+                    from: labelViews,
+                    context: context,
+                    fallbackLayout: .stack(.horizontal(spacing: 4, alignment: .center))
+                )
+                .makeNode(runtime: runtime)
+                let isSelected = index == selectedIndex
+                let palette = isSelected
+                    ? ButtonSurfaceStyle.default.palette
+                    : ButtonSurfaceStyle.plain.palette
+
+                return Controls.button(
+                    runtime: runtime,
+                    layoutPriority: 1,
+                    cornerRadius: 8,
+                    palette: palette,
+                    chrome: SurfaceChrome(
+                        borderColor: isSelected ? context.tint.opacity(0.42) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                        borderHoveredColor: context.tint.opacity(isSelected ? 0.62 : 0.24),
+                        borderFocusedColor: context.tint.opacity(0.68),
+                        borderPressedColor: context.tint.opacity(0.78),
+                        borderWidth: 1,
+                        focusRingColor: context.tint.opacity(0.24),
+                        focusRingWidth: 2
+                    ),
+                    layoutMode: .stack(.vertical(
+                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
+                    isEnabled: context.isEnabled,
+                    action: {
+                        if let tag = view.selectionTag {
+                            setSelectedTag?(tag)
+                        }
+                        state.selectedIndex = index
+                        context.invalidate()
+                    },
+                    children: [labelNode]
+                )
+            }
+
+            return Controls.stackPanel(
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.88),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 12,
+                clipsToBounds: true,
+                stackLayout: .horizontal(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: tabNodes
+            )
+        }
     }
 }
 

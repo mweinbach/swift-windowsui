@@ -78,6 +78,8 @@ Views and containers:
 - `ZStack`
 - `ScrollView`
 - `List`
+  - `List(data, id:content:)`
+  - `List(data, content:) where Element: Identifiable`
 - `Form`
 - `Section`
   - `Section { content } header: { header } footer: { footer }`

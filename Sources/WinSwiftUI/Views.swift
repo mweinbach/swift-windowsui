@@ -759,6 +759,14 @@ public struct List: View {
         self.content = content()
     }
 
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) {
+        self.content = ForEach(data, id: id, content: rowContent).contentViews
+    }
+
     public var body: Never {
         fatalError("List has no body")
     }
@@ -772,6 +780,15 @@ public struct List: View {
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
         }
+    }
+}
+
+public extension List {
+    init<Data: RandomAccessCollection>(
+        _ data: Data,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.init(data, id: \.id, rowContent: rowContent)
     }
 }
 

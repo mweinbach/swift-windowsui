@@ -928,6 +928,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListDataInitializerRendersRowsWithStableIDs() async {
+        await MainActor.run {
+            let node = makeNode(
+                List(["ONE", "TWO"], id: \.self) { title in
+                    Text(title)
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertEqual(node.children[1].text, "TWO")
+            XCTAssertEqual(node.children[0].nodeTag, "ONE#0")
+            XCTAssertEqual(node.children[1].nodeTag, "TWO#0")
+        }
+    }
+
+    func testListIdentifiableInitializerRendersRowsWithStableIDs() async {
+        await MainActor.run {
+            struct Row: Identifiable {
+                let id: Int
+                let title: String
+            }
+
+            let rows = [
+                Row(id: 7, title: "SEVEN"),
+                Row(id: 9, title: "NINE"),
+            ]
+            let node = makeNode(
+                List(rows) { row in
+                    Text(row.title)
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "SEVEN")
+            XCTAssertEqual(node.children[1].text, "NINE")
+            XCTAssertEqual(node.children[0].nodeTag, "7#0")
+            XCTAssertEqual(node.children[1].nodeTag, "9#0")
+        }
+    }
+
     func testFormMapsToVerticalRetainedStackPanel() async {
         await MainActor.run {
             let node = makeNode(

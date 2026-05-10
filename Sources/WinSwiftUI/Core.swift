@@ -1676,6 +1676,22 @@ public struct SafeAreaRegions: OptionSet, Sendable {
     public static let all: SafeAreaRegions = [.container, .keyboard]
 }
 
+public struct SubmitTriggers: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let text = SubmitTriggers(rawValue: 1 << 0)
+    public static let search = SubmitTriggers(rawValue: 1 << 1)
+    public static let all: SubmitTriggers = [.text, .search]
+
+    var submitsTextInput: Bool {
+        !intersection(.all).isEmpty
+    }
+}
+
 public struct Font: Sendable, Equatable {
     public enum Weight: Sendable, Equatable {
         case ultraLight
@@ -3436,6 +3452,26 @@ public extension View {
             line: line,
             column: column
         )
+    }
+
+    func onSubmit(of triggers: SubmitTriggers = .text, _ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnKeyDown = childNode.onKeyDown
+                childNode.onKeyDown = { event in
+                    guard event.key == .enter, triggers.submitsTextInput else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+
+                    action()
+                    context.invalidate()
+                }
+                return childNode
+            }
+        }
     }
 
     func onHover(perform action: @escaping (Bool) -> Void) -> some View {

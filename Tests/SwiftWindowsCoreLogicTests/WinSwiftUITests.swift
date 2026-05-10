@@ -243,6 +243,51 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnSubmitRunsForTextInputEnterAndPreservesOtherKeys() async {
+        await MainActor.run {
+            var value = ""
+            var submitCount = 0
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                TextField("NAME", text: binding)
+                    .onSubmit(of: .text) {
+                        submitCount += 1
+                    },
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(value, "a")
+            XCTAssertEqual(submitCount, 1)
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testOnSubmitSearchTriggerRunsForRetainedTextInput() async {
+        await MainActor.run {
+            var submitCount = 0
+            let node = makeNode(
+                SecureField("SEARCH", text: .constant(""))
+                    .onSubmit(of: .search) {
+                        submitCount += 1
+                    }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(submitCount, 1)
+        }
+    }
+
     func testTextFieldStyleModifierMapsToRetainedInputChrome() async {
         await MainActor.run {
             struct TextFieldStyleReaderView: View {

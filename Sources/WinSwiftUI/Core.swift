@@ -1687,6 +1687,31 @@ private func normalizedFrameIdeal(_ value: Double?) -> Double? {
     return max(0, value)
 }
 
+@MainActor
+private final class OnChangeObservationRegistry {
+    static let shared = OnChangeObservationRegistry()
+
+    private var values: [String: Any] = [:]
+
+    func observe<Value: Equatable>(
+        value: Value,
+        key: String,
+        initial: Bool
+    ) -> (oldValue: Value, newValue: Value)? {
+        if let previous = values[key] as? Value {
+            guard previous != value else {
+                return nil
+            }
+
+            values[key] = value
+            return (previous, value)
+        }
+
+        values[key] = value
+        return initial ? (value, value) : nil
+    }
+}
+
 public extension View {
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
@@ -2262,6 +2287,44 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func onChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool = false,
+        _ action: @escaping (Value, Value) -> Void,
+        fileID: String = #fileID,
+        line: Int = #line,
+        column: Int = #column
+    ) -> some View {
+        let key = "\(fileID):\(line):\(column):\(Value.self)"
+        return ModifiedView(content: self) { content, context in
+            if let change = OnChangeObservationRegistry.shared.observe(value: value, key: key, initial: initial) {
+                action(change.oldValue, change.newValue)
+            }
+
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func onChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool = false,
+        perform action: @escaping (Value) -> Void,
+        fileID: String = #fileID,
+        line: Int = #line,
+        column: Int = #column
+    ) -> some View {
+        onChange(
+            of: value,
+            initial: initial,
+            { _, newValue in
+                action(newValue)
+            },
+            fileID: fileID,
+            line: line,
+            column: column
+        )
     }
 
     func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View {

@@ -1845,6 +1845,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnChangeModifierObservesEquatableValueChangesAcrossBuilds() async {
+        await MainActor.run {
+            var changes: [(Int, Int)] = []
+
+            @MainActor
+            func observedView(_ value: Int) -> some View {
+                Text("VALUE")
+                    .onChange(of: value) { oldValue, newValue in
+                        changes.append((oldValue, newValue))
+                    }
+            }
+
+            _ = makeNode(observedView(1))
+            _ = makeNode(observedView(1))
+            _ = makeNode(observedView(3))
+            _ = makeNode(observedView(5))
+
+            XCTAssertEqual(changes.map(\.0), [1, 3])
+            XCTAssertEqual(changes.map(\.1), [3, 5])
+        }
+    }
+
+    func testOnChangeModifierSupportsInitialAndPerformOverload() async {
+        await MainActor.run {
+            var values: [String] = []
+
+            @MainActor
+            func observedView(_ value: String) -> some View {
+                Text("VALUE")
+                    .onChange(of: value, initial: true) { newValue in
+                        values.append(newValue)
+                    }
+            }
+
+            _ = makeNode(observedView("alpha"))
+            _ = makeNode(observedView("alpha"))
+            _ = makeNode(observedView("beta"))
+
+            XCTAssertEqual(values, ["alpha", "beta"])
+        }
+    }
+
     func testOnTapGestureEnablesHitTestingAndRunsActionOnPointerTap() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

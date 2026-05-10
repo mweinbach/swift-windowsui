@@ -148,6 +148,7 @@ Modifiers:
 - `disabled`
 - `onAppear`
 - `onDisappear`
+- `onChange`
 - `onTapGesture`
 - `tag`
 
@@ -187,7 +188,7 @@ Surface direction:
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
-- `onAppear` fires when the retained node first renders, and `onDisappear` fires when an appeared retained subtree is removed or replaced.
+- `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.

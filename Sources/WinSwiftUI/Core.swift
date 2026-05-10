@@ -413,6 +413,7 @@ public struct ViewBuildContext {
     private let lineLimitProvider: () -> Int?
     private let stackAxisProvider: () -> StackAxis?
     private let buttonStyleProvider: () -> ButtonStyle
+    private let pickerStyleProvider: () -> PickerStyle
     private let environmentValuesProvider: () -> EnvironmentValues
 
     public var canvasSize: Size {
@@ -455,6 +456,10 @@ public struct ViewBuildContext {
         buttonStyleProvider()
     }
 
+    public var pickerStyle: PickerStyle {
+        pickerStyleProvider()
+    }
+
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
         values.isEnabled = values.isEnabled && isEnabled
@@ -474,6 +479,7 @@ public struct ViewBuildContext {
         lineLimitProvider: @escaping () -> Int? = { nil },
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
+        pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
         environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
@@ -488,6 +494,7 @@ public struct ViewBuildContext {
         self.lineLimitProvider = lineLimitProvider
         self.stackAxisProvider = stackAxisProvider
         self.buttonStyleProvider = buttonStyleProvider
+        self.pickerStyleProvider = pickerStyleProvider
         self.environmentValuesProvider = environmentValuesProvider
     }
 
@@ -517,6 +524,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -535,6 +543,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -553,6 +562,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -571,6 +581,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -589,6 +600,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -625,6 +637,7 @@ public struct ViewBuildContext {
             lineLimitProvider: { lineLimit },
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -643,6 +656,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: { axis },
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -661,6 +675,26 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider
+        )
+    }
+
+    func withPickerStyle(_ pickerStyle: PickerStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: { pickerStyle },
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -679,6 +713,7 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values[keyPath: keyPath] = value
@@ -1161,6 +1196,24 @@ public struct ButtonStyle: Sendable, Equatable {
             return .plain
         }
     }
+}
+
+public struct PickerStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case segmented
+        case menu
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PickerStyle(kind: .automatic)
+    public static let segmented = PickerStyle(kind: .segmented)
+    public static let menu = PickerStyle(kind: .menu)
 }
 
 public struct ScrollViewStyle: Sendable {
@@ -1919,6 +1972,12 @@ public extension View {
     func buttonStyle(_ style: ButtonStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withButtonStyle(style))
+        }
+    }
+
+    func pickerStyle(_ style: PickerStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withPickerStyle(style))
         }
     }
 

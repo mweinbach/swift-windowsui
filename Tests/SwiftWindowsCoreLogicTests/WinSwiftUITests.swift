@@ -969,6 +969,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStyleMenuUsesDropdownAndWritesTaggedSelection() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+
+            let node = makeNode(
+                VStack {
+                    Picker(
+                        "MODE",
+                        selection: Binding(
+                            get: { selection },
+                            set: { selection = $0 }
+                        )
+                    ) {
+                        Text("COMPACT").tag("compact")
+                        Text("EXPANDED").tag("expanded")
+                    }
+                }
+                .pickerStyle(.menu),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let pickerNode = node.children[0]
+            let dropdownNode = pickerNode.children[1]
+            XCTAssertEqual(firstText(in: dropdownNode.children[0]), "COMPACT")
+            XCTAssertTrue(dropdownNode.children[1].isHidden)
+
+            dropdownNode.onActivate?()
+            XCTAssertFalse(dropdownNode.children[1].isHidden)
+            dropdownNode.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testStepperDoubleWritesBindingInvalidatesAndReportsEditingChanges() async {
         await MainActor.run {
             var value = 4.0

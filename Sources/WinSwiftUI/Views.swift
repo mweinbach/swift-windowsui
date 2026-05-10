@@ -903,6 +903,11 @@ public struct Picker<SelectionValue: Hashable>: View {
     private let label: [AnyView]
     private let content: [AnyView]
 
+    private struct Option {
+        var value: SelectionValue?
+        var node: ViewNode
+    }
+
     public init(
         _ title: String,
         selection: Binding<SelectionValue>,
@@ -966,57 +971,32 @@ public struct Picker<SelectionValue: Hashable>: View {
         return Component { runtime in
             let selectedValue = selection.wrappedValue
             let selectedAnyValue = AnyHashable(selectedValue)
-            let optionNodes: [ViewNode] = contentViews.enumerated().map { index, option in
+            let options: [Option] = contentViews.enumerated().map { index, option in
                 let representedValue = Self.selectionValue(for: option, fallbackIndex: index)
-                let isSelected = option.selectionTag.map { $0 == selectedAnyValue } ?? (representedValue == selectedValue)
                 let optionNode = option.makeComponent(context: context).makeNode(runtime: runtime)
-                let palette = isSelected ? Self.selectedPalette(tint: context.tint) : Self.unselectedPalette
-
-                return Controls.button(
-                    runtime: runtime,
-                    layoutPriority: 1,
-                    cornerRadius: 8,
-                    palette: palette,
-                    chrome: SurfaceChrome(
-                        borderColor: isSelected ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                        borderHoveredColor: isSelected ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-                        borderFocusedColor: isSelected ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
-                        borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
-                        borderWidth: 1,
-                        focusRingColor: context.tint.opacity(0.28),
-                        focusRingWidth: 2
-                    ),
-                    clipsToBounds: true,
-                    layoutMode: .stack(.vertical(
-                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                        alignment: .center,
-                        mainAlignment: .center
-                    )),
-                    isEnabled: context.isEnabled && representedValue != nil,
-                    action: representedValue.map { value in
-                        {
-                            selection.wrappedValue = value
-                            context.invalidate()
-                        }
-                    },
-                    children: [optionNode]
-                )
+                return Option(value: representedValue, node: optionNode)
             }
 
-            let pickerNode = Controls.stackPanel(
-                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.90),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                borderWidth: 1,
-                cornerRadius: 12,
-                clipsToBounds: true,
-                stackLayout: .horizontal(
-                    spacing: 4,
-                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
-                    alignment: .stretch
-                ),
-                isHitTestVisible: false,
-                children: optionNodes
-            )
+            let pickerNode: ViewNode
+            switch context.pickerStyle.kind {
+            case .automatic, .segmented:
+                pickerNode = Self.segmentedPickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
+                    selectedValue: selectedValue,
+                    selectedAnyValue: selectedAnyValue,
+                    options: options
+                )
+            case .menu:
+                pickerNode = Self.menuPickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
+                    selectedValue: selectedValue,
+                    options: options
+                )
+            }
 
             guard !labelViews.isEmpty else {
                 return pickerNode
@@ -1036,6 +1016,108 @@ public struct Picker<SelectionValue: Hashable>: View {
             return tagValue
         }
         return fallbackIndex as? SelectionValue
+    }
+
+    private static func segmentedPickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedValue: SelectionValue,
+        selectedAnyValue: AnyHashable,
+        options: [Option]
+    ) -> ViewNode {
+        let optionNodes: [ViewNode] = options.map { option in
+            let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
+            let palette = isSelected ? selectedPalette(tint: context.tint) : unselectedPalette
+
+            return Controls.button(
+                runtime: runtime,
+                layoutPriority: 1,
+                cornerRadius: 8,
+                palette: palette,
+                chrome: SurfaceChrome(
+                    borderColor: isSelected ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderHoveredColor: isSelected ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                    borderFocusedColor: isSelected ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                    borderWidth: 1,
+                    focusRingColor: context.tint.opacity(0.28),
+                    focusRingWidth: 2
+                ),
+                clipsToBounds: true,
+                layoutMode: .stack(.vertical(
+                    padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                    alignment: .center,
+                    mainAlignment: .center
+                )),
+                isEnabled: context.isEnabled && option.value != nil,
+                action: option.value.map { value in
+                    {
+                        selection.wrappedValue = value
+                        context.invalidate()
+                    }
+                },
+                children: [option.node]
+            )
+        }
+
+        return Controls.stackPanel(
+            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.90),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            borderWidth: 1,
+            cornerRadius: 12,
+            clipsToBounds: true,
+            stackLayout: .horizontal(
+                spacing: 4,
+                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: optionNodes
+        )
+    }
+
+    private static func menuPickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedValue: SelectionValue,
+        options: [Option]
+    ) -> ViewNode {
+        let titles = options.enumerated().map { index, option in
+            firstText(in: option.node) ?? "OPTION \(index + 1)"
+        }
+        let selectedIndex = options.firstIndex { $0.value == selectedValue } ?? 0
+        let hasSelectableOption = options.contains { $0.value != nil }
+
+        return Controls.dropdown(
+            runtime: runtime,
+            options: titles,
+            selectedIndex: selectedIndex,
+            isEnabled: context.isEnabled && hasSelectableOption,
+            onSelect: { index in
+                guard options.indices.contains(index), let value = options[index].value else {
+                    return
+                }
+
+                selection.wrappedValue = value
+                context.invalidate()
+            }
+        )
+    }
+
+    private static func firstText(in node: ViewNode) -> String? {
+        if let text = node.text {
+            return text
+        }
+
+        for child in node.children {
+            if let text = firstText(in: child) {
+                return text
+            }
+        }
+
+        return nil
     }
 
     private static func selectedPalette(tint: Color) -> SurfacePalette {

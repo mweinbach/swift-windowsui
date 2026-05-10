@@ -1276,6 +1276,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationSplitViewMapsColumnsToHorizontalStack() async {
+        await MainActor.run {
+            let threeColumnNode = makeNode(
+                NavigationSplitView {
+                    Text("SIDEBAR")
+                } content: {
+                    Text("CONTENT")
+                } detail: {
+                    Text("DETAIL")
+                }
+            )
+            let twoColumnNode = makeNode(
+                NavigationSplitView(columnVisibility: Binding.constant(.all)) {
+                    Text("LIST")
+                } detail: {
+                    Text("SELECTED")
+                }
+            )
+
+            guard case .stack(let threeColumnLayout) = threeColumnNode.layoutMode else {
+                return XCTFail("Expected NavigationSplitView to use retained stack layout")
+            }
+            guard case .stack(let twoColumnLayout) = twoColumnNode.layoutMode else {
+                return XCTFail("Expected NavigationSplitView to use retained stack layout")
+            }
+
+            XCTAssertEqual(threeColumnLayout, .horizontal(spacing: 0, alignment: .stretch))
+            XCTAssertEqual(twoColumnLayout, .horizontal(spacing: 0, alignment: .stretch))
+            XCTAssertEqual(threeColumnNode.children.count, 3)
+            XCTAssertEqual(twoColumnNode.children.count, 2)
+            XCTAssertEqual(threeColumnNode.children[0].text, "SIDEBAR")
+            XCTAssertEqual(threeColumnNode.children[1].text, "CONTENT")
+            XCTAssertEqual(threeColumnNode.children[2].text, "DETAIL")
+            XCTAssertEqual(twoColumnNode.children[0].text, "LIST")
+            XCTAssertEqual(twoColumnNode.children[1].text, "SELECTED")
+        }
+    }
+
     func testNavigationLinkRendersLabelContent() async {
         await MainActor.run {
             let node = makeNode(

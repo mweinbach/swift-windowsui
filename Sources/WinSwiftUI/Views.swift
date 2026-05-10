@@ -310,6 +310,73 @@ public struct NavigationView: View {
 }
 
 @MainActor
+public struct NavigationSplitView: View {
+    public typealias Body = Never
+
+    private let columns: [[AnyView]]
+    private let columnVisibility: Binding<NavigationSplitViewVisibility>?
+
+    public init(
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), detail()]
+        self.columnVisibility = nil
+    }
+
+    public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), detail()]
+        self.columnVisibility = columnVisibility
+    }
+
+    public init(
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), content(), detail()]
+        self.columnVisibility = nil
+    }
+
+    public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), content(), detail()]
+        self.columnVisibility = columnVisibility
+    }
+
+    public var body: Never {
+        fatalError("NavigationSplitView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = columnVisibility
+        let columnComponents = columns.map { column in
+            composeComponent(
+                from: column,
+                context: context.withStackAxis(.vertical),
+                fallbackLayout: .stack(.vertical(alignment: .stretch))
+            )
+        }
+
+        return Component { runtime in
+            Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 0, alignment: .stretch),
+                isHitTestVisible: false,
+                children: columnComponents.map { $0.makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct NavigationLink: View {
     public typealias Body = Never
 

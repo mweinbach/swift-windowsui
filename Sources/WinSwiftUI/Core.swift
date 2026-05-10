@@ -186,6 +186,13 @@ public enum NavigationBarItem {
     }
 }
 
+public enum NavigationSplitViewVisibility: Sendable, Equatable {
+    case automatic
+    case all
+    case doubleColumn
+    case detailOnly
+}
+
 @MainActor
 public protocol ObservableObject: AnyObject {}
 

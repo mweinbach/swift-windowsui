@@ -288,6 +288,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnSubmitPropagatesToNestedTextInputs() async {
+        await MainActor.run {
+            var value = ""
+            var submitCount = 0
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                VStack {
+                    TextField("NAME", text: binding)
+                    Button("SAVE") {}
+                }
+                .onSubmit {
+                    submitCount += 1
+                },
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+            let fieldNode = node.children[0]
+            let buttonNode = node.children[1]
+
+            fieldNode.onKeyDown?(KeyboardEvent(keyCode: 0x42))
+            fieldNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            buttonNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(value, "b")
+            XCTAssertEqual(submitCount, 1)
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
     func testTextFieldStyleModifierMapsToRetainedInputChrome() async {
         await MainActor.run {
             struct TextFieldStyleReaderView: View {

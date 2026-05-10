@@ -3459,16 +3459,12 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let existingOnKeyDown = childNode.onKeyDown
-                childNode.onKeyDown = { event in
-                    guard event.key == .enter, triggers.submitsTextInput else {
-                        existingOnKeyDown?(event)
-                        return
-                    }
-
-                    action()
-                    context.invalidate()
-                }
+                attachSubmitHandler(
+                    to: childNode,
+                    triggers: triggers,
+                    action: action,
+                    invalidate: context.invalidate
+                )
                 return childNode
             }
         }
@@ -3606,5 +3602,30 @@ public extension View {
 
     func animation<Value: Equatable>(_ animation: Animation?, value: Value) -> some View {
         self.animation(animation)
+    }
+}
+
+@MainActor
+private func attachSubmitHandler(
+    to node: ViewNode,
+    triggers: SubmitTriggers,
+    action: @escaping () -> Void,
+    invalidate: @escaping () -> Void
+) {
+    if node.onKeyDown != nil {
+        let existingOnKeyDown = node.onKeyDown
+        node.onKeyDown = { event in
+            guard event.key == .enter, triggers.submitsTextInput else {
+                existingOnKeyDown?(event)
+                return
+            }
+
+            action()
+            invalidate()
+        }
+    }
+
+    for child in node.children {
+        attachSubmitHandler(to: child, triggers: triggers, action: action, invalidate: invalidate)
     }
 }

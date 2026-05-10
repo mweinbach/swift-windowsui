@@ -59,6 +59,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRectangleAndRoundedRectangleMapToRetainedShapeNodes() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)
+            let strokeColor = Color(red: 0.1, green: 0.4, blue: 1.0, alpha: 1)
+            let inheritedColor = Color(red: 0.9, green: 0.6, blue: 0.2, alpha: 1)
+
+            let filledRectangle = makeNode(Rectangle().fill(fillColor))
+            let strokedRoundedRectangle = makeNode(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(strokeColor, lineWidth: 2)
+            )
+            let inheritedRectangle = makeNode(
+                VStack {
+                    Rectangle()
+                        .frame(width: 12, height: 10)
+                }
+                .foregroundStyle(inheritedColor)
+            )
+
+            XCTAssertEqual(filledRectangle.backgroundColor, fillColor)
+            XCTAssertEqual(filledRectangle.cornerRadius, 0)
+            XCTAssertEqual(strokedRoundedRectangle.backgroundColor, .clear)
+            XCTAssertEqual(strokedRoundedRectangle.borderColor, strokeColor)
+            XCTAssertEqual(strokedRoundedRectangle.borderWidth, 2)
+            XCTAssertEqual(strokedRoundedRectangle.cornerRadius, 8)
+            XCTAssertEqual(inheritedRectangle.children[0].children[0].backgroundColor, inheritedColor)
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(

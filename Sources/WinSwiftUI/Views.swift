@@ -24,6 +24,117 @@ extension SwiftWindowsCore.Color: View {
     }
 }
 
+public enum RoundedCornerStyle: Sendable, Equatable {
+    case circular
+    case continuous
+}
+
+@MainActor
+public struct Rectangle: View {
+    public typealias Body = Never
+
+    private var fillColor: Color?
+    private var strokeColor: Color
+    private var lineWidth: Double
+
+    public init() {
+        self.fillColor = nil
+        self.strokeColor = .clear
+        self.lineWidth = 0
+    }
+
+    public var body: Never {
+        fatalError("Rectangle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        shapeComponent(
+            fillColor: fillColor ?? context.foregroundColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth,
+            cornerRadius: 0
+        )
+    }
+
+    public func fill(_ color: Color) -> Rectangle {
+        var copy = self
+        copy.fillColor = color
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> Rectangle {
+        var copy = self
+        copy.fillColor = .clear
+        copy.strokeColor = color
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+}
+
+@MainActor
+public struct RoundedRectangle: View {
+    public typealias Body = Never
+
+    private let cornerRadius: Double
+    private let style: RoundedCornerStyle
+    private var fillColor: Color?
+    private var strokeColor: Color
+    private var lineWidth: Double
+
+    public init(cornerRadius: Double, style: RoundedCornerStyle = .circular) {
+        self.cornerRadius = max(0, cornerRadius)
+        self.style = style
+        self.fillColor = nil
+        self.strokeColor = .clear
+        self.lineWidth = 0
+    }
+
+    public var body: Never {
+        fatalError("RoundedRectangle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        shapeComponent(
+            fillColor: fillColor ?? context.foregroundColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth,
+            cornerRadius: cornerRadius
+        )
+    }
+
+    public func fill(_ color: Color) -> RoundedRectangle {
+        var copy = self
+        copy.fillColor = color
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
+        var copy = self
+        copy.fillColor = .clear
+        copy.strokeColor = color
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+}
+
+@MainActor
+private func shapeComponent(
+    fillColor: Color,
+    strokeColor: Color,
+    lineWidth: Double,
+    cornerRadius: Double
+) -> Component {
+    Component { _ in
+        Controls.panel(
+            backgroundColor: fillColor,
+            borderColor: strokeColor,
+            borderWidth: lineWidth,
+            cornerRadius: cornerRadius,
+            isHitTestVisible: false
+        )
+    }
+}
+
 @MainActor
 public struct Group: View {
     public typealias Body = Never

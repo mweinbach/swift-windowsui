@@ -69,6 +69,10 @@ public struct Rectangle: View {
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Rectangle {
+        stroke(color, lineWidth: lineWidth)
+    }
 }
 
 @MainActor
@@ -115,6 +119,10 @@ public struct RoundedRectangle: View {
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(color, lineWidth: lineWidth)
+    }
 }
 
 @MainActor
@@ -157,6 +165,10 @@ public struct Capsule: View {
         copy.strokeColor = color
         copy.lineWidth = max(0, lineWidth)
         return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Capsule {
+        stroke(color, lineWidth: lineWidth)
     }
 }
 

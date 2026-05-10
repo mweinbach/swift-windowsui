@@ -241,6 +241,14 @@ final class WinSwiftUITests: XCTestCase {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(strokeColor, lineWidth: 2)
             )
+            let strokeBorderRectangle = makeNode(
+                Rectangle()
+                    .strokeBorder(strokeColor, lineWidth: 4)
+            )
+            let strokeBorderRoundedRectangle = makeNode(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(strokeColor, lineWidth: 5)
+            )
             let inheritedRectangle = makeNode(
                 VStack {
                     Rectangle()
@@ -255,6 +263,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(strokedRoundedRectangle.borderColor, strokeColor)
             XCTAssertEqual(strokedRoundedRectangle.borderWidth, 2)
             XCTAssertEqual(strokedRoundedRectangle.cornerRadius, 8)
+            XCTAssertEqual(strokeBorderRectangle.backgroundColor, .clear)
+            XCTAssertEqual(strokeBorderRectangle.borderColor, strokeColor)
+            XCTAssertEqual(strokeBorderRectangle.borderWidth, 4)
+            XCTAssertEqual(strokeBorderRoundedRectangle.backgroundColor, .clear)
+            XCTAssertEqual(strokeBorderRoundedRectangle.borderColor, strokeColor)
+            XCTAssertEqual(strokeBorderRoundedRectangle.borderWidth, 5)
+            XCTAssertEqual(strokeBorderRoundedRectangle.cornerRadius, 10)
             XCTAssertEqual(inheritedRectangle.children[0].children[0].backgroundColor, inheritedColor)
         }
     }
@@ -275,6 +290,9 @@ final class WinSwiftUITests: XCTestCase {
                 Capsule(style: .continuous)
                     .stroke(strokeColor, lineWidth: 3)
                     .frame(width: 50, height: 20)
+                Capsule()
+                    .strokeBorder(strokeColor, lineWidth: 4)
+                    .frame(width: 60, height: 18)
             }
             let node = root.makeComponent(context: context).makeNode(runtime: runtime)
 
@@ -284,12 +302,17 @@ final class WinSwiftUITests: XCTestCase {
 
             let filledCapsule = node.children[0].children[0]
             let strokedCapsule = node.children[1].children[0]
+            let strokeBorderCapsule = node.children[2].children[0]
             XCTAssertEqual(filledCapsule.backgroundColor, fillColor)
             XCTAssertEqual(filledCapsule.cornerRadius, 6)
             XCTAssertEqual(strokedCapsule.backgroundColor, .clear)
             XCTAssertEqual(strokedCapsule.borderColor, strokeColor)
             XCTAssertEqual(strokedCapsule.borderWidth, 3)
             XCTAssertEqual(strokedCapsule.cornerRadius, 10)
+            XCTAssertEqual(strokeBorderCapsule.backgroundColor, .clear)
+            XCTAssertEqual(strokeBorderCapsule.borderColor, strokeColor)
+            XCTAssertEqual(strokeBorderCapsule.borderWidth, 4)
+            XCTAssertEqual(strokeBorderCapsule.cornerRadius, 9)
         }
     }
 

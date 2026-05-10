@@ -2966,6 +2966,17 @@ public extension View {
         }
     }
 
+    func foregroundStyle(_ primary: Color, _ secondary: Color) -> some View {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    func foregroundStyle(_ primary: Color, _ secondary: Color, _ tertiary: Color) -> some View {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
     func foregroundStyle(_ style: ForegroundStyle) -> some View {
         ModifiedView(content: self) { content, context in
             switch style {
@@ -2977,10 +2988,32 @@ public extension View {
         }
     }
 
+    func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> some View {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> some View {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
     func foregroundStyle(_ gradient: LinearGradient) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, .linearGradient(gradient)))
         }
+    }
+
+    func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient) -> some View {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient) -> some View {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
     }
 
     func imageScale(_ scale: Image.Scale) -> some View {

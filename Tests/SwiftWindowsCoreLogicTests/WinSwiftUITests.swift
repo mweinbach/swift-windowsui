@@ -1301,6 +1301,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForegroundStyleMultiArgumentOverloadsUsePrimaryStyle() async {
+        await MainActor.run {
+            let primaryColor = Color(red: 0.6, green: 0.2, blue: 0.9, alpha: 1)
+            let storedPrimary = ForegroundStyle.color(Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1))
+            let primaryGradient = LinearGradient(
+                colors: [.red, .blue],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            let secondaryGradient = LinearGradient(
+                colors: [.green, .yellow],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let colorNode = makeNode(
+                Text("COLOR")
+                    .foregroundStyle(primaryColor, .secondary)
+            )
+            let tertiaryColorNode = makeNode(
+                Text("TERTIARY")
+                    .foregroundStyle(primaryColor, .red, .blue)
+            )
+            let storedNode = makeNode(
+                Text("STORED")
+                    .foregroundStyle(storedPrimary, .color(.secondary))
+            )
+            let gradientNode = makeNode(
+                Rectangle()
+                    .foregroundStyle(primaryGradient, secondaryGradient)
+                    .frame(width: 20, height: 10)
+            )
+
+            XCTAssertEqual(colorNode.textStyle.color, primaryColor)
+            XCTAssertEqual(tertiaryColorNode.textStyle.color, primaryColor)
+            XCTAssertEqual(storedNode.textStyle.color, Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1))
+            XCTAssertEqual(gradientNode.children[0].backgroundColor, primaryGradient.startColor)
+            XCTAssertEqual(gradientNode.children[0].backgroundGradient, primaryGradient)
+        }
+    }
+
     func testInheritedForegroundColorPropagatesToImageAndLabel() async {
         await MainActor.run {
             let inheritedColor = Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1)

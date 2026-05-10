@@ -98,7 +98,7 @@ Included today:
 - Core views: `Text`, `Image(systemName:)`, `Label`, `Spacer`, `Group`, `GeometryReader`
 - Containers: `VStack`, `HStack`, `ZStack`, `ScrollView`, `Section`, `HSplitView`, `VSplitView`
 - Collection helpers: `ForEach`
-- Controls: `Button`, `Toggle`
+- Controls: `Button`, `Toggle`, `Slider`, `ProgressView`
 - Modifiers: `frame`, `padding`, `background`, `cornerRadius`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`
 - Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `Binding` / `State` / `ObservableObject` / `Published` / `ObservedObject`

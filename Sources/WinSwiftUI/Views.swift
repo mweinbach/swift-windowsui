@@ -554,6 +554,63 @@ public struct Toggle: View {
 }
 
 @MainActor
+public struct Slider: View {
+    public typealias Body = Never
+
+    private let value: Binding<Double>
+    private let bounds: ClosedRange<Double>
+
+    public init(value: Binding<Double>, in bounds: ClosedRange<Double> = 0...1) {
+        self.value = value
+        self.bounds = bounds
+    }
+
+    public var body: Never {
+        fatalError("Slider has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let binding = value
+        let range = bounds
+
+        return Component { runtime in
+            Controls.slider(
+                runtime: runtime,
+                value: binding.wrappedValue,
+                range: range,
+                onValueChanged: { newValue in
+                    binding.wrappedValue = newValue
+                    context.invalidate()
+                }
+            )
+        }
+    }
+}
+
+@MainActor
+public struct ProgressView: View {
+    public typealias Body = Never
+
+    private let value: Double?
+    private let total: Double
+
+    public init(value: Double? = nil, total: Double = 1.0) {
+        self.value = value
+        self.total = total
+    }
+
+    public var body: Never {
+        fatalError("ProgressView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.progressBar(value: value ?? 0, total: total)
+        }
+    }
+}
+
+@MainActor
 public struct Button: View {
     public typealias Body = Never
 

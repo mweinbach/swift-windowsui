@@ -171,6 +171,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSliderWritesBindingFromDragAndInvalidates() async {
+        await MainActor.run {
+            var value = 0.25
+            var didInvalidate = false
+
+            let node = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...10
+                ),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            node.onDragStart?(Point(x: 0, y: 0))
+            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 5.25, accuracy: 0.001)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testProgressViewMapsToProgressBarNode() async {
+        await MainActor.run {
+            let node = makeNode(ProgressView(value: 0.25, total: 1.0))
+
+            XCTAssertEqual(node.preferredSize, Size(width: 200, height: 8))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame.size.width, 200)
+            XCTAssertEqual(node.children[1].frame.size.width, 50)
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

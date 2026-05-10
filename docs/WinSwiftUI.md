@@ -72,6 +72,8 @@ Views and containers:
 - `VSplitView`
 - `Button`
 - `Toggle`
+- `Slider`
+- `ProgressView`
 
 Modifiers:
 
@@ -107,6 +109,8 @@ Surface direction:
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
+- `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`.
+- `ProgressView(value:total:)` maps into the retained progress bar control.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.

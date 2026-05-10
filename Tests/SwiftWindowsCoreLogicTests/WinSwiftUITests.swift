@@ -457,6 +457,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnTapGestureEnablesHitTestingAndRunsActionOnPointerTap() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var tapCount = 0
+
+            let node = Text("TAP")
+                .frame(width: 80, height: 24)
+                .onTapGesture {
+                    tapCount += 1
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            runtime.pointerDown(at: Point(x: 10, y: 10))
+            runtime.pointerUp(at: Point(x: 10, y: 10))
+
+            XCTAssertEqual(tapCount, 1)
+        }
+    }
+
+    func testOnTapGesturePreservesExistingPointerUpHandler() async {
+        await MainActor.run {
+            var buttonActionCount = 0
+            var tapCount = 0
+
+            let node = makeNode(
+                Button("GO") {
+                    buttonActionCount += 1
+                }
+                .onTapGesture {
+                    tapCount += 1
+                }
+            )
+
+            node.onPointerDown?()
+            node.onPointerUpInside?()
+            node.onActivate?()
+
+            XCTAssertEqual(tapCount, 1)
+            XCTAssertEqual(buttonActionCount, 1)
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

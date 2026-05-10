@@ -619,6 +619,17 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCornerRadiusAcceptsAntialiasedArgumentAndClipsBounds() async {
+        await MainActor.run {
+            let node = makeNode(Text("ROUND").cornerRadius(5, antialiased: false))
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, 5)
+            XCTAssertEqual(node.children.count, 1)
+            XCTAssertEqual(node.children[0].text, "ROUND")
+        }
+    }
+
     func testZIndexModifierMapsToRetainedNodeZIndex() async {
         await MainActor.run {
             let node = makeNode(Text("FRONT").zIndex(7.5))

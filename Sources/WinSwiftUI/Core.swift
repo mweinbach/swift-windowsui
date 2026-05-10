@@ -1407,7 +1407,7 @@ public extension View {
         }
     }
 
-    func cornerRadius(_ radius: Double) -> some View {
+    func cornerRadius(_ radius: Double, antialiased: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in

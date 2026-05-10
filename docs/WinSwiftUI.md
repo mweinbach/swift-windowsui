@@ -99,7 +99,7 @@ Modifiers:
 - `bold`
 - `multilineTextAlignment`
 - `lineLimit`
-- `cornerRadius`
+- `cornerRadius(_:antialiased:)`
 - `clipped(antialiased:)`
 - `border`
 - `shadow`
@@ -150,6 +150,7 @@ Surface direction:
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`.
 - `ProgressView(value:total:)` maps into the retained progress bar control.
+- `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
 - `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.

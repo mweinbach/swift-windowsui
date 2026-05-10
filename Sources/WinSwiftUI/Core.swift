@@ -483,6 +483,7 @@ public struct ViewBuildContext {
     private let foregroundColorProvider: () -> Color
     private let tintProvider: () -> Color
     private let fontProvider: () -> Font
+    private let fontDesignProvider: () -> Font.Design?
     private let fontWeightProvider: () -> Font.Weight?
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
@@ -512,7 +513,15 @@ public struct ViewBuildContext {
     }
 
     public var font: Font {
-        fontProvider()
+        var resolvedFont = fontProvider()
+        if let design = fontDesignProvider() {
+            resolvedFont = resolvedFont.withDesign(design)
+        }
+        return resolvedFont
+    }
+
+    public var fontDesign: Font.Design? {
+        fontDesignProvider()
     }
 
     public var fontWeight: Font.Weight? {
@@ -561,6 +570,7 @@ public struct ViewBuildContext {
         foregroundColorProvider: @escaping () -> Color = { .white },
         tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
         fontProvider: @escaping () -> Font = { .system(size: 2) },
+        fontDesignProvider: @escaping () -> Font.Design? = { nil },
         fontWeightProvider: @escaping () -> Font.Weight? = { nil },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil },
@@ -580,6 +590,7 @@ public struct ViewBuildContext {
         self.foregroundColorProvider = foregroundColorProvider
         self.tintProvider = tintProvider
         self.fontProvider = fontProvider
+        self.fontDesignProvider = fontDesignProvider
         self.fontWeightProvider = fontWeightProvider
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
@@ -631,6 +642,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -654,6 +666,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: { color },
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -677,6 +690,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: { tint },
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -700,6 +714,31 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: { font },
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withFontDesign(_ design: Font.Design?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: { design },
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -723,6 +762,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: { weight },
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -746,6 +786,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider,
@@ -769,6 +810,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit },
@@ -792,6 +834,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -815,6 +858,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -838,6 +882,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -861,6 +906,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -888,6 +934,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -911,6 +958,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -934,6 +982,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -959,6 +1008,7 @@ public struct ViewBuildContext {
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
             fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
@@ -1334,7 +1384,7 @@ public struct Font: Sendable, Equatable {
     }
 
     public func monospaced() -> Font {
-        Font(size: size, weight: weight, design: .monospaced, family: family)
+        withDesign(.monospaced)
     }
 
     private static func defaultFont(for style: TextStyle) -> Font {
@@ -1831,6 +1881,10 @@ extension Font.Weight {
 }
 
 extension Font {
+    func withDesign(_ design: Design) -> Font {
+        Font(size: size, weight: weight, design: design, family: family)
+    }
+
     var resolvedScale: Double {
         size >= 8 ? size / 10.0 : size
     }
@@ -2467,6 +2521,12 @@ public extension View {
     func font(_ font: Font) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withFont(font))
+        }
+    }
+
+    func fontDesign(_ design: Font.Design?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withFontDesign(design))
         }
     }
 

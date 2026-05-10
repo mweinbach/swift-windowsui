@@ -1032,8 +1032,8 @@ public struct Text: View {
         let resolvedColor = color ?? context.foregroundColor
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
         var resolvedFont = font ?? inheritedFont
-        if fontDesign == .monospaced {
-            resolvedFont = resolvedFont.monospaced()
+        if let fontDesign {
+            resolvedFont = resolvedFont.withDesign(fontDesign)
         }
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
@@ -1077,6 +1077,12 @@ public struct Text: View {
     public func monospaced() -> Text {
         var copy = self
         copy.fontDesign = .monospaced
+        return copy
+    }
+
+    public func fontDesign(_ design: Font.Design?) -> Text {
+        var copy = self
+        copy.fontDesign = design
         return copy
     }
 

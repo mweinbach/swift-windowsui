@@ -143,6 +143,7 @@ Modifiers:
 - `environment`
 - `preferredColorScheme`
 - `font`
+- `fontDesign`
 - `fontWeight`
 - `bold`
 - `monospaced`
@@ -204,7 +205,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
-- Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()` and `Text.monospaced()` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`.
+- Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.

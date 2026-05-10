@@ -411,6 +411,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontDesignModifierPropagatesThroughViewContext() async {
+        await MainActor.run {
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("CODE")
+                }
+                .font(.system(size: 18, weight: .bold))
+                .fontDesign(.monospaced)
+            )
+            let textNode = makeNode(
+                Text("DEFAULT")
+                    .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                    .fontDesign(.default)
+            )
+
+            let child = inheritedNode.children[0]
+            XCTAssertEqual(child.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(child.textStyle.weight, .bold)
+            XCTAssertEqual(child.textStyle.fontFamily, "Cascadia Mono")
+
+            XCTAssertEqual(textNode.textStyle.nativeFontSize, 14)
+            XCTAssertEqual(textNode.textStyle.weight, .semibold)
+            XCTAssertEqual(textNode.textStyle.fontFamily, "Segoe UI")
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

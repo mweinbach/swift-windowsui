@@ -229,6 +229,36 @@ public struct ObservedObject<ObjectType: ObservableObject> {
     }
 }
 
+public enum ColorScheme: Sendable, Equatable {
+    case light
+    case dark
+}
+
+public struct EnvironmentValues: Sendable {
+    public var colorScheme: ColorScheme
+    public var isEnabled: Bool
+
+    public init(colorScheme: ColorScheme = .dark, isEnabled: Bool = true) {
+        self.colorScheme = colorScheme
+        self.isEnabled = isEnabled
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct Environment<Value> {
+    private let keyPath: KeyPath<EnvironmentValues, Value>
+
+    public init(_ keyPath: KeyPath<EnvironmentValues, Value>) {
+        self.keyPath = keyPath
+    }
+
+    public var wrappedValue: Value {
+        let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
+        return values[keyPath: keyPath]
+    }
+}
+
 @MainActor
 @propertyWrapper
 public struct StateObject<ObjectType: ObservableObject> {
@@ -380,6 +410,10 @@ public struct ViewBuildContext {
 
     public var stackAxis: StackAxis? {
         stackAxisProvider()
+    }
+
+    public var environmentValues: EnvironmentValues {
+        EnvironmentValues(isEnabled: isEnabled)
     }
 
     init(

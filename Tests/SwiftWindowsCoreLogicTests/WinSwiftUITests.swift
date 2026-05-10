@@ -1030,6 +1030,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentReadsInheritedEnabledStateAndDefaultColorScheme() async {
+        await MainActor.run {
+            struct EnvironmentReaderView: View {
+                @Environment(\.isEnabled) var isEnabled
+                @Environment(\.colorScheme) var colorScheme
+
+                var body: some View {
+                    Text("\(isEnabled ? "ENABLED" : "DISABLED") \(colorScheme == .dark ? "DARK" : "LIGHT")")
+                }
+            }
+
+            let enabledNode = makeNode(EnvironmentReaderView())
+            let disabledNode = makeNode(EnvironmentReaderView().disabled())
+
+            XCTAssertEqual(enabledNode.text, "ENABLED DARK")
+            XCTAssertEqual(disabledNode.text, "DISABLED DARK")
+        }
+    }
+
     func testDisabledToggleAndSliderDoNotMutateBindings() async {
         await MainActor.run {
             var isEnabled = false

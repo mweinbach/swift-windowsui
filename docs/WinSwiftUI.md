@@ -139,7 +139,7 @@ Compatibility helpers:
 - `Angle`
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
-- minimal `Binding`, `State`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -196,11 +196,13 @@ Surface direction:
 
 - `Binding`
 - `@State`
+- `@Environment`
 - `ObservableObject`
 - `@Published`
 - `@ObservedObject`
 - `@StateObject`
 
+`@Environment` can currently read retained-context values for `isEnabled` plus a default dark `colorScheme`; broader environment storage and custom keys are not implemented yet.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

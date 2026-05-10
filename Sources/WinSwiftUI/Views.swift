@@ -404,6 +404,11 @@ public struct Text: View {
 public struct Image: View {
     public typealias Body = Never
 
+    public enum ResizingMode: Sendable {
+        case tile
+        case stretch
+    }
+
     private let systemName: String
     private var color: Color?
     private var font: Font
@@ -449,6 +454,10 @@ public struct Image: View {
         var copy = self
         copy.alignment = alignment
         return copy
+    }
+
+    public func resizable(capInsets: EdgeInsets = .zero, resizingMode: ResizingMode = .stretch) -> Image {
+        self
     }
 }
 

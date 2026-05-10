@@ -61,6 +61,7 @@ Views and containers:
   - `StringProtocol` inputs
   - `LocalizedStringKey` inputs
 - `Image(systemName:)`
+  - `resizable(capInsets:resizingMode:)`
 - `Label`
 - `Rectangle`
 - `RoundedRectangle(cornerRadius:style:)`
@@ -91,6 +92,9 @@ Modifiers:
 - `fixedSize`
 - `ignoresSafeArea`
 - `edgesIgnoringSafeArea`
+- `aspectRatio`
+- `scaledToFit`
+- `scaledToFill`
 - `padding`
 - `background`
 - `background(_:alignment:)`
@@ -164,6 +168,7 @@ Surface direction:
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
+- `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` are accepted for source compatibility but currently pass through unchanged for icon glyph rendering; bitmap image sizing is not implemented yet.
 - `Rectangle`, `RoundedRectangle`, and `Capsule` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, and rounded corner styles currently share the same retained rounded-rect path.
 - `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id. `Range<Int>` and `ClosedRange<Int>` support the SwiftUI-style shorthand initializer.

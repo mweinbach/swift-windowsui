@@ -301,6 +301,21 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageScalingCompatibilityModifiersPassThroughIconRendering() async {
+        await MainActor.run {
+            let color = Color(red: 0.4, green: 0.7, blue: 1.0, alpha: 1)
+            let node = makeNode(
+                Image(systemName: "gear")
+                    .resizable(resizingMode: .stretch)
+                    .scaledToFit()
+                    .aspectRatio(1, contentMode: .fill)
+                    .foregroundColor(color)
+            )
+
+            XCTAssertEqual(node.textStyle.color, color)
+        }
+    }
+
     func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
         await MainActor.run {
             let constrainedNode = makeNode(

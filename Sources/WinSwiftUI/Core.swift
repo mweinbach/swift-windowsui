@@ -836,6 +836,11 @@ public enum Axis: Sendable {
     case vertical
 }
 
+public enum ContentMode: Sendable {
+    case fit
+    case fill
+}
+
 public enum Edge {
     case top
     case leading
@@ -1611,6 +1616,18 @@ public extension View {
 
     func edgesIgnoringSafeArea(_ edges: Edge.Set) -> some View {
         ignoresSafeArea(.all, edges: edges)
+    }
+
+    func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {
+        self
+    }
+
+    func scaledToFit() -> some View {
+        aspectRatio(contentMode: .fit)
+    }
+
+    func scaledToFill() -> some View {
+        aspectRatio(contentMode: .fill)
     }
 
     func padding(_ length: Double = 16) -> some View {

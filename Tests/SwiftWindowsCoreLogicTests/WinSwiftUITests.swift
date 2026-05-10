@@ -432,6 +432,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelSupportsBuilderTitleAndIconSyntax() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.2, green: 0.8, blue: 0.5, alpha: 1)
+            let node = makeNode(
+                Label {
+                    Text("CUSTOM")
+                } icon: {
+                    Image(systemName: "gear")
+                }
+                .foregroundColor(inheritedColor)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[1].text, "CUSTOM")
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.color, inheritedColor)
+            }
+            XCTAssertEqual(node.children[1].textStyle.nativeFontSize, 14)
+            XCTAssertEqual(node.children[1].textStyle.weight, .bold)
+            XCTAssertEqual(node.children[1].textStyle.fontFamily, "Cascadia Mono")
+        }
+    }
+
     func testImageScalingCompatibilityModifiersPassThroughIconRendering() async {
         await MainActor.run {
             let color = Color(red: 0.4, green: 0.7, blue: 1.0, alpha: 1)

@@ -465,15 +465,23 @@ public struct Image: View {
 public struct Label: View {
     public typealias Body = Never
 
-    private let title: String
-    private let systemImage: String
+    private let title: [AnyView]
+    private let icon: [AnyView]
     private var color: Color?
     private var font: Font
     private var spacing: Double
 
     public init(_ title: String, systemImage: String) {
-        self.title = title
-        self.systemImage = systemImage
+        self.title = [
+            AnyView(
+                Text(title)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.icon = [
+            AnyView(Image(systemName: systemImage))
+        ]
         self.color = nil
         self.font = .system(size: 1.6, weight: .semibold)
         self.spacing = 10
@@ -483,23 +491,30 @@ public struct Label: View {
         self.init(titleKey.resolvedString, systemImage: systemImage)
     }
 
+    public init(@ViewBuilder title: () -> [AnyView], @ViewBuilder icon: () -> [AnyView]) {
+        self.title = title()
+        self.icon = icon()
+        self.color = nil
+        self.font = .system(size: 1.6, weight: .semibold)
+        self.spacing = 10
+    }
+
     public var body: Never {
         fatalError("Label has no body")
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = color ?? context.foregroundColor
+        let labelContext = context
+            .withForegroundColor(resolvedColor)
+            .withFont(font)
+            .withTextAlignment(.leading)
+            .withLineLimit(1)
         return HStack(spacing: spacing) {
-            Image(systemName: systemImage)
-                .foregroundColor(resolvedColor)
-                .font(font)
-            Text(title)
-                .foregroundColor(resolvedColor)
-                .font(font)
-                .multilineTextAlignment(.leading)
-                .lineLimit(1)
+            icon
+            title
         }
-        .makeComponent(context: context)
+        .makeComponent(context: labelContext)
     }
 
     public func foregroundColor(_ color: Color) -> Label {

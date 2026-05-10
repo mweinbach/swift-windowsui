@@ -63,6 +63,7 @@ Views and containers:
 - `Image(systemName:)`
   - `resizable(capInsets:resizingMode:)`
 - `Label`
+  - `Label { title } icon: { icon }`
 - `Rectangle`
 - `RoundedRectangle(cornerRadius:style:)`
 - `Capsule(style:)`

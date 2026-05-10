@@ -412,6 +412,7 @@ public struct ViewBuildContext {
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
     private let stackAxisProvider: () -> StackAxis?
+    private let buttonStyleProvider: () -> ButtonStyle
     private let environmentValuesProvider: () -> EnvironmentValues
 
     public var canvasSize: Size {
@@ -450,6 +451,10 @@ public struct ViewBuildContext {
         stackAxisProvider()
     }
 
+    public var buttonStyle: ButtonStyle {
+        buttonStyleProvider()
+    }
+
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
         values.isEnabled = values.isEnabled && isEnabled
@@ -468,6 +473,7 @@ public struct ViewBuildContext {
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil },
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
+        buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
@@ -481,6 +487,7 @@ public struct ViewBuildContext {
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
         self.stackAxisProvider = stackAxisProvider
+        self.buttonStyleProvider = buttonStyleProvider
         self.environmentValuesProvider = environmentValuesProvider
     }
 
@@ -509,6 +516,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -526,6 +534,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -543,6 +552,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -560,6 +570,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -577,6 +588,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -594,6 +606,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -611,6 +624,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit },
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -628,6 +642,25 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: { axis },
+            buttonStyleProvider: buttonStyleProvider,
+            environmentValuesProvider: environmentValuesProvider
+        )
+    }
+
+    func withButtonStyle(_ buttonStyle: ButtonStyle) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: { buttonStyle },
             environmentValuesProvider: environmentValuesProvider
         )
     }
@@ -645,6 +678,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values[keyPath: keyPath] = value
@@ -1100,6 +1134,9 @@ public struct ButtonStyle: Sendable, Equatable {
     private enum Kind: Sendable, Equatable {
         case automatic
         case plain
+        case bordered
+        case borderedProminent
+        case borderless
     }
 
     private let kind: Kind
@@ -1110,12 +1147,15 @@ public struct ButtonStyle: Sendable, Equatable {
 
     public static let automatic = ButtonStyle(kind: .automatic)
     public static let plain = ButtonStyle(kind: .plain)
+    public static let bordered = ButtonStyle(kind: .bordered)
+    public static let borderedProminent = ButtonStyle(kind: .borderedProminent)
+    public static let borderless = ButtonStyle(kind: .borderless)
 
     var surfaceStyle: ButtonSurfaceStyle {
         switch kind {
-        case .automatic:
+        case .automatic, .bordered, .borderedProminent:
             return .default
-        case .plain:
+        case .plain, .borderless:
             return .plain
         }
     }
@@ -1833,6 +1873,12 @@ public extension View {
     func accentColor(_ accentColor: Color?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTint(accentColor ?? ViewBuildContext.defaultTint))
+        }
+    }
+
+    func buttonStyle(_ style: ButtonStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withButtonStyle(style))
         }
     }
 

@@ -80,6 +80,7 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+  - `Button(_:systemImage:...)`
   - `ButtonRole.destructive`
   - `ButtonRole.cancel`
 - `Toggle`
@@ -105,6 +106,7 @@ Modifiers:
 - `foregroundStyle` for solid `Color` values
 - `tint`
 - `accentColor`
+- `buttonStyle`
 - `environment`
 - `preferredColorScheme`
 - `font`
@@ -178,6 +180,7 @@ Surface direction:
 - `VStack` and `HStack` accept SwiftUI-style optional spacing; `nil` resolves to the current retained default spacing of `0`.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `Button(_:systemImage:...)` maps into the existing retained button path with a `Label`; `.buttonStyle` propagates through `ViewBuildContext`, with `.bordered` and `.borderedProminent` mapping to the default retained button chrome and `.borderless` mapping to plain chrome.
 - `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`.
 - `ProgressView(value:total:)` maps into the retained progress bar control.

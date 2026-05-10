@@ -660,6 +660,56 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonSystemImageInitializersBuildLabelContentAndRoleSurface() async {
+        await MainActor.run {
+            var didRunAction = false
+            let node = makeNode(
+                Button("EXPORT", systemImage: "doc.text", role: .destructive) {
+                    didRunAction = true
+                }
+            )
+
+            XCTAssertEqual(node.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertTrue(allTexts(in: node).contains(SymbolIcon.document.rawValue))
+            XCTAssertTrue(allTexts(in: node).contains("EXPORT"))
+
+            node.onActivate?()
+            XCTAssertTrue(didRunAction)
+        }
+    }
+
+    func testButtonStyleModifierPropagatesThroughViewContextAndCanBeOverridden() async {
+        await MainActor.run {
+            let customColor = Color(red: 0.2, green: 0.7, blue: 0.4, alpha: 1)
+            let customStyle = ButtonSurfaceStyle(
+                palette: SurfacePalette(
+                    idle: customColor,
+                    focused: customColor,
+                    pressed: customColor
+                )
+            )
+            let node = makeNode(
+                VStack {
+                    Button("QUIET") {}
+                    Button("LOUD") {}
+                        .buttonStyle(.borderedProminent)
+                    Button("CUSTOM") {}
+                        .buttonSurface(customStyle)
+                }
+                .buttonStyle(.borderless)
+            )
+
+            let inheritedButton = node.children[0]
+            let overriddenButton = node.children[1]
+            let customButton = node.children[2]
+
+            XCTAssertEqual(inheritedButton.backgroundColor, .clear)
+            XCTAssertEqual(inheritedButton.borderColor, .clear)
+            XCTAssertEqual(overriddenButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(customButton.backgroundColor, customColor)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(
@@ -1417,6 +1467,20 @@ private func firstText(in node: ViewNode) -> String? {
     }
 
     return nil
+}
+
+@MainActor
+private func allTexts(in node: ViewNode) -> [String] {
+    var texts: [String] = []
+    if let text = node.text {
+        texts.append(text)
+    }
+
+    for child in node.children {
+        texts.append(contentsOf: allTexts(in: child))
+    }
+
+    return texts
 }
 
 @MainActor

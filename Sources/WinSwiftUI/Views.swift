@@ -2490,29 +2490,203 @@ public struct Toggle: View {
         let binding = isOn
 
         return Component { runtime in
-            let toggleNode = Controls.toggle(
-                runtime: runtime,
-                isOn: binding.wrappedValue,
-                isEnabled: context.isEnabled,
-                preferredSize: context.controlSize.togglePreferredSize,
-                onColor: context.tint,
-                onToggle: { newValue in
-                    binding.wrappedValue = newValue
-                    context.invalidate()
-                }
-            )
-
-            guard !context.labelsHidden else {
-                return toggleNode
+            switch context.toggleStyle.kind {
+            case .automatic, .switch:
+                return Self.switchNode(
+                    runtime: runtime,
+                    context: context,
+                    binding: binding,
+                    labelComponent: labelComponent
+                )
+            case .checkbox:
+                return Self.checkboxNode(
+                    runtime: runtime,
+                    context: context,
+                    binding: binding,
+                    labelComponent: labelComponent
+                )
+            case .button:
+                return Self.buttonNode(
+                    runtime: runtime,
+                    context: context,
+                    binding: binding,
+                    labelComponent: labelComponent
+                )
             }
-
-            let labelNode = labelComponent.makeNode(runtime: runtime)
-            return Controls.stackPanel(
-                stackLayout: .horizontal(spacing: 10, alignment: .center),
-                isHitTestVisible: false,
-                children: [labelNode, toggleNode]
-            )
         }
+    }
+
+    private static func switchNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        binding: Binding<Bool>,
+        labelComponent: Component
+    ) -> ViewNode {
+        let toggleNode = Controls.toggle(
+            runtime: runtime,
+            isOn: binding.wrappedValue,
+            isEnabled: context.isEnabled,
+            preferredSize: context.controlSize.togglePreferredSize,
+            onColor: context.tint,
+            onToggle: { newValue in
+                binding.wrappedValue = newValue
+                context.invalidate()
+            }
+        )
+
+        guard !context.labelsHidden else {
+            return toggleNode
+        }
+
+        let labelNode = labelComponent.makeNode(runtime: runtime)
+        return Controls.stackPanel(
+            stackLayout: .horizontal(spacing: 10, alignment: .center),
+            isHitTestVisible: false,
+            children: [labelNode, toggleNode]
+        )
+    }
+
+    private static func checkboxNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        binding: Binding<Bool>,
+        labelComponent: Component
+    ) -> ViewNode {
+        let boxSize: Double = 20
+        let surfaceStyle = ButtonSurfaceStyle.default
+        let checkIcon = binding.wrappedValue
+            ? Controls.icon(
+                .checkmark,
+                preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
+                color: context.isEnabled ? .white : surfaceStyle.palette.disabledForeground,
+                scale: 1.2
+            )
+            : Controls.panel(
+                preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
+                isHitTestVisible: false
+            )
+        let box = Controls.panel(
+            preferredSize: Size(width: boxSize, height: boxSize),
+            backgroundColor: context.isEnabled
+                ? (binding.wrappedValue ? context.tint : surfaceStyle.palette.idle)
+                : surfaceStyle.palette.disabledBackground,
+            borderColor: context.isEnabled
+                ? (binding.wrappedValue ? context.tint.opacity(0.92) : surfaceStyle.chrome.borderColor)
+                : surfaceStyle.palette.disabledBorder,
+            borderWidth: 1,
+            cornerRadius: 4,
+            layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+            isHitTestVisible: false,
+            children: [checkIcon]
+        )
+        let children = context.labelsHidden
+            ? [box]
+            : [box, labelComponent.makeNode(runtime: runtime)]
+        let hiddenPreferredSize = Size(
+            width: max(context.controlSize.togglePreferredSize.height, boxSize + 16),
+            height: max(context.controlSize.togglePreferredSize.height, boxSize + 16)
+        )
+
+        return Controls.button(
+            runtime: runtime,
+            preferredSize: context.labelsHidden ? hiddenPreferredSize : nil,
+            cornerRadius: 8,
+            palette: SurfacePalette(
+                idle: .clear,
+                hovered: Color(red: 0.20, green: 0.26, blue: 0.34, alpha: 0.44),
+                focused: Color(red: 0.24, green: 0.32, blue: 0.42, alpha: 0.56),
+                pressed: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64),
+                activated: Color(red: 0.30, green: 0.40, blue: 0.52, alpha: 0.64)
+            ),
+            chrome: SurfaceChrome(
+                borderColor: .clear,
+                borderHoveredColor: Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.16),
+                borderFocusedColor: context.tint.opacity(0.42),
+                borderPressedColor: context.tint.opacity(0.58),
+                borderWidth: 1,
+                focusRingColor: context.tint.opacity(0.26),
+                focusRingWidth: 2
+            ),
+            clipsToBounds: true,
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: context.labelsHidden ? 0 : 10,
+                    padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 8),
+                    alignment: .center
+                )
+            ),
+            isEnabled: context.isEnabled,
+            action: {
+                binding.wrappedValue.toggle()
+                context.invalidate()
+            },
+            children: children
+        )
+    }
+
+    private static func buttonNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        binding: Binding<Bool>,
+        labelComponent: Component
+    ) -> ViewNode {
+        let surfaceStyle = ButtonSurfaceStyle.default
+        let palette = binding.wrappedValue
+            ? SurfacePalette(
+                idle: context.tint.opacity(0.82),
+                hovered: context.tint.opacity(0.90),
+                focused: context.tint.opacity(0.96),
+                pressed: context.tint,
+                activated: context.tint
+            )
+            : surfaceStyle.palette
+        let children: [ViewNode]
+        if context.labelsHidden {
+            let iconNode = binding.wrappedValue
+                ? Controls.icon(
+                    .checkmark,
+                    preferredSize: Size(width: 20, height: 20),
+                    color: context.isEnabled ? .white : surfaceStyle.palette.disabledForeground,
+                    scale: 1.25
+                )
+                : Controls.panel(
+                    preferredSize: Size(width: 20, height: 20),
+                    isHitTestVisible: false
+                )
+            children = [
+                iconNode
+            ]
+        } else {
+            children = [labelComponent.makeNode(runtime: runtime)]
+        }
+        let hiddenPreferredSize = Size(
+            width: max(context.controlSize.togglePreferredSize.width, 44),
+            height: max(context.controlSize.togglePreferredSize.height, 36)
+        )
+
+        return Controls.button(
+            runtime: runtime,
+            preferredSize: context.labelsHidden ? hiddenPreferredSize : nil,
+            cornerRadius: surfaceStyle.cornerRadius,
+            palette: palette,
+            chrome: surfaceStyle.chrome,
+            clipsToBounds: surfaceStyle.clipsToBounds,
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                    alignment: .center,
+                    mainAlignment: .center
+                )
+            ),
+            isEnabled: context.isEnabled,
+            animation: surfaceStyle.animation,
+            action: {
+                binding.wrappedValue.toggle()
+                context.invalidate()
+            },
+            children: children
+        )
     }
 }
 

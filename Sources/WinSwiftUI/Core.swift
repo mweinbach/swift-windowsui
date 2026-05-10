@@ -343,6 +343,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     private var customValues: [ObjectIdentifier: Any]
 
@@ -354,6 +355,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic
     ) {
         self.colorScheme = colorScheme
@@ -363,6 +365,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.customValues = [:]
     }
@@ -611,6 +614,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var toggleStyle: ToggleStyle {
+        environmentValuesProvider().toggleStyle
     }
 
     public var textFieldStyle: TextFieldStyle {
@@ -1896,6 +1903,26 @@ public struct LabelStyle: Sendable, Equatable {
     public static let titleOnly = LabelStyle(kind: .titleOnly)
 }
 
+public struct ToggleStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case `switch`
+        case checkbox
+        case button
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToggleStyle(kind: .automatic)
+    public static let `switch` = ToggleStyle(kind: .switch)
+    public static let checkbox = ToggleStyle(kind: .checkbox)
+    public static let button = ToggleStyle(kind: .button)
+}
+
 public struct TextFieldStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -2775,6 +2802,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func toggleStyle(_ style: ToggleStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.toggleStyle, style))
         }
     }
 

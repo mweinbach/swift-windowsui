@@ -2117,6 +2117,65 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToggleStyleModifierMapsToRetainedToggleChrome() async {
+        await MainActor.run {
+            struct ToggleStyleReaderView: View {
+                @Environment(\.toggleStyle) var toggleStyle
+
+                var body: some View {
+                    Text(toggleStyle == .checkbox ? "CHECKBOX" : toggleStyle == .button ? "BUTTON" : "SWITCH")
+                }
+            }
+
+            let tint = Color(red: 0.25, green: 0.75, blue: 0.55, alpha: 1)
+            var checkboxValue = true
+            var didInvalidate = false
+
+            let checkboxNode = makeNode(
+                Toggle(
+                    "ENABLED",
+                    isOn: Binding(
+                        get: { checkboxValue },
+                        set: { checkboxValue = $0 }
+                    )
+                )
+                .toggleStyle(.checkbox)
+                .tint(tint),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+            let buttonNode = makeNode(
+                Toggle("FILTER", isOn: .constant(true))
+                    .toggleStyle(.button)
+                    .tint(tint)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Toggle("FIRST", isOn: .constant(false))
+                    Toggle("SECOND", isOn: .constant(true))
+                }
+                .toggleStyle(.button)
+            )
+            let readerNode = makeNode(ToggleStyleReaderView().toggleStyle(.checkbox))
+
+            XCTAssertTrue(checkboxNode.isFocusable)
+            XCTAssertEqual(checkboxNode.children[0].cornerRadius, 4)
+            XCTAssertEqual(checkboxNode.children[0].backgroundColor, tint)
+            XCTAssertTrue(allTexts(in: checkboxNode).contains("ENABLED"))
+
+            checkboxNode.onActivate?()
+
+            XCTAssertFalse(checkboxValue)
+            XCTAssertTrue(didInvalidate)
+            XCTAssertEqual(buttonNode.backgroundColor, tint.opacity(0.82))
+            XCTAssertTrue(buttonNode.isFocusable)
+            XCTAssertTrue(inheritedNode.children[0].isFocusable)
+            XCTAssertTrue(inheritedNode.children[1].isFocusable)
+            XCTAssertEqual(readerNode.text, "CHECKBOX")
+        }
+    }
+
     func testBindingPropertyWrapperFeedsToggle() async {
         await MainActor.run {
             struct BoundToggle: View {

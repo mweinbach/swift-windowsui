@@ -126,6 +126,7 @@ Modifiers:
 - `scaleEffect`
 - `rotationEffect`
 - `blur`
+- `animation`
 - `disabled`
 - `onAppear`
 - `onDisappear`
@@ -140,6 +141,8 @@ Compatibility helpers:
 - `Color.opacity(_:)`
 - named `Font` styles such as `body`, `title`, `headline`, and `caption`
 - `Font.system(_:design:weight:)` with `Font.TextStyle` presets
+- `Animation`
+- `withAnimation`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `Angle`
@@ -184,6 +187,7 @@ Surface direction:
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
 - `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
+- `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation` accepts SwiftUI-shaped call sites and executes the body immediately.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.

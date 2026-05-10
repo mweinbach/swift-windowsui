@@ -1009,6 +1009,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSwiftUIAnimationValueOverloadMapsToRetainedAnimationState() async {
+        await MainActor.run {
+            let animatedNode = makeNode(
+                Text("MOVE")
+                    .animation(.linear(duration: 0.4), value: true)
+            )
+            let disabledNode = makeNode(
+                Text("STILL")
+                    .animation(nil, value: false)
+            )
+
+            XCTAssertEqual(animatedNode.animationStates[.opacity]?.duration, 0.4)
+            if case .linear? = animatedNode.animationStates[.opacity]?.easing {
+            } else {
+                XCTFail("Expected linear easing")
+            }
+            XCTAssertTrue(disabledNode.animationStates.isEmpty)
+        }
+    }
+
     func testDisabledButtonDoesNotActivate() async {
         await MainActor.run {
             var didRunAction = false

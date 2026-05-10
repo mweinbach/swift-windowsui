@@ -79,6 +79,43 @@ public struct Angle: Sendable, Equatable {
     }
 }
 
+public struct Animation: Sendable {
+    public var duration: Double
+    public var easing: AnimationEasing
+
+    public init(duration: Double = 0.25, easing: AnimationEasing = .easeInOut) {
+        self.duration = duration
+        self.easing = easing
+    }
+
+    public static let `default` = Animation()
+    public static let linear = Animation(easing: .linear)
+    public static let easeIn = Animation(easing: .easeIn)
+    public static let easeOut = Animation(easing: .easeOut)
+    public static let easeInOut = Animation(easing: .easeInOut)
+
+    public static func linear(duration: Double) -> Animation {
+        Animation(duration: duration, easing: .linear)
+    }
+
+    public static func easeIn(duration: Double) -> Animation {
+        Animation(duration: duration, easing: .easeIn)
+    }
+
+    public static func easeOut(duration: Double) -> Animation {
+        Animation(duration: duration, easing: .easeOut)
+    }
+
+    public static func easeInOut(duration: Double) -> Animation {
+        Animation(duration: duration, easing: .easeInOut)
+    }
+}
+
+@discardableResult
+public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
+    try body()
+}
+
 public struct UnitPoint: Sendable, Equatable {
     public var x: Double
     public var y: Double
@@ -2113,15 +2150,14 @@ public extension View {
         return modified
     }
 
-    /// Attach an animation context to this view.  When properties (opacity,
-    /// background color) change between rebuilds, the runtime will
-    /// interpolate between the old and new values over the given duration
-    /// using the specified easing curve.
-    func animation(_ duration: Double = 0.25, easing: AnimationEasing = .easeInOut) -> some View {
+    func animation(_ animation: Animation?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
+                guard let animation else {
+                    return node
+                }
 
                 // Snapshot the current property values so that subsequent
                 // property changes can be detected and animated.
@@ -2139,16 +2175,16 @@ public extension View {
                     startValue: Double(node.backgroundColor?.alpha ?? 1.0),
                     endValue: Double(node.backgroundColor?.alpha ?? 1.0),
                     startTime: now,
-                    duration: duration,
-                    easing: easing
+                    duration: animation.duration,
+                    easing: animation.easing
                 )
                 if let bg = node.backgroundColor {
                     node.animationStates[.backgroundColor] = AnimationState(
                         startValue: 0,
                         endValue: 0,
                         startTime: now,
-                        duration: duration,
-                        easing: easing
+                        duration: animation.duration,
+                        easing: animation.easing
                     )
                     // Store previous color for interpolation.
                     node.previousPropertyValues?.backgroundColor = bg
@@ -2157,5 +2193,17 @@ public extension View {
                 return node
             }
         }
+    }
+
+    /// Attach an animation context to this view.  When properties (opacity,
+    /// background color) change between rebuilds, the runtime will
+    /// interpolate between the old and new values over the given duration
+    /// using the specified easing curve.
+    func animation(_ duration: Double = 0.25, easing: AnimationEasing = .easeInOut) -> some View {
+        animation(Animation(duration: duration, easing: easing))
+    }
+
+    func animation<Value: Equatable>(_ animation: Animation?, value: Value) -> some View {
+        self.animation(animation)
     }
 }

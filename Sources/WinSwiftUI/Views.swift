@@ -956,6 +956,113 @@ public struct DisclosureGroup: View {
 }
 
 @MainActor
+public struct Menu: View {
+    public typealias Body = Never
+
+    private final class MenuState {
+        var isOpen = false
+    }
+
+    private let state = MenuState()
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, content: content)
+    }
+
+    public var body: Never {
+        fatalError("Menu has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let menuState = state
+        let menuItems = content
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            let disclosureNode = Controls.label(
+                menuState.isOpen ? "V" : ">",
+                preferredSize: Size(width: 18, height: 24),
+                color: context.foregroundColor,
+                scale: 1.2,
+                weight: .semibold,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+            let headerContent = Controls.stackPanel(
+                layoutPriority: 1,
+                stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, disclosureNode]
+            )
+            let menuButton = Controls.button(
+                runtime: runtime,
+                cornerRadius: ButtonSurfaceStyle.default.cornerRadius,
+                palette: ButtonSurfaceStyle.default.palette,
+                chrome: ButtonSurfaceStyle.default.chrome,
+                clipsToBounds: ButtonSurfaceStyle.default.clipsToBounds,
+                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                isEnabled: context.isEnabled,
+                action: {
+                    menuState.isOpen.toggle()
+                    context.invalidate()
+                },
+                children: [headerContent]
+            )
+
+            var children: [ViewNode] = [menuButton]
+            if menuState.isOpen {
+                let itemContext = context.withButtonStyle(.plain)
+                let itemNodes = menuItems.map { $0.makeComponent(context: itemContext).makeNode(runtime: runtime) }
+                let menuPanel = Controls.stackPanel(
+                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.96),
+                    borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.14),
+                    borderWidth: 1,
+                    shadowColor: Color(red: 0.02, green: 0.04, blue: 0.08, alpha: 0.28),
+                    shadowOffset: Point(x: 0, y: 10),
+                    shadowSpread: 8,
+                    cornerRadius: 10,
+                    stackLayout: .vertical(spacing: 2, padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6), alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: itemNodes
+                )
+                children.append(menuPanel)
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 4, alignment: .stretch),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Toggle: View {
     public typealias Body = Never
 

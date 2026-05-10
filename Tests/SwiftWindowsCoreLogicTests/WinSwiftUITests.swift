@@ -860,6 +860,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuRevealsInlineContentAndPreservesActions() async {
+        await MainActor.run {
+            var didInvalidate = false
+            var activationCount = 0
+            let menu = Menu("ACTIONS") {
+                Button("EXPORT") {
+                    activationCount += 1
+                }
+                Button("ARCHIVE") {}
+            }
+
+            let collapsedNode = makeNode(
+                menu,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(collapsedNode.children.count, 1)
+            XCTAssertTrue(allTexts(in: collapsedNode.children[0]).contains("ACTIONS"))
+
+            collapsedNode.children[0].onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let expandedNode = makeNode(menu)
+
+            XCTAssertEqual(expandedNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("EXPORT"))
+            XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("ARCHIVE"))
+
+            expandedNode.children[1].children[0].onActivate?()
+
+            XCTAssertEqual(activationCount, 1)
+        }
+    }
+
     func testForEachFlattensInsideStackAndAssignsStableIDs() async {
         await MainActor.run {
             let node = makeNode(

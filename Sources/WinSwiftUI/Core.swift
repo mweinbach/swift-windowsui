@@ -847,10 +847,14 @@ public struct AnyView: View {
     private let buildComponent: (ViewBuildContext) -> Component
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
+    let navigationTitle: [AnyView]?
+    let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
 
     public init<V: View>(_ view: V) {
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
         self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
+        self.navigationTitle = (view as? any TaggedViewMetadata)?.anyNavigationTitle
+        self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
         self.buildComponent = { context in
             ViewBuildContextScope.withCurrent(context) {
                 view.makeComponent(context: context)
@@ -1398,6 +1402,8 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     var id: String?
     var selectionTag: AnyHashable?
     var tabItem: [AnyView]?
+    var navigationTitle: [AnyView]?
+    var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
 
     var anySelectionTag: AnyHashable? {
         selectionTag ?? (content as? any TaggedViewMetadata)?.anySelectionTag
@@ -1405,6 +1411,14 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
     var anyTabItem: [AnyView]? {
         tabItem ?? (content as? any TaggedViewMetadata)?.anyTabItem
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        navigationTitle ?? (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        navigationTitleDisplayMode ?? (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
     }
 
     var body: Never {
@@ -1431,10 +1445,20 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 protocol TaggedViewMetadata {
     var anySelectionTag: AnyHashable? { get }
     var anyTabItem: [AnyView]? { get }
+    var anyNavigationTitle: [AnyView]? { get }
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
 }
 
 extension TaggedViewMetadata {
     var anyTabItem: [AnyView]? {
+        nil
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        nil
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
         nil
     }
 }
@@ -2071,41 +2095,43 @@ public extension View {
     }
 
     func navigationTitle<S: StringProtocol>(_ title: S) -> some View {
-        _ = title
-        return self
+        navigationTitle(Text(String(title)))
     }
 
     func navigationTitle(_ titleKey: LocalizedStringKey) -> some View {
-        _ = titleKey
-        return self
+        navigationTitle(Text(titleKey))
     }
 
     func navigationTitle(_ title: Text) -> some View {
-        _ = title
-        return self
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.navigationTitle = [AnyView(title)]
+        return modified
     }
 
     func navigationBarTitle<S: StringProtocol>(
         _ title: S,
         displayMode: NavigationBarItem.TitleDisplayMode = .automatic
     ) -> some View {
-        _ = title
-        _ = displayMode
-        return self
+        navigationTitle(Text(String(title)))
+            .navigationBarTitleDisplayMode(displayMode)
     }
 
     func navigationBarTitle(
         _ title: Text,
         displayMode: NavigationBarItem.TitleDisplayMode = .automatic
     ) -> some View {
-        _ = title
-        _ = displayMode
-        return self
+        navigationTitle(title)
+            .navigationBarTitleDisplayMode(displayMode)
     }
 
     func navigationBarTitleDisplayMode(_ displayMode: NavigationBarItem.TitleDisplayMode) -> some View {
-        _ = displayMode
-        return self
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.navigationTitleDisplayMode = displayMode
+        return modified
     }
 
     func navigationDestination<Data>(

@@ -1233,7 +1233,7 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testNavigationContainersPassThroughRootContent() async {
+    func testNavigationContainersRenderTitleChromeWhenProvided() async {
         await MainActor.run {
             var path = NavigationPath()
             path.append("detail")
@@ -1263,16 +1263,42 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             guard case .stack(let stackLayout) = stackNode.layoutMode else {
-                return XCTFail("Expected NavigationStack root content to render directly")
+                return XCTFail("Expected NavigationStack to wrap titled content in retained chrome")
             }
 
             XCTAssertTrue(path.isEmpty)
+            XCTAssertEqual(stackLayout, .vertical(spacing: 10, alignment: .stretch))
+            XCTAssertEqual(stackNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: stackNode.children[0]).contains("HOME"))
+            XCTAssertEqual(stackNode.children[1].children.count, 2)
+            XCTAssertEqual(stackNode.children[1].children[0].text, "ROOT")
+            XCTAssertEqual(stackNode.children[1].children[1].text, "DETAIL")
+            XCTAssertTrue(allTexts(in: genericPathNode.children[0]).contains("GENERIC TITLE"))
+            XCTAssertEqual(genericPathNode.children[1].text, "GENERIC")
+            XCTAssertTrue(allTexts(in: legacyNode.children[0]).contains("LEGACY TITLE"))
+            XCTAssertEqual(legacyNode.children[1].text, "LEGACY")
+        }
+    }
+
+    func testNavigationContainersWithoutTitlePreserveRootLayout() async {
+        await MainActor.run {
+            let stackNode = makeNode(
+                NavigationStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("ROOT")
+                        Text("DETAIL")
+                    }
+                }
+            )
+
+            guard case .stack(let stackLayout) = stackNode.layoutMode else {
+                return XCTFail("Expected untitled NavigationStack root content to render directly")
+            }
+
             XCTAssertEqual(stackLayout, .vertical(spacing: 3, alignment: .leading))
             XCTAssertEqual(stackNode.children.count, 2)
             XCTAssertEqual(stackNode.children[0].text, "ROOT")
             XCTAssertEqual(stackNode.children[1].text, "DETAIL")
-            XCTAssertEqual(genericPathNode.text, "GENERIC")
-            XCTAssertEqual(legacyNode.text, "LEGACY")
         }
     }
 

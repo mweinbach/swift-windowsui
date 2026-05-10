@@ -278,7 +278,7 @@ public struct NavigationStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(
+        navigationContainerComponent(
             from: content,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
@@ -301,12 +301,77 @@ public struct NavigationView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        composeComponent(
+        navigationContainerComponent(
             from: content,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
     }
+}
+
+@MainActor
+private func navigationContainerComponent(
+    from content: [AnyView],
+    context: ViewBuildContext,
+    fallbackLayout: ViewLayoutMode
+) -> Component {
+    let body = composeComponent(
+        from: content,
+        context: context,
+        fallbackLayout: fallbackLayout
+    )
+
+    guard let title = navigationTitle(in: content) else {
+        return body
+    }
+
+    let displayMode = navigationTitleDisplayMode(in: content) ?? .automatic
+    let titleFont: Font = displayMode == .inline
+        ? .system(size: 2, weight: .semibold)
+        : .system(size: 3, weight: .bold)
+    let titleContext = context
+        .withForegroundColor(Color(red: 0.92, green: 0.96, blue: 1.0))
+        .withFont(titleFont)
+
+    let titleComponent = composeComponent(
+        from: title,
+        context: titleContext,
+        fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+    )
+
+    return Component { runtime in
+        let titleNode = titleComponent.makeNode(runtime: runtime)
+        let bodyNode = body.makeNode(runtime: runtime)
+        let headerNode = Controls.stackPanel(
+            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+            borderWidth: 1,
+            cornerRadius: 10,
+            stackLayout: .horizontal(
+                spacing: 0,
+                padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14),
+                alignment: .center
+            ),
+            isHitTestVisible: false,
+            children: [titleNode]
+        )
+
+        return Controls.stackPanel(
+            stackLayout: .vertical(spacing: 10, alignment: .stretch),
+            isHitTestVisible: false,
+            children: [headerNode, bodyNode]
+        )
+    }
+}
+
+@MainActor
+private func navigationTitle(in content: [AnyView]) -> [AnyView]? {
+    content.lazy.compactMap(\.navigationTitle).first
+}
+
+@MainActor
+private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarItem.TitleDisplayMode? {
+    content.lazy.compactMap(\.navigationTitleDisplayMode).first
 }
 
 @MainActor

@@ -1043,9 +1043,19 @@ final class WinSwiftUITests: XCTestCase {
 
             let enabledNode = makeNode(EnvironmentReaderView())
             let disabledNode = makeNode(EnvironmentReaderView().disabled())
+            let lightNode = makeNode(EnvironmentReaderView().environment(\.colorScheme, .light))
+            let preferredLightNode = makeNode(EnvironmentReaderView().preferredColorScheme(.light))
+            let inheritedNode = makeNode(
+                EnvironmentReaderView()
+                    .environment(\.colorScheme, .light)
+                    .preferredColorScheme(nil)
+            )
 
             XCTAssertEqual(enabledNode.text, "ENABLED DARK")
             XCTAssertEqual(disabledNode.text, "DISABLED DARK")
+            XCTAssertEqual(lightNode.text, "ENABLED LIGHT")
+            XCTAssertEqual(preferredLightNode.text, "ENABLED LIGHT")
+            XCTAssertEqual(inheritedNode.text, "ENABLED LIGHT")
         }
     }
 

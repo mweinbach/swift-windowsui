@@ -375,6 +375,7 @@ public struct ViewBuildContext {
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
     private let stackAxisProvider: () -> StackAxis?
+    private let environmentValuesProvider: () -> EnvironmentValues
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -413,7 +414,9 @@ public struct ViewBuildContext {
     }
 
     public var environmentValues: EnvironmentValues {
-        EnvironmentValues(isEnabled: isEnabled)
+        var values = environmentValuesProvider()
+        values.isEnabled = values.isEnabled && isEnabled
+        return values
     }
 
     init(
@@ -427,7 +430,8 @@ public struct ViewBuildContext {
         fontWeightProvider: @escaping () -> Font.Weight? = { nil },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil },
-        stackAxisProvider: @escaping () -> StackAxis? = { nil }
+        stackAxisProvider: @escaping () -> StackAxis? = { nil },
+        environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
@@ -440,6 +444,7 @@ public struct ViewBuildContext {
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
         self.stackAxisProvider = stackAxisProvider
+        self.environmentValuesProvider = environmentValuesProvider
     }
 
     public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
@@ -466,7 +471,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -482,7 +488,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -498,7 +505,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -514,7 +522,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -530,7 +539,8 @@ public struct ViewBuildContext {
             fontWeightProvider: { weight },
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -546,7 +556,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -562,7 +573,8 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit },
-            stackAxisProvider: stackAxisProvider
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: environmentValuesProvider
         )
     }
 
@@ -578,7 +590,29 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            stackAxisProvider: { axis }
+            stackAxisProvider: { axis },
+            environmentValuesProvider: environmentValuesProvider
+        )
+    }
+
+    func withEnvironmentValue<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values[keyPath: keyPath] = value
+                return values
+            }
         )
     }
 }
@@ -1745,6 +1779,25 @@ public extension View {
     func accentColor(_ accentColor: Color?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTint(accentColor ?? ViewBuildContext.defaultTint))
+        }
+    }
+
+    func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(keyPath, value))
+        }
+    }
+
+    func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let resolvedContext: ViewBuildContext
+            if let colorScheme {
+                resolvedContext = context.withEnvironmentValue(\.colorScheme, colorScheme)
+            } else {
+                resolvedContext = context
+            }
+
+            return content.makeComponent(context: resolvedContext)
         }
     }
 

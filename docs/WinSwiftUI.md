@@ -101,6 +101,8 @@ Modifiers:
 - `foregroundStyle` for solid `Color` values
 - `tint`
 - `accentColor`
+- `environment`
+- `preferredColorScheme`
 - `font`
 - `fontWeight`
 - `bold`
@@ -202,7 +204,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can currently read retained-context values for `isEnabled` plus a default dark `colorScheme`; broader environment storage and custom keys are not implemented yet.
+`@Environment` can currently read retained-context values for `isEnabled` plus `colorScheme`; `environment(_:_:)` and `preferredColorScheme(_:)` can override those built-in `EnvironmentValues` keys, but broader custom environment keys are not implemented yet.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

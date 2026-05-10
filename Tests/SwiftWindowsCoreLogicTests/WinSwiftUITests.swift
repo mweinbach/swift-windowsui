@@ -903,6 +903,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGroupBoxMapsToRetainedPanelWithTitleAndContent() async {
+        await MainActor.run {
+            let node = makeNode(
+                GroupBox("SETTINGS") {
+                    Text("BODY")
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected GroupBox to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .vertical(spacing: 8, padding: .all(12), alignment: .stretch))
+            XCTAssertEqual(node.borderWidth, 1)
+            XCTAssertEqual(node.cornerRadius, 12)
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "SETTINGS")
+            XCTAssertEqual(node.children[1].text, "BODY")
+        }
+    }
+
+    func testGroupBoxSupportsBuilderLabelSyntax() async {
+        await MainActor.run {
+            let node = makeNode(
+                GroupBox {
+                    Text("CONTENT")
+                } label: {
+                    Label("ADVANCED", systemImage: "gear")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("ADVANCED"))
+            XCTAssertEqual(node.children[1].text, "CONTENT")
+        }
+    }
+
     func testDisclosureGroupTogglesBindingAndRevealsContentWhenRebuilt() async {
         await MainActor.run {
             var isExpanded = false

@@ -833,6 +833,67 @@ public struct Section: View {
 }
 
 @MainActor
+public struct GroupBox: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.label = []
+        self.content = content()
+    }
+
+    public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Text(title)
+                .font(.system(size: 1.5, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, content: content)
+    }
+
+    public var body: Never {
+        fatalError("GroupBox has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let views = label + content
+        return Component { runtime in
+            Controls.panel(
+                backgroundColor: Color(red: 0.12, green: 0.15, blue: 0.20, alpha: 0.54),
+                borderColor: Color(red: 0.78, green: 0.86, blue: 1.0, alpha: 0.14),
+                borderWidth: 1,
+                cornerRadius: 12,
+                layoutMode: .stack(.vertical(spacing: 8, padding: .all(12), alignment: .stretch)),
+                isHitTestVisible: false,
+                children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct DisclosureGroup: View {
     public typealias Body = Never
 

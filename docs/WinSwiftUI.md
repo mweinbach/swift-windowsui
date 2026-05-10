@@ -79,6 +79,7 @@ Views and containers:
 - `List`
 - `Form`
 - `Section`
+- `GroupBox`
 - `DisclosureGroup`
 - `HSplitView`
 - `VSplitView`
@@ -188,6 +189,7 @@ Surface direction:
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
+- `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.

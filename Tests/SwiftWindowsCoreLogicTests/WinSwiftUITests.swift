@@ -1431,7 +1431,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children.count, 3)
             XCTAssertTrue(allTexts(in: node.children[0]).contains("SHOW"))
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SETTINGS"))
-            XCTAssertEqual(node.children[2].text, "ITEM")
+            XCTAssertTrue(allTexts(in: node.children[2]).contains("ITEM"))
         }
     }
 
@@ -1471,6 +1471,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationLinkValueResolvesNavigationDestination() async {
+        await MainActor.run {
+            var didInvalidate = false
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink("OPEN", value: "detail")
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("VALUE \(value)")
+                    .navigationTitle("VALUE TITLE")
+            }
+
+            let rootNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            rootNode.children[1].children[0].onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("VALUE TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "VALUE detail")
+        }
+    }
+
     func testNavigationDestinationModifiersPreserveRootContent() async {
         await MainActor.run {
             let item = NavigationDestinationItem(id: "selected")
@@ -1489,7 +1520,7 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertEqual(node.text, "OPEN")
+            XCTAssertTrue(allTexts(in: node).contains("OPEN"))
         }
     }
 

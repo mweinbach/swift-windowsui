@@ -347,7 +347,11 @@ private func navigationContainerComponent(
     fallbackLayout: ViewLayoutMode
 ) -> Component {
     let visibleContent = destinationStack.last ?? content
-    let navigationContext = context.withNavigationDestinationHandler { destination in
+    let destinationRegistrations = context.navigationDestinationRegistrations
+        + navigationDestinations(in: content)
+        + navigationDestinations(in: visibleContent)
+
+    func pushDestination(_ destination: [AnyView]) {
         guard !destination.isEmpty else {
             return
         }
@@ -357,6 +361,21 @@ private func navigationContainerComponent(
         setDestinationStack(updatedStack)
         context.invalidate()
     }
+    let navigationContext = context
+        .withNavigationDestinationHandler { destination in
+            pushDestination(destination)
+        }
+        .withNavigationValueHandler { value in
+            guard let destination = resolveNavigationDestination(
+                for: value,
+                registrations: destinationRegistrations
+            ) else {
+                return false
+            }
+
+            pushDestination(destination)
+            return true
+        }
     let body = composeComponent(
         from: visibleContent,
         context: navigationContext,
@@ -450,6 +469,25 @@ private func navigationTitle(in content: [AnyView]) -> [AnyView]? {
 @MainActor
 private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarItem.TitleDisplayMode? {
     content.lazy.compactMap(\.navigationTitleDisplayMode).first
+}
+
+@MainActor
+private func navigationDestinations(in content: [AnyView]) -> [NavigationDestinationRegistration] {
+    content.flatMap(\.navigationDestinationRegistrations)
+}
+
+@MainActor
+private func resolveNavigationDestination(
+    for value: AnyHashable,
+    registrations: [NavigationDestinationRegistration]
+) -> [AnyView]? {
+    for registration in registrations.reversed() {
+        if let destination = registration.resolve(value) {
+            return destination
+        }
+    }
+
+    return nil
 }
 
 @MainActor
@@ -582,18 +620,18 @@ public struct NavigationLink: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        _ = value
         let labelComponent = composeComponent(
             from: label,
             context: context,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
         )
 
-        guard !destination.isEmpty else {
+        if destination.isEmpty, value == nil {
             return labelComponent
         }
 
         let destinationViews = destination
+        let navigationValue = value
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
             return Controls.button(
@@ -608,7 +646,11 @@ public struct NavigationLink: View {
                 )),
                 isEnabled: context.isEnabled,
                 action: {
-                    _ = context.pushNavigationDestination(destinationViews)
+                    if let navigationValue {
+                        _ = context.pushNavigationValue(navigationValue)
+                    } else {
+                        _ = context.pushNavigationDestination(destinationViews)
+                    }
                 },
                 children: [labelNode]
             )

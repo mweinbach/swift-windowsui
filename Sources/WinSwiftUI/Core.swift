@@ -2506,6 +2506,15 @@ private func normalizedHueUnit(_ hue: Double) -> Double {
     return normalized >= 0 ? normalized : normalized + 1
 }
 
+private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, gradient: LinearGradient?) {
+    switch style {
+    case .color(let color):
+        return (color, nil)
+    case .linearGradient(let gradient):
+        return (nil, gradient)
+    }
+}
+
 public extension SwiftWindowsGraphics.LinearGradient {
     init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
         self.init(
@@ -2798,6 +2807,12 @@ public extension View {
         }
     }
 
+    func background(_ style: ForegroundStyle, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        _ = edges
+        let fill = resolvedStyleFill(from: style)
+        return backgroundStyle(color: fill.color, gradient: fill.gradient)
+    }
+
     func background(_ gradient: LinearGradient) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -2816,6 +2831,22 @@ public extension View {
     func background(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
         _ = edges
         return background(gradient)
+    }
+
+    private func backgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: color,
+                    backgroundGradient: gradient,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
     }
 
     func background<Background: View>(_ background: Background, alignment: Alignment = .center) -> some View {
@@ -2879,6 +2910,12 @@ public extension View {
     func overlay(_ color: Color?, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
         _ = edges
         return overlayStyle(color: color, gradient: nil)
+    }
+
+    func overlay(_ style: ForegroundStyle, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        _ = edges
+        let fill = resolvedStyleFill(from: style)
+        return overlayStyle(color: fill.color, gradient: fill.gradient)
     }
 
     func overlay(_ gradient: LinearGradient) -> some View {

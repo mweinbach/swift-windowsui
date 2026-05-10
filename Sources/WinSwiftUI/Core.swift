@@ -2979,6 +2979,11 @@ public extension View {
         }
     }
 
+    func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> some View {
+        _ = reservesSpace
+        return self.lineLimit(lineLimit)
+    }
+
     func truncationMode(_ mode: Text.TruncationMode) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTruncationMode(mode))

@@ -1167,6 +1167,11 @@ public struct Text: View {
         return copy
     }
 
+    public func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> Text {
+        _ = reservesSpace
+        return self.lineLimit(lineLimit)
+    }
+
     public func truncationMode(_ mode: TruncationMode) -> Text {
         var copy = self
         copy.truncationMode = mode

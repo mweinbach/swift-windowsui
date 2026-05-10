@@ -612,6 +612,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLineLimitReservesSpaceOverloadsMapToRetainedMaximumLines() async {
+        await MainActor.run {
+            let textNode = makeNode(
+                Text("TITLE")
+                    .lineLimit(2, reservesSpace: true)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                        .lineLimit(1, reservesSpace: false)
+                }
+                .lineLimit(3, reservesSpace: true)
+            )
+
+            XCTAssertEqual(textNode.textStyle.maximumNumberOfLines, 2)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.maximumNumberOfLines, 3)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.maximumNumberOfLines, 1)
+        }
+    }
+
     func testTextDecorationModifiersMapToRetainedTextStyle() async {
         await MainActor.run {
             let decoratedNode = makeNode(

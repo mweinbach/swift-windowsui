@@ -1340,6 +1340,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationSplitViewColumnVisibilityFiltersRetainedColumns() async {
+        await MainActor.run {
+            let doubleColumnNode = makeNode(
+                NavigationSplitView(columnVisibility: Binding.constant(.doubleColumn)) {
+                    Text("SIDEBAR")
+                } content: {
+                    Text("CONTENT")
+                } detail: {
+                    Text("DETAIL")
+                }
+            )
+            let detailOnlyNode = makeNode(
+                NavigationSplitView(columnVisibility: Binding.constant(.detailOnly)) {
+                    Text("SIDEBAR")
+                } content: {
+                    Text("CONTENT")
+                } detail: {
+                    Text("DETAIL")
+                }
+            )
+            let twoColumnDetailNode = makeNode(
+                NavigationSplitView(columnVisibility: Binding.constant(.detailOnly)) {
+                    Text("LIST")
+                } detail: {
+                    Text("SELECTED")
+                }
+            )
+
+            XCTAssertEqual(doubleColumnNode.children.count, 2)
+            XCTAssertEqual(doubleColumnNode.children[0].text, "CONTENT")
+            XCTAssertEqual(doubleColumnNode.children[1].text, "DETAIL")
+            XCTAssertEqual(detailOnlyNode.children.count, 1)
+            XCTAssertEqual(detailOnlyNode.children[0].text, "DETAIL")
+            XCTAssertEqual(twoColumnDetailNode.children.count, 1)
+            XCTAssertEqual(twoColumnDetailNode.children[0].text, "SELECTED")
+        }
+    }
+
     func testTabViewRendersSelectedTaggedPage() async {
         await MainActor.run {
             var didInvalidate = false

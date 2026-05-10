@@ -647,8 +647,7 @@ public struct NavigationSplitView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        _ = columnVisibility
-        let columnComponents = columns.map { column in
+        let columnComponents = visibleColumns().map { column in
             composeComponent(
                 from: column,
                 context: context.withStackAxis(.vertical),
@@ -662,6 +661,24 @@ public struct NavigationSplitView: View {
                 isHitTestVisible: false,
                 children: columnComponents.map { $0.makeNode(runtime: runtime) }
             )
+        }
+    }
+
+    private func visibleColumns() -> [[AnyView]] {
+        guard let visibility = columnVisibility?.wrappedValue else {
+            return columns
+        }
+
+        switch visibility {
+        case .automatic, .all:
+            return columns
+        case .doubleColumn:
+            guard columns.count > 2 else {
+                return columns
+            }
+            return Array(columns.suffix(2))
+        case .detailOnly:
+            return columns.last.map { [$0] } ?? []
         }
     }
 }

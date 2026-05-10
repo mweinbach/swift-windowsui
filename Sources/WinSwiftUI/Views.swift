@@ -2134,7 +2134,7 @@ public struct TextField: View {
             text: text,
             isSecure: false,
             allowsNewlines: false,
-            preferredSize: Size(width: 220, height: 36),
+            preferredSize: context.controlSize.singleLineTextInputSize,
             context: context
         )
     }
@@ -2166,7 +2166,7 @@ public struct SecureField: View {
             text: text,
             isSecure: true,
             allowsNewlines: false,
-            preferredSize: Size(width: 220, height: 36),
+            preferredSize: context.controlSize.singleLineTextInputSize,
             context: context
         )
     }
@@ -2192,9 +2192,116 @@ public struct TextEditor: View {
             text: text,
             isSecure: false,
             allowsNewlines: true,
-            preferredSize: Size(width: 260, height: 120),
+            preferredSize: context.controlSize.multilineTextInputSize,
             context: context
         )
+    }
+}
+
+private extension ControlSize {
+    var singleLineTextInputSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 180, height: 28)
+        case .small:
+            return Size(width: 200, height: 32)
+        case .regular:
+            return Size(width: 220, height: 36)
+        case .large:
+            return Size(width: 260, height: 44)
+        case .extraLarge:
+            return Size(width: 300, height: 52)
+        }
+    }
+
+    var multilineTextInputSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 220, height: 88)
+        case .small:
+            return Size(width: 240, height: 104)
+        case .regular:
+            return Size(width: 260, height: 120)
+        case .large:
+            return Size(width: 300, height: 144)
+        case .extraLarge:
+            return Size(width: 340, height: 168)
+        }
+    }
+
+    var togglePreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 44, height: 28)
+        case .small:
+            return Size(width: 48, height: 30)
+        case .regular:
+            return Size(width: 52, height: 32)
+        case .large:
+            return Size(width: 60, height: 38)
+        case .extraLarge:
+            return Size(width: 68, height: 44)
+        }
+    }
+
+    var pickerMenuPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 160, height: 30)
+        case .small:
+            return Size(width: 180, height: 32)
+        case .regular:
+            return Size(width: 200, height: 36)
+        case .large:
+            return Size(width: 232, height: 44)
+        case .extraLarge:
+            return Size(width: 264, height: 52)
+        }
+    }
+
+    var stepperButtonPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 28, height: 24)
+        case .small:
+            return Size(width: 30, height: 26)
+        case .regular:
+            return Size(width: 34, height: 30)
+        case .large:
+            return Size(width: 40, height: 36)
+        case .extraLarge:
+            return Size(width: 46, height: 42)
+        }
+    }
+
+    var sliderPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 160, height: 22)
+        case .small:
+            return Size(width: 180, height: 24)
+        case .regular:
+            return Size(width: 200, height: 28)
+        case .large:
+            return Size(width: 240, height: 34)
+        case .extraLarge:
+            return Size(width: 280, height: 40)
+        }
+    }
+
+    var progressPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 160, height: 5)
+        case .small:
+            return Size(width: 180, height: 6)
+        case .regular:
+            return Size(width: 200, height: 8)
+        case .large:
+            return Size(width: 240, height: 10)
+        case .extraLarge:
+            return Size(width: 280, height: 12)
+        }
     }
 }
 
@@ -2333,6 +2440,7 @@ public struct Toggle: View {
                 runtime: runtime,
                 isOn: binding.wrappedValue,
                 isEnabled: context.isEnabled,
+                preferredSize: context.controlSize.togglePreferredSize,
                 onColor: context.tint,
                 onToggle: { newValue in
                     binding.wrappedValue = newValue
@@ -2554,6 +2662,7 @@ public struct Picker<SelectionValue: Hashable>: View {
             options: titles,
             selectedIndex: selectedIndex,
             isEnabled: context.isEnabled && hasSelectableOption,
+            preferredSize: context.controlSize.pickerMenuPreferredSize,
             onSelect: { index in
                 guard options.indices.contains(index), let value = options[index].value else {
                     return
@@ -2745,6 +2854,7 @@ public struct Stepper: View {
                 runtime: runtime,
                 title: "-",
                 isEnabled: context.isEnabled && canDecrement(),
+                preferredSize: context.controlSize.stepperButtonPreferredSize,
                 action: {
                     decrement()
                     context.invalidate()
@@ -2754,6 +2864,7 @@ public struct Stepper: View {
                 runtime: runtime,
                 title: "+",
                 isEnabled: context.isEnabled && canIncrement(),
+                preferredSize: context.controlSize.stepperButtonPreferredSize,
                 action: {
                     increment()
                     context.invalidate()
@@ -2781,6 +2892,7 @@ public struct Stepper: View {
         runtime: RetainedViewRuntime,
         title: String,
         isEnabled: Bool,
+        preferredSize: Size,
         action: @escaping @MainActor () -> Void
     ) -> ViewNode {
         let surfaceStyle = ButtonSurfaceStyle.default
@@ -2794,7 +2906,7 @@ public struct Stepper: View {
         )
         return Controls.button(
             runtime: runtime,
-            preferredSize: Size(width: 34, height: 30),
+            preferredSize: preferredSize,
             cornerRadius: 12,
             palette: surfaceStyle.palette,
             chrome: surfaceStyle.chrome,
@@ -2951,6 +3063,7 @@ public struct Slider: View {
                 value: binding.wrappedValue,
                 range: range,
                 isEnabled: context.isEnabled,
+                preferredSize: context.controlSize.sliderPreferredSize,
                 layoutPriority: minimumLabelViews.isEmpty && maximumLabelViews.isEmpty ? 0 : 1,
                 filledColor: context.tint,
                 onValueChanged: { newValue in
@@ -3087,7 +3200,12 @@ public struct ProgressView: View {
         )
 
         return Component { runtime in
-            let progressNode = Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
+            let progressNode = Controls.progressBar(
+                value: value ?? 0,
+                total: total,
+                preferredSize: context.controlSize.progressPreferredSize,
+                filledColor: context.tint
+            )
             guard !context.labelsHidden else {
                 return progressNode
             }

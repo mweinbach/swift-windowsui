@@ -2202,6 +2202,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlSizeModifierScalesRetainedControlSurfaces() async {
+        await MainActor.run {
+            let textFieldNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .controlSize(.small)
+            )
+            let textEditorNode = makeNode(
+                TextEditor(text: .constant(""))
+                    .controlSize(.large)
+            )
+            let toggleNode = makeNode(
+                Toggle("ENABLED", isOn: .constant(true))
+                    .controlSize(.large)
+            )
+            let pickerNode = makeNode(
+                Picker("MODE", selection: .constant("compact")) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.menu)
+                .controlSize(.large)
+            )
+            let stepperNode = makeNode(
+                Stepper("VALUE", value: .constant(2), in: 0...10)
+                    .controlSize(.small)
+            )
+            let sliderNode = makeNode(
+                Slider(value: .constant(0.5), in: 0...1)
+                    .controlSize(.large)
+            )
+            let progressNode = makeNode(
+                ProgressView(value: 0.5, total: 1.0)
+                    .controlSize(.extraLarge)
+            )
+
+            XCTAssertEqual(textFieldNode.preferredSize, Size(width: 200, height: 32))
+            XCTAssertEqual(textEditorNode.preferredSize, Size(width: 300, height: 144))
+            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 60, height: 38))
+            XCTAssertEqual(pickerNode.children[1].preferredSize, Size(width: 232, height: 44))
+            XCTAssertEqual(stepperNode.children[1].preferredSize, Size(width: 30, height: 26))
+            XCTAssertEqual(stepperNode.children[2].preferredSize, Size(width: 30, height: 26))
+            XCTAssertEqual(sliderNode.preferredSize, Size(width: 240, height: 34))
+            XCTAssertEqual(progressNode.preferredSize, Size(width: 280, height: 12))
+        }
+    }
+
     func testStepperDoubleWritesBindingInvalidatesAndReportsEditingChanges() async {
         await MainActor.run {
             var value = 4.0

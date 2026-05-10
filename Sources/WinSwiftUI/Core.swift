@@ -491,6 +491,7 @@ public struct ViewBuildContext {
     private let allowsTighteningProvider: () -> Bool
     private let textCaseProvider: () -> Text.Case?
     private let labelsHiddenProvider: () -> Bool
+    private let controlSizeProvider: () -> ControlSize
     private let stackAxisProvider: () -> StackAxis?
     private let buttonStyleProvider: () -> ButtonStyle
     private let pickerStyleProvider: () -> PickerStyle
@@ -556,6 +557,10 @@ public struct ViewBuildContext {
         labelsHiddenProvider()
     }
 
+    public var controlSize: ControlSize {
+        controlSizeProvider()
+    }
+
     public var stackAxis: StackAxis? {
         stackAxisProvider()
     }
@@ -598,6 +603,7 @@ public struct ViewBuildContext {
         allowsTighteningProvider: @escaping () -> Bool = { true },
         textCaseProvider: @escaping () -> Text.Case? = { nil },
         labelsHiddenProvider: @escaping () -> Bool = { false },
+        controlSizeProvider: @escaping () -> ControlSize = { .regular },
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
@@ -622,6 +628,7 @@ public struct ViewBuildContext {
         self.allowsTighteningProvider = allowsTighteningProvider
         self.textCaseProvider = textCaseProvider
         self.labelsHiddenProvider = labelsHiddenProvider
+        self.controlSizeProvider = controlSizeProvider
         self.stackAxisProvider = stackAxisProvider
         self.buttonStyleProvider = buttonStyleProvider
         self.pickerStyleProvider = pickerStyleProvider
@@ -678,6 +685,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -706,6 +714,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -734,6 +743,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -762,6 +772,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -790,6 +801,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -818,6 +830,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -846,6 +859,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -874,6 +888,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -902,6 +917,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -930,6 +946,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: { allowsTightening },
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -958,6 +975,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: { textCase },
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -986,6 +1004,36 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: { labelsHidden },
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withControlSize(_ controlSize: ControlSize) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: { controlSize },
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1014,6 +1062,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: { axis },
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1042,6 +1091,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
             pickerStyleProvider: pickerStyleProvider,
@@ -1070,6 +1120,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: { pickerStyle },
@@ -1098,6 +1149,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1130,6 +1182,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1158,6 +1211,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1186,6 +1240,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1216,6 +1271,7 @@ public struct ViewBuildContext {
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1746,6 +1802,14 @@ public struct PickerStyle: Sendable, Equatable {
     public static let automatic = PickerStyle(kind: .automatic)
     public static let segmented = PickerStyle(kind: .segmented)
     public static let menu = PickerStyle(kind: .menu)
+}
+
+public enum ControlSize: Sendable, Equatable {
+    case mini
+    case small
+    case regular
+    case large
+    case extraLarge
 }
 
 public struct ScrollViewStyle: Sendable {
@@ -2777,6 +2841,12 @@ public extension View {
     func labelsHidden() -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withLabelsHidden(true))
+        }
+    }
+
+    func controlSize(_ controlSize: ControlSize) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withControlSize(controlSize))
         }
     }
 

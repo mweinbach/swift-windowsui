@@ -2327,6 +2327,30 @@ public extension View {
         )
     }
 
+    func onHover(perform action: @escaping (Bool) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHitTestVisible = true
+
+                let existingOnPointerEnter = childNode.onPointerEnter
+                childNode.onPointerEnter = {
+                    existingOnPointerEnter?()
+                    action(true)
+                }
+
+                let existingOnPointerExit = childNode.onPointerExit
+                childNode.onPointerExit = {
+                    existingOnPointerExit?()
+                    action(false)
+                }
+
+                return childNode
+            }
+        }
+    }
+
     func onTapGesture(count: Int = 1, perform action: @escaping () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

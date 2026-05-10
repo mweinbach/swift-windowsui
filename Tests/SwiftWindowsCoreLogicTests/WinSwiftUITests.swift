@@ -5,6 +5,27 @@ import SwiftWindowsLayout
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
+@MainActor
+private struct PointerHandlerProbe: View {
+    typealias Body = Never
+
+    let onEnter: () -> Void
+    let onExit: () -> Void
+
+    var body: Never {
+        fatalError("PointerHandlerProbe has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            let node = Controls.panel(preferredSize: Size(width: 80, height: 24))
+            node.onPointerEnter = onEnter
+            node.onPointerExit = onExit
+            return node
+        }
+    }
+}
+
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -1921,6 +1942,67 @@ final class WinSwiftUITests: XCTestCase {
             _ = makeNode(observedView("beta"))
 
             XCTAssertEqual(values, ["alpha", "beta"])
+        }
+    }
+
+    func testOnHoverModifierEnablesHitTestingAndReportsPointerTransitions() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var hoverStates: [Bool] = []
+
+            let node = Text("HOVER")
+                .frame(width: 80, height: 24)
+                .onHover { isHovered in
+                    hoverStates.append(isHovered)
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            runtime.pointerMoved(to: Point(x: 10, y: 10))
+            runtime.pointerMoved(to: Point(x: 12, y: 12))
+            runtime.pointerMoved(to: Point(x: 120, y: 50))
+            runtime.pointerExitedWindow()
+
+            XCTAssertEqual(hoverStates, [true, false])
+        }
+    }
+
+    func testOnHoverModifierPreservesExistingPointerHandlers() async {
+        await MainActor.run {
+            var hoverStates: [Bool] = []
+            var enterCount = 0
+            var exitCount = 0
+
+            let node = makeNode(
+                PointerHandlerProbe(
+                    onEnter: {
+                        enterCount += 1
+                    },
+                    onExit: {
+                        exitCount += 1
+                    }
+                )
+                    .onHover { isHovered in
+                        hoverStates.append(isHovered)
+                    }
+            )
+
+            node.onPointerEnter?()
+            node.onPointerExit?()
+
+            XCTAssertEqual(enterCount, 1)
+            XCTAssertEqual(exitCount, 1)
+            XCTAssertEqual(hoverStates, [true, false])
         }
     }
 

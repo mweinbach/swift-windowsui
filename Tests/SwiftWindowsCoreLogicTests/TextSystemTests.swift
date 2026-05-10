@@ -493,6 +493,52 @@ final class TextSystemTests: XCTestCase {
         XCTAssertGreaterThan(metrics.advance, 0)
     }
 
+    func testCapturedGlyphRasterMetricsDoNotScaleWithLayoutBaseline() {
+        let baselineGlyph = NativeTextGlyphLayout(
+            character: "A",
+            origin: Point(x: 0, y: 14),
+            advance: 11,
+            glyphID: 12,
+            fontFace: nil,
+            fontFamily: "Segoe UI",
+            weight: .regular,
+            fontSize: 18
+        )
+        let offsetGlyph = NativeTextGlyphLayout(
+            character: "A",
+            origin: Point(x: 0, y: 420),
+            advance: 11,
+            glyphID: 12,
+            fontFace: nil,
+            fontFamily: "Segoe UI",
+            weight: .regular,
+            fontSize: 18
+        )
+
+        XCTAssertEqual(
+            makeCapturedGlyphRasterMetrics(for: baselineGlyph, scaleFactor: 1.0)?.targetHeight,
+            makeCapturedGlyphRasterMetrics(for: offsetGlyph, scaleFactor: 1.0)?.targetHeight
+        )
+    }
+
+    func testCapturedGlyphBitmapRejectsPathologicalExtents() {
+        let normalBitmap = NativeGlyphBitmap(
+            surface: BitmapSurface(width: 18, height: 22, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 22 * 4)),
+            bearingX: 0,
+            bearingY: 0,
+            advance: 12
+        )
+        let oversizedBitmap = NativeGlyphBitmap(
+            surface: BitmapSurface(width: 18, height: 420, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 420 * 4)),
+            bearingX: 0,
+            bearingY: 0,
+            advance: 12
+        )
+
+        XCTAssertTrue(isUsableCapturedGlyphBitmap(normalBitmap, fontSize: 18, scaleFactor: 1.0))
+        XCTAssertFalse(isUsableCapturedGlyphBitmap(oversizedBitmap, fontSize: 18, scaleFactor: 1.0))
+    }
+
     func testResolveTextLayoutTruncatesSingleLineToFit() {
         let style = PixelTextStyle(color: .white, lineBreakMode: .truncateTail)
 

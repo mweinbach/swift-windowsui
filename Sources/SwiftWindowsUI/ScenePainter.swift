@@ -711,7 +711,7 @@ public enum ScenePainter {
                 startX = contentRect.maxX - line.width
             }
 
-            for glyph in line.glyphs where glyph.character != " " {
+            for glyph in line.glyphs where shouldRenderNativeGlyph(glyph) {
                 let glyphLayoutOrigin = Point(
                     x: (startX + glyph.origin.x) * displayScale,
                     y: (lineOriginY + glyph.origin.y) * displayScale
@@ -800,6 +800,10 @@ public enum ScenePainter {
             width: Double(metrics.targetWidth),
             height: Double(metrics.targetHeight)
         )
+    }
+
+    private static func shouldRenderNativeGlyph(_ glyph: NativeTextGlyphLayout) -> Bool {
+        glyph.character != " " || glyph.sourceIndex == nil
     }
 
     private static func scaleRect(_ rect: Rect, by factor: Double) -> Rect {

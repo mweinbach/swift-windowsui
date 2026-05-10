@@ -494,6 +494,64 @@ struct ScenePainterTests {
         #expect(NativeGlyphAtlas.shared.wasUsedInCurrentFrame == false)
     }
 
+    @Test("Native glyphs without source character mapping still reach the native atlas - VAL-TEXT-010")
+    func nativeGlyphsWithoutSourceMappingStillRender() {
+        defer {
+            NativeTextRenderer.resetTestingOverrides()
+            NativeGlyphAtlas.shared.resetForTesting()
+        }
+        NativeGlyphAtlas.shared.resetForTesting()
+        NativeTextRenderer.testingOverrides.layout = { _, style, _, _ in
+            NativeTextLayoutResult(
+                lines: [
+                    NativeTextLineLayout(
+                        text: "AB",
+                        width: 18,
+                        height: style.nativeFontPixelSize,
+                        glyphs: [
+                            NativeTextGlyphLayout(
+                                character: " ",
+                                origin: Point(x: 0, y: 0),
+                                advance: 9,
+                                glyphID: 41,
+                                fontFamily: style.fontFamily,
+                                weight: style.weight,
+                                fontSize: style.nativeFontPixelSize,
+                                sourceIndex: nil
+                            ),
+                            NativeTextGlyphLayout(
+                                character: " ",
+                                origin: Point(x: 9, y: 0),
+                                advance: 9,
+                                glyphID: 42,
+                                fontFamily: style.fontFamily,
+                                weight: style.weight,
+                                fontSize: style.nativeFontPixelSize,
+                                sourceIndex: nil
+                            )
+                        ]
+                    )
+                ],
+                contentSize: Size(width: 18, height: style.nativeFontPixelSize),
+                measuredSize: Size(width: 18, height: style.nativeFontPixelSize)
+            )
+        }
+        NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { _, _, _ in
+            stubNativeGlyphBitmap()
+        }
+
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 80, height: 32),
+            text: "AB",
+            textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].glyphs.count == 2)
+        #expect(scene.layers[0].pixelGlyphs.isEmpty)
+    }
+
     @Test("Visible clipped text carries the active clip metadata - VAL-TEXT-010")
     func visibleClippedTextCarriesEffectiveClipMetadata() {
         let textNode = ViewNode(

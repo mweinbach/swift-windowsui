@@ -93,7 +93,7 @@ func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFacto
     }
 
     let fontSize = max(glyph.fontSize, 1)
-    let baselineYOffset = max(glyph.origin.y, fontSize * 0.8)
+    let baselineYOffset = fontSize * 0.8
     let paddingValue = (fontSize * renderScale * 0.75).rounded(.up)
     guard let paddingPixels = roundedUpInt32(paddingValue, minimum: 2) else {
         return nil
@@ -124,6 +124,15 @@ func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFacto
         targetHeight: Int32(paddedHeight),
         advance: advance
     )
+}
+
+func isUsableCapturedGlyphBitmap(_ bitmap: NativeGlyphBitmap, fontSize: Double, scaleFactor: Double) -> Bool {
+    guard fontSize.isFinite, scaleFactor.isFinite, bitmap.width > 0, bitmap.height > 0 else {
+        return false
+    }
+
+    let maxExtent = max(fontSize * max(scaleFactor, 1.0) * 4.0, 32.0)
+    return Double(bitmap.width) <= maxExtent && Double(bitmap.height) <= maxExtent
 }
 
 private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
@@ -324,33 +333,39 @@ private final class DirectWriteSystem {
                 FLOAT(bounds.overhangTop)
             )
         }
-        guard isSuccess(drawHR), var surface = extractBitmapSurface(from: bitmapTarget) else {
+        guard isSuccess(drawHR),
+              let surface = extractBitmapSurface(from: bitmapTarget),
+              var cropped = cropGlyphSurface(surface, paddingPixels: 0)
+        else {
             return nil
         }
 
-        var pixels = [UInt8](surface.pixels)
+        var pixels = [UInt8](cropped.surface.pixels)
         GDIRasterTextRenderer.tint(pixelBytes: &pixels, style: glyphStyle)
-        surface.pixels = Data(pixels)
+        cropped.surface.pixels = Data(pixels)
 
         let advance = measureSingleLine(text, format: format) ?? bounds.width
         return NativeGlyphBitmap(
-            surface: surface,
-            bearingX: Float(-(bounds.overhangLeft * scaleFactor)),
-            bearingY: Float(-(bounds.overhangTop * scaleFactor)),
+            surface: cropped.surface,
+            bearingX: Float(-(bounds.overhangLeft * scaleFactor)) + cropped.bearingX,
+            bearingY: Float(-(bounds.overhangTop * scaleFactor)) + cropped.bearingY,
             advance: Float(advance * scaleFactor)
         )
     }
 
     func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
-        if let bitmap = rasterizeCapturedGlyph(glyph, scaleFactor: scaleFactor) {
+        var normalizedGlyph = glyph
+        normalizedGlyph.fontSize = style.nativeFontPixelSize
+        if let bitmap = rasterizeCapturedGlyph(normalizedGlyph, scaleFactor: scaleFactor),
+           isUsableCapturedGlyphBitmap(bitmap, fontSize: style.nativeFontPixelSize, scaleFactor: scaleFactor) {
             return bitmap
         }
 
         var glyphStyle = style
-        glyphStyle.fontFamily = glyph.fontFamily
-        glyphStyle.weight = glyph.weight
-        glyphStyle.nativeFontSize = glyph.fontSize
-        return rasterizeGlyph(glyph.character, style: glyphStyle, scaleFactor: scaleFactor)
+        glyphStyle.fontFamily = normalizedGlyph.fontFamily
+        glyphStyle.weight = normalizedGlyph.weight
+        glyphStyle.nativeFontSize = normalizedGlyph.fontSize
+        return rasterizeGlyph(normalizedGlyph.character, style: glyphStyle, scaleFactor: scaleFactor)
     }
 
     func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
@@ -461,8 +476,11 @@ private final class DirectWriteSystem {
     }
 
     private func layoutLine(_ text: String, style: PixelTextStyle) -> NativeTextLineLayout? {
+        var lineStyle = style
+        lineStyle.verticalAlignment = .top
+
         guard !text.isEmpty else {
-            let lineHeight = max(style.nativeFontPixelSize, 1)
+            let lineHeight = max(lineStyle.nativeFontPixelSize, 1)
             return NativeTextLineLayout(
                 text: text,
                 width: 0,
@@ -473,8 +491,8 @@ private final class DirectWriteSystem {
             )
         }
 
-        guard let format = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap),
-              let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: style),
+        guard let format = createTextFormat(style: lineStyle, wrapping: dwriteWordWrappingNoWrap),
+              let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: lineStyle),
               let bounds = textBounds(for: layout)
         else {
             return nil
@@ -486,11 +504,11 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        let glyphs = captureGlyphLayouts(from: layout, text: text, style: style)
-            ?? fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: style)
+        let glyphs = captureGlyphLayouts(from: layout, text: text, style: lineStyle)
+            ?? fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
 
-        let lineHeight = max(bounds.height, style.nativeFontPixelSize)
-        let ascent = max(style.nativeFontPixelSize * 0.8, lineHeight * 0.7)
+        let lineHeight = max(bounds.height, lineStyle.nativeFontPixelSize)
+        let ascent = max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
         let descent = max(0, lineHeight - ascent)
         return NativeTextLineLayout(
             text: text,
@@ -505,6 +523,8 @@ private final class DirectWriteSystem {
     private func atlasRasterizationStyle(from style: PixelTextStyle) -> PixelTextStyle {
         var glyphStyle = style
         glyphStyle.color = .white
+        glyphStyle.alignment = .leading
+        glyphStyle.verticalAlignment = .top
         glyphStyle.insets = .zero
         glyphStyle.maximumNumberOfLines = 1
         return glyphStyle
@@ -632,7 +652,7 @@ private final class DirectWriteSystem {
                 fontFace: glyph.fontFace,
                 fontFamily: style.fontFamily,
                 weight: style.weight,
-                fontSize: glyph.fontSize,
+                fontSize: style.nativeFontPixelSize,
                 sourceIndex: resolvedCharacter?.index
             )
         }
@@ -1091,8 +1111,10 @@ private final class DirectWriteSystem {
 
         for y in 0..<height {
             for x in 0..<width {
-                let alphaIndex = y * stride + x * 4 + 3
-                guard alphaIndex < bytes.count, bytes[alphaIndex] > 0 else {
+                let byteIndex = y * stride + x * 4
+                guard byteIndex + 3 < bytes.count,
+                      bytes[byteIndex] > 0 || bytes[byteIndex + 1] > 0 || bytes[byteIndex + 2] > 0 || bytes[byteIndex + 3] > 0
+                else {
                     continue
                 }
 

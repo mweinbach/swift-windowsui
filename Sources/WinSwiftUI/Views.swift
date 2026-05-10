@@ -2358,14 +2358,20 @@ public struct TextField: View {
 
     private let title: String
     private let text: Binding<String>
+    private let prompt: String?
 
-    public init(_ title: String, text: Binding<String>) {
+    public init(_ title: String, text: Binding<String>, prompt: Text? = nil) {
         self.title = title
         self.text = text
+        self.prompt = prompt?.plainContent
     }
 
-    public init(_ titleKey: LocalizedStringKey, text: Binding<String>) {
-        self.init(titleKey.resolvedString, text: text)
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil) {
+        self.init(String(title), text: text, prompt: prompt)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil) {
+        self.init(titleKey.resolvedString, text: text, prompt: prompt)
     }
 
     public var body: Never {
@@ -2374,7 +2380,7 @@ public struct TextField: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         textInputComponent(
-            title: title,
+            title: prompt ?? title,
             text: text,
             isSecure: false,
             allowsNewlines: false,
@@ -2390,14 +2396,20 @@ public struct SecureField: View {
 
     private let title: String
     private let text: Binding<String>
+    private let prompt: String?
 
-    public init(_ title: String, text: Binding<String>) {
+    public init(_ title: String, text: Binding<String>, prompt: Text? = nil) {
         self.title = title
         self.text = text
+        self.prompt = prompt?.plainContent
     }
 
-    public init(_ titleKey: LocalizedStringKey, text: Binding<String>) {
-        self.init(titleKey.resolvedString, text: text)
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil) {
+        self.init(String(title), text: text, prompt: prompt)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil) {
+        self.init(titleKey.resolvedString, text: text, prompt: prompt)
     }
 
     public var body: Never {
@@ -2406,7 +2418,7 @@ public struct SecureField: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         textInputComponent(
-            title: title,
+            title: prompt ?? title,
             text: text,
             isSecure: true,
             allowsNewlines: false,

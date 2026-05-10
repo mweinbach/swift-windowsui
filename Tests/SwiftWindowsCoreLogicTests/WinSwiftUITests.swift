@@ -196,6 +196,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldAndSecureFieldPromptOverloadsMapToPlaceholder() async {
+        await MainActor.run {
+            let source = "FIELD-NAME"
+            let substringTitle = source.dropFirst(6)
+
+            let promptedNode = makeNode(
+                TextField(substringTitle, text: .constant(""), prompt: Text("DISPLAY NAME"))
+            )
+            let valueNode = makeNode(
+                TextField(LocalizedStringKey("NAME"), text: .constant("Alice"), prompt: Text("DISPLAY NAME"))
+            )
+            let securePromptNode = makeNode(
+                SecureField("PASSWORD", text: .constant(""), prompt: Text("SECRET PHRASE"))
+            )
+            let secureValueNode = makeNode(
+                SecureField(LocalizedStringKey("PASSWORD"), text: .constant("open"), prompt: Text("SECRET PHRASE"))
+            )
+
+            XCTAssertEqual(promptedNode.children[0].text, "DISPLAY NAME")
+            XCTAssertEqual(valueNode.children[0].text, "Alice")
+            XCTAssertEqual(securePromptNode.children[0].text, "SECRET PHRASE")
+            XCTAssertEqual(secureValueNode.children[0].text, "****")
+        }
+    }
+
     func testDisabledTextFieldDoesNotAcceptKeyboardInput() async {
         await MainActor.run {
             var value = "LOCKED"

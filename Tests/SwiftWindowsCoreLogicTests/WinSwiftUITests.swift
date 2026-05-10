@@ -2251,6 +2251,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollIndicatorsPropagateToRetainedScrollContainers() async {
+        await MainActor.run {
+            struct IndicatorEnvironmentReader: View {
+                @Environment(\.verticalScrollIndicatorVisibility) var vertical
+                @Environment(\.horizontalScrollIndicatorVisibility) var horizontal
+
+                var body: some View {
+                    Text(vertical == .hidden && horizontal == .visible ? "CUSTOM" : "DEFAULT")
+                }
+            }
+
+            let hiddenScrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollIndicators(.hidden)
+            )
+            let visibleScrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollIndicators(.visible)
+            )
+            let verticalOnlyNode = makeNode(
+                ScrollView(.vertical) {
+                    Text("ROW")
+                }
+                .scrollIndicators(.hidden, axes: .horizontal)
+            )
+            let horizontalHiddenNode = makeNode(
+                ScrollView(.horizontal) {
+                    Text("ROW")
+                }
+                .scrollIndicators(.hidden, axes: .horizontal)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollIndicators(.never)
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollIndicators(.hidden)
+            )
+            let readerNode = makeNode(
+                IndicatorEnvironmentReader()
+                    .scrollIndicators(.hidden, axes: .vertical)
+                    .scrollIndicators(.visible, axes: .horizontal)
+            )
+
+            XCTAssertEqual(hiddenScrollViewNode.scrollAxis, .vertical)
+            XCTAssertFalse(hiddenScrollViewNode.showsScrollIndicator)
+            XCTAssertTrue(visibleScrollViewNode.showsScrollIndicator)
+            XCTAssertTrue(verticalOnlyNode.showsScrollIndicator)
+            XCTAssertFalse(horizontalHiddenNode.showsScrollIndicator)
+            XCTAssertFalse(listNode.showsScrollIndicator)
+            XCTAssertFalse(sectionNode.showsScrollIndicator)
+            XCTAssertEqual(readerNode.text, "CUSTOM")
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

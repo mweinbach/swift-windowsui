@@ -208,6 +208,7 @@ Modifiers:
 - `animation`
 - `disabled`
 - `scrollDisabled`
+- `scrollIndicators`
 - `onAppear`
 - `onDisappear`
 - `onChange`
@@ -310,6 +311,7 @@ Surface direction:
 - `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation` accepts SwiftUI-shaped call sites and executes the body immediately.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `scrollDisabled(_:)` propagates `EnvironmentValues.isScrollEnabled`; retained `ScrollView`, `List`, and scrolling `Section` nodes keep their layout and clipping but remove their scroll axis and indicators when disabled.
+- `scrollIndicators(_:axes:)` propagates horizontal and vertical `ScrollIndicatorVisibility` environment values. `.hidden` and `.never` suppress retained indicators for matching axes, while `.automatic` and `.visible` keep the current retained indicator behavior.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
 - `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
@@ -338,7 +340,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

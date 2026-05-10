@@ -363,6 +363,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     public var isScrollEnabled: Bool
+    public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
+    public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -384,7 +386,9 @@ public struct EnvironmentValues: @unchecked Sendable {
         textFieldStyle: TextFieldStyle = .automatic,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
-        isScrollEnabled: Bool = true
+        isScrollEnabled: Bool = true,
+        horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
+        verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
@@ -405,6 +409,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isScrollEnabled = isScrollEnabled
+        self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
+        self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
     }
 
@@ -676,6 +682,23 @@ public struct ViewBuildContext {
 
     public var isScrollEnabled: Bool {
         environmentValuesProvider().isScrollEnabled
+    }
+
+    public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
+        environmentValuesProvider().horizontalScrollIndicatorVisibility
+    }
+
+    public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility {
+        environmentValuesProvider().verticalScrollIndicatorVisibility
+    }
+
+    func scrollIndicatorVisibility(for axis: Axis) -> ScrollIndicatorVisibility {
+        switch axis {
+        case .horizontal:
+            return horizontalScrollIndicatorVisibility
+        case .vertical:
+            return verticalScrollIndicatorVisibility
+        }
     }
 
     public var environmentValues: EnvironmentValues {
@@ -1670,6 +1693,18 @@ public enum TextAlignment: Sendable {
 public enum Axis: Sendable {
     case horizontal
     case vertical
+
+    public struct Set: OptionSet, Sendable {
+        public let rawValue: Int
+
+        public init(rawValue: Int) {
+            self.rawValue = rawValue
+        }
+
+        public static let horizontal = Set(rawValue: 1 << 0)
+        public static let vertical = Set(rawValue: 1 << 1)
+        public static let all: Set = [.horizontal, .vertical]
+    }
 }
 
 public enum ContentMode: Sendable {
@@ -2080,6 +2115,35 @@ public struct TextFieldStyle: Sendable, Equatable {
     public static let automatic = TextFieldStyle(kind: .automatic)
     public static let plain = TextFieldStyle(kind: .plain)
     public static let roundedBorder = TextFieldStyle(kind: .roundedBorder)
+}
+
+public struct ScrollIndicatorVisibility: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case visible
+        case hidden
+        case never
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ScrollIndicatorVisibility(kind: .automatic)
+    public static let visible = ScrollIndicatorVisibility(kind: .visible)
+    public static let hidden = ScrollIndicatorVisibility(kind: .hidden)
+    public static let never = ScrollIndicatorVisibility(kind: .never)
+
+    var showsRetainedScrollIndicator: Bool {
+        switch kind {
+        case .automatic, .visible:
+            return true
+        case .hidden, .never:
+            return false
+        }
+    }
 }
 
 public struct ScrollViewStyle: Sendable {
@@ -3731,6 +3795,19 @@ public extension View {
     func scrollDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.isScrollEnabled, !disabled))
+        }
+    }
+
+    func scrollIndicators(_ visibility: ScrollIndicatorVisibility, axes: Axis.Set = .all) -> some View {
+        ModifiedView(content: self) { content, context in
+            var resolvedContext = context
+            if axes.contains(.horizontal) {
+                resolvedContext = resolvedContext.withEnvironmentValue(\.horizontalScrollIndicatorVisibility, visibility)
+            }
+            if axes.contains(.vertical) {
+                resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollIndicatorVisibility, visibility)
+            }
+            return content.makeComponent(context: resolvedContext)
         }
     }
 

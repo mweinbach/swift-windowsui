@@ -2401,6 +2401,8 @@ public struct ScrollView: View {
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
+            } else {
+                node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
             }
             return node
         }
@@ -2449,6 +2451,8 @@ public struct List: View {
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
+            } else {
+                node.showsScrollIndicator = context.verticalScrollIndicatorVisibility.showsRetainedScrollIndicator
             }
             return node
         }
@@ -2585,10 +2589,10 @@ public struct Section: View {
                 children: children
             )
 
-            if context.isScrollEnabled, let scrollAxis = style.scrollAxis?.scrollAxis {
-                node.scrollAxis = scrollAxis
+            if context.isScrollEnabled, let axis = style.scrollAxis {
+                node.scrollAxis = axis.scrollAxis
                 node.scrollStep = style.scrollStep
-                node.showsScrollIndicator = true
+                node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
                 node.scrollIndicatorColor = style.indicatorColor
                 node.scrollIndicatorIdleColor = style.indicatorColor
                 node.scrollIndicatorHoverColor = style.indicatorHoverColor

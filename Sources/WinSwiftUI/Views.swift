@@ -1132,7 +1132,7 @@ public struct Text: View {
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 alignment: resolvedAlignment.horizontalAlignment.textAlignment,
                 letterSpacing: letterSpacing ?? 1,
-                lineSpacing: lineSpacing ?? 2,
+                lineSpacing: lineSpacing ?? context.lineSpacing ?? 2,
                 lineBreakMode: resolvedLineBreakMode(
                     lineLimit: resolvedLineLimit,
                     truncationMode: truncationMode ?? context.truncationMode

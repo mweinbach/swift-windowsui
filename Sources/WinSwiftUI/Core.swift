@@ -350,6 +350,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var font: Font?
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
+    public var lineSpacing: Double?
     public var truncationMode: Text.TruncationMode?
     public var allowsTightening: Bool
     public var textCase: Text.Case?
@@ -370,6 +371,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         font: Font? = nil,
         multilineTextAlignment: TextAlignment = .center,
         lineLimit: Int? = nil,
+        lineSpacing: Double? = nil,
         truncationMode: Text.TruncationMode? = nil,
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
@@ -388,6 +390,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.font = font
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
+        self.lineSpacing = lineSpacing
         self.truncationMode = truncationMode
         self.allowsTightening = allowsTightening
         self.textCase = textCase
@@ -609,6 +612,10 @@ public struct ViewBuildContext {
 
     public var lineLimit: Int? {
         environmentValuesProvider().lineLimit ?? lineLimitProvider()
+    }
+
+    public var lineSpacing: Double? {
+        environmentValuesProvider().lineSpacing
     }
 
     public var truncationMode: Text.TruncationMode? {
@@ -3106,6 +3113,12 @@ public extension View {
     func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> some View {
         _ = reservesSpace
         return self.lineLimit(lineLimit)
+    }
+
+    func lineSpacing(_ lineSpacing: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.lineSpacing, lineSpacing))
+        }
     }
 
     func truncationMode(_ mode: Text.TruncationMode) -> some View {

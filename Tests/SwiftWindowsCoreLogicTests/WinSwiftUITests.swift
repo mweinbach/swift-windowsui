@@ -824,10 +824,20 @@ final class WinSwiftUITests: XCTestCase {
                 Text("AB")
                     .tracking(3)
             )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("A\nB")
+                    Text("C\nD")
+                        .lineSpacing(8)
+                }
+                .lineSpacing(5)
+            )
 
             XCTAssertEqual(spacedNode.textStyle.lineSpacing, 6)
             XCTAssertEqual(spacedNode.textStyle.letterSpacing, 4)
             XCTAssertEqual(trackingNode.textStyle.letterSpacing, 3)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.lineSpacing, 5)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.lineSpacing, 8)
 
             let defaultMultilineHeight = makeNode(Text("A\nB")).intrinsicContentSize().height
             let spacedHeight = spacedNode.intrinsicContentSize().height

@@ -19,6 +19,30 @@ public typealias ControlAnimationStyle = SwiftWindowsUI.ControlAnimationStyle
 public typealias SurfaceChrome = SwiftWindowsUI.SurfaceChrome
 public typealias SurfacePalette = SwiftWindowsUI.SurfacePalette
 
+public struct Angle: Sendable, Equatable {
+    public var radians: Double
+
+    public init(radians: Double) {
+        self.radians = radians
+    }
+
+    public init(degrees: Double) {
+        self.radians = degrees * .pi / 180
+    }
+
+    public var degrees: Double {
+        radians * 180 / .pi
+    }
+
+    public static func radians(_ radians: Double) -> Angle {
+        Angle(radians: radians)
+    }
+
+    public static func degrees(_ degrees: Double) -> Angle {
+        Angle(degrees: degrees)
+    }
+}
+
 public struct UnitPoint: Sendable, Equatable {
     public var x: Double
     public var y: Double
@@ -1154,6 +1178,28 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.transform = childNode.transform.concatenating(.scale(x: x, y: y))
+                return childNode
+            }
+        }
+    }
+
+    func rotationEffect(_ angle: Angle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(Transform2D(rotation: angle.radians))
+                return childNode
+            }
+        }
+    }
+
+    func blur(radius: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.blurRadius = max(0, radius)
                 return childNode
             }
         }

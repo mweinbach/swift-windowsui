@@ -90,6 +90,8 @@ Modifiers:
 - `zIndex`
 - `offset`
 - `scaleEffect`
+- `rotationEffect`
+- `blur`
 - `disabled`
 
 Compatibility helpers:
@@ -98,6 +100,7 @@ Compatibility helpers:
 - `Color.opacity(_:)`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
+- `Angle`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `Binding`, `State`, `ObservableObject`, `Published`, and `ObservedObject`
 
@@ -118,7 +121,8 @@ Surface direction:
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`.
 - `ProgressView(value:total:)` maps into the retained progress bar control.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
-- `zIndex(_:)`, `offset`, and `scaleEffect` map directly onto retained node ordering and `Transform2D` state.
+- `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
+- `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.

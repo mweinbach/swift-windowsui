@@ -250,6 +250,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAngleAndRotationEffectMapToRetainedTransform() async {
+        await MainActor.run {
+            let angle = Angle.degrees(90)
+            let node = makeNode(Text("TURN").rotationEffect(angle))
+
+            XCTAssertEqual(angle.degrees, 90, accuracy: 0.001)
+            XCTAssertEqual(angle.radians, .pi / 2, accuracy: 0.001)
+            XCTAssertEqual(node.transform, Transform2D(rotation: .pi / 2))
+        }
+    }
+
+    func testBlurModifierMapsToRetainedNodeBlurRadius() async {
+        await MainActor.run {
+            let blurredNode = makeNode(Text("SOFT").blur(radius: 12))
+            let clampedNode = makeNode(Text("SHARP").blur(radius: -3))
+
+            XCTAssertEqual(blurredNode.blurRadius, 12)
+            XCTAssertEqual(clampedNode.blurRadius, 0)
+        }
+    }
+
     func testDisabledButtonDoesNotActivate() async {
         await MainActor.run {
             var didRunAction = false

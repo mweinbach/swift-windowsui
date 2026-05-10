@@ -2846,6 +2846,29 @@ public extension View {
         }
     }
 
+    func overlay(_ color: Color) -> some View {
+        overlayStyle(color: color, gradient: nil)
+    }
+
+    func overlay(_ color: Color, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
+        _ = edges
+        return overlay(color)
+    }
+
+    func overlay(_ color: Color?, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        _ = edges
+        return overlayStyle(color: color, gradient: nil)
+    }
+
+    func overlay(_ gradient: LinearGradient) -> some View {
+        overlayStyle(color: nil, gradient: gradient)
+    }
+
+    func overlay(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
+        _ = edges
+        return overlay(gradient)
+    }
+
     func overlay(alignment: Alignment = .center, @ViewBuilder content overlayContent: () -> [AnyView]) -> some View {
         let overlayViews = overlayContent()
         return ModifiedView(content: self) { content, context in
@@ -2875,6 +2898,44 @@ public extension View {
                     let overlayFrame = Rect(origin: overlayOrigin, size: overlaySize)
                     if overlayNode.frame != overlayFrame {
                         overlayNode.frame = overlayFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
+    private func overlayStyle(color: Color?, gradient: LinearGradient?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard color != nil || gradient != nil else {
+                return content.makeComponent(context: context)
+            }
+
+            let base = content.makeComponent(context: context)
+
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let overlayNode = Controls.panel(
+                    backgroundColor: color,
+                    backgroundGradient: gradient,
+                    isHitTestVisible: false
+                )
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [baseNode, overlayNode]
+                )
+
+                root.onLayout = { bounds in
+                    let frame = Rect(origin: .zero, size: bounds.size)
+                    if baseNode.frame != frame {
+                        baseNode.frame = frame
+                    }
+                    if overlayNode.frame != frame {
+                        overlayNode.frame = frame
                     }
                 }
 

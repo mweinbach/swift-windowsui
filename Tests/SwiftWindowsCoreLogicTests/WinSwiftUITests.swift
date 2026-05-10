@@ -1555,6 +1555,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayStyleOverloadsFillBaseLayout() async {
+        await MainActor.run {
+            let color = Color(red: 0.9, green: 0.2, blue: 0.4, alpha: 0.75)
+            let optionalColor: Color? = Color(red: 0.1, green: 0.6, blue: 0.8, alpha: 0.5)
+            let nilColor: Color? = nil
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.1, green: 0.4, blue: 0.9, alpha: 1),
+                    Color(red: 0.8, green: 0.2, blue: 0.6, alpha: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let colorNode = renderedNode(
+                Text("BASE")
+                    .frame(width: 80, height: 32)
+                    .overlay(color)
+            )
+            let optionalNode = renderedNode(
+                Text("OPTIONAL")
+                    .frame(width: 72, height: 28)
+                    .overlay(optionalColor, ignoresSafeAreaEdges: .vertical)
+            )
+            let gradientNode = renderedNode(
+                Text("GRADIENT")
+                    .frame(width: 90, height: 36)
+                    .overlay(gradient, ignoresSafeAreaEdges: .horizontal)
+            )
+            let nilNode = makeNode(
+                Text("PLAIN")
+                    .overlay(nilColor)
+            )
+
+            XCTAssertEqual(colorNode.children[1].backgroundColor, color)
+            XCTAssertEqual(colorNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+            XCTAssertEqual(optionalNode.children[1].backgroundColor, optionalColor)
+            XCTAssertEqual(optionalNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
+            XCTAssertEqual(gradientNode.children[1].backgroundGradient, gradient)
+            XCTAssertEqual(gradientNode.children[1].frame, Rect(x: 0, y: 0, width: 90, height: 36))
+            XCTAssertEqual(nilNode.text, "PLAIN")
+        }
+    }
+
     func testBackgroundContentAlignsBehindBaseWithoutExpandingLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -4275,6 +4318,21 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+@MainActor
+private func renderedNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 800, height: 600),
+    onInvalidate: @escaping () -> Void = {}
+) -> ViewNode {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    runtime.root.addChild(node)
+    runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+    _ = runtime.renderFrame()
+    return node
 }
 
 private func twoPixelBGRA32BMPData() -> Data {

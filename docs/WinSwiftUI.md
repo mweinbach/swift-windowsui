@@ -146,6 +146,7 @@ Modifiers:
 - `background`, including optional `Color?` inputs and `ignoresSafeAreaEdges:` color/gradient overloads
 - `background(_:alignment:)`
 - `background(alignment:content:)`
+- `overlay`, including color/gradient style overloads
 - `overlay(_:alignment:)`
 - `overlay(alignment:content:)`
 - `foregroundColor`, including optional `Color?` inputs

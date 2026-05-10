@@ -323,6 +323,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSubmitLabelModifierAcceptsSwiftUIReturnKeyLabels() async {
+        await MainActor.run {
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let searchNode = makeNode(
+                TextField("SEARCH", text: binding)
+                    .submitLabel(.search)
+            )
+            let continueNode = makeNode(
+                SecureField("PASSWORD", text: .constant(""))
+                    .submitLabel(.continue)
+            )
+
+            searchNode.onKeyDown?(KeyboardEvent(keyCode: 0x51))
+
+            XCTAssertEqual(value, "q")
+            XCTAssertTrue(continueNode.isFocusable)
+        }
+    }
+
     func testTextFieldStyleModifierMapsToRetainedInputChrome() async {
         await MainActor.run {
             struct TextFieldStyleReaderView: View {

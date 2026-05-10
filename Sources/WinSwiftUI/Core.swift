@@ -1692,6 +1692,18 @@ public struct SubmitTriggers: OptionSet, Sendable {
     }
 }
 
+public enum SubmitLabel: Sendable, Equatable {
+    case `return`
+    case done
+    case go
+    case send
+    case join
+    case route
+    case search
+    case next
+    case `continue`
+}
+
 public struct Font: Sendable, Equatable {
     public enum Weight: Sendable, Equatable {
         case ultraLight
@@ -3467,6 +3479,13 @@ public extension View {
                 )
                 return childNode
             }
+        }
+    }
+
+    func submitLabel(_ submitLabel: SubmitLabel) -> some View {
+        _ = submitLabel
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
         }
     }
 

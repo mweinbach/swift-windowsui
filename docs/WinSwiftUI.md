@@ -190,6 +190,7 @@ Modifiers:
 - `onDisappear`
 - `onChange`
 - `onSubmit`
+- `submitLabel`
 - `onHover`
 - `onTapGesture`
 - `accessibilityLabel`
@@ -215,6 +216,7 @@ Compatibility helpers:
 - `UnitPoint`
 - `Angle`
 - `SubmitTriggers`
+- `SubmitLabel`
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -251,6 +253,7 @@ Surface direction:
 - `TabView` renders retained tab chrome from `.tabItem` labels, shows the first page by default, and shows the page whose `.tag(_:)` matches the `selection:` binding. Activating a tab updates local selection state or writes through a tagged `selection:` binding, but platform-specific tab styling and overflow behavior are still minimal.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs; submit scopes and platform keyboard return-key labels are not modeled yet.
+- `submitLabel(_:)` accepts SwiftUI return-key label call sites for source compatibility. It does not alter hardware keyboard behavior on the retained Windows input path today.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.

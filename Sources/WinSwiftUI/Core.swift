@@ -1281,6 +1281,43 @@ public extension View {
         }
     }
 
+    func overlay(alignment: Alignment = .center, @ViewBuilder content overlayContent: () -> [AnyView]) -> some View {
+        let overlayViews = overlayContent()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let overlay = composeComponent(from: overlayViews, context: context, fallbackLayout: .absolute)
+
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let overlayNode = overlay.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [baseNode, overlayNode]
+                )
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let overlaySize = overlayNode.intrinsicContentSize()
+                    let overlayOrigin = alignment.frameOrigin(for: overlaySize, in: containerSize)
+                    let overlayFrame = Rect(origin: overlayOrigin, size: overlaySize)
+                    if overlayNode.frame != overlayFrame {
+                        overlayNode.frame = overlayFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
     func foregroundColor(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withForegroundColor(color))

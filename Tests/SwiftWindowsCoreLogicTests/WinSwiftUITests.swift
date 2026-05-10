@@ -140,6 +140,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayAlignsContentWithoutExpandingBaseLayout() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Text("BASE")
+                .frame(width: 100, height: 40)
+                .overlay(alignment: .bottomTrailing) {
+                    Text("BADGE")
+                        .frame(width: 24, height: 12)
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(node.preferredSize, Size(width: 100, height: 40))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame, Rect(x: 0, y: 0, width: 100, height: 40))
+            XCTAssertEqual(node.children[1].frame, Rect(x: 76, y: 28, width: 24, height: 12))
+        }
+    }
+
     func testExplicitTextStyleOverridesInheritedStyle() async {
         await MainActor.run {
             let node = makeNode(

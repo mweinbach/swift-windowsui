@@ -86,6 +86,24 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForegroundStyleColorPropagatesToText() async {
+        await MainActor.run {
+            let styledColor = Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1)
+            let node = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .foregroundStyle(styledColor)
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.color, styledColor)
+            }
+        }
+    }
+
     func testExplicitTextStyleOverridesInheritedStyle() async {
         await MainActor.run {
             let node = makeNode(

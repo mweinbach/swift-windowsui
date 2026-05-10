@@ -82,6 +82,7 @@ Modifiers:
 - `padding`
 - `background`
 - `foregroundColor`
+- `foregroundStyle` for solid `Color` values
 - `tint`
 - `accentColor`
 - `font`

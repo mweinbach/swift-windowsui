@@ -1212,6 +1212,12 @@ public extension View {
         }
     }
 
+    func foregroundStyle(_ color: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withForegroundColor(color))
+        }
+    }
+
     func tint(_ tint: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTint(tint))

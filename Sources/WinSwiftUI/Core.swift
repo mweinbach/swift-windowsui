@@ -490,6 +490,7 @@ public struct ViewBuildContext {
     private let truncationModeProvider: () -> Text.TruncationMode?
     private let allowsTighteningProvider: () -> Bool
     private let textCaseProvider: () -> Text.Case?
+    private let labelsHiddenProvider: () -> Bool
     private let stackAxisProvider: () -> StackAxis?
     private let buttonStyleProvider: () -> ButtonStyle
     private let pickerStyleProvider: () -> PickerStyle
@@ -551,6 +552,10 @@ public struct ViewBuildContext {
         textCaseProvider()
     }
 
+    public var labelsHidden: Bool {
+        labelsHiddenProvider()
+    }
+
     public var stackAxis: StackAxis? {
         stackAxisProvider()
     }
@@ -592,6 +597,7 @@ public struct ViewBuildContext {
         truncationModeProvider: @escaping () -> Text.TruncationMode? = { nil },
         allowsTighteningProvider: @escaping () -> Bool = { true },
         textCaseProvider: @escaping () -> Text.Case? = { nil },
+        labelsHiddenProvider: @escaping () -> Bool = { false },
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
@@ -615,6 +621,7 @@ public struct ViewBuildContext {
         self.truncationModeProvider = truncationModeProvider
         self.allowsTighteningProvider = allowsTighteningProvider
         self.textCaseProvider = textCaseProvider
+        self.labelsHiddenProvider = labelsHiddenProvider
         self.stackAxisProvider = stackAxisProvider
         self.buttonStyleProvider = buttonStyleProvider
         self.pickerStyleProvider = pickerStyleProvider
@@ -670,6 +677,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -697,6 +705,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -724,6 +733,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -751,6 +761,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -778,6 +789,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -805,6 +817,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -832,6 +845,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -859,6 +873,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -886,6 +901,7 @@ public struct ViewBuildContext {
             truncationModeProvider: { mode },
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -913,6 +929,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: { allowsTightening },
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -940,6 +957,35 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: { textCase },
+            labelsHiddenProvider: labelsHiddenProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withLabelsHidden(_ labelsHidden: Bool) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: { labelsHidden },
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -967,6 +1013,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: { axis },
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -994,6 +1041,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
             pickerStyleProvider: pickerStyleProvider,
@@ -1021,6 +1069,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: { pickerStyle },
@@ -1048,6 +1097,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1079,6 +1129,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1106,6 +1157,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1133,6 +1185,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1162,6 +1215,7 @@ public struct ViewBuildContext {
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -2717,6 +2771,12 @@ public extension View {
     func textCase(_ textCase: Text.Case?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTextCase(textCase))
+        }
+    }
+
+    func labelsHidden() -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLabelsHidden(true))
         }
     }
 

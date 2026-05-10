@@ -2329,7 +2329,6 @@ public struct Toggle: View {
         let binding = isOn
 
         return Component { runtime in
-            let labelNode = labelComponent.makeNode(runtime: runtime)
             let toggleNode = Controls.toggle(
                 runtime: runtime,
                 isOn: binding.wrappedValue,
@@ -2341,6 +2340,11 @@ public struct Toggle: View {
                 }
             )
 
+            guard !context.labelsHidden else {
+                return toggleNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 10, alignment: .center),
                 isHitTestVisible: false,
@@ -2453,7 +2457,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                 )
             }
 
-            guard !labelViews.isEmpty else {
+            guard !context.labelsHidden && !labelViews.isEmpty else {
                 return pickerNode
             }
 
@@ -2737,7 +2741,6 @@ public struct Stepper: View {
         let increment = increment
 
         return Component { runtime in
-            let labelNode = labelComponent.makeNode(runtime: runtime)
             let decrementNode = Self.controlButton(
                 runtime: runtime,
                 title: "-",
@@ -2757,6 +2760,15 @@ public struct Stepper: View {
                 }
             )
 
+            guard !context.labelsHidden else {
+                return Controls.stackPanel(
+                    stackLayout: .horizontal(spacing: 8, alignment: .center),
+                    isHitTestVisible: false,
+                    children: [decrementNode, incrementNode]
+                )
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 8, alignment: .center),
                 isHitTestVisible: false,
@@ -2950,6 +2962,10 @@ public struct Slider: View {
                 }
             )
 
+            guard !context.labelsHidden else {
+                return sliderNode
+            }
+
             guard !labelViews.isEmpty || !minimumLabelViews.isEmpty || !maximumLabelViews.isEmpty else {
                 return sliderNode
             }
@@ -3072,6 +3088,10 @@ public struct ProgressView: View {
 
         return Component { runtime in
             let progressNode = Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
+            guard !context.labelsHidden else {
+                return progressNode
+            }
+
             guard !label.isEmpty || !currentValueLabel.isEmpty else {
                 return progressNode
             }

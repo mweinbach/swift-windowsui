@@ -2148,6 +2148,60 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelsHiddenSuppressesControlLabels() async {
+        await MainActor.run {
+            let toggleNode = makeNode(
+                Toggle("ENABLED", isOn: .constant(true))
+                    .labelsHidden()
+            )
+            let pickerNode = makeNode(
+                Picker("MODE", selection: .constant("compact")) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .labelsHidden()
+            )
+            let stepperNode = makeNode(
+                Stepper("VALUE", value: .constant(2), in: 0...10)
+                    .labelsHidden()
+            )
+            let sliderNode = makeNode(
+                Slider(
+                    value: .constant(0.5),
+                    in: 0...1,
+                    minimumValueLabel: Text("LOW"),
+                    maximumValueLabel: Text("HIGH")
+                ) {
+                    Text("GAIN")
+                }
+                .labelsHidden()
+            )
+            let progressNode = makeNode(
+                ProgressView(value: 0.5, total: 1.0) {
+                    Text("DOWNLOAD")
+                } currentValueLabel: {
+                    Text("50%")
+                }
+                .labelsHidden()
+            )
+
+            XCTAssertFalse(allTexts(in: toggleNode).contains("ENABLED"))
+            XCTAssertNotNil(firstFocusable(in: toggleNode))
+
+            XCTAssertFalse(allTexts(in: pickerNode).contains("MODE"))
+            XCTAssertTrue(allTexts(in: pickerNode).contains("COMPACT"))
+
+            XCTAssertEqual(stepperNode.children.count, 2)
+            XCTAssertFalse(allTexts(in: stepperNode).contains("VALUE"))
+
+            XCTAssertFalse(sliderNode.children.isEmpty)
+            XCTAssertTrue(allTexts(in: sliderNode).isEmpty)
+
+            XCTAssertFalse(progressNode.children.isEmpty)
+            XCTAssertTrue(allTexts(in: progressNode).isEmpty)
+        }
+    }
+
     func testStepperDoubleWritesBindingInvalidatesAndReportsEditingChanges() async {
         await MainActor.run {
             var value = 4.0

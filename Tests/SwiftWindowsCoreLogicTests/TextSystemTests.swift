@@ -141,8 +141,8 @@ final class TextSystemTests: XCTestCase {
         XCTAssertEqual(result?.lines.count, 1)
         XCTAssertEqual(result?.lines.first?.glyphs.count, 5)
         XCTAssertGreaterThan(result?.lines.first?.glyphs.last?.origin.x ?? 0, result?.lines.first?.glyphs.first?.origin.x ?? 0)
-        XCTAssertNotNil(result?.lines.first?.glyphs.first?.glyphID)
-        XCTAssertNotNil(result?.lines.first?.glyphs.first?.fontFace)
+        XCTAssertEqual(result?.lines.first?.glyphs.map(\.sourceIndex), [0, 1, 2, 3, 4])
+        XCTAssertEqual(result?.lines.first?.glyphs.map(\.character), Array("Hello"))
     }
 
     func testWindowTextSystemPreservesLogicalLayoutAcrossDisplayScaleChanges() async throws {

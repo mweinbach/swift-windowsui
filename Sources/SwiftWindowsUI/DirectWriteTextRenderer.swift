@@ -504,8 +504,10 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        let glyphs = captureGlyphLayouts(from: layout, text: text, style: lineStyle)
-            ?? fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
+        let glyphs = fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
+        let resolvedGlyphs = glyphs.isEmpty
+            ? captureGlyphLayouts(from: layout, text: text, style: lineStyle) ?? []
+            : glyphs
 
         let lineHeight = max(bounds.height, lineStyle.nativeFontPixelSize)
         let ascent = max(lineStyle.nativeFontPixelSize * 0.8, lineHeight * 0.7)
@@ -516,7 +518,7 @@ private final class DirectWriteSystem {
             height: lineHeight,
             ascent: ascent,
             descent: descent,
-            glyphs: glyphs
+            glyphs: resolvedGlyphs
         )
     }
 

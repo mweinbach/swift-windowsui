@@ -2808,6 +2808,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTintAndControlSizeBridgeThroughEnvironmentValues() async {
+        await MainActor.run {
+            struct InheritedControlEnvironmentReaderView: View {
+                @Environment(\.tint) var tint
+                @Environment(\.controlSize) var controlSize
+
+                var body: some View {
+                    Text(
+                        "\(tint == Color.red ? "RED" : "DEFAULT") "
+                            + "\(controlSize == .large ? "LARGE" : controlSize == .small ? "SMALL" : "REGULAR")"
+                    )
+                }
+            }
+
+            let modifierNode = makeNode(
+                InheritedControlEnvironmentReaderView()
+                    .tint(.red)
+                    .controlSize(.large)
+            )
+            let environmentNode = makeNode(
+                InheritedControlEnvironmentReaderView()
+                    .environment(\.tint, Color.red)
+                    .environment(\.controlSize, .small)
+            )
+            let progressNode = makeNode(
+                ProgressView(value: 0.5, total: 1.0)
+                    .environment(\.tint, Color.red)
+            )
+            let toggleNode = makeNode(
+                Toggle("ENABLED", isOn: .constant(true))
+                    .environment(\.controlSize, .large)
+            )
+
+            XCTAssertEqual(modifierNode.text, "RED LARGE")
+            XCTAssertEqual(environmentNode.text, "RED SMALL")
+            XCTAssertEqual(progressNode.children[1].backgroundColor, Color.red)
+            XCTAssertEqual(toggleNode.children[1].preferredSize, Size(width: 60, height: 38))
+        }
+    }
+
     func testDisabledToggleAndSliderDoNotMutateBindings() async {
         await MainActor.run {
             var isEnabled = false

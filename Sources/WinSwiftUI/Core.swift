@@ -338,11 +338,20 @@ public protocol EnvironmentKey {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var isEnabled: Bool
+    public var tint: Color?
+    public var controlSize: ControlSize
     private var customValues: [ObjectIdentifier: Any]
 
-    public init(colorScheme: ColorScheme = .dark, isEnabled: Bool = true) {
+    public init(
+        colorScheme: ColorScheme = .dark,
+        isEnabled: Bool = true,
+        tint: Color? = nil,
+        controlSize: ControlSize = .regular
+    ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
+        self.tint = tint
+        self.controlSize = controlSize
         self.customValues = [:]
     }
 
@@ -514,7 +523,7 @@ public struct ViewBuildContext {
     }
 
     public var tint: Color {
-        tintProvider()
+        environmentValuesProvider().tint ?? tintProvider()
     }
 
     public var font: Font {
@@ -558,7 +567,7 @@ public struct ViewBuildContext {
     }
 
     public var controlSize: ControlSize {
-        controlSizeProvider()
+        environmentValuesProvider().controlSize
     }
 
     public var stackAxis: StackAxis? {
@@ -576,6 +585,9 @@ public struct ViewBuildContext {
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
         values.isEnabled = values.isEnabled && isEnabled
+        if values.tint == nil {
+            values.tint = tintProvider()
+        }
         return values
     }
 
@@ -805,7 +817,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.tint = tint
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -1037,7 +1053,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.controlSize = controlSize
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,

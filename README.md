@@ -21,7 +21,7 @@ The current portability target is shared app source, not full package portabilit
 
 - On Windows, app code can import `WinSwiftUI`
 - On macOS, the same view/app source can import `SwiftUI`
-- The demo in [`Sources/swift-windowsui/DemoDashboard.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/DemoDashboard.swift) stays inside that shared subset
+- The demo in `Sources/SwiftWindowsDemo/DemoDashboard.swift` stays inside that shared subset
 
 Important limit:
 
@@ -46,7 +46,8 @@ Targets:
 - `SwiftWindowsRendererD3D11`: Direct3D 11 renderer
 - `SwiftWindowsUI`: retained `ViewNode` tree, runtime, controls, bitmap/native text plumbing, and `FoundationApp`
 - `WinSwiftUI`: `App`, `Scene`, `WindowGroup`, common views/modifiers, observation wrappers, and the retained-runtime host bridge
-- `swift-windowsui`: the demo app entry point and demo screen
+- `SwiftWindowsDemo`: the shared-source demo screen
+- `swift-windowsui`: the demo app entry point
 
 ## Active Demo Path
 
@@ -143,6 +144,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter Win
 
 The screenshot helper builds the same shared demo view through the WinSwiftUI retained runtime, pulls the raw scene/frame data, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`. Pass `-FrameDebug` to force the `RenderFrame` fallback path for visual comparison.
 
+To view the rendered screenshot after running the helper, open `artifacts/demo-screenshot.png`. The script also writes the raw source bitmap next to it as `artifacts/demo-screenshot.raw.bmp`, which is useful when checking the exact offscreen rasterizer output. This path does not capture the desktop or a foreground native window; it uses `WinSwiftUIRendererSnapshotter` and the retained runtime's `GPUIScene`/`RenderFrame` data.
+
+For side-by-side comparison:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -Mode scene -OutputPath artifacts/demo-screenshot-scene.png
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -FrameDebug -OutputPath artifacts/demo-screenshot-frame.png
+```
+
 Verified in this pass:
 
 ```powershell
@@ -158,7 +168,9 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 - [`Sources/WinSwiftUI/Views.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/Views.swift)
 - [`Sources/WinSwiftUI/App.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/App.swift)
 - [`Sources/swift-windowsui/AppEntry.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/AppEntry.swift)
-- [`Sources/swift-windowsui/DemoDashboard.swift`](/D:/Projects/swift-windowsui/Sources/swift-windowsui/DemoDashboard.swift)
+- [`Sources/SwiftWindowsDemo/DemoDashboard.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsDemo/DemoDashboard.swift)
+- [`Sources/WinSwiftUI/RenderSnapshot.swift`](/D:/Projects/swift-windowsui/Sources/WinSwiftUI/RenderSnapshot.swift)
+- [`Sources/SwiftWindowsGraphics/SceneRasterizer.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsGraphics/SceneRasterizer.swift)
 - [`Sources/SwiftWindowsUI/Runtime.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsUI/Runtime.swift)
 - [`Sources/SwiftWindowsUI/Controls.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsUI/Controls.swift)
 - [`Sources/SwiftWindowsPlatform/Win32Host.swift`](/D:/Projects/swift-windowsui/Sources/SwiftWindowsPlatform/Win32Host.swift)

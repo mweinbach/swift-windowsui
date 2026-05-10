@@ -11,11 +11,14 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - `SwiftWindowsUI`: retained `ViewNode` tree, runtime, controls, text plumbing, and legacy `FoundationApp`
 - `SwiftWindowsRendererD3D11`: the concrete D3D11 backend used by the demo
 - `WinSwiftUI`: SwiftUI-shaped app/view surface mapped onto the retained runtime
+- `SwiftWindowsDemo`: shared-source demo screen used by the app and snapshot tool
 - `swift-windowsui`: executable that boots the demo through `WinSwiftUI`
+- `swift-windowsui-snapshot`: executable that builds the demo through `WinSwiftUIRendererSnapshotter` and rasterizes raw scene/frame data offscreen
 
 ## Core Mental Model
 
-- The active demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `RenderFrame` -> `D3D11Renderer`.
+- The active demo path is `AppEntry.swift` -> `WinSwiftUI.App` / `WindowGroup` -> `WinSwiftUIWindowHost` -> `Win32Window` events -> `RetainedViewRuntime` -> `GPUIScene` -> `D3D11BatchRenderer`, with `RenderFrame` -> `D3D11Renderer` kept as a fallback/debug path.
+- The screenshot path is intentionally not a desktop capture. `scripts/demo-screenshot.ps1` runs `swift-windowsui-snapshot`, pulls the raw `GPUIScene` or `RenderFrame` from the retained runtime, rasterizes it with `GPUIRawSceneRasterizer`, and writes image artifacts under `artifacts/`.
 - The runtime is retained-mode and mutable. Prefer mutating `ViewNode` state and letting the runtime invalidate/re-render.
 - The shared render graph is intentionally tiny. Most visible features reduce to `FillRectCommand`.
 - `ViewBuildContext` carries inherited SwiftUI-shaped style and environment state into retained components; prefer extending that propagation path over introducing global UI state.
@@ -41,7 +44,18 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - Run `swift test --filter RetainedViewRuntimeTests` when iterating on retained runtime behavior.
 - Run `swift test --filter WinSwiftUITests` when iterating on the SwiftUI-shaped compatibility layer.
 - Run `swift build --product swift-windowsui` for renderer, host, or demo-entry changes because the test target does not cover all executable wiring.
+- Run `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1` after visual UI changes. Open `artifacts/demo-screenshot.png` to inspect the rendered scene. Use `-FrameDebug -OutputPath artifacts/demo-screenshot-frame.png` to compare the frame fallback path.
 - Prefer a manual demo run for changes in `Win32Host`, `WinSwiftUIWindowHost`, `PixelText`, or `D3D11Renderer`.
+
+## Viewing Rendered Screenshots
+
+- Default scene screenshot:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1`
+- Frame fallback screenshot:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1 -FrameDebug -OutputPath artifacts/demo-screenshot-frame.png`
+- The PNG to view is `artifacts/demo-screenshot.png` by default. The raw rasterizer source is also left beside it as `artifacts/demo-screenshot.raw.bmp`.
+- In Codex, inspect the PNG directly with the image viewer rather than relying on the OS window. For this workspace, the default absolute path is `C:\Users\maxw6\Projects\swift-windowsui\artifacts\demo-screenshot.png`.
+- If the screenshot looks wrong, debug the retained runtime, `WinSwiftUIRendererSnapshotter`, `GPUIScene`, `RenderFrame`, or `GPUIRawSceneRasterizer` path first. Do not reintroduce `CopyFromScreen` or foreground-window screenshots as the primary validation path.
 
 ## High-Value File Targets
 
@@ -49,7 +63,9 @@ This repository is a Windows-only custom-rendered UI toolkit prototype. Keep cha
 - `Sources/WinSwiftUI/Views.swift`: SwiftUI-shaped view/container/control mappings
 - `Sources/WinSwiftUI/App.swift`: `App`, `Scene`, `WindowGroup`, and retained-runtime hosting
 - `Sources/swift-windowsui/AppEntry.swift`: active demo entry point
-- `Sources/swift-windowsui/DemoDashboard.swift`: shared-source demo screen
+- `Sources/SwiftWindowsDemo/DemoDashboard.swift`: shared-source demo screen
+- `Sources/WinSwiftUI/RenderSnapshot.swift`: raw retained-runtime snapshot API for screenshots and tooling
+- `Sources/SwiftWindowsGraphics/SceneRasterizer.swift`: CPU rasterizer for raw `GPUIScene`/`RenderFrame` screenshot artifacts
 - `Sources/SwiftWindowsUI/Runtime.swift`: retained tree behavior and render-frame generation
 - `Sources/SwiftWindowsUI/Controls.swift`: reusable retained control builders and animation hooks
 - `Sources/SwiftWindowsUI/PixelText.swift`: bitmap text measurement and rasterization

@@ -156,6 +156,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSecureFieldMasksDisplayedValueAndWritesBindingFromKeyboard() async {
+        await MainActor.run {
+            var value = "open"
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let maskedNode = makeNode(SecureField("PASSWORD", text: binding))
+
+            XCTAssertTrue(maskedNode.isFocusable)
+            XCTAssertEqual(maskedNode.children[0].text, "****")
+
+            maskedNode.onKeyDown?(KeyboardEvent(keyCode: 0x31))
+            maskedNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            maskedNode.onKeyDown?(KeyboardEvent(keyCode: 0x5A, modifiers: [.shift]))
+
+            XCTAssertEqual(value, "openZ")
+
+            let updatedNode = makeNode(SecureField("PASSWORD", text: binding))
+
+            XCTAssertEqual(updatedNode.children[0].text, "*****")
+        }
+    }
+
     func testRectangleAndRoundedRectangleMapToRetainedShapeNodes() async {
         await MainActor.run {
             let fillColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)

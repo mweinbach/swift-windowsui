@@ -1083,83 +1083,119 @@ public struct TextField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let binding = text
-        let placeholder = title
-        return Component { runtime in
-            let currentText = binding.wrappedValue
-            let isShowingPlaceholder = currentText.isEmpty
-            let textColor: Color
-            if !context.isEnabled {
-                textColor = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.78)
-            } else if isShowingPlaceholder {
-                textColor = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.84)
-            } else {
-                textColor = context.foregroundColor
-            }
+        textInputComponent(title: title, text: text, isSecure: false, context: context)
+    }
+}
 
-            let labelNode = Controls.label(
-                isShowingPlaceholder ? placeholder : currentText,
-                color: textColor,
-                scale: context.font.resolvedScale,
-                weight: (context.fontWeight ?? context.font.weight).textWeight,
-                fontFamily: context.font.resolvedFamily,
-                nativeFontSize: context.font.resolvedNativeTextSize,
-                alignment: context.textAlignment.horizontalAlignment.textAlignment,
-                insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-                lineBreakMode: .truncateTail,
-                maximumNumberOfLines: 1
-            )
-            let node = Controls.stackPanel(
-                preferredSize: Size(width: 220, height: 36),
-                backgroundColor: context.isEnabled
-                    ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
-                    : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
-                borderColor: context.isEnabled
-                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
-                    : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
-                borderWidth: 1,
-                cornerRadius: 8,
-                stackLayout: .vertical(padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10), alignment: .stretch),
-                isHitTestVisible: context.isEnabled,
-                children: [labelNode]
-            )
+@MainActor
+public struct SecureField: View {
+    public typealias Body = Never
 
-            guard context.isEnabled else {
-                return node
-            }
+    private let title: String
+    private let text: Binding<String>
 
-            node.isFocusable = true
-            node.onFocusEnter = { [weak node] in
-                node?.borderColor = context.tint
-                node?.outlineColor = context.tint.opacity(0.28)
-                node?.outlineWidth = 2
-            }
-            node.onFocusExit = { [weak node] in
-                node?.borderColor = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
-                node?.outlineColor = .clear
-                node?.outlineWidth = 0
-            }
-            node.onKeyDown = { event in
-                if event.key == .backspace {
-                    guard !binding.wrappedValue.isEmpty else {
-                        return
-                    }
+    public init(_ title: String, text: Binding<String>) {
+        self.title = title
+        self.text = text
+    }
 
-                    binding.wrappedValue.removeLast()
-                    context.invalidate()
-                    return
-                }
+    public init(_ titleKey: LocalizedStringKey, text: Binding<String>) {
+        self.init(titleKey.resolvedString, text: text)
+    }
 
-                guard let character = textFieldInsertedCharacter(for: event) else {
-                    return
-                }
+    public var body: Never {
+        fatalError("SecureField has no body")
+    }
 
-                binding.wrappedValue.append(contentsOf: character)
-                context.invalidate()
-            }
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        textInputComponent(title: title, text: text, isSecure: true, context: context)
+    }
+}
 
+@MainActor
+private func textInputComponent(
+    title: String,
+    text: Binding<String>,
+    isSecure: Bool,
+    context: ViewBuildContext
+) -> Component {
+    let binding = text
+    let placeholder = title
+    return Component { runtime in
+        let currentText = binding.wrappedValue
+        let isShowingPlaceholder = currentText.isEmpty
+        let displayText = isSecure && !isShowingPlaceholder ? String(repeating: "*", count: currentText.count) : currentText
+        let textColor: Color
+        if !context.isEnabled {
+            textColor = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.78)
+        } else if isShowingPlaceholder {
+            textColor = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.84)
+        } else {
+            textColor = context.foregroundColor
+        }
+
+        let labelNode = Controls.label(
+            isShowingPlaceholder ? placeholder : displayText,
+            color: textColor,
+            scale: context.font.resolvedScale,
+            weight: (context.fontWeight ?? context.font.weight).textWeight,
+            fontFamily: context.font.resolvedFamily,
+            nativeFontSize: context.font.resolvedNativeTextSize,
+            alignment: context.textAlignment.horizontalAlignment.textAlignment,
+            insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+        let node = Controls.stackPanel(
+            preferredSize: Size(width: 220, height: 36),
+            backgroundColor: context.isEnabled
+                ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
+                : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
+            borderColor: context.isEnabled
+                ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+                : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
+            borderWidth: 1,
+            cornerRadius: 8,
+            stackLayout: .vertical(padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10), alignment: .stretch),
+            isHitTestVisible: context.isEnabled,
+            children: [labelNode]
+        )
+
+        guard context.isEnabled else {
             return node
         }
+
+        node.isFocusable = true
+        node.onFocusEnter = { [weak node] in
+            node?.borderColor = context.tint
+            node?.outlineColor = context.tint.opacity(0.28)
+            node?.outlineWidth = 2
+        }
+        node.onFocusExit = { [weak node] in
+            node?.borderColor = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+            node?.outlineColor = .clear
+            node?.outlineWidth = 0
+        }
+        node.onKeyDown = { event in
+            if event.key == .backspace {
+                guard !binding.wrappedValue.isEmpty else {
+                    return
+                }
+
+                binding.wrappedValue.removeLast()
+                context.invalidate()
+                return
+            }
+
+            guard let character = textFieldInsertedCharacter(for: event) else {
+                return
+            }
+
+            binding.wrappedValue.append(contentsOf: character)
+            context.invalidate()
+        }
+
+        return node
     }
 }
 

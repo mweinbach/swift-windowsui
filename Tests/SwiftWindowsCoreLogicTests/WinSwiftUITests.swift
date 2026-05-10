@@ -764,6 +764,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLazyStacksMapToRetainedStackPanels() async {
+        await MainActor.run {
+            let lazyVStack = makeNode(
+                LazyVStack(alignment: .trailing, spacing: 7, pinnedViews: [.sectionHeaders]) {
+                    Text("A")
+                    Text("B")
+                }
+            )
+            let lazyHStack = makeNode(
+                LazyHStack(alignment: .bottom, spacing: 5, pinnedViews: [.sectionFooters]) {
+                    Text("C")
+                    Text("D")
+                }
+            )
+
+            guard case .stack(let verticalLayout) = lazyVStack.layoutMode else {
+                return XCTFail("Expected LazyVStack to use retained stack layout")
+            }
+            guard case .stack(let horizontalLayout) = lazyHStack.layoutMode else {
+                return XCTFail("Expected LazyHStack to use retained stack layout")
+            }
+
+            XCTAssertEqual(verticalLayout, .vertical(spacing: 7, alignment: .trailing))
+            XCTAssertEqual(horizontalLayout, .horizontal(spacing: 5, alignment: .trailing))
+            XCTAssertEqual(lazyVStack.children.count, 2)
+            XCTAssertEqual(lazyHStack.children.count, 2)
+            XCTAssertEqual(lazyVStack.children[0].text, "A")
+            XCTAssertEqual(lazyVStack.children[1].text, "B")
+            XCTAssertEqual(lazyHStack.children[0].text, "C")
+            XCTAssertEqual(lazyHStack.children[1].text, "D")
+        }
+    }
+
     func testStacksAcceptNilSpacing() async {
         await MainActor.run {
             let vStackNode = makeNode(

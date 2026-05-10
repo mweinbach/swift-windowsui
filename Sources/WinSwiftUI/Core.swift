@@ -913,6 +913,17 @@ public enum VerticalAlignment: Sendable {
     case bottom
 }
 
+public struct PinnedScrollableViews: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let sectionHeaders = PinnedScrollableViews(rawValue: 1 << 0)
+    public static let sectionFooters = PinnedScrollableViews(rawValue: 1 << 1)
+}
+
 public struct Alignment: Sendable {
     public var horizontal: HorizontalAlignment
     public var vertical: VerticalAlignment

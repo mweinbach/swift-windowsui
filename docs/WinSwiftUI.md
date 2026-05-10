@@ -75,6 +75,8 @@ Views and containers:
 - `GeometryReader`
 - `VStack`
 - `HStack`
+- `LazyVStack`
+- `LazyHStack`
 - `ZStack`
 - `ScrollView`
 - `List`
@@ -205,7 +207,7 @@ Surface direction:
 - `Rectangle`, `RoundedRectangle`, and `Capsule` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, `strokeBorder` aliases the existing retained stroke behavior, and rounded corner styles currently share the same retained rounded-rect path.
 - `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id. `Range<Int>` and `ClosedRange<Int>` support the SwiftUI-style shorthand initializer.
-- `VStack` and `HStack` accept SwiftUI-style optional spacing; `nil` resolves to the current retained default spacing of `0`.
+- `VStack`, `HStack`, `LazyVStack`, and `LazyHStack` accept SwiftUI-style optional spacing; `nil` resolves to the current retained default spacing of `0`. Lazy stacks currently map to the same retained stack panels as eager stacks, and accept `pinnedViews` for source compatibility without sticky section behavior yet.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
 - `Button(_:systemImage:...)` maps into the existing retained button path with a `Label`; `.buttonStyle` propagates through `ViewBuildContext`, with `.bordered` and `.borderedProminent` mapping to the default retained button chrome and `.borderless` mapping to plain chrome.

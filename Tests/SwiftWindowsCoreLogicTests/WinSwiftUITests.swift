@@ -170,6 +170,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStringProtocolInputsMapToSelectionAndStepperControls() async {
+        await MainActor.run {
+            let source = "PREFIX-VALUE"
+            let title = source.dropFirst(7)
+
+            let node = makeNode(
+                VStack {
+                    Picker(title, selection: .constant("compact")) {
+                        Text("COMPACT").tag("compact")
+                    }
+                    Stepper(title, value: .constant(2.0), in: 0...10)
+                    Stepper(title, value: .constant(2), in: 0...10)
+                }
+            )
+
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "VALUE" }.count, 3)
+            XCTAssertTrue(allTexts(in: node).contains("COMPACT"))
+        }
+    }
+
     func testTextCaseAppliesExplicitAndInheritedCasing() async {
         await MainActor.run {
             let uppercaseNode = makeNode(Text("MiXeD").textCase(.uppercase))

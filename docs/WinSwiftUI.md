@@ -119,9 +119,11 @@ Views and containers:
 - `Toggle`
   - `StringProtocol` title inputs
 - `Picker`
+  - `StringProtocol` title inputs
   - `.pickerStyle(.segmented)`
   - `.pickerStyle(.menu)`
 - `Stepper`
+  - `StringProtocol` title inputs
 - `Slider`
   - `Slider(value:in:step:onEditingChanged:)`
   - minimum, maximum, and main label overloads

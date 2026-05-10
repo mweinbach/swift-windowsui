@@ -2984,6 +2984,14 @@ public struct Picker<SelectionValue: Hashable>: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(String(title), selection: selection, content: content)
+    }
+
     public init(
         _ titleKey: LocalizedStringKey,
         selection: Binding<SelectionValue>,
@@ -3231,6 +3239,16 @@ public struct Stepper: View {
         }
     }
 
+    public init<S: StringProtocol>(
+        _ title: S,
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude,
+        step: Double = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(String(title), value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
+    }
+
     public init(
         _ titleKey: LocalizedStringKey,
         value: Binding<Double>,
@@ -3286,6 +3304,16 @@ public struct Stepper: View {
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        value: Binding<Int>,
+        in bounds: ClosedRange<Int> = Int.min...Int.max,
+        step: Int = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(String(title), value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
     }
 
     public init(

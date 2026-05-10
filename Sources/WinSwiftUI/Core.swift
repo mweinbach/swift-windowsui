@@ -2087,6 +2087,33 @@ public extension View {
         return self
     }
 
+    func navigationDestination<Data>(
+        for data: Data.Type,
+        @ViewBuilder destination: @escaping (Data) -> [AnyView]
+    ) -> some View where Data: Hashable {
+        _ = data
+        _ = destination
+        return self
+    }
+
+    func navigationDestination(
+        isPresented: Binding<Bool>,
+        @ViewBuilder destination: @escaping () -> [AnyView]
+    ) -> some View {
+        _ = isPresented
+        _ = destination
+        return self
+    }
+
+    func navigationDestination<Item>(
+        item: Binding<Item?>,
+        @ViewBuilder destination: @escaping (Item) -> [AnyView]
+    ) -> some View where Item: Identifiable {
+        _ = item
+        _ = destination
+        return self
+    }
+
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(keyPath, value))

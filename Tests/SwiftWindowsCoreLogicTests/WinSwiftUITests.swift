@@ -26,6 +26,10 @@ private struct PointerHandlerProbe: View {
     }
 }
 
+private struct NavigationDestinationItem: Identifiable {
+    let id: String
+}
+
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -1288,6 +1292,28 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].text, "SHOW")
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SETTINGS"))
             XCTAssertEqual(node.children[2].text, "ITEM")
+        }
+    }
+
+    func testNavigationDestinationModifiersPreserveRootContent() async {
+        await MainActor.run {
+            let item = NavigationDestinationItem(id: "selected")
+            let node = makeNode(
+                NavigationStack {
+                    NavigationLink("OPEN", value: "detail")
+                }
+                .navigationDestination(for: String.self) { value in
+                    Text(value)
+                }
+                .navigationDestination(isPresented: Binding.constant(true)) {
+                    Text("PRESENTED")
+                }
+                .navigationDestination(item: Binding.constant(Optional(item))) { selectedItem in
+                    Text(selectedItem.id)
+                }
+            )
+
+            XCTAssertEqual(node.text, "OPEN")
         }
     }
 

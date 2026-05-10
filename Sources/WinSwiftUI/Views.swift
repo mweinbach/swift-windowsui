@@ -3221,6 +3221,83 @@ public struct Stepper: View {
 
     public init(
         _ title: String,
+        onIncrement: (@MainActor () -> Void)? = nil,
+        onDecrement: (@MainActor () -> Void)? = nil,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            onIncrement: onIncrement,
+            onDecrement: onDecrement,
+            onEditingChanged: onEditingChanged
+        ) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        onIncrement: (@MainActor () -> Void)? = nil,
+        onDecrement: (@MainActor () -> Void)? = nil,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            String(title),
+            onIncrement: onIncrement,
+            onDecrement: onDecrement,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        onIncrement: (@MainActor () -> Void)? = nil,
+        onDecrement: (@MainActor () -> Void)? = nil,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            titleKey.resolvedString,
+            onIncrement: onIncrement,
+            onDecrement: onDecrement,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init(
+        onIncrement: (@MainActor () -> Void)? = nil,
+        onDecrement: (@MainActor () -> Void)? = nil,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.canDecrement = {
+            onDecrement != nil
+        }
+        self.canIncrement = {
+            onIncrement != nil
+        }
+        self.decrement = {
+            guard let onDecrement else {
+                return
+            }
+            onEditingChanged(true)
+            onDecrement()
+            onEditingChanged(false)
+        }
+        self.increment = {
+            guard let onIncrement else {
+                return
+            }
+            onEditingChanged(true)
+            onIncrement()
+            onEditingChanged(false)
+        }
+    }
+
+    public init(
+        _ title: String,
         value: Binding<Double>,
         in bounds: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude,
         step: Double = 1,

@@ -3071,6 +3071,63 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStepperActionInitializersRunHandlersAndDisableMissingDirections() async {
+        await MainActor.run {
+            var increments = 0
+            var decrements = 0
+            var didInvalidate = false
+            var editingChanges: [Bool] = []
+
+            let source = "PREFIX-ACTIONS"
+            let title = source.dropFirst(7)
+            let node = makeNode(
+                Stepper(
+                    title,
+                    onIncrement: {
+                        increments += 1
+                    },
+                    onDecrement: nil,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    }
+                ),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0]), "ACTIONS")
+            XCTAssertFalse(node.children[1].isFocusable)
+            XCTAssertTrue(node.children[2].isFocusable)
+
+            node.children[1].onActivate?()
+            XCTAssertEqual(decrements, 0)
+
+            node.children[2].onActivate?()
+            XCTAssertEqual(increments, 1)
+            XCTAssertTrue(didInvalidate)
+            XCTAssertEqual(editingChanges, [true, false])
+
+            let builderNode = makeNode(
+                Stepper(
+                    onIncrement: nil,
+                    onDecrement: {
+                        decrements += 1
+                    }
+                ) {
+                    Label("BUILDER", systemImage: "minus")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: builderNode.children[0]).contains("BUILDER"))
+            XCTAssertTrue(builderNode.children[1].isFocusable)
+            XCTAssertFalse(builderNode.children[2].isFocusable)
+
+            builderNode.children[1].onActivate?()
+            XCTAssertEqual(decrements, 1)
+        }
+    }
+
     func testSliderWritesBindingFromDragAndInvalidates() async {
         await MainActor.run {
             var value = 0.25

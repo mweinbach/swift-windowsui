@@ -124,6 +124,7 @@ Views and containers:
   - `.pickerStyle(.menu)`
 - `Stepper`
   - `StringProtocol` title inputs
+  - `onIncrement` / `onDecrement` action overloads
 - `Slider`
   - `Slider(value:in:step:onEditingChanged:)`
   - minimum, maximum, and main label overloads

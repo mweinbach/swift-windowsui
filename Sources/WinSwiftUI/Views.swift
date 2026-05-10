@@ -251,17 +251,25 @@ public struct Group: View {
 }
 
 @MainActor
+private final class NavigationContainerState {
+    var destinationStack: [[AnyView]] = []
+}
+
+@MainActor
 public struct NavigationStack: View {
     public typealias Body = Never
 
+    private let state: NavigationContainerState
     private let content: [AnyView]
 
     public init(@ViewBuilder root: () -> [AnyView]) {
+        self.state = NavigationContainerState()
         self.content = root()
     }
 
     public init(path: Binding<NavigationPath>, @ViewBuilder root: () -> [AnyView]) {
         _ = path
+        self.state = NavigationContainerState()
         self.content = root()
     }
 
@@ -270,6 +278,7 @@ public struct NavigationStack: View {
         @ViewBuilder root: () -> [AnyView]
     ) where Data: MutableCollection & RandomAccessCollection & RangeReplaceableCollection, Data.Element: Hashable {
         _ = path
+        self.state = NavigationContainerState()
         self.content = root()
     }
 
@@ -280,6 +289,7 @@ public struct NavigationStack: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         navigationContainerComponent(
             from: content,
+            state: state,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
@@ -290,9 +300,11 @@ public struct NavigationStack: View {
 public struct NavigationView: View {
     public typealias Body = Never
 
+    private let state: NavigationContainerState
     private let content: [AnyView]
 
     public init(@ViewBuilder content: () -> [AnyView]) {
+        self.state = NavigationContainerState()
         self.content = content()
     }
 
@@ -303,6 +315,7 @@ public struct NavigationView: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         navigationContainerComponent(
             from: content,
+            state: state,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
@@ -312,20 +325,51 @@ public struct NavigationView: View {
 @MainActor
 private func navigationContainerComponent(
     from content: [AnyView],
+    state: NavigationContainerState,
     context: ViewBuildContext,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
-    let body = composeComponent(
+    navigationContainerComponent(
         from: content,
+        destinationStack: state.destinationStack,
+        setDestinationStack: { state.destinationStack = $0 },
         context: context,
         fallbackLayout: fallbackLayout
     )
+}
 
-    guard let title = navigationTitle(in: content) else {
+@MainActor
+private func navigationContainerComponent(
+    from content: [AnyView],
+    destinationStack: [[AnyView]],
+    setDestinationStack: @escaping ([[AnyView]]) -> Void,
+    context: ViewBuildContext,
+    fallbackLayout: ViewLayoutMode
+) -> Component {
+    let visibleContent = destinationStack.last ?? content
+    let navigationContext = context.withNavigationDestinationHandler { destination in
+        guard !destination.isEmpty else {
+            return
+        }
+
+        var updatedStack = destinationStack
+        updatedStack.append(destination)
+        setDestinationStack(updatedStack)
+        context.invalidate()
+    }
+    let body = composeComponent(
+        from: visibleContent,
+        context: navigationContext,
+        fallbackLayout: fallbackLayout
+    )
+
+    let title = navigationTitle(in: visibleContent) ?? navigationTitle(in: content)
+    let shouldShowChrome = title != nil || !destinationStack.isEmpty
+    guard shouldShowChrome else {
         return body
     }
 
-    let displayMode = navigationTitleDisplayMode(in: content) ?? .automatic
+    let displayMode = navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
     let titleFont: Font = displayMode == .inline
         ? .system(size: 2, weight: .semibold)
         : .system(size: 3, weight: .bold)
@@ -334,7 +378,7 @@ private func navigationContainerComponent(
         .withFont(titleFont)
 
     let titleComponent = composeComponent(
-        from: title,
+        from: title ?? [AnyView(Text("BACK"))],
         context: titleContext,
         fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
     )
@@ -342,18 +386,52 @@ private func navigationContainerComponent(
     return Component { runtime in
         let titleNode = titleComponent.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
+        var headerChildren: [ViewNode] = []
+        if !destinationStack.isEmpty {
+            let backLabel = Controls.label(
+                "<",
+                preferredSize: Size(width: 22, height: 26),
+                color: Color(red: 0.92, green: 0.96, blue: 1.0),
+                scale: 1.5,
+                weight: .bold,
+                lineBreakMode: .truncateTail,
+                maximumNumberOfLines: 1
+            )
+            let backButton = Controls.button(
+                runtime: runtime,
+                cornerRadius: 8,
+                palette: ButtonSurfaceStyle.plain.palette,
+                chrome: ButtonSurfaceStyle.plain.chrome,
+                layoutMode: .stack(.vertical(
+                    padding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
+                    alignment: .center,
+                    mainAlignment: .center
+                )),
+                isEnabled: context.isEnabled,
+                action: {
+                    var updatedStack = destinationStack
+                    _ = updatedStack.popLast()
+                    setDestinationStack(updatedStack)
+                    context.invalidate()
+                },
+                children: [backLabel]
+            )
+            headerChildren.append(backButton)
+        }
+        headerChildren.append(titleNode)
+
         let headerNode = Controls.stackPanel(
             backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
             borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
             borderWidth: 1,
             cornerRadius: 10,
             stackLayout: .horizontal(
-                spacing: 0,
+                spacing: 8,
                 padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14),
                 alignment: .center
             ),
             isHitTestVisible: false,
-            children: [titleNode]
+            children: headerChildren
         )
 
         return Controls.stackPanel(
@@ -504,13 +582,37 @@ public struct NavigationLink: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        _ = destination
         _ = value
-        return composeComponent(
+        let labelComponent = composeComponent(
             from: label,
             context: context,
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
         )
+
+        guard !destination.isEmpty else {
+            return labelComponent
+        }
+
+        let destinationViews = destination
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: 8,
+                palette: ButtonSurfaceStyle.plain.palette,
+                chrome: ButtonSurfaceStyle.plain.chrome,
+                layoutMode: .stack(.vertical(
+                    padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                    alignment: .stretch,
+                    mainAlignment: .center
+                )),
+                isEnabled: context.isEnabled,
+                action: {
+                    _ = context.pushNavigationDestination(destinationViews)
+                },
+                children: [labelNode]
+            )
+        }
     }
 }
 

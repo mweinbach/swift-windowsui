@@ -1429,9 +1429,45 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(node.children.count, 3)
-            XCTAssertEqual(node.children[0].text, "SHOW")
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("SHOW"))
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SETTINGS"))
             XCTAssertEqual(node.children[2].text, "ITEM")
+        }
+    }
+
+    func testNavigationLinkDestinationPushesInRetainedNavigationContainer() async {
+        await MainActor.run {
+            var didInvalidate = false
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink("OPEN", destination: Text("DETAIL").navigationTitle("DETAIL TITLE"))
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: rootNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN"))
+
+            rootNode.children[1].children[0].onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+
+            detailNode.children[0].children[0].onActivate?()
+
+            let poppedNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: poppedNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertTrue(allTexts(in: poppedNode.children[1]).contains("OPEN"))
         }
     }
 

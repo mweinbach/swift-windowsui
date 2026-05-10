@@ -454,6 +454,7 @@ public struct ViewBuildContext {
     private let buttonStyleProvider: () -> ButtonStyle
     private let pickerStyleProvider: () -> PickerStyle
     private let environmentValuesProvider: () -> EnvironmentValues
+    private let navigationDestinationHandlerProvider: () -> (([AnyView]) -> Void)?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -519,7 +520,8 @@ public struct ViewBuildContext {
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
-        environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() }
+        environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() },
+        navigationDestinationHandlerProvider: @escaping () -> (([AnyView]) -> Void)? = { nil }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
@@ -535,6 +537,7 @@ public struct ViewBuildContext {
         self.buttonStyleProvider = buttonStyleProvider
         self.pickerStyleProvider = pickerStyleProvider
         self.environmentValuesProvider = environmentValuesProvider
+        self.navigationDestinationHandlerProvider = navigationDestinationHandlerProvider
     }
 
     public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
@@ -545,6 +548,15 @@ public struct ViewBuildContext {
 
     func observe(_ object: any ObservableObject) {
         observedObjectHandler(object)
+    }
+
+    func pushNavigationDestination(_ destination: [AnyView]) -> Bool {
+        guard let handler = navigationDestinationHandlerProvider() else {
+            return false
+        }
+
+        handler(destination)
+        return true
     }
 
     func withEnabled(_ isEnabled: Bool) -> ViewBuildContext {
@@ -564,7 +576,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -583,7 +596,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -602,7 +616,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -621,7 +636,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -640,7 +656,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -658,7 +675,9 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -677,7 +696,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -696,7 +716,8 @@ public struct ViewBuildContext {
             stackAxisProvider: { axis },
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -715,7 +736,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -734,7 +756,8 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: { pickerStyle },
-            environmentValuesProvider: environmentValuesProvider
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
         )
     }
 
@@ -757,7 +780,28 @@ public struct ViewBuildContext {
                 var values = environmentValuesProvider()
                 values[keyPath: keyPath] = value
                 return values
-            }
+            },
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider
+        )
+    }
+
+    func withNavigationDestinationHandler(_ handler: @escaping ([AnyView]) -> Void) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: { handler }
         )
     }
 }

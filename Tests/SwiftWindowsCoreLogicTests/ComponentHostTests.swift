@@ -65,6 +65,9 @@ final class ComponentHostTests: XCTestCase {
                     let layoutConstraints = useSecondState
                         ? LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36)
                         : LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16)
+                    let fixedSizeAxes = useSecondState
+                        ? FixedSizeAxes(horizontal: false, vertical: true)
+                        : FixedSizeAxes(horizontal: true, vertical: false)
                     let transform = useSecondState
                         ? Transform2D.translation(x: 24, y: 36)
                         : Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1)
@@ -74,6 +77,7 @@ final class ComponentHostTests: XCTestCase {
                     node.opacity = opacity
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
+                    node.fixedSizeAxes = fixedSizeAxes
                     node.transform = transform
                     node.scrollOffset = scrollOffset
                     node.isFocusable = useSecondState
@@ -98,6 +102,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.opacity, 0.25)
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
+            XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
             XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
             XCTAssertEqual(firstNode?.isFocusable, false)
@@ -112,6 +117,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.opacity, 0.85)
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
+            XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
             XCTAssertEqual(reusedNode?.scrollOffset, 48)
             XCTAssertEqual(reusedNode?.isFocusable, true)

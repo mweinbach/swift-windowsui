@@ -1423,6 +1423,21 @@ public extension View {
         }
     }
 
+    func fixedSize() -> some View {
+        fixedSize(horizontal: true, vertical: true)
+    }
+
+    func fixedSize(horizontal: Bool, vertical: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.fixedSizeAxes = FixedSizeAxes(horizontal: horizontal, vertical: vertical)
+                return childNode
+            }
+        }
+    }
+
     func padding(_ length: Double = 16) -> some View {
         padding(EdgeInsets.all(length))
     }

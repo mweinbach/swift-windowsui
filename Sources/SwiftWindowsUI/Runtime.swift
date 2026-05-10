@@ -233,6 +233,16 @@ public enum ScrollAxis: Sendable {
     case vertical
 }
 
+public struct FixedSizeAxes: Equatable, Sendable {
+    public var horizontal: Bool
+    public var vertical: Bool
+
+    public init(horizontal: Bool = true, vertical: Bool = true) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+    }
+}
+
 @MainActor
 public final class ViewNode {
     public var frame: Rect {
@@ -300,6 +310,10 @@ public final class ViewNode {
     }
 
     public var layoutConstraints: LayoutConstraints? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var fixedSizeAxes: FixedSizeAxes? {
         didSet { invalidateRuntime(.layout) }
     }
 
@@ -463,6 +477,7 @@ public final class ViewNode {
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
         layoutConstraints: LayoutConstraints? = nil,
+        fixedSizeAxes: FixedSizeAxes? = nil,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
@@ -502,6 +517,7 @@ public final class ViewNode {
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
         self.layoutConstraints = layoutConstraints
+        self.fixedSizeAxes = fixedSizeAxes
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
@@ -1754,18 +1770,32 @@ public final class ViewNode {
     }
 
     private func applyingLayoutConstraints(to constraints: LayoutConstraints) -> LayoutConstraints {
+        let fixedConstraints = applyingFixedSizeAxes(to: constraints)
         guard let layoutConstraints else {
-            return constraints
+            return fixedConstraints
         }
 
-        let minWidth = max(constraints.minWidth, layoutConstraints.minWidth)
-        let minHeight = max(constraints.minHeight, layoutConstraints.minHeight)
+        let minWidth = max(fixedConstraints.minWidth, layoutConstraints.minWidth)
+        let minHeight = max(fixedConstraints.minHeight, layoutConstraints.minHeight)
 
         return LayoutConstraints(
             minWidth: minWidth,
-            maxWidth: max(minWidth, minimumFiniteExtent(constraints.maxWidth, layoutConstraints.maxWidth)),
+            maxWidth: max(minWidth, minimumFiniteExtent(fixedConstraints.maxWidth, layoutConstraints.maxWidth)),
             minHeight: minHeight,
-            maxHeight: max(minHeight, minimumFiniteExtent(constraints.maxHeight, layoutConstraints.maxHeight))
+            maxHeight: max(minHeight, minimumFiniteExtent(fixedConstraints.maxHeight, layoutConstraints.maxHeight))
+        )
+    }
+
+    private func applyingFixedSizeAxes(to constraints: LayoutConstraints) -> LayoutConstraints {
+        guard let fixedSizeAxes else {
+            return constraints
+        }
+
+        return LayoutConstraints(
+            minWidth: constraints.minWidth,
+            maxWidth: fixedSizeAxes.horizontal ? .infinity : constraints.maxWidth,
+            minHeight: constraints.minHeight,
+            maxHeight: fixedSizeAxes.vertical ? .infinity : constraints.maxHeight
         )
     }
 

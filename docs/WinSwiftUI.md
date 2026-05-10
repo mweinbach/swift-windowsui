@@ -88,6 +88,7 @@ Views and containers:
 Modifiers:
 
 - `frame`, including fixed and min/ideal/max overloads
+- `fixedSize`
 - `padding`
 - `background`
 - `background(_:alignment:)`
@@ -147,6 +148,7 @@ Surface direction:
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
+- `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.

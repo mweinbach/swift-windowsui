@@ -310,6 +310,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFixedSizeMapsToRetainedMeasurementAxes() async {
+        await MainActor.run {
+            let defaultFixedNode = makeNode(Text("BOTH").fixedSize())
+            let horizontalFixedNode = makeNode(Text("WIDE TEXT").fixedSize(horizontal: true, vertical: false))
+
+            XCTAssertEqual(defaultFixedNode.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: true))
+            XCTAssertEqual(horizontalFixedNode.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
+        }
+    }
+
+    func testFixedSizeHorizontalUsesUnconstrainedMeasurementWidth() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 24, height: 120) },
+                invalidateHandler: {}
+            )
+            let node = Text("WIDE TEXT VALUE")
+                .fixedSize(horizontal: true, vertical: false)
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 24, height: 120))
+            _ = runtime.renderFrame()
+
+            XCTAssertGreaterThan(node.resolvedFrame.size.width, 24)
+        }
+    }
+
     func testOverlayAlignsContentWithoutExpandingBaseLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

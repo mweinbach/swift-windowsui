@@ -691,6 +691,7 @@ final class WinSwiftUITests: XCTestCase {
             struct TextEnvironmentReaderView: View {
                 @Environment(\.multilineTextAlignment) var alignment
                 @Environment(\.lineLimit) var lineLimit
+                @Environment(\.truncationMode) var truncationMode
                 @Environment(\.allowsTightening) var allowsTightening
                 @Environment(\.textCase) var textCase
 
@@ -698,6 +699,7 @@ final class WinSwiftUITests: XCTestCase {
                     Text(
                         alignment == .trailing
                             && lineLimit == 2
+                            && truncationMode == .middle
                             && allowsTightening
                             && textCase == .uppercase
                             ? "ENV"
@@ -710,6 +712,7 @@ final class WinSwiftUITests: XCTestCase {
                 Text("mixed")
                     .environment(\.multilineTextAlignment, .trailing)
                     .environment(\.lineLimit, 2)
+                    .environment(\.truncationMode, .middle)
                     .environment(\.allowsTightening, true)
                     .environment(\.textCase, .uppercase)
             )
@@ -717,10 +720,12 @@ final class WinSwiftUITests: XCTestCase {
                 VStack {
                     Text("RESET")
                         .lineLimit(nil)
+                        .environment(\.truncationMode, nil)
                         .allowsTightening(false)
                         .textCase(nil)
                 }
                 .lineLimit(1)
+                .truncationMode(.head)
                 .allowsTightening(true)
                 .textCase(.uppercase)
             )
@@ -728,6 +733,7 @@ final class WinSwiftUITests: XCTestCase {
                 TextEnvironmentReaderView()
                     .multilineTextAlignment(.trailing)
                     .lineLimit(2)
+                    .truncationMode(.middle)
                     .allowsTightening(true)
                     .textCase(.uppercase)
             )
@@ -735,9 +741,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(environmentNode.text, "MIXED")
             XCTAssertEqual(environmentNode.textStyle.alignment, .trailing)
             XCTAssertEqual(environmentNode.textStyle.maximumNumberOfLines, 2)
+            XCTAssertEqual(environmentNode.textStyle.lineBreakMode, .truncateMiddle)
             XCTAssertTrue(environmentNode.textStyle.enableKerning)
             XCTAssertEqual(resetNode.children[0].text, "RESET")
             XCTAssertNil(resetNode.children[0].textStyle.maximumNumberOfLines)
+            XCTAssertEqual(resetNode.children[0].textStyle.lineBreakMode, .wrap)
             XCTAssertFalse(resetNode.children[0].textStyle.enableKerning)
             XCTAssertEqual(readerNode.text, "ENV")
         }

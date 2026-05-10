@@ -343,6 +343,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var font: Font?
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
+    public var truncationMode: Text.TruncationMode?
     public var allowsTightening: Bool
     public var textCase: Text.Case?
     public var imageScale: Image.Scale
@@ -360,6 +361,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         font: Font? = nil,
         multilineTextAlignment: TextAlignment = .center,
         lineLimit: Int? = nil,
+        truncationMode: Text.TruncationMode? = nil,
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
         imageScale: Image.Scale = .medium,
@@ -375,6 +377,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.font = font
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
+        self.truncationMode = truncationMode
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.imageScale = imageScale
@@ -596,7 +599,7 @@ public struct ViewBuildContext {
     }
 
     public var truncationMode: Text.TruncationMode? {
-        truncationModeProvider()
+        environmentValuesProvider().truncationMode ?? truncationModeProvider()
     }
 
     public var allowsTightening: Bool {
@@ -1002,7 +1005,7 @@ public struct ViewBuildContext {
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
-            truncationModeProvider: { mode },
+            truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
@@ -1010,7 +1013,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.truncationMode = mode
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,

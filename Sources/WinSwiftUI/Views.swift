@@ -1003,6 +1003,7 @@ public struct Text: View {
     private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
     private var lineSpacing: Double?
+    private var allowsTightening: Bool?
     private var underline: Bool
     private var strikethrough: Bool
 
@@ -1016,6 +1017,7 @@ public struct Text: View {
         self.truncationMode = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
+        self.allowsTightening = nil
         self.underline = false
         self.strikethrough = false
     }
@@ -1068,7 +1070,8 @@ public struct Text: View {
                 ),
                 maximumNumberOfLines: resolvedLineLimit,
                 underline: underline,
-                strikethrough: strikethrough
+                strikethrough: strikethrough,
+                enableKerning: allowsTightening ?? context.allowsTightening
             )
         }
     }
@@ -1144,6 +1147,12 @@ public struct Text: View {
 
     public func tracking(_ tracking: Double) -> Text {
         kerning(tracking)
+    }
+
+    public func allowsTightening(_ flag: Bool) -> Text {
+        var copy = self
+        copy.allowsTightening = flag
+        return copy
     }
 
     public func underline(_ active: Bool = true, color: Color? = nil) -> Text {

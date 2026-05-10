@@ -488,6 +488,7 @@ public struct ViewBuildContext {
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
     private let truncationModeProvider: () -> Text.TruncationMode?
+    private let allowsTighteningProvider: () -> Bool
     private let stackAxisProvider: () -> StackAxis?
     private let buttonStyleProvider: () -> ButtonStyle
     private let pickerStyleProvider: () -> PickerStyle
@@ -541,6 +542,10 @@ public struct ViewBuildContext {
         truncationModeProvider()
     }
 
+    public var allowsTightening: Bool {
+        allowsTighteningProvider()
+    }
+
     public var stackAxis: StackAxis? {
         stackAxisProvider()
     }
@@ -580,6 +585,7 @@ public struct ViewBuildContext {
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil },
         truncationModeProvider: @escaping () -> Text.TruncationMode? = { nil },
+        allowsTighteningProvider: @escaping () -> Bool = { true },
         stackAxisProvider: @escaping () -> StackAxis? = { nil },
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
@@ -601,6 +607,7 @@ public struct ViewBuildContext {
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
         self.truncationModeProvider = truncationModeProvider
+        self.allowsTighteningProvider = allowsTighteningProvider
         self.stackAxisProvider = stackAxisProvider
         self.buttonStyleProvider = buttonStyleProvider
         self.pickerStyleProvider = pickerStyleProvider
@@ -654,6 +661,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -679,6 +687,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -704,6 +713,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -729,6 +739,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -754,6 +765,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -779,6 +791,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -804,6 +817,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -829,6 +843,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit },
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -854,6 +869,33 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: { mode },
+            allowsTighteningProvider: allowsTighteningProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withAllowsTightening(_ allowsTightening: Bool) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: { allowsTightening },
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -879,6 +921,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: { axis },
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -904,6 +947,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: { buttonStyle },
             pickerStyleProvider: pickerStyleProvider,
@@ -929,6 +973,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: { pickerStyle },
@@ -954,6 +999,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -983,6 +1029,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1008,6 +1055,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1033,6 +1081,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -1060,6 +1109,7 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
@@ -2603,6 +2653,12 @@ public extension View {
     func truncationMode(_ mode: Text.TruncationMode) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTruncationMode(mode))
+        }
+    }
+
+    func allowsTightening(_ flag: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withAllowsTightening(flag))
         }
     }
 

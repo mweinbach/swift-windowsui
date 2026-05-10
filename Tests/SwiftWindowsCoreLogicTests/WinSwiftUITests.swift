@@ -482,6 +482,24 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAllowsTighteningMapsToRetainedKerningFlag() async {
+        await MainActor.run {
+            let tightenedNode = makeNode(Text("TIGHT").allowsTightening(false))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("EXPLICIT")
+                        .allowsTightening(true)
+                }
+                .allowsTightening(false)
+            )
+
+            XCTAssertFalse(tightenedNode.textStyle.enableKerning)
+            XCTAssertFalse(inheritedNode.children[0].textStyle.enableKerning)
+            XCTAssertTrue(inheritedNode.children[1].textStyle.enableKerning)
+        }
+    }
+
     func testTruncationModeMapsToRetainedLineBreakMode() async {
         await MainActor.run {
             let headNode = makeNode(

@@ -167,6 +167,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBackgroundContentAlignsBehindBaseWithoutExpandingLayout() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Text("BASE")
+                .frame(width: 80, height: 32)
+                .background(alignment: .topLeading) {
+                    Text("BG")
+                        .frame(width: 20, height: 10)
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(node.preferredSize, Size(width: 80, height: 32))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame, Rect(x: 0, y: 0, width: 20, height: 10))
+            XCTAssertEqual(node.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+        }
+    }
+
     func testExplicitTextStyleOverridesInheritedStyle() async {
         await MainActor.run {
             let node = makeNode(

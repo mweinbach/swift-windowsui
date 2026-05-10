@@ -85,6 +85,7 @@ Modifiers:
 - `frame`
 - `padding`
 - `background`
+- `background(alignment:content:)`
 - `overlay(alignment:content:)`
 - `foregroundColor`
 - `foregroundStyle` for solid `Color` values

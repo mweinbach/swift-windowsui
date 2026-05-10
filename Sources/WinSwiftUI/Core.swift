@@ -1281,6 +1281,43 @@ public extension View {
         }
     }
 
+    func background(alignment: Alignment = .center, @ViewBuilder content backgroundContent: () -> [AnyView]) -> some View {
+        let backgroundViews = backgroundContent()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let background = composeComponent(from: backgroundViews, context: context, fallbackLayout: .absolute)
+
+            return Component { runtime in
+                let backgroundNode = background.makeNode(runtime: runtime)
+                let baseNode = base.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let backgroundSize = backgroundNode.intrinsicContentSize()
+                    let backgroundOrigin = alignment.frameOrigin(for: backgroundSize, in: containerSize)
+                    let backgroundFrame = Rect(origin: backgroundOrigin, size: backgroundSize)
+                    if backgroundNode.frame != backgroundFrame {
+                        backgroundNode.frame = backgroundFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
     func overlay(alignment: Alignment = .center, @ViewBuilder content overlayContent: () -> [AnyView]) -> some View {
         let overlayViews = overlayContent()
         return ModifiedView(content: self) { content, context in

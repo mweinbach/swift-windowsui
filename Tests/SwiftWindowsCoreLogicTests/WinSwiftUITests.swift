@@ -1706,9 +1706,29 @@ final class WinSwiftUITests: XCTestCase {
                 Text("LEGACY")
                     .edgesIgnoringSafeArea(.all)
             )
+            let defaultPaddingNode = makeNode(
+                Text("DEFAULT")
+                    .safeAreaPadding()
+            )
+            let edgePaddingNode = makeNode(
+                Text("EDGE")
+                    .safeAreaPadding(.horizontal, 12)
+            )
+            let optionalPaddingNode = makeNode(
+                Text("OPTIONAL")
+                    .safeAreaPadding(.vertical, nil)
+            )
+            let insetPaddingNode = makeNode(
+                Text("INSETS")
+                    .safeAreaPadding(EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
+            )
 
             XCTAssertEqual(ignoredNode.text, "SAFE")
             XCTAssertEqual(legacyNode.text, "LEGACY")
+            XCTAssertEqual(defaultPaddingNode.text, "DEFAULT")
+            XCTAssertEqual(edgePaddingNode.text, "EDGE")
+            XCTAssertEqual(optionalPaddingNode.text, "OPTIONAL")
+            XCTAssertEqual(insetPaddingNode.text, "INSETS")
         }
     }
 

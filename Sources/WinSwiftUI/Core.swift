@@ -169,8 +169,16 @@ public struct NavigationPath: Equatable {
         elements.isEmpty
     }
 
+    var anyElements: [AnyHashable] {
+        elements
+    }
+
     public mutating func append<Value: Hashable>(_ value: Value) {
         elements.append(AnyHashable(value))
+    }
+
+    mutating func appendAnyHashable(_ value: AnyHashable) {
+        elements.append(value)
     }
 
     public mutating func removeLast(_ count: Int = 1) {

@@ -256,20 +256,44 @@ private final class NavigationContainerState {
 }
 
 @MainActor
+private struct NavigationPathBinding {
+    var values: () -> [AnyHashable]
+    var append: (AnyHashable) -> Bool
+    var removeLast: () -> Void
+}
+
+@MainActor
 public struct NavigationStack: View {
     public typealias Body = Never
 
     private let state: NavigationContainerState
+    private let pathBinding: NavigationPathBinding?
     private let content: [AnyView]
 
     public init(@ViewBuilder root: () -> [AnyView]) {
         self.state = NavigationContainerState()
+        self.pathBinding = nil
         self.content = root()
     }
 
     public init(path: Binding<NavigationPath>, @ViewBuilder root: () -> [AnyView]) {
-        _ = path
         self.state = NavigationContainerState()
+        self.pathBinding = NavigationPathBinding(
+            values: {
+                path.wrappedValue.anyElements
+            },
+            append: { value in
+                var updatedPath = path.wrappedValue
+                updatedPath.appendAnyHashable(value)
+                path.wrappedValue = updatedPath
+                return true
+            },
+            removeLast: {
+                var updatedPath = path.wrappedValue
+                updatedPath.removeLast()
+                path.wrappedValue = updatedPath
+            }
+        )
         self.content = root()
     }
 
@@ -277,8 +301,29 @@ public struct NavigationStack: View {
         path: Binding<Data>,
         @ViewBuilder root: () -> [AnyView]
     ) where Data: MutableCollection & RandomAccessCollection & RangeReplaceableCollection, Data.Element: Hashable {
-        _ = path
         self.state = NavigationContainerState()
+        self.pathBinding = NavigationPathBinding(
+            values: {
+                path.wrappedValue.map { AnyHashable($0) }
+            },
+            append: { value in
+                guard let typedValue = value.base as? Data.Element else {
+                    return false
+                }
+
+                var updatedPath = path.wrappedValue
+                updatedPath.append(typedValue)
+                path.wrappedValue = updatedPath
+                return true
+            },
+            removeLast: {
+                var updatedPath = path.wrappedValue
+                if !updatedPath.isEmpty {
+                    updatedPath.removeLast()
+                    path.wrappedValue = updatedPath
+                }
+            }
+        )
         self.content = root()
     }
 
@@ -290,6 +335,7 @@ public struct NavigationStack: View {
         navigationContainerComponent(
             from: content,
             state: state,
+            pathBinding: pathBinding,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
@@ -301,10 +347,12 @@ public struct NavigationView: View {
     public typealias Body = Never
 
     private let state: NavigationContainerState
+    private let pathBinding: NavigationPathBinding?
     private let content: [AnyView]
 
     public init(@ViewBuilder content: () -> [AnyView]) {
         self.state = NavigationContainerState()
+        self.pathBinding = nil
         self.content = content()
     }
 
@@ -316,6 +364,7 @@ public struct NavigationView: View {
         navigationContainerComponent(
             from: content,
             state: state,
+            pathBinding: pathBinding,
             context: context,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
         )
@@ -326,6 +375,7 @@ public struct NavigationView: View {
 private func navigationContainerComponent(
     from content: [AnyView],
     state: NavigationContainerState,
+    pathBinding: NavigationPathBinding?,
     context: ViewBuildContext,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
@@ -333,6 +383,7 @@ private func navigationContainerComponent(
         from: content,
         destinationStack: state.destinationStack,
         setDestinationStack: { state.destinationStack = $0 },
+        pathBinding: pathBinding,
         context: context,
         fallbackLayout: fallbackLayout
     )
@@ -343,12 +394,19 @@ private func navigationContainerComponent(
     from content: [AnyView],
     destinationStack: [[AnyView]],
     setDestinationStack: @escaping ([[AnyView]]) -> Void,
+    pathBinding: NavigationPathBinding?,
     context: ViewBuildContext,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
-    let visibleContent = destinationStack.last ?? content
-    let destinationRegistrations = context.navigationDestinationRegistrations
+    let rootDestinationRegistrations = context.navigationDestinationRegistrations
         + navigationDestinations(in: content)
+    let pathDestinationStack = resolvedNavigationStack(
+        from: pathBinding?.values() ?? [],
+        registrations: rootDestinationRegistrations
+    )
+    let combinedDestinationStack = pathDestinationStack + destinationStack
+    let visibleContent = combinedDestinationStack.last ?? content
+    let destinationRegistrations = rootDestinationRegistrations
         + navigationDestinations(in: visibleContent)
 
     func pushDestination(_ destination: [AnyView]) {
@@ -373,7 +431,11 @@ private func navigationContainerComponent(
                 return false
             }
 
-            pushDestination(destination)
+            if pathBinding?.append(value) == true {
+                context.invalidate()
+            } else {
+                pushDestination(destination)
+            }
             return true
         }
     let body = composeComponent(
@@ -383,7 +445,7 @@ private func navigationContainerComponent(
     )
 
     let title = navigationTitle(in: visibleContent) ?? navigationTitle(in: content)
-    let shouldShowChrome = title != nil || !destinationStack.isEmpty
+    let shouldShowChrome = title != nil || !combinedDestinationStack.isEmpty
     guard shouldShowChrome else {
         return body
     }
@@ -406,7 +468,7 @@ private func navigationContainerComponent(
         let titleNode = titleComponent.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
         var headerChildren: [ViewNode] = []
-        if !destinationStack.isEmpty {
+        if !combinedDestinationStack.isEmpty {
             let backLabel = Controls.label(
                 "<",
                 preferredSize: Size(width: 22, height: 26),
@@ -428,9 +490,13 @@ private func navigationContainerComponent(
                 )),
                 isEnabled: context.isEnabled,
                 action: {
-                    var updatedStack = destinationStack
-                    _ = updatedStack.popLast()
-                    setDestinationStack(updatedStack)
+                    if !destinationStack.isEmpty {
+                        var updatedStack = destinationStack
+                        _ = updatedStack.popLast()
+                        setDestinationStack(updatedStack)
+                    } else {
+                        pathBinding?.removeLast()
+                    }
                     context.invalidate()
                 },
                 children: [backLabel]
@@ -488,6 +554,23 @@ private func resolveNavigationDestination(
     }
 
     return nil
+}
+
+@MainActor
+private func resolvedNavigationStack(
+    from values: [AnyHashable],
+    registrations: [NavigationDestinationRegistration]
+) -> [[AnyView]] {
+    var stack: [[AnyView]] = []
+    for value in values {
+        guard let destination = resolveNavigationDestination(for: value, registrations: registrations) else {
+            break
+        }
+
+        stack.append(destination)
+    }
+
+    return stack
 }
 
 @MainActor

@@ -1502,6 +1502,69 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationStackPathBindingSyncsValuePushAndBack() async {
+        await MainActor.run {
+            var path = NavigationPath()
+            let stack = NavigationStack(
+                path: Binding(
+                    get: { path },
+                    set: { path = $0 }
+                )
+            ) {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink("OPEN", value: "detail")
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("VALUE \(value)")
+                    .navigationTitle("VALUE TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+
+            rootNode.children[1].children[0].onActivate?()
+
+            XCTAssertEqual(path.count, 1)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("VALUE TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "VALUE detail")
+
+            detailNode.children[0].children[0].onActivate?()
+
+            XCTAssertTrue(path.isEmpty)
+
+            let poppedNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: poppedNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertTrue(allTexts(in: poppedNode.children[1]).contains("OPEN"))
+        }
+    }
+
+    func testNavigationStackInitialPathBindingRendersResolvedDestination() async {
+        await MainActor.run {
+            var path = ["detail"]
+            let stack = NavigationStack(
+                path: Binding(
+                    get: { path },
+                    set: { path = $0 }
+                )
+            ) {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                Text("VALUE \(value)")
+                    .navigationTitle("VALUE TITLE")
+            }
+
+            let node = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("VALUE TITLE"))
+            XCTAssertEqual(node.children[1].text, "VALUE detail")
+        }
+    }
+
     func testNavigationDestinationModifiersPreserveRootContent() async {
         await MainActor.run {
             let item = NavigationDestinationItem(id: "selected")

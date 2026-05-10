@@ -618,6 +618,7 @@ final class WinSwiftUITests: XCTestCase {
 
     func testAllowsTighteningMapsToRetainedKerningFlag() async {
         await MainActor.run {
+            let defaultNode = makeNode(Text("DEFAULT"))
             let tightenedNode = makeNode(Text("TIGHT").allowsTightening(false))
             let inheritedNode = makeNode(
                 VStack {
@@ -628,6 +629,7 @@ final class WinSwiftUITests: XCTestCase {
                 .allowsTightening(false)
             )
 
+            XCTAssertTrue(defaultNode.textStyle.enableKerning)
             XCTAssertFalse(tightenedNode.textStyle.enableKerning)
             XCTAssertFalse(inheritedNode.children[0].textStyle.enableKerning)
             XCTAssertTrue(inheritedNode.children[1].textStyle.enableKerning)
@@ -681,6 +683,63 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(textNode.textStyle.maximumNumberOfLines, 2)
             XCTAssertEqual(inheritedNode.children[0].textStyle.maximumNumberOfLines, 3)
             XCTAssertEqual(inheritedNode.children[1].textStyle.maximumNumberOfLines, 1)
+        }
+    }
+
+    func testTextEnvironmentValuesBridgeRetainedTextStyle() async {
+        await MainActor.run {
+            struct TextEnvironmentReaderView: View {
+                @Environment(\.multilineTextAlignment) var alignment
+                @Environment(\.lineLimit) var lineLimit
+                @Environment(\.allowsTightening) var allowsTightening
+                @Environment(\.textCase) var textCase
+
+                var body: some View {
+                    Text(
+                        alignment == .trailing
+                            && lineLimit == 2
+                            && allowsTightening
+                            && textCase == .uppercase
+                            ? "ENV"
+                            : "DEFAULT"
+                    )
+                }
+            }
+
+            let environmentNode = makeNode(
+                Text("mixed")
+                    .environment(\.multilineTextAlignment, .trailing)
+                    .environment(\.lineLimit, 2)
+                    .environment(\.allowsTightening, true)
+                    .environment(\.textCase, .uppercase)
+            )
+            let resetNode = makeNode(
+                VStack {
+                    Text("RESET")
+                        .lineLimit(nil)
+                        .allowsTightening(false)
+                        .textCase(nil)
+                }
+                .lineLimit(1)
+                .allowsTightening(true)
+                .textCase(.uppercase)
+            )
+            let readerNode = makeNode(
+                TextEnvironmentReaderView()
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(2)
+                    .allowsTightening(true)
+                    .textCase(.uppercase)
+            )
+
+            XCTAssertEqual(environmentNode.text, "MIXED")
+            XCTAssertEqual(environmentNode.textStyle.alignment, .trailing)
+            XCTAssertEqual(environmentNode.textStyle.maximumNumberOfLines, 2)
+            XCTAssertTrue(environmentNode.textStyle.enableKerning)
+            XCTAssertEqual(resetNode.children[0].text, "RESET")
+            XCTAssertNil(resetNode.children[0].textStyle.maximumNumberOfLines)
+            XCTAssertFalse(resetNode.children[0].textStyle.enableKerning)
+            XCTAssertEqual(readerNode.text, "ENV")
         }
     }
 

@@ -341,6 +341,10 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
     public var font: Font?
+    public var multilineTextAlignment: TextAlignment
+    public var lineLimit: Int?
+    public var allowsTightening: Bool
+    public var textCase: Text.Case?
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
@@ -354,6 +358,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
         font: Font? = nil,
+        multilineTextAlignment: TextAlignment = .center,
+        lineLimit: Int? = nil,
+        allowsTightening: Bool = true,
+        textCase: Text.Case? = nil,
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
@@ -365,6 +373,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.foregroundStyle = foregroundStyle
         self.tint = tint
         self.font = font
+        self.multilineTextAlignment = multilineTextAlignment
+        self.lineLimit = lineLimit
+        self.allowsTightening = allowsTightening
+        self.textCase = textCase
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
@@ -576,11 +588,11 @@ public struct ViewBuildContext {
     }
 
     public var textAlignment: TextAlignment {
-        textAlignmentProvider()
+        environmentValuesProvider().multilineTextAlignment
     }
 
     public var lineLimit: Int? {
-        lineLimitProvider()
+        environmentValuesProvider().lineLimit ?? lineLimitProvider()
     }
 
     public var truncationMode: Text.TruncationMode? {
@@ -588,11 +600,11 @@ public struct ViewBuildContext {
     }
 
     public var allowsTightening: Bool {
-        allowsTighteningProvider()
+        environmentValuesProvider().allowsTightening
     }
 
     public var textCase: Text.Case? {
-        textCaseProvider()
+        environmentValuesProvider().textCase ?? textCaseProvider()
     }
 
     public var labelsHidden: Bool {
@@ -922,7 +934,7 @@ public struct ViewBuildContext {
             fontProvider: fontProvider,
             fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
-            textAlignmentProvider: { alignment },
+            textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
@@ -932,7 +944,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.multilineTextAlignment = alignment
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -952,7 +968,7 @@ public struct ViewBuildContext {
             fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
-            lineLimitProvider: { lineLimit },
+            lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
@@ -961,7 +977,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.lineLimit = lineLimit
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -1012,14 +1032,18 @@ public struct ViewBuildContext {
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
-            allowsTighteningProvider: { allowsTightening },
+            allowsTighteningProvider: allowsTighteningProvider,
             textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
             controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.allowsTightening = allowsTightening
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -1042,13 +1066,17 @@ public struct ViewBuildContext {
             lineLimitProvider: lineLimitProvider,
             truncationModeProvider: truncationModeProvider,
             allowsTighteningProvider: allowsTighteningProvider,
-            textCaseProvider: { textCase },
+            textCaseProvider: textCaseProvider,
             labelsHiddenProvider: labelsHiddenProvider,
             controlSizeProvider: controlSizeProvider,
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.textCase = textCase
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,

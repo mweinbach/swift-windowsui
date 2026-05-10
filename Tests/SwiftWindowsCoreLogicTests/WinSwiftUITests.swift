@@ -144,6 +144,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStringProtocolInputsMapToTitledContainers() async {
+        await MainActor.run {
+            let source = "PREFIX-DETAILS"
+            let title = source.dropFirst(7)
+
+            let node = makeNode(
+                VStack {
+                    Section(title) {
+                        Text("ROW")
+                    }
+                    GroupBox(title) {
+                        Text("GROUP CONTENT")
+                    }
+                    DisclosureGroup(title, isExpanded: .constant(true)) {
+                        Text("DISCLOSED")
+                    }
+                }
+            )
+
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "DETAILS" }.count, 3)
+            XCTAssertTrue(allTexts(in: node).contains("ROW"))
+            XCTAssertTrue(allTexts(in: node).contains("GROUP CONTENT"))
+            XCTAssertTrue(allTexts(in: node).contains("DISCLOSED"))
+        }
+    }
+
     func testTextCaseAppliesExplicitAndInheritedCasing() async {
         await MainActor.run {
             let uppercaseNode = makeNode(Text("MiXeD").textCase(.uppercase))

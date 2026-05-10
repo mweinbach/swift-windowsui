@@ -96,9 +96,12 @@ Views and containers:
   - `List(data, content:) where Element: Identifiable`
 - `Form`
 - `Section`
+  - `StringProtocol` title inputs
   - `Section { content } header: { header } footer: { footer }`
 - `GroupBox`
+  - `StringProtocol` title inputs
 - `DisclosureGroup`
+  - `StringProtocol` title inputs
 - `HSplitView`
 - `VSplitView`
 - `Menu`
@@ -241,7 +244,7 @@ Surface direction:
 ## Mapping Notes
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
-- `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet. Common title-bearing controls also accept `StringProtocol` inputs such as `Substring` and forward them through the same retained label paths as `String` titles.
+- `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet. Common title-bearing controls and titled containers also accept `StringProtocol` inputs such as `Substring` and forward them through the same retained label paths as `String` titles.
 - Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`. `font(_:)` accepts `Font?`, bridges through `EnvironmentValues.font`, and `.font(nil)` resets a subtree to the retained default font.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.

@@ -2004,6 +2004,10 @@ public struct Section: View {
         self.content = content()
     }
 
+    public init<S: StringProtocol>(_ title: S, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), style: style, content: content)
+    }
+
     public init(_ titleKey: LocalizedStringKey, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, style: style, content: content)
     }
@@ -2125,6 +2129,10 @@ public struct GroupBox: View {
         }
     }
 
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
     public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, content: content)
     }
@@ -2184,6 +2192,14 @@ public struct DisclosureGroup: View {
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
         }
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        isExpanded: Binding<Bool>? = nil,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(String(title), isExpanded: isExpanded, content: content)
     }
 
     public init(

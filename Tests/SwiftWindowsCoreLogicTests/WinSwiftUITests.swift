@@ -1567,7 +1567,7 @@ final class WinSwiftUITests: XCTestCase {
 
     func testNavigationDestinationModifiersPreserveRootContent() async {
         await MainActor.run {
-            let item = NavigationDestinationItem(id: "selected")
+            let item: NavigationDestinationItem? = nil
             let node = makeNode(
                 NavigationStack {
                     NavigationLink("OPEN", value: "detail")
@@ -1575,15 +1575,75 @@ final class WinSwiftUITests: XCTestCase {
                 .navigationDestination(for: String.self) { value in
                     Text(value)
                 }
-                .navigationDestination(isPresented: Binding.constant(true)) {
+                .navigationDestination(isPresented: Binding.constant(false)) {
                     Text("PRESENTED")
                 }
-                .navigationDestination(item: Binding.constant(Optional(item))) { selectedItem in
+                .navigationDestination(item: Binding.constant(item)) { selectedItem in
                     Text(selectedItem.id)
                 }
             )
 
             XCTAssertTrue(allTexts(in: node).contains("OPEN"))
+        }
+    }
+
+    func testNavigationDestinationIsPresentedShowsAndDismissesRetainedDestination() async {
+        await MainActor.run {
+            var isPresented = true
+            let stack = NavigationStack {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { isPresented },
+                    set: { isPresented = $0 }
+                )
+            ) {
+                Text("PRESENTED")
+                    .navigationTitle("PRESENTED TITLE")
+            }
+
+            let presentedNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: presentedNode.children[0]).contains("PRESENTED TITLE"))
+            XCTAssertEqual(presentedNode.children[1].text, "PRESENTED")
+
+            presentedNode.children[0].children[0].onActivate?()
+
+            XCTAssertFalse(isPresented)
+
+            let rootNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: rootNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertEqual(rootNode.children[1].text, "ROOT")
+        }
+    }
+
+    func testNavigationDestinationItemShowsAndClearsRetainedDestination() async {
+        await MainActor.run {
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "selected")
+            let stack = NavigationStack {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(
+                item: Binding(
+                    get: { selectedItem },
+                    set: { selectedItem = $0 }
+                )
+            ) { item in
+                Text("ITEM \(item.id)")
+                    .navigationTitle("ITEM TITLE")
+            }
+
+            let itemNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: itemNode.children[0]).contains("ITEM TITLE"))
+            XCTAssertEqual(itemNode.children[1].text, "ITEM selected")
+
+            itemNode.children[0].children[0].onActivate?()
+
+            XCTAssertNil(selectedItem)
         }
     }
 

@@ -400,11 +400,15 @@ private func navigationContainerComponent(
 ) -> Component {
     let rootDestinationRegistrations = context.navigationDestinationRegistrations
         + navigationDestinations(in: content)
+    let rootPresentedDestinations = context.navigationPresentedDestinations
+        + navigationPresentedDestinations(in: content)
     let pathDestinationStack = resolvedNavigationStack(
         from: pathBinding?.values() ?? [],
         registrations: rootDestinationRegistrations
     )
-    let combinedDestinationStack = pathDestinationStack + destinationStack
+    let activePresentation = activeNavigationPresentation(in: rootPresentedDestinations)
+    let presentedDestination = activePresentation?.destination
+    let combinedDestinationStack = pathDestinationStack + destinationStack + [presentedDestination].compactMap { $0 }
     let visibleContent = combinedDestinationStack.last ?? content
     let destinationRegistrations = rootDestinationRegistrations
         + navigationDestinations(in: visibleContent)
@@ -490,7 +494,9 @@ private func navigationContainerComponent(
                 )),
                 isEnabled: context.isEnabled,
                 action: {
-                    if !destinationStack.isEmpty {
+                    if let activePresentation {
+                        activePresentation.dismiss()
+                    } else if !destinationStack.isEmpty {
                         var updatedStack = destinationStack
                         _ = updatedStack.popLast()
                         setDestinationStack(updatedStack)
@@ -540,6 +546,26 @@ private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarI
 @MainActor
 private func navigationDestinations(in content: [AnyView]) -> [NavigationDestinationRegistration] {
     content.flatMap(\.navigationDestinationRegistrations)
+}
+
+@MainActor
+private func navigationPresentedDestinations(in content: [AnyView]) -> [NavigationPresentedDestination] {
+    content.flatMap(\.navigationPresentedDestinations)
+}
+
+@MainActor
+private func activeNavigationPresentation(
+    in presentations: [NavigationPresentedDestination]
+) -> (destination: [AnyView], dismiss: () -> Void)? {
+    for presentation in presentations.reversed() {
+        guard let destination = presentation.destination(), !destination.isEmpty else {
+            continue
+        }
+
+        return (destination, presentation.dismiss)
+    }
+
+    return nil
 }
 
 @MainActor

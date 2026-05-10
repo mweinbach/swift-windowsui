@@ -207,6 +207,12 @@ struct NavigationDestinationRegistration {
 }
 
 @MainActor
+struct NavigationPresentedDestination {
+    let destination: () -> [AnyView]?
+    let dismiss: () -> Void
+}
+
+@MainActor
 public protocol ObservableObject: AnyObject {}
 
 @MainActor
@@ -470,6 +476,7 @@ public struct ViewBuildContext {
     private let navigationDestinationHandlerProvider: () -> (([AnyView]) -> Void)?
     private let navigationValueHandlerProvider: () -> ((AnyHashable) -> Bool)?
     private let navigationDestinationRegistrationsProvider: () -> [NavigationDestinationRegistration]
+    private let navigationPresentedDestinationsProvider: () -> [NavigationPresentedDestination]
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -525,6 +532,10 @@ public struct ViewBuildContext {
         navigationDestinationRegistrationsProvider()
     }
 
+    var navigationPresentedDestinations: [NavigationPresentedDestination] {
+        navigationPresentedDestinationsProvider()
+    }
+
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
@@ -542,7 +553,8 @@ public struct ViewBuildContext {
         environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() },
         navigationDestinationHandlerProvider: @escaping () -> (([AnyView]) -> Void)? = { nil },
         navigationValueHandlerProvider: @escaping () -> ((AnyHashable) -> Bool)? = { nil },
-        navigationDestinationRegistrationsProvider: @escaping () -> [NavigationDestinationRegistration] = { [] }
+        navigationDestinationRegistrationsProvider: @escaping () -> [NavigationDestinationRegistration] = { [] },
+        navigationPresentedDestinationsProvider: @escaping () -> [NavigationPresentedDestination] = { [] }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
@@ -561,6 +573,7 @@ public struct ViewBuildContext {
         self.navigationDestinationHandlerProvider = navigationDestinationHandlerProvider
         self.navigationValueHandlerProvider = navigationValueHandlerProvider
         self.navigationDestinationRegistrationsProvider = navigationDestinationRegistrationsProvider
+        self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
     }
 
     public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
@@ -610,7 +623,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -632,7 +646,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -654,7 +669,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -676,7 +692,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -698,7 +715,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -720,7 +738,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -742,7 +761,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -764,7 +784,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -786,7 +807,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -808,7 +830,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -834,7 +857,8 @@ public struct ViewBuildContext {
             },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -856,7 +880,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: { handler },
             navigationValueHandlerProvider: navigationValueHandlerProvider,
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -878,7 +903,8 @@ public struct ViewBuildContext {
             environmentValuesProvider: environmentValuesProvider,
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: { handler },
-            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
         )
     }
 
@@ -902,6 +928,32 @@ public struct ViewBuildContext {
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: {
                 navigationDestinationRegistrationsProvider() + [registration]
+            },
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withNavigationPresentedDestination(_ destination: NavigationPresentedDestination) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: {
+                navigationPresentedDestinationsProvider() + [destination]
             }
         )
     }
@@ -995,6 +1047,7 @@ public struct AnyView: View {
     let navigationTitle: [AnyView]?
     let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     let navigationDestinationRegistrations: [NavigationDestinationRegistration]
+    let navigationPresentedDestinations: [NavigationPresentedDestination]
 
     public init<V: View>(_ view: V) {
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
@@ -1002,6 +1055,7 @@ public struct AnyView: View {
         self.navigationTitle = (view as? any TaggedViewMetadata)?.anyNavigationTitle
         self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
         self.navigationDestinationRegistrations = (view as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
+        self.navigationPresentedDestinations = (view as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
         self.buildComponent = { context in
             ViewBuildContextScope.withCurrent(context) {
                 view.makeComponent(context: context)
@@ -1552,6 +1606,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     var navigationTitle: [AnyView]?
     var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] = []
+    var navigationPresentedDestinations: [NavigationPresentedDestination] = []
 
     var anySelectionTag: AnyHashable? {
         selectionTag ?? (content as? any TaggedViewMetadata)?.anySelectionTag
@@ -1571,6 +1626,10 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         ((content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []) + navigationDestinationRegistrations
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        ((content as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []) + navigationPresentedDestinations
     }
 
     var body: Never {
@@ -1600,6 +1659,7 @@ protocol TaggedViewMetadata {
     var anyNavigationTitle: [AnyView]? { get }
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] { get }
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] { get }
 }
 
 extension TaggedViewMetadata {
@@ -1616,6 +1676,10 @@ extension TaggedViewMetadata {
     }
 
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        []
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
         []
     }
 }
@@ -2314,18 +2378,42 @@ public extension View {
         isPresented: Binding<Bool>,
         @ViewBuilder destination: @escaping () -> [AnyView]
     ) -> some View {
-        _ = isPresented
-        _ = destination
-        return self
+        let presentedDestination = NavigationPresentedDestination(
+            destination: {
+                isPresented.wrappedValue ? destination() : nil
+            },
+            dismiss: {
+                isPresented.wrappedValue = false
+            }
+        )
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withNavigationPresentedDestination(presentedDestination))
+        }
+        modified.navigationPresentedDestinations = [presentedDestination]
+        return modified
     }
 
     func navigationDestination<Item>(
         item: Binding<Item?>,
         @ViewBuilder destination: @escaping (Item) -> [AnyView]
     ) -> some View where Item: Identifiable {
-        _ = item
-        _ = destination
-        return self
+        let presentedDestination = NavigationPresentedDestination(
+            destination: {
+                guard let selectedItem = item.wrappedValue else {
+                    return nil
+                }
+
+                return destination(selectedItem)
+            },
+            dismiss: {
+                item.wrappedValue = nil
+            }
+        )
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withNavigationPresentedDestination(presentedDestination))
+        }
+        modified.navigationPresentedDestinations = [presentedDestination]
+        return modified
     }
 
     func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {

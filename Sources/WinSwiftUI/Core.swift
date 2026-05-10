@@ -337,6 +337,16 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case characters
 }
 
+public enum Visibility: Sendable, Equatable {
+    case automatic
+    case visible
+    case hidden
+
+    var hidesRetainedScrollContentBackground: Bool {
+        self == .hidden
+    }
+}
+
 public protocol EnvironmentKey {
     associatedtype Value
 
@@ -364,6 +374,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isAutocorrectionDisabled: Bool
     public var isScrollEnabled: Bool
     var isScrollClipDisabled: Bool
+    var scrollContentBackgroundVisibility: Visibility
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -411,6 +422,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isScrollEnabled = isScrollEnabled
         self.isScrollClipDisabled = false
+        self.scrollContentBackgroundVisibility = .automatic
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -688,6 +700,10 @@ public struct ViewBuildContext {
 
     var isScrollClipDisabled: Bool {
         environmentValuesProvider().isScrollClipDisabled
+    }
+
+    var scrollContentBackgroundVisibility: Visibility {
+        environmentValuesProvider().scrollContentBackgroundVisibility
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
@@ -3807,6 +3823,12 @@ public extension View {
     func scrollClipDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.isScrollClipDisabled, disabled))
+        }
+    }
+
+    func scrollContentBackground(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.scrollContentBackgroundVisibility, visibility))
         }
     }
 

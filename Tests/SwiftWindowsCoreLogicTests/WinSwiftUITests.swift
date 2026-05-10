@@ -2357,6 +2357,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollContentBackgroundVisibilityMapsToRetainedScrollChrome() async {
+        await MainActor.run {
+            let scrollBackground = Color(red: 0.18, green: 0.24, blue: 0.32, alpha: 0.92)
+            let scrollStyle = ScrollViewStyle(backgroundColor: scrollBackground)
+            let sectionGradient = LinearGradient(
+                colors: [.red, .blue],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            let sectionStyle = SectionStyle(
+                backgroundColor: scrollBackground,
+                backgroundGradient: sectionGradient,
+                scrollAxis: .vertical
+            )
+
+            let hiddenScrollViewNode = makeNode(
+                ScrollView(style: scrollStyle) {
+                    Text("ROW")
+                }
+                .scrollContentBackground(.hidden)
+            )
+            let visibleScrollViewNode = makeNode(
+                ScrollView(style: scrollStyle) {
+                    Text("ROW")
+                }
+                .scrollContentBackground(.visible)
+            )
+            let hiddenSectionNode = makeNode(
+                Section("GROUP", style: sectionStyle) {
+                    Text("ITEM")
+                }
+                .scrollContentBackground(.hidden)
+            )
+            let plainSectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(backgroundColor: scrollBackground)) {
+                    Text("ITEM")
+                }
+                .scrollContentBackground(.hidden)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollContentBackground(.hidden)
+            )
+
+            XCTAssertNil(hiddenScrollViewNode.backgroundColor)
+            XCTAssertEqual(visibleScrollViewNode.backgroundColor, scrollBackground)
+            XCTAssertNil(hiddenSectionNode.backgroundColor)
+            XCTAssertNil(hiddenSectionNode.backgroundGradient)
+            XCTAssertEqual(hiddenSectionNode.scrollAxis, .vertical)
+            XCTAssertEqual(plainSectionNode.backgroundColor, scrollBackground)
+            XCTAssertEqual(listNode.scrollAxis, .vertical)
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

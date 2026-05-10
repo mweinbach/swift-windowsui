@@ -2382,7 +2382,7 @@ public struct ScrollView: View {
         Component { runtime in
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
-                backgroundColor: style.backgroundColor,
+                backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground ? nil : style.backgroundColor,
                 borderColor: style.borderColor,
                 borderWidth: style.borderWidth,
                 shadowColor: style.shadowColor,
@@ -2579,10 +2579,12 @@ public struct Section: View {
                 header.map { $0.makeComponent(context: headerContext).makeNode(runtime: runtime) } +
                 content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) } +
                 footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
+            let hidesScrollContentBackground = style.scrollAxis != nil &&
+                context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
 
             let node = Controls.stackPanel(
-                backgroundColor: style.backgroundColor,
-                backgroundGradient: style.backgroundGradient,
+                backgroundColor: hidesScrollContentBackground ? nil : style.backgroundColor,
+                backgroundGradient: hidesScrollContentBackground ? nil : style.backgroundGradient,
                 borderColor: style.borderColor,
                 borderWidth: 1,
                 shadowColor: style.shadowColor,

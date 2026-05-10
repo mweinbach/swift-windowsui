@@ -310,6 +310,79 @@ public struct NavigationView: View {
 }
 
 @MainActor
+public struct NavigationLink: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let destination: [AnyView]
+    private let value: AnyHashable?
+
+    public init<Destination: View>(
+        destination: Destination,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = [AnyView(destination)]
+        self.value = nil
+    }
+
+    public init<Destination: View>(
+        _ title: String,
+        destination: Destination
+    ) {
+        self.label = [AnyView(Text(title))]
+        self.destination = [AnyView(destination)]
+        self.value = nil
+    }
+
+    public init<Destination: View>(
+        _ titleKey: LocalizedStringKey,
+        destination: Destination
+    ) {
+        self.init(titleKey.resolvedString, destination: destination)
+    }
+
+    public init<Value: Hashable>(
+        value: Value,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = []
+        self.value = AnyHashable(value)
+    }
+
+    public init<Value: Hashable>(
+        _ title: String,
+        value: Value
+    ) {
+        self.label = [AnyView(Text(title))]
+        self.destination = []
+        self.value = AnyHashable(value)
+    }
+
+    public init<Value: Hashable>(
+        _ titleKey: LocalizedStringKey,
+        value: Value
+    ) {
+        self.init(titleKey.resolvedString, value: value)
+    }
+
+    public var body: Never {
+        fatalError("NavigationLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        _ = destination
+        _ = value
+        return composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+    }
+}
+
+@MainActor
 public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     public typealias Body = Never
 

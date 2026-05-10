@@ -95,7 +95,7 @@ The current `WinSwiftUI` surface is intentionally a subset. It is designed to co
 Included today:
 
 - App hosting: `App`, `Scene`, `WindowGroup`
-- Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Rectangle`, `RoundedRectangle`, `Capsule`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`
+- Core views: `Text`, including `Text(verbatim:)`, `StringProtocol`, and `LocalizedStringKey` inputs, `Image(systemName:)`, `Label`, `Rectangle`, `RoundedRectangle`, `Capsule`, `Shape`, `Spacer`, `Divider`, `Group`, `GeometryReader`, `NavigationLink`
 - Containers: `NavigationStack`, `NavigationView`, `VStack`, `HStack`, `LazyVStack`, `LazyHStack`, `ZStack`, `ScrollView`, `List` including data-driven row initializers, `Form`, `Section` including header/footer builder overloads, `GroupBox`, `DisclosureGroup`, `HSplitView`, `VSplitView`; stack spacing accepts SwiftUI-style `nil`
 - Collection helpers: `ForEach`, including open and closed integer ranges
 - Controls: `Button` including `ButtonRole` and `systemImage` overloads, `Menu`, `TextField`, `SecureField`, `TextEditor`, `Toggle`, `Picker` including segmented and menu styles, `Stepper`, `Slider` including `step` and label overloads, `ProgressView` including label and current-value label overloads

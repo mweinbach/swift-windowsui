@@ -1272,6 +1272,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationLinkRendersLabelContent() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink("SHOW", destination: Text("DESTINATION"))
+                    NavigationLink(value: "settings") {
+                        Label("SETTINGS", systemImage: "gear")
+                    }
+                    NavigationLink(LocalizedStringKey("ITEM"), value: 3)
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].text, "SHOW")
+            XCTAssertTrue(allTexts(in: node.children[1]).contains("SETTINGS"))
+            XCTAssertEqual(node.children[2].text, "ITEM")
+        }
+    }
+
     func testForEachFlattensInsideStackAndAssignsStableIDs() async {
         await MainActor.run {
             let node = makeNode(

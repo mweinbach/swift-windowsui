@@ -44,6 +44,53 @@ public struct Group: View {
 }
 
 @MainActor
+public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
+    public typealias Body = Never
+
+    let contentViews: [AnyView]
+
+    public init(_ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+        self.contentViews = Self.buildContentViews(data: data, id: id, content: content)
+    }
+
+    public var body: Never {
+        fatalError("ForEach has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(from: contentViews, context: context)
+    }
+
+    private static func buildContentViews(
+        data: Data,
+        id: KeyPath<Data.Element, ID>,
+        content: (Data.Element) -> [AnyView]
+    ) -> [AnyView] {
+        var views: [AnyView] = []
+        for element in data {
+            let elementID = String(describing: element[keyPath: id])
+            let elementViews = content(element)
+            for (index, view) in elementViews.enumerated() {
+                views.append(AnyView(view.id("\(elementID)#\(index)")))
+            }
+        }
+        return views
+    }
+}
+
+public extension ForEach where Data.Element: Identifiable, ID == Data.Element.ID {
+    init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+        self.init(data, id: \.id, content: content)
+    }
+}
+
+public extension ForEach where Data == Range<Int>, ID == Int {
+    init(_ data: Range<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+        self.init(data, id: \.self, content: content)
+    }
+}
+
+@MainActor
 public struct Text: View {
     public typealias Body = Never
 
@@ -444,6 +491,63 @@ public struct Section: View {
                 headerScale: style.headerFont.size,
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
+public struct Toggle: View {
+    public typealias Body = Never
+
+    private let isOn: Binding<Bool>
+    private let label: [AnyView]
+
+    public init(_ title: String, isOn: Binding<Bool>) {
+        self.isOn = isOn
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.6, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+    }
+
+    public init(isOn: Binding<Bool>, @ViewBuilder label: () -> [AnyView]) {
+        self.isOn = isOn
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError("Toggle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let binding = isOn
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            let toggleNode = Controls.toggle(
+                runtime: runtime,
+                isOn: binding.wrappedValue,
+                onToggle: { newValue in
+                    binding.wrappedValue = newValue
+                    context.invalidate()
+                }
+            )
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 10, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, toggleNode]
             )
         }
     }

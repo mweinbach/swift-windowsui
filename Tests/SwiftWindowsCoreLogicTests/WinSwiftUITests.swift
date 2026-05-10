@@ -98,6 +98,79 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachFlattensInsideStackAndAssignsStableIDs() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(["ONE", "TWO"], id: \.self) { title in
+                        Text(title)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertEqual(node.children[1].text, "TWO")
+            XCTAssertEqual(node.children[0].nodeTag, "ONE#0")
+            XCTAssertEqual(node.children[1].nodeTag, "TWO#0")
+        }
+    }
+
+    func testToggleWritesBindingAndInvalidates() async {
+        await MainActor.run {
+            var isEnabled = false
+            var didInvalidate = false
+
+            let node = makeNode(
+                Toggle(
+                    "ENABLED",
+                    isOn: Binding(
+                        get: { isEnabled },
+                        set: { isEnabled = $0 }
+                    )
+                ),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard let toggleNode = firstFocusable(in: node) else {
+                return XCTFail("Expected Toggle to create a focusable retained control")
+            }
+
+            toggleNode.onActivate?()
+
+            XCTAssertTrue(isEnabled)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testBindingPropertyWrapperFeedsToggle() async {
+        await MainActor.run {
+            struct BoundToggle: View {
+                @Binding var isEnabled: Bool
+
+                var body: some View {
+                    Toggle("ENABLED", isOn: $isEnabled)
+                }
+            }
+
+            var isEnabled = false
+            let node = makeNode(
+                BoundToggle(
+                    isEnabled: Binding(
+                        get: { isEnabled },
+                        set: { isEnabled = $0 }
+                    )
+                )
+            )
+
+            firstFocusable(in: node)?.onActivate?()
+
+            XCTAssertTrue(isEnabled)
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -218,6 +291,21 @@ private func firstText(in node: ViewNode) -> String? {
     for child in node.children {
         if let text = firstText(in: child) {
             return text
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func firstFocusable(in node: ViewNode) -> ViewNode? {
+    if node.isFocusable {
+        return node
+    }
+
+    for child in node.children {
+        if let focusable = firstFocusable(in: child) {
+            return focusable
         }
     }
 

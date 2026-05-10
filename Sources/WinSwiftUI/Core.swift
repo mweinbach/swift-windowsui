@@ -160,6 +160,85 @@ public struct ObservedObject<ObjectType: ObservableObject> {
 }
 
 @MainActor
+@propertyWrapper
+public struct Binding<Value> {
+    private let getValue: @MainActor () -> Value
+    private let setValue: @MainActor (Value) -> Void
+
+    public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
+        self.getValue = get
+        self.setValue = set
+    }
+
+    public var wrappedValue: Value {
+        get {
+            getValue()
+        }
+        nonmutating set {
+            setValue(newValue)
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        self
+    }
+
+    public static func constant(_ value: Value) -> Binding<Value> {
+        Binding(get: { value }, set: { _ in })
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct State<Value> {
+    @MainActor
+    private final class Storage {
+        var value: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: Value) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init(wrappedValue: Value) {
+        self.storage = Storage(value: wrappedValue)
+    }
+
+    public init(initialValue: Value) {
+        self.storage = Storage(value: initialValue)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        Binding(
+            get: {
+                wrappedValue
+            },
+            set: { newValue in
+                wrappedValue = newValue
+            }
+        )
+    }
+}
+
+@MainActor
 public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
@@ -277,6 +356,12 @@ extension Array: View where Element == AnyView {
 public enum ViewBuilder {
     public static func buildExpression<V: View>(_ expression: V) -> [AnyView] {
         [AnyView(expression)]
+    }
+
+    public static func buildExpression<Data, ID>(
+        _ expression: ForEach<Data, ID>
+    ) -> [AnyView] {
+        expression.contentViews
     }
 
     public static func buildExpression(_ expression: [AnyView]) -> [AnyView] {

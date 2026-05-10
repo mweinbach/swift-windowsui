@@ -7,17 +7,19 @@ Its job is not to imitate SwiftUI internally. Its job is to let app code use a f
 - `RetainedViewRuntime`
 - `ViewNode`
 - `RenderFrame`
+- `GPUIScene`
 - `Win32Window`
 - `D3D11Renderer`
+- `D3D11BatchRenderer`
 
-The default demo path now stays on `RenderFrame` -> `D3D11Renderer` so layering,
-text, and sizing remain correct while the `GPUIScene` -> `D3D11BatchRenderer`
-path continues behind an explicit experimental opt-in.
+The default demo path now uses `GPUIScene` -> `D3D11BatchRenderer`, with
+`RenderFrame` -> `D3D11Renderer` kept as an automatic fallback and explicit
+debug override.
 
-To force the scene/batch path locally:
+To force the frame fallback locally:
 
 ```powershell
-$env:SWIFT_WINDOWSUI_EXPERIMENTAL_BATCH = "1"
+$env:SWIFT_WINDOWSUI_FRAME_DEBUG = "1"
 swift run swift-windowsui
 ```
 
@@ -59,6 +61,7 @@ Views and containers:
 - `Label`
 - `Spacer`
 - `Group`
+- `ForEach`
 - `GeometryReader`
 - `VStack`
 - `HStack`
@@ -68,6 +71,7 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Button`
+- `Toggle`
 
 Modifiers:
 
@@ -87,7 +91,7 @@ Compatibility helpers:
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
-- minimal `ObservableObject`, `Published`, and `ObservedObject`
+- minimal `Binding`, `State`, `ObservableObject`, `Published`, and `ObservedObject`
 
 Surface direction:
 
@@ -99,8 +103,10 @@ Surface direction:
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
+- `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id.
 - `Button` maps into retained button controls and preserves focus/press/activate animation state.
 - `Button` now also resolves hover-aware border and shadow states so retained controls feel closer to modern desktop/mobile system chrome.
+- `Toggle` maps into the retained switch control and writes through a SwiftUI-shaped `Binding<Bool>`.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
@@ -117,11 +123,14 @@ Surface direction:
 
 `WinSwiftUI` now supports a minimal SwiftUI-style observation path for shared source:
 
+- `Binding`
+- `@State`
 - `ObservableObject`
 - `@Published`
 - `@ObservedObject`
 
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
+`@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 
 This is intentionally small. It exists to support shared app source and runtime invalidation, not to reproduce the full SwiftUI observation stack.
 

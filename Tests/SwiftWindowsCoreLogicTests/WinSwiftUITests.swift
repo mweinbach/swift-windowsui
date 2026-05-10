@@ -659,6 +659,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelStyleModifierSelectsRetainedLabelContent() async {
+        await MainActor.run {
+            let iconOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.iconOnly))
+            let titleOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.titleOnly))
+            let inheritedNode = makeNode(
+                VStack {
+                    Label("SETTINGS", systemImage: "gear")
+                    Label("PROFILE", systemImage: "person")
+                        .labelStyle(.titleAndIcon)
+                }
+                .labelStyle(.titleOnly)
+            )
+
+            XCTAssertFalse(allTexts(in: iconOnlyNode).contains("SETTINGS"))
+            XCTAssertEqual(titleOnlyNode.text, "SETTINGS")
+            XCTAssertEqual(inheritedNode.children[0].text, "SETTINGS")
+            XCTAssertEqual(inheritedNode.children[1].children.count, 2)
+            XCTAssertEqual(inheritedNode.children[1].children[1].text, "PROFILE")
+        }
+    }
+
     func testImageScalingCompatibilityModifiersPassThroughIconRendering() async {
         await MainActor.run {
             let color = Color(red: 0.4, green: 0.7, blue: 1.0, alpha: 1)

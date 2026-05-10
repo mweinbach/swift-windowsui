@@ -1326,11 +1326,18 @@ public struct Label: View {
             .withFont(font)
             .withTextAlignment(.leading)
             .withLineLimit(1)
-        return HStack(spacing: spacing) {
-            icon
-            title
+        switch context.labelStyle.kind {
+        case .automatic, .titleAndIcon:
+            return HStack(spacing: spacing) {
+                icon
+                title
+            }
+            .makeComponent(context: labelContext)
+        case .iconOnly:
+            return composeComponent(from: icon, context: labelContext)
+        case .titleOnly:
+            return composeComponent(from: title, context: labelContext)
         }
-        .makeComponent(context: labelContext)
     }
 
     public func foregroundColor(_ color: Color) -> Label {

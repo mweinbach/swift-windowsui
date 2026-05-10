@@ -340,18 +340,21 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isEnabled: Bool
     public var tint: Color?
     public var controlSize: ControlSize
+    public var labelStyle: LabelStyle
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
         colorScheme: ColorScheme = .dark,
         isEnabled: Bool = true,
         tint: Color? = nil,
-        controlSize: ControlSize = .regular
+        controlSize: ControlSize = .regular,
+        labelStyle: LabelStyle = .automatic
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
         self.tint = tint
         self.controlSize = controlSize
+        self.labelStyle = labelStyle
         self.customValues = [:]
     }
 
@@ -580,6 +583,10 @@ public struct ViewBuildContext {
 
     public var pickerStyle: PickerStyle {
         pickerStyleProvider()
+    }
+
+    public var labelStyle: LabelStyle {
+        environmentValuesProvider().labelStyle
     }
 
     public var environmentValues: EnvironmentValues {
@@ -1832,6 +1839,26 @@ public enum ControlSize: Sendable, Equatable {
     case extraLarge
 }
 
+public struct LabelStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case titleAndIcon
+        case iconOnly
+        case titleOnly
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = LabelStyle(kind: .automatic)
+    public static let titleAndIcon = LabelStyle(kind: .titleAndIcon)
+    public static let iconOnly = LabelStyle(kind: .iconOnly)
+    public static let titleOnly = LabelStyle(kind: .titleOnly)
+}
+
 public struct ScrollViewStyle: Sendable {
     public var spacing: Double
     public var padding: EdgeInsets
@@ -2675,6 +2702,12 @@ public extension View {
     func pickerStyle(_ style: PickerStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withPickerStyle(style))
+        }
+    }
+
+    func labelStyle(_ style: LabelStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
         }
     }
 

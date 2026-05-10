@@ -714,6 +714,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCircleMapsToDynamicRoundedRetainedShapeNode() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.2, green: 0.7, blue: 0.9, alpha: 1)
+            let strokeColor = Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1)
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.1, green: 0.2, blue: 0.9, alpha: 1),
+                    Color(red: 0.8, green: 0.1, blue: 0.7, alpha: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            let root = renderedNode(
+                VStack {
+                    Circle()
+                        .fill(fillColor)
+                        .frame(width: 24, height: 24)
+                    Circle()
+                        .stroke(strokeColor, lineWidth: 2)
+                        .frame(width: 30, height: 30)
+                    Circle()
+                        .fill(gradient)
+                        .frame(width: 28, height: 28)
+                }
+            )
+
+            let filledCircle = root.children[0].children[0]
+            let strokedCircle = root.children[1].children[0]
+            let gradientCircle = root.children[2].children[0]
+            XCTAssertEqual(filledCircle.backgroundColor, fillColor)
+            XCTAssertEqual(filledCircle.cornerRadius, 12)
+            XCTAssertEqual(strokedCircle.backgroundColor, .clear)
+            XCTAssertEqual(strokedCircle.borderColor, strokeColor)
+            XCTAssertEqual(strokedCircle.borderWidth, 2)
+            XCTAssertEqual(strokedCircle.cornerRadius, 15)
+            XCTAssertEqual(gradientCircle.backgroundColor, gradient.startColor)
+            XCTAssertEqual(gradientCircle.backgroundGradient, gradient)
+            XCTAssertEqual(gradientCircle.cornerRadius, 14)
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(
@@ -3634,6 +3675,20 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(node.clipsToBounds)
             XCTAssertEqual(node.cornerRadius, 10)
             XCTAssertEqual(node.children[0].preferredSize, Size(width: 60, height: 20))
+        }
+    }
+
+    func testClipShapeCircleUsesDynamicRetainedCornerRadius() async {
+        await MainActor.run {
+            let node = renderedNode(
+                Text("DOT")
+                    .frame(width: 28, height: 28)
+                    .clipShape(Circle())
+            )
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, 14)
+            XCTAssertEqual(node.children[0].preferredSize, Size(width: 28, height: 28))
         }
     }
 

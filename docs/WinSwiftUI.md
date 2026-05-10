@@ -72,6 +72,7 @@ Views and containers:
 - `Rectangle`
 - `RoundedRectangle(cornerRadius:style:)`
 - `Capsule(style:)`
+- `Circle`
 - `Shape`
 - `Spacer`
 - `Divider`

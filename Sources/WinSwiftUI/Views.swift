@@ -210,6 +210,63 @@ public struct Capsule: View {
     }
 }
 
+@MainActor
+public struct Circle: View {
+    public typealias Body = Never
+
+    private var fillStyle: ForegroundStyle?
+    private var strokeColor: Color
+    private var lineWidth: Double
+
+    public init() {
+        self.fillStyle = nil
+        self.strokeColor = .clear
+        self.lineWidth = 0
+    }
+
+    public var body: Never {
+        fatalError("Circle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        capsuleComponent(
+            fillStyle: fillStyle ?? context.foregroundStyle,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth
+        )
+    }
+
+    public func fill(_ color: Color) -> Circle {
+        var copy = self
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> Circle {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> Circle {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> Circle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeColor = color
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Circle {
+        stroke(color, lineWidth: lineWidth)
+    }
+}
+
 extension Rectangle: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle
@@ -223,6 +280,12 @@ extension RoundedRectangle: Shape, RetainedClipShape {
 }
 
 extension Capsule: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .capsule
+    }
+}
+
+extension Circle: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }

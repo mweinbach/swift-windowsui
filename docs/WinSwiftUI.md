@@ -88,7 +88,9 @@ Modifiers:
 - `frame`
 - `padding`
 - `background`
+- `background(_:alignment:)`
 - `background(alignment:content:)`
+- `overlay(_:alignment:)`
 - `overlay(alignment:content:)`
 - `foregroundColor`
 - `foregroundStyle` for solid `Color` values
@@ -138,6 +140,7 @@ Surface direction:
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
+- `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
 - `onAppear` fires when the retained node first renders, and `onDisappear` fires when an appeared retained subtree is removed or replaced.
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.

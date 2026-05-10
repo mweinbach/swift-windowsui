@@ -251,6 +251,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayViewOverloadUsesExistingAlignmentLayout() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Text("BASE")
+                .frame(width: 90, height: 30)
+                .overlay(
+                    Text("BADGE").frame(width: 18, height: 10),
+                    alignment: .topTrailing
+                )
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(node.preferredSize, Size(width: 90, height: 30))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame, Rect(x: 0, y: 0, width: 90, height: 30))
+            XCTAssertEqual(node.children[1].frame, Rect(x: 72, y: 0, width: 18, height: 10))
+        }
+    }
+
     func testBackgroundContentAlignsBehindBaseWithoutExpandingLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -274,6 +301,33 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.preferredSize, Size(width: 80, height: 32))
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].frame, Rect(x: 0, y: 0, width: 20, height: 10))
+            XCTAssertEqual(node.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+        }
+    }
+
+    func testBackgroundViewOverloadUsesExistingAlignmentLayout() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Text("BASE")
+                .frame(width: 80, height: 32)
+                .background(
+                    Text("BG").frame(width: 16, height: 8),
+                    alignment: .bottomTrailing
+                )
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(node.preferredSize, Size(width: 80, height: 32))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].frame, Rect(x: 64, y: 24, width: 16, height: 8))
             XCTAssertEqual(node.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
         }
     }

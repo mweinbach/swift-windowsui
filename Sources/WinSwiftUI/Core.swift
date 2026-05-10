@@ -1281,6 +1281,12 @@ public extension View {
         }
     }
 
+    func background<Background: View>(_ background: Background, alignment: Alignment = .center) -> some View {
+        self.background(alignment: alignment) {
+            background
+        }
+    }
+
     func background(alignment: Alignment = .center, @ViewBuilder content backgroundContent: () -> [AnyView]) -> some View {
         let backgroundViews = backgroundContent()
         return ModifiedView(content: self) { content, context in
@@ -1315,6 +1321,12 @@ public extension View {
 
                 return root
             }
+        }
+    }
+
+    func overlay<Overlay: View>(_ overlay: Overlay, alignment: Alignment = .center) -> some View {
+        self.overlay(alignment: alignment) {
+            overlay
         }
     }
 

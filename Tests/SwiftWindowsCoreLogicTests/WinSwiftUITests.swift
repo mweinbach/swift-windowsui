@@ -386,6 +386,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMonospacedFontConveniencesPreserveResolvedSizeAndWeight() async {
+        await MainActor.run {
+            let fontNode = makeNode(
+                Text("CODE")
+                    .font(.system(size: 14, weight: .semibold).monospaced())
+            )
+            let inheritedTextNode = makeNode(
+                VStack {
+                    Text("VALUE")
+                        .monospaced()
+                }
+                .font(.system(size: 18, weight: .bold))
+            )
+
+            XCTAssertEqual(fontNode.textStyle.nativeFontSize, 14)
+            XCTAssertEqual(fontNode.textStyle.weight, .semibold)
+            XCTAssertEqual(fontNode.textStyle.fontFamily, "Cascadia Mono")
+
+            let child = inheritedTextNode.children[0]
+            XCTAssertEqual(child.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(child.textStyle.weight, .bold)
+            XCTAssertEqual(child.textStyle.fontFamily, "Cascadia Mono")
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

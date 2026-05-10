@@ -1333,6 +1333,10 @@ public struct Font: Sendable, Equatable {
         Font(size: size, weight: weight, design: design, family: family)
     }
 
+    public func monospaced() -> Font {
+        Font(size: size, weight: weight, design: .monospaced, family: family)
+    }
+
     private static func defaultFont(for style: TextStyle) -> Font {
         switch style {
         case .largeTitle:

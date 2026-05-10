@@ -991,6 +991,7 @@ public struct Text: View {
     private let content: String
     private var color: Color?
     private var font: Font?
+    private var fontDesign: Font.Design?
     private var alignment: TextAlignment?
     private var lineLimit: Int??
     private var letterSpacing: Double?
@@ -1002,6 +1003,7 @@ public struct Text: View {
         self.content = content
         self.color = nil
         self.font = nil
+        self.fontDesign = nil
         self.alignment = nil
         self.lineLimit = nil
         self.letterSpacing = nil
@@ -1029,7 +1031,10 @@ public struct Text: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = color ?? context.foregroundColor
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
-        let resolvedFont = font ?? inheritedFont
+        var resolvedFont = font ?? inheritedFont
+        if fontDesign == .monospaced {
+            resolvedFont = resolvedFont.monospaced()
+        }
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
         if let lineLimit {
@@ -1066,6 +1071,12 @@ public struct Text: View {
     public func font(_ font: Font) -> Text {
         var copy = self
         copy.font = font
+        return copy
+    }
+
+    public func monospaced() -> Text {
+        var copy = self
+        copy.fontDesign = .monospaced
         return copy
     }
 

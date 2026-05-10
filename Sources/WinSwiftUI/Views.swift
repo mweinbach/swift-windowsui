@@ -2398,17 +2398,14 @@ private func textInputComponent(
             lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
             maximumNumberOfLines: allowsNewlines ? nil : 1
         )
+        let style = context.textFieldStyle.resolvedTextInputStyle(isEnabled: context.isEnabled)
         let node = Controls.stackPanel(
             preferredSize: preferredSize,
-            backgroundColor: context.isEnabled
-                ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
-                : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
-            borderColor: context.isEnabled
-                ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
-                : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
-            borderWidth: 1,
-            cornerRadius: 8,
-            stackLayout: .vertical(padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10), alignment: .stretch),
+            backgroundColor: style.backgroundColor,
+            borderColor: style.borderColor,
+            borderWidth: style.borderWidth,
+            cornerRadius: style.cornerRadius,
+            stackLayout: .vertical(padding: style.padding, alignment: .stretch),
             isHitTestVisible: context.isEnabled,
             children: [labelNode]
         )
@@ -2424,7 +2421,7 @@ private func textInputComponent(
             node?.outlineWidth = 2
         }
         node.onFocusExit = { [weak node] in
-            node?.borderColor = Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+            node?.borderColor = style.borderColor
             node?.outlineColor = .clear
             node?.outlineWidth = 0
         }
@@ -3664,6 +3661,41 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
         return .split
     default:
         return .sparkle
+    }
+}
+
+private struct ResolvedTextInputStyle {
+    var backgroundColor: Color
+    var borderColor: Color
+    var borderWidth: Double
+    var cornerRadius: Double
+    var padding: EdgeInsets
+}
+
+private extension TextFieldStyle {
+    func resolvedTextInputStyle(isEnabled: Bool) -> ResolvedTextInputStyle {
+        switch kind {
+        case .automatic, .roundedBorder:
+            return ResolvedTextInputStyle(
+                backgroundColor: isEnabled
+                    ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
+                    : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
+                borderColor: isEnabled
+                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+                    : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
+                borderWidth: 1,
+                cornerRadius: 8,
+                padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+            )
+        case .plain:
+            return ResolvedTextInputStyle(
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 0,
+                padding: EdgeInsets(top: 7, leading: 0, bottom: 7, trailing: 0)
+            )
+        }
     }
 }
 

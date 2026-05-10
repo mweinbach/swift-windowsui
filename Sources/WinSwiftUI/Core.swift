@@ -343,6 +343,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var textFieldStyle: TextFieldStyle
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -352,7 +353,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         tint: Color? = nil,
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
-        labelStyle: LabelStyle = .automatic
+        labelStyle: LabelStyle = .automatic,
+        textFieldStyle: TextFieldStyle = .automatic
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
@@ -361,6 +363,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.textFieldStyle = textFieldStyle
         self.customValues = [:]
     }
 
@@ -608,6 +611,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var textFieldStyle: TextFieldStyle {
+        environmentValuesProvider().textFieldStyle
     }
 
     public var environmentValues: EnvironmentValues {
@@ -1889,6 +1896,24 @@ public struct LabelStyle: Sendable, Equatable {
     public static let titleOnly = LabelStyle(kind: .titleOnly)
 }
 
+public struct TextFieldStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case plain
+        case roundedBorder
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TextFieldStyle(kind: .automatic)
+    public static let plain = TextFieldStyle(kind: .plain)
+    public static let roundedBorder = TextFieldStyle(kind: .roundedBorder)
+}
+
 public struct ScrollViewStyle: Sendable {
     public var spacing: Double
     public var padding: EdgeInsets
@@ -2750,6 +2775,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func textFieldStyle(_ style: TextFieldStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textFieldStyle, style))
         }
     }
 

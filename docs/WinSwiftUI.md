@@ -137,6 +137,7 @@ Modifiers:
 - `buttonStyle`
 - `pickerStyle`
 - `labelStyle`
+- `textFieldStyle`
 - `labelsHidden`
 - `controlSize`
 - `navigationTitle`
@@ -225,6 +226,7 @@ Surface direction:
 - `tint(_:)`, `accentColor(_:)`, and `controlSize(_:)` bridge into `EnvironmentValues`, so `@Environment(\.tint)`, `@Environment(\.controlSize)`, `.environment(\.tint, ...)`, and `.environment(\.controlSize, ...)` share the same inherited values consumed by retained controls.
 - `controlSize(_:)` maps to retained preferred sizes for text inputs, toggle, menu picker, stepper buttons, slider, and progress bar surfaces.
 - `labelStyle(_:)` propagates through `EnvironmentValues` and maps `.automatic` / `.titleAndIcon`, `.iconOnly`, and `.titleOnly` to retained `Label` composition.
+- `textFieldStyle(_:)` propagates through `EnvironmentValues`; `.automatic` and `.roundedBorder` use the retained bordered input chrome, while `.plain` maps to a borderless retained input surface.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
 - `Section` supports title, header, footer, and content-only forms, all mapped to the retained vertical section panel.
 - `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome.

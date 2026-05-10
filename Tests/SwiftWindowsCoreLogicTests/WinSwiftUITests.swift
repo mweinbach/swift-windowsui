@@ -217,6 +217,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldStyleModifierMapsToRetainedInputChrome() async {
+        await MainActor.run {
+            struct TextFieldStyleReaderView: View {
+                @Environment(\.textFieldStyle) var textFieldStyle
+
+                var body: some View {
+                    Text(textFieldStyle == .plain ? "PLAIN" : textFieldStyle == .roundedBorder ? "ROUNDED" : "AUTOMATIC")
+                }
+            }
+
+            let plainNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .textFieldStyle(.plain)
+            )
+            let roundedNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .textFieldStyle(.roundedBorder)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    TextField("NAME", text: .constant(""))
+                    SecureField("SECRET", text: .constant(""))
+                }
+                .textFieldStyle(.plain)
+            )
+            let readerNode = makeNode(TextFieldStyleReaderView().textFieldStyle(.plain))
+
+            XCTAssertEqual(plainNode.backgroundColor, .clear)
+            XCTAssertEqual(plainNode.borderWidth, 0)
+            XCTAssertEqual(plainNode.cornerRadius, 0)
+            XCTAssertEqual(roundedNode.borderWidth, 1)
+            XCTAssertEqual(roundedNode.cornerRadius, 8)
+            XCTAssertEqual(inheritedNode.children[0].backgroundColor, .clear)
+            XCTAssertEqual(inheritedNode.children[1].backgroundColor, .clear)
+            XCTAssertEqual(readerNode.text, "PLAIN")
+        }
+    }
+
     func testSecureFieldMasksDisplayedValueAndWritesBindingFromKeyboard() async {
         await MainActor.run {
             var value = "open"

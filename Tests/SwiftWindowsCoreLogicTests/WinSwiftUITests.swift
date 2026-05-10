@@ -747,6 +747,60 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testClipShapeMapsKnownShapesToRetainedBoundsClip() async {
+        await MainActor.run {
+            let rectangleNode = makeNode(Text("RECT").clipShape(Rectangle()))
+            let roundedNode = makeNode(
+                Text("ROUND").clipShape(
+                    RoundedRectangle(cornerRadius: 6),
+                    style: FillStyle(eoFill: true, antialiased: false)
+                )
+            )
+
+            XCTAssertTrue(rectangleNode.clipsToBounds)
+            XCTAssertEqual(rectangleNode.cornerRadius, 0)
+            XCTAssertEqual(rectangleNode.children[0].text, "RECT")
+            XCTAssertTrue(roundedNode.clipsToBounds)
+            XCTAssertEqual(roundedNode.cornerRadius, 6)
+            XCTAssertEqual(roundedNode.children[0].text, "ROUND")
+        }
+    }
+
+    func testClipShapeFallsBackToRectangularClipForCustomShape() async {
+        struct CustomClipShape: Shape {}
+
+        await MainActor.run {
+            let node = makeNode(Text("CUSTOM").clipShape(CustomClipShape()))
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, 0)
+            XCTAssertEqual(node.children[0].text, "CUSTOM")
+        }
+    }
+
+    func testClipShapeCapsuleUsesDynamicRetainedCornerRadius() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Text("PILL")
+                .frame(width: 60, height: 20)
+                .clipShape(Capsule())
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.cornerRadius, 10)
+            XCTAssertEqual(node.children[0].preferredSize, Size(width: 60, height: 20))
+        }
+    }
+
     func testCornerRadiusAcceptsAntialiasedArgumentAndClipsBounds() async {
         await MainActor.run {
             let node = makeNode(Text("ROUND").cornerRadius(5, antialiased: false))

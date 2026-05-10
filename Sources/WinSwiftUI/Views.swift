@@ -160,6 +160,24 @@ public struct Capsule: View {
     }
 }
 
+extension Rectangle: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .rectangle
+    }
+}
+
+extension RoundedRectangle: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .roundedRectangle(cornerRadius)
+    }
+}
+
+extension Capsule: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .capsule
+    }
+}
+
 @MainActor
 private func shapeComponent(
     fillColor: Color,

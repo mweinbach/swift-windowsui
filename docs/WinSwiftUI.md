@@ -65,6 +65,7 @@ Views and containers:
 - `Rectangle`
 - `RoundedRectangle(cornerRadius:style:)`
 - `Capsule(style:)`
+- `Shape`
 - `Spacer`
 - `Divider`
 - `Group`
@@ -104,6 +105,7 @@ Modifiers:
 - `lineLimit`
 - `cornerRadius(_:antialiased:)`
 - `clipped(antialiased:)`
+- `clipShape(_:style:)`
 - `border`
 - `shadow`
 - `layoutPriority`
@@ -159,6 +161,7 @@ Surface direction:
 - `ProgressView(value:total:)` maps into the retained progress bar control.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
+- `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, and `Capsule` to retained bounds clipping with matching retained corner-radius behavior. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
 - `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.

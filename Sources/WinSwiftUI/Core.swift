@@ -107,6 +107,16 @@ public struct Gradient: Sendable, Equatable {
     }
 }
 
+public struct FillStyle: Sendable, Equatable {
+    public var isEOFilled: Bool
+    public var isAntialiased: Bool
+
+    public init(eoFill: Bool = false, antialiased: Bool = true) {
+        self.isEOFilled = eoFill
+        self.isAntialiased = antialiased
+    }
+}
+
 @MainActor
 public protocol ObservableObject: AnyObject {}
 
@@ -534,6 +544,35 @@ public extension View {
     func eraseToAnyView() -> AnyView {
         AnyView(self)
     }
+}
+
+@MainActor
+public protocol Shape: View {}
+
+public extension Shape {
+    var body: Never {
+        fatalError("Shape body is not materialized by WinSwiftUI")
+    }
+}
+
+enum RetainedClipShapeStyle {
+    case rectangle
+    case roundedRectangle(Double)
+    case capsule
+
+    var staticCornerRadius: Double {
+        switch self {
+        case .rectangle, .capsule:
+            return 0
+        case .roundedRectangle(let radius):
+            return max(0, radius)
+        }
+    }
+}
+
+@MainActor
+protocol RetainedClipShape: Shape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle { get }
 }
 
 @MainActor
@@ -1482,6 +1521,34 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+            }
+        }
+    }
+
+    func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View {
+        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let root = Controls.stackPanel(
+                    cornerRadius: clipStyle.staticCornerRadius,
+                    clipsToBounds: true,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+
+                if case .capsule = clipStyle {
+                    root.onLayout = { [weak root] bounds in
+                        let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                        if root?.cornerRadius != radius {
+                            root?.cornerRadius = radius
+                        }
+                    }
+                }
+
+                return root
             }
         }
     }

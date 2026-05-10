@@ -2468,6 +2468,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListRowInsetsMapToRetainedRowPadding() async {
+        await MainActor.run {
+            let explicitInsets = EdgeInsets(top: 2, leading: 4, bottom: 6, trailing: 8)
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                        .listRowInsets(explicitInsets)
+                    Text("TWO")
+                        .listRowInsets(.horizontal, 10)
+                    Text("THREE")
+                        .listRowInsets(nil)
+                }
+            )
+
+            guard case .stack(let explicitLayout) = listNode.children[0].layoutMode else {
+                return XCTFail("Expected listRowInsets to wrap the row in a retained stack panel")
+            }
+            guard case .stack(let horizontalLayout) = listNode.children[1].layoutMode else {
+                return XCTFail("Expected listRowInsets edge overload to wrap the row in a retained stack panel")
+            }
+
+            XCTAssertEqual(explicitLayout, .vertical(padding: explicitInsets, alignment: .stretch))
+            XCTAssertEqual(listNode.children[0].children[0].text, "ONE")
+            XCTAssertEqual(
+                horizontalLayout,
+                .vertical(padding: EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10), alignment: .stretch)
+            )
+            XCTAssertEqual(listNode.children[1].children[0].text, "TWO")
+            XCTAssertEqual(listNode.children[2].text, "THREE")
+        }
+    }
+
     func testListDataInitializerRendersRowsWithStableIDs() async {
         await MainActor.run {
             let node = makeNode(

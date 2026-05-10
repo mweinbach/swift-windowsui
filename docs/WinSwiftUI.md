@@ -212,6 +212,7 @@ Modifiers:
 - `scrollContentBackground`
 - `scrollIndicators`
 - `listRowBackground`
+- `listRowInsets`
 - `onAppear`
 - `onDisappear`
 - `onChange`
@@ -321,6 +322,7 @@ Surface direction:
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
 - `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
 - `listRowBackground(_:)` accepts optional retained views, colors, gradients, and stored foreground styles. Color and gradient inputs wrap the row in a retained background panel; view inputs are layered behind the row and stretched to the row bounds.
+- `listRowInsets(_:)` and `listRowInsets(_:_:)` map to retained row padding wrappers. Passing `nil` preserves the row unchanged.
 - `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
 - `Menu` maps to a retained menu button and an inline retained action stack. It preserves SwiftUI-shaped menu syntax and button actions, but does not yet present as a native popup overlay.
 - `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion/backspace. `TextField` and `SecureField` provide placeholder rendering from the title or SwiftUI-style `prompt: Text?` overloads, `TextField(axis: .vertical)` maps to the retained multiline input path, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. `textInputAutocapitalization(_:)` propagates through `EnvironmentValues` and transforms inserted retained keyboard text for `.characters`, `.words`, and `.sentences`; `autocorrectionDisabled(_:)` propagates for source compatibility but has no spelling engine behind it yet. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.

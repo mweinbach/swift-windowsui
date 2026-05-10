@@ -3916,6 +3916,35 @@ public extension View {
         }
     }
 
+    func listRowInsets(_ insets: EdgeInsets?) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard let insets else {
+                return content.makeComponent(context: context)
+            }
+
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    stackLayout: .vertical(padding: insets, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
+    func listRowInsets(_ edges: Edge.Set, _ length: Double?) -> some View {
+        listRowInsets(
+            EdgeInsets(
+                top: edges.contains(.top) ? length ?? 16 : 0,
+                leading: edges.contains(.leading) ? length ?? 16 : 0,
+                bottom: edges.contains(.bottom) ? length ?? 16 : 0,
+                trailing: edges.contains(.trailing) ? length ?? 16 : 0
+            )
+        )
+    }
+
     func onAppear(perform action: (() -> Void)? = nil) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

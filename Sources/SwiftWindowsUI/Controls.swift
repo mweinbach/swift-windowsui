@@ -617,6 +617,7 @@ public enum Controls {
         chrome: SurfaceChrome = .elevatedButton,
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
+        isEnabled: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil,
         children: [ViewNode] = []
@@ -625,20 +626,24 @@ public enum Controls {
             frame: frame,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
-            backgroundColor: palette.idle,
-            borderColor: chrome.borderColor,
+            backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
+            borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
             borderWidth: chrome.borderWidth,
             outlineColor: .clear,
             outlineWidth: chrome.focusRingWidth,
-            shadowColor: chrome.shadowColor,
+            shadowColor: isEnabled ? chrome.shadowColor : .clear,
             shadowOffset: chrome.shadowOffset,
             shadowSpread: chrome.shadowSpread,
             cornerRadius: cornerRadius,
             clipsToBounds: clipsToBounds,
             layoutMode: layoutMode,
-            isHitTestVisible: true,
+            isHitTestVisible: isEnabled,
             children: children
         )
+
+        guard isEnabled else {
+            return node
+        }
 
         let interactionState = ButtonInteractionState()
 
@@ -784,13 +789,14 @@ public enum Controls {
         titleScale: Double = 2,
         titleWeight: TextWeight = .semibold,
         clipsToBounds: Bool = true,
+        isEnabled: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
     ) -> ViewNode {
         let labelNode = label(
             title,
             layoutPriority: 1,
-            color: titleColor,
+            color: isEnabled ? titleColor : palette.disabledForeground,
             scale: titleScale,
             weight: titleWeight,
             lineBreakMode: .truncateTail,
@@ -806,6 +812,7 @@ public enum Controls {
             chrome: chrome,
             clipsToBounds: clipsToBounds,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+            isEnabled: isEnabled,
             animation: animation,
             action: action,
             children: [labelNode]
@@ -873,6 +880,7 @@ public enum Controls {
             chrome: chrome,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
+            isEnabled: isEnabled,
             animation: animation,
             action: action,
             children: [box, labelNode]
@@ -944,6 +952,7 @@ public enum Controls {
             chrome: chrome,
             clipsToBounds: false,
             layoutMode: .stack(.horizontal(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center, mainAlignment: .center)),
+            isEnabled: isEnabled,
             animation: animation,
             action: action,
             children: [track]
@@ -1161,6 +1170,7 @@ public enum Controls {
             chrome: chrome,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
+            isEnabled: isEnabled,
             animation: animation,
             action: action,
             children: [outerCircle, labelNode]
@@ -1235,6 +1245,7 @@ public enum Controls {
                 titleColor: optionColor,
                 titleScale: 1.5,
                 titleWeight: isCurrentSelection ? .semibold : .regular,
+                isEnabled: isEnabled,
                 action: {
                     dropdownState.isOpen = false
                     onSelect?(index)
@@ -1275,6 +1286,7 @@ public enum Controls {
             ),
             clipsToBounds: false,
             layoutMode: .stack(.vertical(spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
+            isEnabled: isEnabled,
             animation: animation,
             action: isEnabled ? {
                 dropdownState.isOpen = !dropdownState.isOpen
@@ -1328,6 +1340,7 @@ public enum Controls {
                 titleScale: 1.5,
                 titleWeight: isSelected ? .semibold : .regular,
                 clipsToBounds: true,
+                isEnabled: isEnabled,
                 animation: animation,
                 action: isEnabled ? { onSelect?(index) } : nil
             )

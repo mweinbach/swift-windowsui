@@ -538,6 +538,7 @@ public struct Toggle: View {
             let toggleNode = Controls.toggle(
                 runtime: runtime,
                 isOn: binding.wrappedValue,
+                isEnabled: context.isEnabled,
                 onToggle: { newValue in
                     binding.wrappedValue = newValue
                     context.invalidate()
@@ -578,6 +579,7 @@ public struct Slider: View {
                 runtime: runtime,
                 value: binding.wrappedValue,
                 range: range,
+                isEnabled: context.isEnabled,
                 onValueChanged: { newValue in
                     binding.wrappedValue = newValue
                     context.invalidate()
@@ -661,6 +663,7 @@ public struct Button: View {
                 chrome: surfaceStyle.chrome,
                 clipsToBounds: surfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                isEnabled: context.isEnabled,
                 animation: surfaceStyle.animation,
                 action: {
                     action()

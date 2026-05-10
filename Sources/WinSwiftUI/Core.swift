@@ -243,19 +243,26 @@ public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
+    private let isEnabledProvider: () -> Bool
 
     public var canvasSize: Size {
         canvasSizeProvider()
     }
 
+    public var isEnabled: Bool {
+        isEnabledProvider()
+    }
+
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
-        observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in }
+        observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
+        isEnabledProvider: @escaping () -> Bool = { true }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
+        self.isEnabledProvider = isEnabledProvider
     }
 
     func invalidate() {
@@ -264,6 +271,17 @@ public struct ViewBuildContext {
 
     func observe(_ object: any ObservableObject) {
         observedObjectHandler(object)
+    }
+
+    func withEnabled(_ isEnabled: Bool) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: {
+                self.isEnabled && isEnabled
+            }
+        )
     }
 }
 
@@ -1075,6 +1093,12 @@ public extension View {
                 childNode.isHitTestVisible = enabled
                 return childNode
             }
+        }
+    }
+
+    func disabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnabled(!disabled))
         }
     }
 

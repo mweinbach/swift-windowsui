@@ -208,6 +208,77 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDisabledButtonDoesNotActivate() async {
+        await MainActor.run {
+            var didRunAction = false
+
+            let node = makeNode(
+                Button("GO") {
+                    didRunAction = true
+                }
+                .disabled()
+            )
+
+            XCTAssertFalse(node.isFocusable)
+            XCTAssertFalse(node.isHitTestVisible)
+            node.onActivate?()
+            XCTAssertFalse(didRunAction)
+        }
+    }
+
+    func testDisabledEnvironmentReachesNestedControls() async {
+        await MainActor.run {
+            var didRunAction = false
+
+            let node = makeNode(
+                VStack {
+                    Button("GO") {
+                        didRunAction = true
+                    }
+                }
+                .disabled(true)
+            )
+
+            XCTAssertNil(firstFocusable(in: node))
+            XCTAssertFalse(didRunAction)
+        }
+    }
+
+    func testDisabledToggleAndSliderDoNotMutateBindings() async {
+        await MainActor.run {
+            var isEnabled = false
+            var value = 0.25
+
+            let toggleNode = makeNode(
+                Toggle(
+                    "ENABLED",
+                    isOn: Binding(
+                        get: { isEnabled },
+                        set: { isEnabled = $0 }
+                    )
+                )
+                .disabled()
+            )
+            XCTAssertNil(firstFocusable(in: toggleNode))
+            XCTAssertFalse(isEnabled)
+
+            let sliderNode = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    )
+                )
+                .disabled()
+            )
+
+            XCTAssertFalse(sliderNode.isFocusable)
+            XCTAssertNil(sliderNode.onDragStart)
+            XCTAssertNil(sliderNode.onDragChange)
+            XCTAssertEqual(value, 0.25)
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

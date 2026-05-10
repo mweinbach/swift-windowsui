@@ -2359,19 +2359,21 @@ public struct TextField: View {
     private let title: String
     private let text: Binding<String>
     private let prompt: String?
+    private let axis: Axis
 
-    public init(_ title: String, text: Binding<String>, prompt: Text? = nil) {
+    public init(_ title: String, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
         self.title = title
         self.text = text
         self.prompt = prompt?.plainContent
+        self.axis = axis
     }
 
-    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil) {
-        self.init(String(title), text: text, prompt: prompt)
+    public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
+        self.init(String(title), text: text, prompt: prompt, axis: axis)
     }
 
-    public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil) {
-        self.init(titleKey.resolvedString, text: text, prompt: prompt)
+    public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
+        self.init(titleKey.resolvedString, text: text, prompt: prompt, axis: axis)
     }
 
     public var body: Never {
@@ -2379,12 +2381,19 @@ public struct TextField: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        textInputComponent(
+        let allowsNewlines: Bool
+        switch axis {
+        case .horizontal:
+            allowsNewlines = false
+        case .vertical:
+            allowsNewlines = true
+        }
+        return textInputComponent(
             title: prompt ?? title,
             text: text,
             isSecure: false,
-            allowsNewlines: false,
-            preferredSize: context.controlSize.singleLineTextInputSize,
+            allowsNewlines: allowsNewlines,
+            preferredSize: allowsNewlines ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
             context: context
         )
     }

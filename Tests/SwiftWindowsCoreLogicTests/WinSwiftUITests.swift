@@ -140,6 +140,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testInheritedForegroundColorPropagatesToImageAndLabel() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1)
+            let imageNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                }
+                .foregroundColor(inheritedColor)
+            )
+            let labelNode = makeNode(
+                Label("SETTINGS", systemImage: "gear")
+                    .foregroundStyle(inheritedColor)
+            )
+
+            XCTAssertEqual(imageNode.children[0].textStyle.color, inheritedColor)
+            XCTAssertEqual(labelNode.children.count, 2)
+            XCTAssertEqual(labelNode.children[0].textStyle.color, inheritedColor)
+            XCTAssertEqual(labelNode.children[1].textStyle.color, inheritedColor)
+        }
+    }
+
     func testOverlayAlignsContentWithoutExpandingBaseLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

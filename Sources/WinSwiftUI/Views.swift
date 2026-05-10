@@ -200,13 +200,13 @@ public struct Image: View {
     public typealias Body = Never
 
     private let systemName: String
-    private var color: Color
+    private var color: Color?
     private var font: Font
     private var alignment: TextAlignment
 
     public init(systemName: String) {
         self.systemName = systemName
-        self.color = .white
+        self.color = nil
         self.font = .system(size: 1.9)
         self.alignment = .center
     }
@@ -217,10 +217,11 @@ public struct Image: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let symbol = resolvedSymbolIcon(for: systemName)
+        let resolvedColor = color ?? context.foregroundColor
         return Component { _ in
             Controls.icon(
                 symbol,
-                color: color,
+                color: resolvedColor,
                 scale: font.resolvedScale,
                 alignment: alignment.horizontalAlignment.textAlignment
             )
@@ -252,14 +253,14 @@ public struct Label: View {
 
     private let title: String
     private let systemImage: String
-    private var color: Color
+    private var color: Color?
     private var font: Font
     private var spacing: Double
 
     public init(_ title: String, systemImage: String) {
         self.title = title
         self.systemImage = systemImage
-        self.color = .white
+        self.color = nil
         self.font = .system(size: 1.6, weight: .semibold)
         self.spacing = 10
     }
@@ -269,12 +270,13 @@ public struct Label: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        HStack(spacing: spacing) {
+        let resolvedColor = color ?? context.foregroundColor
+        return HStack(spacing: spacing) {
             Image(systemName: systemImage)
-                .foregroundColor(color)
+                .foregroundColor(resolvedColor)
                 .font(font)
             Text(title)
-                .foregroundColor(color)
+                .foregroundColor(resolvedColor)
                 .font(font)
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)

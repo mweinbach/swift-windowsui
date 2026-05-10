@@ -231,6 +231,30 @@ public struct ObservedObject<ObjectType: ObservableObject> {
 
 @MainActor
 @propertyWrapper
+public struct StateObject<ObjectType: ObservableObject> {
+    private var object: ObjectType
+
+    public init(wrappedValue: @autoclosure () -> ObjectType) {
+        self.object = wrappedValue()
+    }
+
+    public var wrappedValue: ObjectType {
+        get {
+            ViewBuildContextScope.current?.observe(object)
+            return object
+        }
+        set {
+            object = newValue
+        }
+    }
+
+    public var projectedValue: StateObject<ObjectType> {
+        self
+    }
+}
+
+@MainActor
+@propertyWrapper
 public struct Binding<Value> {
     private let getValue: @MainActor () -> Value
     private let setValue: @MainActor (Value) -> Void

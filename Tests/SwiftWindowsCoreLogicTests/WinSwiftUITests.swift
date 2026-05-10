@@ -1262,6 +1262,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStateObjectMutationTriggersInvalidation() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            struct CounterView: View {
+                @StateObject var model: CounterModel
+
+                var body: some View {
+                    Text("\(model.value)")
+                }
+            }
+
+            let model = CounterModel()
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = CounterView(model: model).makeComponent(context: context)
+            model.value = 1
+
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
 }
 
 @MainActor

@@ -885,6 +885,71 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStepperDoubleWritesBindingInvalidatesAndReportsEditingChanges() async {
+        await MainActor.run {
+            var value = 4.0
+            var didInvalidate = false
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Stepper(
+                    "VALUE",
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...10,
+                    step: 2,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    }
+                ),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0]), "VALUE")
+
+            node.children[2].onActivate?()
+            XCTAssertEqual(value, 6.0, accuracy: 0.001)
+            XCTAssertTrue(didInvalidate)
+            XCTAssertEqual(editingChanges, [true, false])
+
+            node.children[1].onActivate?()
+            XCTAssertEqual(value, 4.0, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false, true, false])
+        }
+    }
+
+    func testStepperIntClampsAtBoundsAndDisablesUnavailableActions() async {
+        await MainActor.run {
+            var value = 1
+
+            let node = makeNode(
+                Stepper(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...1,
+                    step: 1
+                ) {
+                    Label("COUNT", systemImage: "info.circle")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("COUNT"))
+            XCTAssertTrue(node.children[1].isFocusable)
+            XCTAssertFalse(node.children[2].isFocusable)
+
+            node.children[2].onActivate?()
+            XCTAssertEqual(value, 1)
+            node.children[1].onActivate?()
+            XCTAssertEqual(value, 0)
+        }
+    }
+
     func testSliderWritesBindingFromDragAndInvalidates() async {
         await MainActor.run {
             var value = 0.25

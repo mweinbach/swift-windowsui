@@ -896,6 +896,236 @@ public struct Toggle: View {
 }
 
 @MainActor
+public struct Stepper: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let canDecrement: @MainActor () -> Bool
+    private let canIncrement: @MainActor () -> Bool
+    private let decrement: @MainActor () -> Void
+    private let increment: @MainActor () -> Void
+
+    public init(
+        _ title: String,
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude,
+        step: Double = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: value,
+            in: bounds,
+            step: step,
+            onEditingChanged: onEditingChanged
+        ) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude,
+        step: Double = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(titleKey.resolvedString, value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = -Double.greatestFiniteMagnitude...Double.greatestFiniteMagnitude,
+        step: Double = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        let resolvedStep = Self.resolvedDoubleStep(step)
+        self.label = label()
+        self.canDecrement = {
+            value.wrappedValue > bounds.lowerBound
+        }
+        self.canIncrement = {
+            value.wrappedValue < bounds.upperBound
+        }
+        self.decrement = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedDouble(value.wrappedValue, by: -resolvedStep, in: bounds)
+            onEditingChanged(false)
+        }
+        self.increment = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedDouble(value.wrappedValue, by: resolvedStep, in: bounds)
+            onEditingChanged(false)
+        }
+    }
+
+    public init(
+        _ title: String,
+        value: Binding<Int>,
+        in bounds: ClosedRange<Int> = Int.min...Int.max,
+        step: Int = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: value,
+            in: bounds,
+            step: step,
+            onEditingChanged: onEditingChanged
+        ) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Int>,
+        in bounds: ClosedRange<Int> = Int.min...Int.max,
+        step: Int = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(titleKey.resolvedString, value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init(
+        value: Binding<Int>,
+        in bounds: ClosedRange<Int> = Int.min...Int.max,
+        step: Int = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        let resolvedStep = max(1, step)
+        self.label = label()
+        self.canDecrement = {
+            value.wrappedValue > bounds.lowerBound
+        }
+        self.canIncrement = {
+            value.wrappedValue < bounds.upperBound
+        }
+        self.decrement = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedInt(value.wrappedValue, by: -resolvedStep, in: bounds)
+            onEditingChanged(false)
+        }
+        self.increment = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedInt(value.wrappedValue, by: resolvedStep, in: bounds)
+            onEditingChanged(false)
+        }
+    }
+
+    public var body: Never {
+        fatalError("Stepper has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let canDecrement = canDecrement
+        let canIncrement = canIncrement
+        let decrement = decrement
+        let increment = increment
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            let decrementNode = Self.controlButton(
+                runtime: runtime,
+                title: "-",
+                isEnabled: context.isEnabled && canDecrement(),
+                action: {
+                    decrement()
+                    context.invalidate()
+                }
+            )
+            let incrementNode = Self.controlButton(
+                runtime: runtime,
+                title: "+",
+                isEnabled: context.isEnabled && canIncrement(),
+                action: {
+                    increment()
+                    context.invalidate()
+                }
+            )
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 8, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, decrementNode, incrementNode]
+            )
+        }
+    }
+
+    private static func controlButton(
+        runtime: RetainedViewRuntime,
+        title: String,
+        isEnabled: Bool,
+        action: @escaping @MainActor () -> Void
+    ) -> ViewNode {
+        let surfaceStyle = ButtonSurfaceStyle.default
+        let titleNode = Controls.label(
+            title,
+            color: isEnabled ? .white : surfaceStyle.palette.disabledForeground,
+            scale: 1.6,
+            weight: .bold,
+            lineBreakMode: .truncateTail,
+            maximumNumberOfLines: 1
+        )
+        return Controls.button(
+            runtime: runtime,
+            preferredSize: Size(width: 34, height: 30),
+            cornerRadius: 12,
+            palette: surfaceStyle.palette,
+            chrome: surfaceStyle.chrome,
+            clipsToBounds: surfaceStyle.clipsToBounds,
+            layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
+            isEnabled: isEnabled,
+            animation: surfaceStyle.animation,
+            action: action,
+            children: [titleNode]
+        )
+    }
+
+    private static func resolvedDoubleStep(_ step: Double) -> Double {
+        step.isFinite && step > 0 ? step : 1
+    }
+
+    private static func steppedDouble(_ value: Double, by delta: Double, in bounds: ClosedRange<Double>) -> Double {
+        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
+        let candidate = clampedValue + delta
+        guard candidate.isFinite else {
+            return delta > 0 ? bounds.upperBound : bounds.lowerBound
+        }
+        return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private static func steppedInt(_ value: Int, by delta: Int, in bounds: ClosedRange<Int>) -> Int {
+        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
+        if delta >= 0 {
+            let (candidate, overflow) = clampedValue.addingReportingOverflow(delta)
+            guard !overflow else {
+                return bounds.upperBound
+            }
+            return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+        }
+
+        let (candidate, overflow) = clampedValue.addingReportingOverflow(delta)
+        guard !overflow else {
+            return bounds.lowerBound
+        }
+        return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+}
+
+@MainActor
 public struct Slider: View {
     public typealias Body = Never
 

@@ -230,6 +230,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testZIndexModifierMapsToRetainedNodeZIndex() async {
+        await MainActor.run {
+            let node = makeNode(Text("FRONT").zIndex(7.5))
+
+            XCTAssertEqual(node.zIndex, 7.5)
+        }
+    }
+
+    func testOffsetAndScaleEffectMapToRetainedTransform() async {
+        await MainActor.run {
+            let offsetNode = makeNode(Text("MOVED").offset(x: 12, y: 18))
+            let sizedOffsetNode = makeNode(Text("MOVED").offset(CGSize(width: 3, height: 4)))
+            let scaledNode = makeNode(Text("BIG").scaleEffect(1.5))
+
+            XCTAssertEqual(offsetNode.transform, Transform2D.translation(x: 12, y: 18))
+            XCTAssertEqual(sizedOffsetNode.transform, Transform2D.translation(x: 3, y: 4))
+            XCTAssertEqual(scaledNode.transform, Transform2D.scale(x: 1.5, y: 1.5))
+        }
+    }
+
     func testDisabledButtonDoesNotActivate() async {
         await MainActor.run {
             var didRunAction = false

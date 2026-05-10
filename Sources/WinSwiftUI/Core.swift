@@ -1118,6 +1118,47 @@ public extension View {
         }
     }
 
+    func zIndex(_ value: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.zIndex = value
+                return childNode
+            }
+        }
+    }
+
+    func offset(x: Double = 0, y: Double = 0) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(.translation(x: x, y: y))
+                return childNode
+            }
+        }
+    }
+
+    func offset(_ offset: CGSize) -> some View {
+        self.offset(x: offset.width, y: offset.height)
+    }
+
+    func scaleEffect(_ scale: Double) -> some View {
+        scaleEffect(x: scale, y: scale)
+    }
+
+    func scaleEffect(x: Double = 1, y: Double = 1) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(.scale(x: x, y: y))
+                return childNode
+            }
+        }
+    }
+
     func disabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnabled(!disabled))

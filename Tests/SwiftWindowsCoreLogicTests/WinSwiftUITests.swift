@@ -962,6 +962,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageCompatibilityInitializersReuseBitmapAndSystemIconPaths() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-overloads-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let labeledNode = makeNode(Image(url.path, label: Text("PHOTO")))
+            let decorativeNode = makeNode(Image(decorative: url.path))
+            let variableSymbolNode = makeNode(
+                Image(systemName: "gearshape", variableValue: 0.42)
+                    .foregroundColor(.red)
+            )
+
+            XCTAssertEqual(labeledNode.bitmapSurface?.width, 2)
+            XCTAssertEqual(labeledNode.bitmapSurface?.height, 1)
+            XCTAssertEqual(decorativeNode.bitmapSurface?.width, 2)
+            XCTAssertEqual(decorativeNode.bitmapSurface?.height, 1)
+            XCTAssertEqual(variableSymbolNode.text, "\u{E713}")
+            XCTAssertEqual(variableSymbolNode.textStyle.color, .red)
+        }
+    }
+
     func testImageScaleModifierAndEnvironmentScaleSystemIcons() async {
         await MainActor.run {
             struct ImageScaleReaderView: View {

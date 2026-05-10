@@ -1302,18 +1302,29 @@ public struct Image: View {
     private var contentMode: ContentMode?
 
     public init(systemName: String) {
-        self.storage = .systemName(systemName)
-        self.color = nil
-        self.font = .system(size: 1.9)
-        self.alignment = .center
-        self.isResizable = false
-        self.resizingMode = .stretch
-        self.aspectRatioValue = nil
-        self.contentMode = nil
+        self.init(storage: .systemName(systemName))
+    }
+
+    public init(systemName: String, variableValue: Double?) {
+        _ = variableValue
+        self.init(systemName: systemName)
     }
 
     public init(_ name: String, bundle: Bundle? = nil) {
-        self.storage = .bitmap(Self.loadResource(named: name, bundle: bundle))
+        self.init(storage: .bitmap(Self.loadResource(named: name, bundle: bundle)))
+    }
+
+    public init(_ name: String, bundle: Bundle? = nil, label: Text) {
+        _ = label
+        self.init(name, bundle: bundle)
+    }
+
+    public init(decorative name: String, bundle: Bundle? = nil) {
+        self.init(name, bundle: bundle)
+    }
+
+    private init(storage: Storage) {
+        self.storage = storage
         self.color = nil
         self.font = .system(size: 1.9)
         self.alignment = .center

@@ -61,7 +61,10 @@ Views and containers:
   - `StringProtocol` inputs
   - `LocalizedStringKey` inputs
 - `Image(_:)`
+  - `Image(_:bundle:label:)`
+  - `Image(decorative:bundle:)`
 - `Image(systemName:)`
+  - `Image(systemName:variableValue:)`
   - `resizable(capInsets:resizingMode:)`
 - `Label`
   - `Label { title } icon: { icon }`
@@ -241,6 +244,7 @@ Surface direction:
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
+- `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths; labels, decorative semantics, and variable symbol values are retained as API-shape compatibility only until accessibility and variable SF Symbol rendering exist.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
 - `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. `resizingMode` is retained as compatibility metadata; real tile rendering is not implemented yet.

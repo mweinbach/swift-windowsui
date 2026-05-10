@@ -363,6 +363,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     public var isScrollEnabled: Bool
+    var isScrollClipDisabled: Bool
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -409,6 +410,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isScrollEnabled = isScrollEnabled
+        self.isScrollClipDisabled = false
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -682,6 +684,10 @@ public struct ViewBuildContext {
 
     public var isScrollEnabled: Bool {
         environmentValuesProvider().isScrollEnabled
+    }
+
+    var isScrollClipDisabled: Bool {
+        environmentValuesProvider().isScrollClipDisabled
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
@@ -3795,6 +3801,12 @@ public extension View {
     func scrollDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.isScrollEnabled, !disabled))
+        }
+    }
+
+    func scrollClipDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isScrollClipDisabled, disabled))
         }
     }
 

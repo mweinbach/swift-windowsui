@@ -2404,6 +2404,9 @@ public struct ScrollView: View {
             } else {
                 node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
             }
+            if context.isScrollClipDisabled {
+                node.clipsToBounds = false
+            }
             return node
         }
     }
@@ -2453,6 +2456,9 @@ public struct List: View {
                 node.showsScrollIndicator = false
             } else {
                 node.showsScrollIndicator = context.verticalScrollIndicatorVisibility.showsRetainedScrollIndicator
+            }
+            if context.isScrollClipDisabled {
+                node.clipsToBounds = false
             }
             return node
         }
@@ -2598,6 +2604,9 @@ public struct Section: View {
                 node.scrollIndicatorHoverColor = style.indicatorHoverColor
                 node.scrollIndicatorActiveColor = style.indicatorActiveColor
                 node.scrollIndicatorThickness = style.indicatorThickness
+            }
+            if style.scrollAxis != nil, context.isScrollClipDisabled {
+                node.clipsToBounds = false
             }
 
             return node

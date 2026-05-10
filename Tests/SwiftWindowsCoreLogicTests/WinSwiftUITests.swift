@@ -2315,6 +2315,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollClipDisabledMapsToRetainedScrollClipping() async {
+        await MainActor.run {
+            let scrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollClipDisabled()
+            )
+            let explicitEnabledNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollClipDisabled(false)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollClipDisabled()
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollClipDisabled()
+            )
+            let plainSectionNode = makeNode(
+                Section("GROUP") {
+                    Text("ITEM")
+                }
+                .scrollClipDisabled()
+            )
+
+            XCTAssertFalse(scrollViewNode.clipsToBounds)
+            XCTAssertEqual(scrollViewNode.scrollAxis, .vertical)
+            XCTAssertTrue(explicitEnabledNode.clipsToBounds)
+            XCTAssertFalse(listNode.clipsToBounds)
+            XCTAssertFalse(sectionNode.clipsToBounds)
+            XCTAssertTrue(plainSectionNode.clipsToBounds)
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

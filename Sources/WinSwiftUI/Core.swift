@@ -2752,6 +2752,31 @@ public extension View {
         }
     }
 
+    func background(_ color: Color, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
+        _ = edges
+        return background(color)
+    }
+
+    func background(_ color: Color?, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        _ = edges
+        return ModifiedView(content: self) { content, context in
+            guard let color else {
+                return content.makeComponent(context: context)
+            }
+
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: color,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
     func background(_ gradient: LinearGradient) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

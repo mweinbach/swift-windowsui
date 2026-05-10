@@ -1609,6 +1609,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBackgroundAcceptsOptionalColorAndIgnoresSafeAreaEdgesLabel() async {
+        await MainActor.run {
+            let optionalColor: Color? = Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
+            let nilColor: Color? = nil
+            let optionalNode = makeNode(
+                Text("OPTIONAL")
+                    .background(optionalColor, ignoresSafeAreaEdges: .top)
+            )
+            let concreteNode = makeNode(
+                Text("CONCRETE")
+                    .background(Color(red: 0.7, green: 0.2, blue: 0.4, alpha: 1), ignoresSafeAreaEdges: .all)
+            )
+            let nilNode = makeNode(
+                Text("PLAIN")
+                    .background(nilColor)
+            )
+
+            XCTAssertEqual(optionalNode.backgroundColor, optionalColor)
+            XCTAssertEqual(firstText(in: optionalNode.children[0]), "OPTIONAL")
+            XCTAssertEqual(concreteNode.children[0].text, "CONCRETE")
+            XCTAssertEqual(nilNode.text, "PLAIN")
+        }
+    }
+
     func testExplicitTextStyleOverridesInheritedStyle() async {
         await MainActor.run {
             let node = makeNode(

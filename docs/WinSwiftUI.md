@@ -143,7 +143,7 @@ Modifiers:
 - `scaledToFill`
 - `padding`
   - optional-length overloads such as `padding(nil)` and `padding(.horizontal, nil)`
-- `background`
+- `background`, including optional `Color?` inputs and `ignoresSafeAreaEdges:` color overloads
 - `background(_:alignment:)`
 - `background(alignment:content:)`
 - `overlay(_:alignment:)`

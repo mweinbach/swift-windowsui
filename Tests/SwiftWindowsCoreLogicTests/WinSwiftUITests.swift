@@ -327,6 +327,10 @@ final class WinSwiftUITests: XCTestCase {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(gradient)
             )
+            let semanticCapsule = makeNode(
+                Capsule()
+                    .fill(ForegroundStyle.color(.secondary))
+            )
             let strokedRoundedRectangle = makeNode(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .stroke(strokeColor, lineWidth: 2)
@@ -359,6 +363,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(gradientRoundedRectangle.backgroundColor, gradient.startColor)
             XCTAssertEqual(gradientRoundedRectangle.backgroundGradient, gradient)
             XCTAssertEqual(gradientRoundedRectangle.cornerRadius, 12)
+            XCTAssertEqual(semanticCapsule.backgroundColor, .secondary)
             XCTAssertEqual(strokedRoundedRectangle.backgroundColor, .clear)
             XCTAssertEqual(strokedRoundedRectangle.borderColor, strokeColor)
             XCTAssertEqual(strokedRoundedRectangle.borderWidth, 2)
@@ -694,6 +699,35 @@ final class WinSwiftUITests: XCTestCase {
             for child in node.children {
                 XCTAssertEqual(child.textStyle.color, styledColor)
             }
+        }
+    }
+
+    func testForegroundStyleValueAndSemanticShorthandPropagateToText() async {
+        await MainActor.run {
+            let storedStyle = ForegroundStyle.color(Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+            let storedNode = makeNode(
+                VStack {
+                    Text("STORED")
+                }
+                .foregroundStyle(storedStyle)
+            )
+            let secondaryNode = makeNode(
+                Text("SECONDARY")
+                    .foregroundStyle(.secondary)
+            )
+            let gradient = LinearGradient(
+                colors: [.red, .blue],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let gradientNode = makeNode(
+                Text("GRADIENT")
+                    .foregroundStyle(ForegroundStyle.linearGradient(gradient))
+            )
+
+            XCTAssertEqual(storedNode.children[0].textStyle.color, Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
+            XCTAssertEqual(secondaryNode.textStyle.color, .secondary)
+            XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
         }
     }
 

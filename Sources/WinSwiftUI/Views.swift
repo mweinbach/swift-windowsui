@@ -62,6 +62,12 @@ public struct Rectangle: View {
         return copy
     }
 
+    public func fill(_ style: ForegroundStyle) -> Rectangle {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
     public func fill(_ gradient: LinearGradient) -> Rectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -118,6 +124,12 @@ public struct RoundedRectangle: View {
         return copy
     }
 
+    public func fill(_ style: ForegroundStyle) -> RoundedRectangle {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
     public func fill(_ gradient: LinearGradient) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -168,6 +180,12 @@ public struct Capsule: View {
     public func fill(_ color: Color) -> Capsule {
         var copy = self
         copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> Capsule {
+        var copy = self
+        copy.fillStyle = style
         return copy
     }
 

@@ -2763,6 +2763,17 @@ public extension View {
         }
     }
 
+    func foregroundStyle(_ style: ForegroundStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            switch style {
+            case .color(let color):
+                content.makeComponent(context: context.withForegroundColor(color))
+            case .linearGradient:
+                content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, style))
+            }
+        }
+    }
+
     func foregroundStyle(_ gradient: LinearGradient) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, .linearGradient(gradient)))

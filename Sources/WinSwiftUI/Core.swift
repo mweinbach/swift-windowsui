@@ -269,6 +269,7 @@ public struct ViewBuildContext {
     private let observedObjectHandler: (any ObservableObject) -> Void
     private let isEnabledProvider: () -> Bool
     private let foregroundColorProvider: () -> Color
+    private let tintProvider: () -> Color
     private let fontProvider: () -> Font
     private let textAlignmentProvider: () -> TextAlignment
     private let lineLimitProvider: () -> Int?
@@ -283,6 +284,10 @@ public struct ViewBuildContext {
 
     public var foregroundColor: Color {
         foregroundColorProvider()
+    }
+
+    public var tint: Color {
+        tintProvider()
     }
 
     public var font: Font {
@@ -303,6 +308,7 @@ public struct ViewBuildContext {
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
         isEnabledProvider: @escaping () -> Bool = { true },
         foregroundColorProvider: @escaping () -> Color = { .white },
+        tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
         fontProvider: @escaping () -> Font = { .system(size: 2) },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },
         lineLimitProvider: @escaping () -> Int? = { nil }
@@ -312,10 +318,13 @@ public struct ViewBuildContext {
         self.observedObjectHandler = observedObjectHandler
         self.isEnabledProvider = isEnabledProvider
         self.foregroundColorProvider = foregroundColorProvider
+        self.tintProvider = tintProvider
         self.fontProvider = fontProvider
         self.textAlignmentProvider = textAlignmentProvider
         self.lineLimitProvider = lineLimitProvider
     }
+
+    public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
 
     func invalidate() {
         invalidateHandler()
@@ -334,6 +343,7 @@ public struct ViewBuildContext {
                 self.isEnabled && isEnabled
             },
             foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider
@@ -347,6 +357,21 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: { color },
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider
+        )
+    }
+
+    func withTint(_ tint: Color) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: { tint },
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider
@@ -360,6 +385,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
             fontProvider: { font },
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: lineLimitProvider
@@ -373,6 +399,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: { alignment },
             lineLimitProvider: lineLimitProvider
@@ -386,6 +413,7 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
             fontProvider: fontProvider,
             textAlignmentProvider: textAlignmentProvider,
             lineLimitProvider: { lineLimit }
@@ -1135,6 +1163,18 @@ public extension View {
     func foregroundColor(_ color: Color) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withForegroundColor(color))
+        }
+    }
+
+    func tint(_ tint: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTint(tint))
+        }
+    }
+
+    func accentColor(_ accentColor: Color?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTint(accentColor ?? ViewBuildContext.defaultTint))
         }
     }
 

@@ -549,6 +549,7 @@ public struct Toggle: View {
                 runtime: runtime,
                 isOn: binding.wrappedValue,
                 isEnabled: context.isEnabled,
+                onColor: context.tint,
                 onToggle: { newValue in
                     binding.wrappedValue = newValue
                     context.invalidate()
@@ -590,6 +591,7 @@ public struct Slider: View {
                 value: binding.wrappedValue,
                 range: range,
                 isEnabled: context.isEnabled,
+                filledColor: context.tint,
                 onValueChanged: { newValue in
                     binding.wrappedValue = newValue
                     context.invalidate()
@@ -617,7 +619,7 @@ public struct ProgressView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { _ in
-            Controls.progressBar(value: value ?? 0, total: total)
+            Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
         }
     }
 }

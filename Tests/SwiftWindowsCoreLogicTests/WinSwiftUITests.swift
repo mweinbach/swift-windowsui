@@ -261,6 +261,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTintModifierPropagatesToControls() async {
+        await MainActor.run {
+            var isOn = true
+            var value = 0.35
+            let tint = Color(red: 0.9, green: 0.2, blue: 0.5, alpha: 1)
+
+            let node = makeNode(
+                VStack {
+                    Toggle(
+                        "ENABLED",
+                        isOn: Binding(
+                            get: { isOn },
+                            set: { isOn = $0 }
+                        )
+                    )
+                    Slider(
+                        value: Binding(
+                            get: { value },
+                            set: { value = $0 }
+                        )
+                    )
+                    ProgressView(value: 0.5, total: 1.0)
+                }
+                .tint(tint)
+            )
+
+            let toggleTrack = node.children[0].children[1].children[0]
+            let sliderFilled = node.children[1].children[1]
+            let progressFilled = node.children[2].children[1]
+
+            XCTAssertEqual(toggleTrack.backgroundColor, tint)
+            XCTAssertEqual(sliderFilled.backgroundColor, tint)
+            XCTAssertEqual(progressFilled.backgroundColor, tint)
+        }
+    }
+
+    func testNestedTintOverridesParentAccentColor() async {
+        await MainActor.run {
+            var value = 0.25
+            let parentAccent = Color(red: 0.1, green: 0.8, blue: 0.3, alpha: 1)
+            let nestedTint = Color(red: 0.8, green: 0.4, blue: 0.1, alpha: 1)
+
+            let node = makeNode(
+                VStack {
+                    ProgressView(value: 0.25, total: 1.0)
+                    Slider(
+                        value: Binding(
+                            get: { value },
+                            set: { value = $0 }
+                        )
+                    )
+                    .tint(nestedTint)
+                }
+                .accentColor(parentAccent)
+            )
+
+            let progressFilled = node.children[0].children[1]
+            let sliderFilled = node.children[1].children[1]
+
+            XCTAssertEqual(progressFilled.backgroundColor, parentAccent)
+            XCTAssertEqual(sliderFilled.backgroundColor, nestedTint)
+        }
+    }
+
     func testOpacityModifierClampsAndMapsToNodeOpacity() async {
         await MainActor.run {
             let fadedNode = makeNode(Text("FADED").opacity(0.42))

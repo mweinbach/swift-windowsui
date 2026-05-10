@@ -81,6 +81,8 @@ Modifiers:
 - `padding`
 - `background`
 - `foregroundColor`
+- `tint`
+- `accentColor`
 - `font`
 - `multilineTextAlignment`
 - `lineLimit`
@@ -120,6 +122,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - Text styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text` styling still takes precedence.
+- `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `onAppear` fires when the retained node first renders, and `onDisappear` fires when an appeared retained subtree is removed or replaced.
 - `onTapGesture` opts the retained node into hit testing and handles single pointer tap activation; multi-tap `count` values are accepted by the API but not yet distinguished by the runtime.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.

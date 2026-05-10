@@ -189,7 +189,7 @@ Modifiers:
 - `clipped(antialiased:)`
 - `clipShape(_:style:)`
 - `border`
-- `shadow`
+- `shadow`, including SwiftUI-style default-color `shadow(radius:x:y:)`
 - `layoutPriority`
 - `allowsHitTesting`
 - `opacity`

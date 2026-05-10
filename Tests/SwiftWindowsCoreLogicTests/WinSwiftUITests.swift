@@ -3591,6 +3591,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShadowModifierAcceptsDefaultColorOverload() async {
+        await MainActor.run {
+            let defaultNode = makeNode(Text("CARD").shadow(radius: 6, x: 2, y: 3))
+            let explicitNode = makeNode(Text("PANEL").shadow(color: .red, radius: 4, x: -1, y: 5))
+
+            XCTAssertEqual(defaultNode.shadowColor, .black.opacity(0.33))
+            XCTAssertEqual(defaultNode.shadowSpread, 6)
+            XCTAssertEqual(defaultNode.shadowOffset, Point(x: 2, y: 3))
+            XCTAssertEqual(defaultNode.children[0].text, "CARD")
+
+            XCTAssertEqual(explicitNode.shadowColor, .red)
+            XCTAssertEqual(explicitNode.shadowSpread, 4)
+            XCTAssertEqual(explicitNode.shadowOffset, Point(x: -1, y: 5))
+            XCTAssertEqual(explicitNode.children[0].text, "PANEL")
+        }
+    }
+
     func testZIndexModifierMapsToRetainedNodeZIndex() async {
         await MainActor.run {
             let node = makeNode(Text("FRONT").zIndex(7.5))

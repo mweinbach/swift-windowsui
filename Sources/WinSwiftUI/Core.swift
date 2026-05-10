@@ -3285,6 +3285,10 @@ public extension View {
         }
     }
 
+    func shadow(radius: Double, x: Double = 0, y: Double = 0) -> some View {
+        shadow(color: .black.opacity(0.33), radius: radius, x: x, y: y)
+    }
+
     func layoutPriority(_ priority: Double) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

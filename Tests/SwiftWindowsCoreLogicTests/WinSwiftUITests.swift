@@ -712,6 +712,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeStrokeStyleOverloadsMapToRetainedBorders() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.7, green: 0.4, blue: 0.9, alpha: 1)
+            let storedStroke = Color(red: 0.1, green: 0.8, blue: 0.5, alpha: 1)
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.9, green: 0.1, blue: 0.3, alpha: 1),
+                    Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            let strokeStyle = StrokeStyle(
+                lineWidth: 6,
+                lineCap: .round,
+                lineJoin: .bevel,
+                miterLimit: 3,
+                dash: [4, 2],
+                dashPhase: 1
+            )
+            let root = renderedNode(
+                VStack {
+                    Rectangle()
+                        .stroke(style: strokeStyle)
+                        .frame(width: 24, height: 12)
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(ForegroundStyle.color(storedStroke), style: StrokeStyle(lineWidth: 3, dash: [2]))
+                        .frame(width: 28, height: 16)
+                    Circle()
+                        .stroke(gradient, style: StrokeStyle(lineWidth: 4, lineCap: .square))
+                        .frame(width: 20, height: 20)
+                    Ellipse()
+                        .strokeBorder(ForegroundStyle.linearGradient(gradient), lineWidth: 5)
+                        .frame(width: 32, height: 14)
+                }
+                .foregroundStyle(inheritedColor)
+            )
+
+            let inheritedStroke = root.children[0].children[0]
+            let storedForegroundStroke = root.children[1].children[0]
+            let gradientStroke = root.children[2].children[0]
+            let gradientStrokeBorder = root.children[3].children[0]
+            XCTAssertEqual(strokeStyle.lineWidth, 6)
+            XCTAssertEqual(strokeStyle.dashPattern, [4, 2])
+            XCTAssertEqual(strokeStyle.dashOffset, 1)
+            XCTAssertEqual(strokeStyle.lineCap, .round)
+            XCTAssertEqual(strokeStyle.lineJoin, .bevel)
+            XCTAssertEqual(inheritedStroke.backgroundColor, .clear)
+            XCTAssertEqual(inheritedStroke.borderColor, inheritedColor)
+            XCTAssertEqual(inheritedStroke.borderWidth, 6)
+            XCTAssertEqual(storedForegroundStroke.backgroundColor, .clear)
+            XCTAssertEqual(storedForegroundStroke.borderColor, storedStroke)
+            XCTAssertEqual(storedForegroundStroke.borderWidth, 3)
+            XCTAssertEqual(storedForegroundStroke.cornerRadius, 8)
+            XCTAssertEqual(gradientStroke.backgroundColor, .clear)
+            XCTAssertEqual(gradientStroke.borderColor, gradient.startColor)
+            XCTAssertEqual(gradientStroke.borderWidth, 4)
+            XCTAssertEqual(gradientStroke.cornerRadius, 10)
+            XCTAssertEqual(gradientStrokeBorder.borderColor, gradient.startColor)
+            XCTAssertEqual(gradientStrokeBorder.borderWidth, 5)
+            XCTAssertEqual(gradientStrokeBorder.cornerRadius, 7)
+        }
+    }
+
     func testCapsuleMapsToDynamicRoundedRetainedShapeNode() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

@@ -36,12 +36,12 @@ public struct Rectangle: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
-    private var strokeColor: Color
+    private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
 
     public init() {
         self.fillStyle = nil
-        self.strokeColor = .clear
+        self.strokeStyle = nil
         self.lineWidth = 0
     }
 
@@ -52,7 +52,7 @@ public struct Rectangle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
-            strokeColor: strokeColor,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             cornerRadius: 0
         )
@@ -79,13 +79,69 @@ public struct Rectangle: View {
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
-        copy.strokeColor = color
+        copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Rectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Rectangle {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> Rectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> Rectangle {
+        stroke(color, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Rectangle {
+        stroke(foregroundStyle, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Rectangle {
+        stroke(gradient, lineWidth: style.lineWidth)
+    }
+
     public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Rectangle {
         stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Rectangle {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Rectangle {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> Rectangle {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> Rectangle {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Rectangle {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Rectangle {
+        stroke(gradient, style: style)
     }
 }
 
@@ -96,14 +152,14 @@ public struct RoundedRectangle: View {
     private let cornerRadius: Double
     private let style: RoundedCornerStyle
     private var fillStyle: ForegroundStyle?
-    private var strokeColor: Color
+    private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
 
     public init(cornerRadius: Double, style: RoundedCornerStyle = .circular) {
         self.cornerRadius = max(0, cornerRadius)
         self.style = style
         self.fillStyle = nil
-        self.strokeColor = .clear
+        self.strokeStyle = nil
         self.lineWidth = 0
     }
 
@@ -114,7 +170,7 @@ public struct RoundedRectangle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
-            strokeColor: strokeColor,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             cornerRadius: cornerRadius
         )
@@ -141,13 +197,69 @@ public struct RoundedRectangle: View {
     public func stroke(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
-        copy.strokeColor = color
+        copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> RoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> RoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> RoundedRectangle {
+        stroke(color, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> RoundedRectangle {
+        stroke(foregroundStyle, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> RoundedRectangle {
+        stroke(gradient, lineWidth: style.lineWidth)
+    }
+
     public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
         stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> RoundedRectangle {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> RoundedRectangle {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> RoundedRectangle {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> RoundedRectangle {
+        stroke(gradient, style: style)
     }
 }
 
@@ -157,13 +269,13 @@ public struct Capsule: View {
 
     private let style: RoundedCornerStyle
     private var fillStyle: ForegroundStyle?
-    private var strokeColor: Color
+    private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
 
     public init(style: RoundedCornerStyle = .circular) {
         self.style = style
         self.fillStyle = nil
-        self.strokeColor = .clear
+        self.strokeStyle = nil
         self.lineWidth = 0
     }
 
@@ -174,7 +286,7 @@ public struct Capsule: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
-            strokeColor: strokeColor,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth
         )
     }
@@ -200,13 +312,69 @@ public struct Capsule: View {
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
-        copy.strokeColor = color
+        copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Capsule {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Capsule {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> Capsule {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> Capsule {
+        stroke(color, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Capsule {
+        stroke(foregroundStyle, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Capsule {
+        stroke(gradient, lineWidth: style.lineWidth)
+    }
+
     public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Capsule {
         stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Capsule {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Capsule {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> Capsule {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> Capsule {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Capsule {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Capsule {
+        stroke(gradient, style: style)
     }
 }
 
@@ -215,12 +383,12 @@ public struct Circle: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
-    private var strokeColor: Color
+    private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
 
     public init() {
         self.fillStyle = nil
-        self.strokeColor = .clear
+        self.strokeStyle = nil
         self.lineWidth = 0
     }
 
@@ -231,7 +399,7 @@ public struct Circle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
-            strokeColor: strokeColor,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth
         )
     }
@@ -257,13 +425,69 @@ public struct Circle: View {
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Circle {
         var copy = self
         copy.fillStyle = .color(.clear)
-        copy.strokeColor = color
+        copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Circle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Circle {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> Circle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> Circle {
+        stroke(color, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Circle {
+        stroke(foregroundStyle, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Circle {
+        stroke(gradient, lineWidth: style.lineWidth)
+    }
+
     public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Circle {
         stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Circle {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Circle {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> Circle {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> Circle {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Circle {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Circle {
+        stroke(gradient, style: style)
     }
 }
 
@@ -272,12 +496,12 @@ public struct Ellipse: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
-    private var strokeColor: Color
+    private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
 
     public init() {
         self.fillStyle = nil
-        self.strokeColor = .clear
+        self.strokeStyle = nil
         self.lineWidth = 0
     }
 
@@ -288,7 +512,7 @@ public struct Ellipse: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
-            strokeColor: strokeColor,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth
         )
     }
@@ -314,13 +538,69 @@ public struct Ellipse: View {
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
-        copy.strokeColor = color
+        copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Ellipse {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Ellipse {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> Ellipse {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> Ellipse {
+        stroke(color, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Ellipse {
+        stroke(foregroundStyle, lineWidth: style.lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Ellipse {
+        stroke(gradient, lineWidth: style.lineWidth)
+    }
+
     public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Ellipse {
         stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Ellipse {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Ellipse {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> Ellipse {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> Ellipse {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Ellipse {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Ellipse {
+        stroke(gradient, style: style)
     }
 }
 
@@ -357,16 +637,17 @@ extension Ellipse: Shape, RetainedClipShape {
 @MainActor
 private func shapeComponent(
     fillStyle: ForegroundStyle,
-    strokeColor: Color,
+    strokeStyle: ForegroundStyle,
     lineWidth: Double,
     cornerRadius: Double
 ) -> Component {
     Component { _ in
         let fill = resolvedFill(from: fillStyle)
+        let stroke = resolvedStrokeColor(from: strokeStyle)
         return Controls.panel(
             backgroundColor: fill.color,
             backgroundGradient: fill.gradient,
-            borderColor: strokeColor,
+            borderColor: stroke,
             borderWidth: lineWidth,
             cornerRadius: cornerRadius,
             isHitTestVisible: false
@@ -377,15 +658,16 @@ private func shapeComponent(
 @MainActor
 private func capsuleComponent(
     fillStyle: ForegroundStyle,
-    strokeColor: Color,
+    strokeStyle: ForegroundStyle,
     lineWidth: Double
 ) -> Component {
     Component { _ in
         let fill = resolvedFill(from: fillStyle)
+        let stroke = resolvedStrokeColor(from: strokeStyle)
         let node = Controls.panel(
             backgroundColor: fill.color,
             backgroundGradient: fill.gradient,
-            borderColor: strokeColor,
+            borderColor: stroke,
             borderWidth: lineWidth,
             isHitTestVisible: false
         )
@@ -396,6 +678,15 @@ private func capsuleComponent(
             }
         }
         return node
+    }
+}
+
+private func resolvedStrokeColor(from style: ForegroundStyle) -> Color {
+    switch style {
+    case .color(let color):
+        return color
+    case .linearGradient(let gradient):
+        return gradient.startColor
     }
 }
 

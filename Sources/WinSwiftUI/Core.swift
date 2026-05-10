@@ -15,6 +15,7 @@ public typealias LinearGradient = SwiftWindowsGraphics.LinearGradient
 public typealias Point = SwiftWindowsCore.Point
 public typealias Rect = SwiftWindowsCore.Rect
 public typealias Size = SwiftWindowsCore.Size
+public typealias StrokeStyle = SwiftWindowsGraphics.StrokeStyle
 public typealias ControlAnimationStyle = SwiftWindowsUI.ControlAnimationStyle
 public typealias SurfaceChrome = SwiftWindowsUI.SurfaceChrome
 public typealias SurfacePalette = SwiftWindowsUI.SurfacePalette
@@ -1717,6 +1718,26 @@ public struct SubmitTriggers: OptionSet, Sendable {
 
     var submitsTextInput: Bool {
         !intersection(.all).isEmpty
+    }
+}
+
+public extension StrokeStyle {
+    init(
+        lineWidth: Double = 1,
+        lineCap: LineCap = .butt,
+        lineJoin: LineJoin = .miter,
+        miterLimit: Double = 10,
+        dash: [Double] = [],
+        dashPhase: Double = 0
+    ) {
+        _ = miterLimit
+        self.init(
+            lineWidth: lineWidth,
+            dashPattern: dash,
+            dashOffset: dashPhase,
+            lineCap: lineCap,
+            lineJoin: lineJoin
+        )
     }
 }
 

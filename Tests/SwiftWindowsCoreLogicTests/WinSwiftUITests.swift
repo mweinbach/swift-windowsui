@@ -5,6 +5,27 @@ import SwiftWindowsGraphics
 @testable import WinSwiftUI
 
 final class WinSwiftUITests: XCTestCase {
+    func testSwiftUIColorConstantsMapToCoreColors() async {
+        await MainActor.run {
+            XCTAssertEqual(Color.red, Color(red: 1, green: 0, blue: 0, alpha: 1))
+            XCTAssertEqual(Color.orange, Color(red: 1, green: 0.5, blue: 0, alpha: 1))
+            XCTAssertEqual(Color.yellow, Color(red: 1, green: 1, blue: 0, alpha: 1))
+            XCTAssertEqual(Color.green, Color(red: 0, green: 1, blue: 0, alpha: 1))
+            XCTAssertEqual(Color.mint, Color(red: 0, green: 0.78, blue: 0.75, alpha: 1))
+            XCTAssertEqual(Color.teal, Color(red: 0, green: 0.5, blue: 0.5, alpha: 1))
+            XCTAssertEqual(Color.cyan, Color(red: 0, green: 1, blue: 1, alpha: 1))
+            XCTAssertEqual(Color.blue, Color(red: 0, green: 0, blue: 1, alpha: 1))
+            XCTAssertEqual(Color.indigo, Color(red: 0.29, green: 0, blue: 0.51, alpha: 1))
+            XCTAssertEqual(Color.purple, Color(red: 0.5, green: 0, blue: 0.5, alpha: 1))
+            XCTAssertEqual(Color.pink, Color(red: 1, green: 0.41, blue: 0.71, alpha: 1))
+            XCTAssertEqual(Color.brown, Color(red: 0.6, green: 0.4, blue: 0.2, alpha: 1))
+            XCTAssertEqual(Color.gray, Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+            XCTAssertEqual(Color.primary, .white)
+            XCTAssertEqual(Color.secondary, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1))
+            XCTAssertEqual(Color.accentColor, ViewBuildContext.defaultTint)
+        }
+    }
+
     func testTextMapsToLabelNode() async {
         await MainActor.run {
             let node = makeNode(

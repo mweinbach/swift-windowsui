@@ -107,6 +107,7 @@ Modifiers:
 Compatibility helpers:
 
 - `Color(red:green:blue:opacity:)`
+- common `Color` constants such as `red`, `blue`, `gray`, `primary`, `secondary`, and `accentColor`
 - `Color.opacity(_:)`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`

@@ -329,6 +329,13 @@ public enum ColorScheme: Sendable, Equatable {
     case dark
 }
 
+public enum TextInputAutocapitalization: Sendable, Equatable {
+    case never
+    case words
+    case sentences
+    case characters
+}
+
 public protocol EnvironmentKey {
     associatedtype Value
 
@@ -351,6 +358,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var labelStyle: LabelStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
+    public var textInputAutocapitalization: TextInputAutocapitalization?
+    public var isAutocorrectionDisabled: Bool
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -368,7 +377,9 @@ public struct EnvironmentValues: @unchecked Sendable {
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
-        textFieldStyle: TextFieldStyle = .automatic
+        textFieldStyle: TextFieldStyle = .automatic,
+        textInputAutocapitalization: TextInputAutocapitalization? = nil,
+        isAutocorrectionDisabled: Bool = false
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
@@ -385,6 +396,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
+        self.textInputAutocapitalization = textInputAutocapitalization
+        self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.customValues = [:]
     }
 
@@ -640,6 +653,14 @@ public struct ViewBuildContext {
 
     public var textFieldStyle: TextFieldStyle {
         environmentValuesProvider().textFieldStyle
+    }
+
+    public var textInputAutocapitalization: TextInputAutocapitalization? {
+        environmentValuesProvider().textInputAutocapitalization
+    }
+
+    public var isAutocorrectionDisabled: Bool {
+        environmentValuesProvider().isAutocorrectionDisabled
     }
 
     public var environmentValues: EnvironmentValues {
@@ -2895,6 +2916,18 @@ public extension View {
     func textFieldStyle(_ style: TextFieldStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textFieldStyle, style))
+        }
+    }
+
+    func textInputAutocapitalization(_ textInputAutocapitalization: TextInputAutocapitalization?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textInputAutocapitalization, textInputAutocapitalization))
+        }
+    }
+
+    func autocorrectionDisabled(_ disable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isAutocorrectionDisabled, disable))
         }
     }
 

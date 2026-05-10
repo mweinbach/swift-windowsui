@@ -251,6 +251,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextInputAutocapitalizationAndAutocorrectionModifiersPropagate() async {
+        await MainActor.run {
+            struct TextInputEnvironmentReader: View {
+                @Environment(\.textInputAutocapitalization) var textInputAutocapitalization
+                @Environment(\.isAutocorrectionDisabled) var isAutocorrectionDisabled
+
+                var body: some View {
+                    Text(
+                        "\(textInputAutocapitalization == .characters ? "CHARACTERS" : "OTHER") " +
+                        "\(isAutocorrectionDisabled ? "DISABLED" : "ENABLED")"
+                    )
+                }
+            }
+
+            var wordsValue = ""
+            let wordsBinding = Binding(
+                get: { wordsValue },
+                set: { wordsValue = $0 }
+            )
+            let wordsNode = makeNode(
+                TextField("NAME", text: wordsBinding)
+                    .textInputAutocapitalization(.words)
+            )
+
+            wordsNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+            wordsNode.onKeyDown?(KeyboardEvent(keyCode: 0x42))
+            wordsNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.space.rawValue))
+            wordsNode.onKeyDown?(KeyboardEvent(keyCode: 0x43))
+
+            var sentenceValue = "hi. "
+            let sentenceBinding = Binding(
+                get: { sentenceValue },
+                set: { sentenceValue = $0 }
+            )
+            let sentenceNode = makeNode(
+                TextField("NOTE", text: sentenceBinding)
+                    .textInputAutocapitalization(.sentences)
+            )
+
+            sentenceNode.onKeyDown?(KeyboardEvent(keyCode: 0x44))
+
+            let readerNode = makeNode(
+                TextInputEnvironmentReader()
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+            )
+
+            XCTAssertEqual(wordsValue, "Ab C")
+            XCTAssertEqual(sentenceValue, "hi. D")
+            XCTAssertEqual(readerNode.text, "CHARACTERS DISABLED")
+        }
+    }
+
     func testDisabledTextFieldDoesNotAcceptKeyboardInput() async {
         await MainActor.run {
             var value = "LOCKED"

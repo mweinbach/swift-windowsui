@@ -169,6 +169,8 @@ Modifiers:
 - `tracking`
 - `allowsTightening`
 - `textCase`
+- `textInputAutocapitalization`
+- `autocorrectionDisabled`
 - `underline`
 - `strikethrough`
 - `cornerRadius(_:antialiased:)`
@@ -218,6 +220,7 @@ Compatibility helpers:
 - `Angle`
 - `SubmitTriggers`
 - `SubmitLabel`
+- `TextInputAutocapitalization`
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
@@ -287,7 +290,7 @@ Surface direction:
 - `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
 - `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
 - `Menu` maps to a retained menu button and an inline retained action stack. It preserves SwiftUI-shaped menu syntax and button actions, but does not yet present as a native popup overlay.
-- `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion/backspace. `TextField` and `SecureField` provide placeholder rendering from the title or SwiftUI-style `prompt: Text?` overloads, `TextField(axis: .vertical)` maps to the retained multiline input path, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.
+- `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion/backspace. `TextField` and `SecureField` provide placeholder rendering from the title or SwiftUI-style `prompt: Text?` overloads, `TextField(axis: .vertical)` maps to the retained multiline input path, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. `textInputAutocapitalization(_:)` propagates through `EnvironmentValues` and transforms inserted retained keyboard text for `.characters`, `.words`, and `.sentences`; `autocorrectionDisabled(_:)` propagates for source compatibility but has no spelling engine behind it yet. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
@@ -311,7 +314,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values such as `isEnabled`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `truncationMode`, `allowsTightening`, `textCase`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

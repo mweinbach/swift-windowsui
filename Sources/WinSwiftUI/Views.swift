@@ -2644,7 +2644,12 @@ private func textInputComponent(
                 return
             }
 
-            guard let character = textFieldInsertedCharacter(for: event, allowsNewlines: allowsNewlines) else {
+            guard let character = textFieldInsertedCharacter(
+                for: event,
+                allowsNewlines: allowsNewlines,
+                currentText: binding.wrappedValue,
+                textInputAutocapitalization: context.textInputAutocapitalization
+            ) else {
                 return
             }
 
@@ -4081,38 +4086,90 @@ private extension TextFieldStyle {
     }
 }
 
-private func textFieldInsertedCharacter(for event: KeyboardEvent, allowsNewlines: Bool) -> String? {
+private func textFieldInsertedCharacter(
+    for event: KeyboardEvent,
+    allowsNewlines: Bool,
+    currentText: String,
+    textInputAutocapitalization: TextInputAutocapitalization?
+) -> String? {
+    let insertedCharacter: String
     if event.key == .enter {
-        return allowsNewlines ? "\n" : nil
+        guard allowsNewlines else {
+            return nil
+        }
+        insertedCharacter = "\n"
+        return insertedCharacter
     }
 
     if event.key == .space {
-        return " "
+        insertedCharacter = " "
+        return insertedCharacter
     }
 
     switch event.keyCode {
     case 0x30...0x39:
-        return String(UnicodeScalar(event.keyCode)!)
+        insertedCharacter = String(UnicodeScalar(event.keyCode)!)
     case 0x41...0x5A:
         guard let scalar = UnicodeScalar(event.keyCode) else {
             return nil
         }
 
         let character = String(scalar)
-        return event.modifiers.contains(.shift) ? character : character.lowercased()
+        insertedCharacter = event.modifiers.contains(.shift) ? character : character.lowercased()
     case 0xBA:
-        return event.modifiers.contains(.shift) ? ":" : ";"
+        insertedCharacter = event.modifiers.contains(.shift) ? ":" : ";"
     case 0xBB:
-        return event.modifiers.contains(.shift) ? "+" : "="
+        insertedCharacter = event.modifiers.contains(.shift) ? "+" : "="
     case 0xBC:
-        return event.modifiers.contains(.shift) ? "<" : ","
+        insertedCharacter = event.modifiers.contains(.shift) ? "<" : ","
     case 0xBD:
-        return event.modifiers.contains(.shift) ? "_" : "-"
+        insertedCharacter = event.modifiers.contains(.shift) ? "_" : "-"
     case 0xBE:
-        return event.modifiers.contains(.shift) ? ">" : "."
+        insertedCharacter = event.modifiers.contains(.shift) ? ">" : "."
     case 0xBF:
-        return event.modifiers.contains(.shift) ? "?" : "/"
+        insertedCharacter = event.modifiers.contains(.shift) ? "?" : "/"
     default:
         return nil
     }
+
+    return autocapitalizedInsertedCharacter(
+        insertedCharacter,
+        currentText: currentText,
+        textInputAutocapitalization: textInputAutocapitalization
+    )
+}
+
+private func autocapitalizedInsertedCharacter(
+    _ character: String,
+    currentText: String,
+    textInputAutocapitalization: TextInputAutocapitalization?
+) -> String {
+    switch textInputAutocapitalization {
+    case .characters:
+        return character.uppercased()
+    case .words:
+        return currentText.last.map { $0.isWhitespace || $0.isNewline } ?? true
+            ? character.uppercased()
+            : character
+    case .sentences:
+        guard shouldCapitalizeSentenceInsertion(after: currentText) else {
+            return character
+        }
+        return character.uppercased()
+    case .never, nil:
+        return character
+    }
+}
+
+private func shouldCapitalizeSentenceInsertion(after text: String) -> Bool {
+    guard let lastCharacter = text.last else {
+        return true
+    }
+    if lastCharacter.isNewline {
+        return true
+    }
+    guard let lastMeaningfulCharacter = text.last(where: { !$0.isWhitespace && !$0.isNewline }) else {
+        return true
+    }
+    return lastMeaningfulCharacter == "." || lastMeaningfulCharacter == "!" || lastMeaningfulCharacter == "?"
 }

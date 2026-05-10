@@ -791,6 +791,18 @@ public enum Edge {
     }
 }
 
+public struct SafeAreaRegions: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let container = SafeAreaRegions(rawValue: 1 << 0)
+    public static let keyboard = SafeAreaRegions(rawValue: 1 << 1)
+    public static let all: SafeAreaRegions = [.container, .keyboard]
+}
+
 public struct Font: Sendable, Equatable {
     public enum Weight: Sendable, Equatable {
         case ultraLight
@@ -1523,6 +1535,14 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func ignoresSafeArea(_ regions: SafeAreaRegions = .all, edges: Edge.Set = .all) -> some View {
+        self
+    }
+
+    func edgesIgnoringSafeArea(_ edges: Edge.Set) -> some View {
+        ignoresSafeArea(.all, edges: edges)
     }
 
     func padding(_ length: Double = 16) -> some View {

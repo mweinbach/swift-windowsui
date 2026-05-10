@@ -377,6 +377,22 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSafeAreaCompatibilityModifiersPassThroughView() async {
+        await MainActor.run {
+            let ignoredNode = makeNode(
+                Text("SAFE")
+                    .ignoresSafeArea(.container, edges: .top)
+            )
+            let legacyNode = makeNode(
+                Text("LEGACY")
+                    .edgesIgnoringSafeArea(.all)
+            )
+
+            XCTAssertEqual(ignoredNode.text, "SAFE")
+            XCTAssertEqual(legacyNode.text, "LEGACY")
+        }
+    }
+
     func testOverlayAlignsContentWithoutExpandingBaseLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

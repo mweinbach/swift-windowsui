@@ -79,6 +79,12 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEdgeInsetsDefaultInitializerMapsToZero() async {
+        await MainActor.run {
+            XCTAssertEqual(EdgeInsets(), .zero)
+        }
+    }
+
     func testTextMapsToLabelNode() async {
         await MainActor.run {
             let node = makeNode(
@@ -2221,6 +2227,42 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: node.children[0]).contains("SHOW"))
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SETTINGS"))
             XCTAssertTrue(allTexts(in: node.children[2]).contains("ITEM"))
+        }
+    }
+
+    func testNavigationLinkDestinationBuilderRendersLabelAndPushesDestination() async {
+        await MainActor.run {
+            var didInvalidate = false
+            let stack = NavigationStack {
+                NavigationLink {
+                    VStack {
+                        Text("DETAIL")
+                        Text("MORE")
+                    }
+                    .navigationTitle("DETAIL TITLE")
+                } label: {
+                    Label("OPEN", systemImage: "chevron.right")
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN"))
+
+            rootNode.children[1].onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertEqual(detailNode.children[1].children[0].text, "DETAIL")
+            XCTAssertEqual(detailNode.children[1].children[1].text, "MORE")
         }
     }
 

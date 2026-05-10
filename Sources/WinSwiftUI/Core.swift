@@ -2500,6 +2500,10 @@ public extension SwiftWindowsGraphics.LinearGradient {
 }
 
 extension EdgeInsets {
+    public init() {
+        self.init(top: 0, leading: 0, bottom: 0, trailing: 0)
+    }
+
     static func all(_ value: Double) -> EdgeInsets {
         EdgeInsets(top: value, leading: value, bottom: value, trailing: value)
     }

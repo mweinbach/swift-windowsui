@@ -753,6 +753,15 @@ public struct NavigationLink: View {
         self.value = nil
     }
 
+    public init(
+        @ViewBuilder destination: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = destination()
+        self.value = nil
+    }
+
     public init<Destination: View>(
         _ title: String,
         destination: Destination

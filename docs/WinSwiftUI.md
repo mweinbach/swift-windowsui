@@ -130,6 +130,7 @@ Compatibility helpers:
 - `Color(hue:saturation:brightness:opacity:)`
 - common `Color` constants such as `red`, `blue`, `gray`, `primary`, `secondary`, and `accentColor`
 - `Color.opacity(_:)`
+- named `Font` styles such as `body`, `title`, `headline`, and `caption`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
 - `Angle`
@@ -146,6 +147,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
+- Named `Font` styles are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.

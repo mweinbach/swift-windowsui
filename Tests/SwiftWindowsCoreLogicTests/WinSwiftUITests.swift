@@ -176,6 +176,24 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNamedFontStylesMapToRetainedTextSizes() async {
+        await MainActor.run {
+            let titleNode = makeNode(Text("TITLE").font(.title))
+            let title2Node = makeNode(Text("TITLE2").font(.title2))
+            let headlineNode = makeNode(Text("HEADLINE").font(.headline))
+            let captionNode = makeNode(Text("CAPTION").font(.caption))
+            let caption2Node = makeNode(Text("CAPTION2").font(.caption2))
+
+            XCTAssertEqual(titleNode.textStyle.nativeFontSize, 28)
+            XCTAssertEqual(titleNode.textStyle.scale, 2.8)
+            XCTAssertEqual(title2Node.textStyle.nativeFontSize, 22)
+            XCTAssertEqual(headlineNode.textStyle.nativeFontSize, 17)
+            XCTAssertEqual(headlineNode.textStyle.weight, .semibold)
+            XCTAssertEqual(captionNode.textStyle.nativeFontSize, 12)
+            XCTAssertEqual(caption2Node.textStyle.nativeFontSize, 11)
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

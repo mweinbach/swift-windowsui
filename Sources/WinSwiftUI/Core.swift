@@ -802,6 +802,18 @@ public struct Font: Sendable, Equatable {
         Font(size: size, weight: weight, design: design)
     }
 
+    public static let largeTitle = Font(size: 34)
+    public static let title = Font(size: 28)
+    public static let title2 = Font(size: 22)
+    public static let title3 = Font(size: 20)
+    public static let headline = Font(size: 17, weight: .semibold)
+    public static let subheadline = Font(size: 15)
+    public static let body = Font(size: 17)
+    public static let callout = Font(size: 16)
+    public static let footnote = Font(size: 13)
+    public static let caption = Font(size: 12)
+    public static let caption2 = Font(size: 11)
+
     public func weight(_ weight: Weight) -> Font {
         Font(size: size, weight: weight, design: design, family: family)
     }

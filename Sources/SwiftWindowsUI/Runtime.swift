@@ -21,10 +21,210 @@ public struct DirtyFlags: OptionSet, Sendable {
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
 
+struct ViewPaintCacheKey: Equatable, Sendable {
+    var bounds: Rect
+    var contentMask: Rect?
+    var opacity: Float
+    var displayScale: Double
+}
+
+struct ViewMeasureCacheKey: Equatable, Sendable {
+    var constraints: LayoutConstraints
+    var displayScale: Double
+}
+
+struct ViewLayoutCacheKey: Equatable, Sendable {
+    var frame: Rect
+    var displayScale: Double
+}
+
+@MainActor
+struct ScrollIndicatorDeferredDrawPayload {
+    var dispatchIndex: Int
+    var track: ScrollIndicatorTrack
+    var color: Color
+    var cornerRadius: Double
+
+    func fillRectCommand(contentMask: Rect?) -> FillRectCommand {
+        FillRectCommand(
+            rect: track.indicatorRect,
+            color: color,
+            cornerRadius: cornerRadius,
+            clipRect: contentMask
+        )
+    }
+}
+
+@MainActor
+struct DeferredSubtreePayload {
+    weak var node: ViewNode?
+    var parentOrigin: Point
+    var inheritedClip: Rect?
+    var inheritedOpacity: Float
+    var inheritedInverseTransform: Transform2D?
+}
+
+@MainActor
+struct DeferredSubtreeState {
+    var priority: Int
+    var parentDispatchIndex: Int
+    var payload: DeferredSubtreePayload
+}
+
+@MainActor
+enum DeferredDrawPayload {
+    case scrollIndicator(ScrollIndicatorDeferredDrawPayload)
+    case subtree(DeferredSubtreePayload)
+
+    var rect: Rect {
+        switch self {
+        case .scrollIndicator(let payload):
+            return payload.track.indicatorRect
+        case .subtree(let payload):
+            guard let node = payload.node else {
+                return .zero
+            }
+            return Rect(
+                x: payload.parentOrigin.x + node.resolvedFrame.origin.x,
+                y: payload.parentOrigin.y + node.resolvedFrame.origin.y,
+                width: node.resolvedFrame.size.width,
+                height: node.resolvedFrame.size.height
+            )
+        }
+    }
+
+    var interaction: DeferredOverlayInteraction? {
+        switch self {
+        case .scrollIndicator(let payload):
+            return .scrollIndicator(dispatchIndex: payload.dispatchIndex, track: payload.track)
+        case .subtree:
+            return nil
+        }
+    }
+
+    func fillRectCommand(contentMask: Rect?) -> FillRectCommand {
+        switch self {
+        case .scrollIndicator(let payload):
+            return payload.fillRectCommand(contentMask: contentMask)
+        case .subtree:
+            return FillRectCommand(rect: .zero, color: .clear)
+        }
+    }
+
+    func remappedDispatchIndices(by delta: Int) -> DeferredDrawPayload {
+        switch self {
+        case .scrollIndicator(var payload):
+            payload.dispatchIndex += delta
+            return .scrollIndicator(payload)
+        case .subtree(let payload):
+            return .subtree(payload)
+        }
+    }
+}
+
+@MainActor
+struct DeferredDrawState {
+    var priority: Int
+    var parentDispatchIndex: Int
+    var contentMask: Rect?
+    var payload: DeferredDrawPayload
+    var cachedFrameCommandRange: Range<Int>?
+    var cachedScenePaintRange: Range<Int>?
+
+    var rect: Rect {
+        payload.rect
+    }
+
+    var interaction: DeferredOverlayInteraction? {
+        payload.interaction
+    }
+}
+
+@MainActor
+enum DeferredOverlayInteraction {
+    case scrollIndicator(dispatchIndex: Int, track: ScrollIndicatorTrack)
+}
+
+struct PrepaintStateIndex: Equatable, Sendable {
+    var dispatchIndex: Int
+    var interactionIndex: Int
+    var focusOrderIndex: Int
+    var deferredSubtreeIndex: Int
+    var deferredDrawIndex: Int
+    var deferredPriority: Int
+}
+
+struct PrepaintStateRange: Equatable, Sendable {
+    var start: PrepaintStateIndex
+    var end: PrepaintStateIndex
+}
+
+@MainActor
+struct PrepaintDispatchState {
+    var node: ViewNode
+    var parentIndex: Int?
+}
+
+@MainActor
+struct PrepaintInteractionState {
+    var dispatchIndex: Int
+    var node: ViewNode
+    var frame: Rect
+    var clipRect: Rect?
+    var clipInverseTransform: Transform2D?
+    var hitTestInverseTransform: Transform2D?
+
+    func containsForHitTesting(_ point: Point) -> Bool {
+        let clippedPoint: Point
+        if let clipInverseTransform {
+            clippedPoint = clipInverseTransform.applying(to: point)
+        } else {
+            clippedPoint = point
+        }
+
+        if let clipRect, !clipRect.contains(clippedPoint) {
+            return false
+        }
+
+        let hitTestPoint: Point
+        if let hitTestInverseTransform {
+            hitTestPoint = hitTestInverseTransform.applying(to: point)
+        } else {
+            hitTestPoint = clippedPoint
+        }
+
+        return frame.contains(hitTestPoint)
+    }
+
+    func containsForScrollTarget(_ point: Point) -> Bool {
+        let transformedPoint: Point
+        if let clipInverseTransform {
+            transformedPoint = clipInverseTransform.applying(to: point)
+        } else {
+            transformedPoint = point
+        }
+
+        if let clipRect, !clipRect.contains(transformedPoint) {
+            return false
+        }
+
+        return frame.contains(transformedPoint)
+    }
+}
+
+@MainActor
+struct RuntimePrepaintState {
+    var dispatchNodes: [PrepaintDispatchState] = []
+    var interactions: [PrepaintInteractionState] = []
+    var focusOrder: [Int] = []
+    var deferredSubtrees: [DeferredSubtreeState] = []
+    var deferredDraws: [DeferredDrawState] = []
+    var nextDeferredPriority: Int = 0
+}
+
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
-    case grid(GridLayout)
     case flex(FlexStyle)
 }
 
@@ -44,22 +244,6 @@ public final class ViewNode {
     }
 
     public var backgroundGradient: LinearGradient? {
-        didSet { invalidateRuntime(.paint) }
-    }
-
-    public var renderPath: RenderPath? {
-        didSet { invalidateRuntime(.paint) }
-    }
-
-    public var pathFillColor: Color {
-        didSet { invalidateRuntime(.paint) }
-    }
-
-    public var pathStrokeColor: Color {
-        didSet { invalidateRuntime(.paint) }
-    }
-
-    public var pathStrokeStyle: StrokeStyle? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -112,30 +296,6 @@ public final class ViewNode {
     }
 
     public var preferredSize: Size? {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var minimumSize: Size? {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var maximumSize: Size? {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var fillsAvailableWidth: Bool {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var fillsAvailableHeight: Bool {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var fixedSizeHorizontal: Bool {
-        didSet { invalidateRuntime(.layout) }
-    }
-
-    public var fixedSizeVertical: Bool {
         didSet { invalidateRuntime(.layout) }
     }
 
@@ -222,28 +382,15 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var paintsInDeferredPhase: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
     /// rather than being torn down and recreated.
     public var nodeTag: String?
-
-    /// Optional typed selection value used by SwiftUI-shaped controls such as
-    /// `Picker` without overloading the string identity tag.
-    public var selectionTag: AnyHashable?
-
-    /// Set by SwiftUI-shaped focus modifiers when a rebuilt node should become
-    /// the active keyboard focus target after reconciliation.
-    public var requestsFocus: Bool = false
-
-    /// Set by SwiftUI-shaped focus modifiers when a focused node should release
-    /// focus after its bound focus value changes away from this control.
-    public var clearsFocusWhenBindingInactive: Bool = false
-
-    /// Optional title supplied by WinSwiftUI's `.tabItem` modifier. Controls
-    /// such as `TabView` read it while lowering SwiftUI-shaped containers into
-    /// retained nodes.
-    public var tabItemTitle: String?
 
     /// Snapshot of previous property values for animation interpolation.
     /// When an animation context is active and a property changes, the old
@@ -257,20 +404,15 @@ public final class ViewNode {
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerDown: (() -> Void)?
-    public var onPointerDownAt: ((Point) -> Void)?
     public var onPointerUpInside: (() -> Void)?
     public var onPointerUpOutside: (() -> Void)?
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
-    public var onTextInput: ((String) -> Void)?
     public var onActivate: (() -> Void)?
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
-    public var onDragStartAt: ((Point) -> Void)?
-    public var onDragChangeAt: ((Point, Point) -> Void)?
-    public var onDragEndAt: ((Point, Point) -> Void)?
     public var onLayout: ((Rect) -> Void)?
 
     // Gap/Fix: Lifecycle hooks — called during appendCommands when node
@@ -288,15 +430,21 @@ public final class ViewNode {
     internal var resolvedFrame: Rect
     internal var resolvedContentSize: Size
     internal var resolvedScrollOffset: Double
+    internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
+    internal var cachedMeasureKey: ViewMeasureCacheKey?
+    internal var cachedMeasuredSize: Size?
+    internal var cachedLayoutKey: ViewLayoutCacheKey?
+    internal var cachedPrepaintKey: ViewPaintCacheKey?
+    internal var cachedPrepaintRange: PrepaintStateRange?
+    internal var cachedFrameKey: ViewPaintCacheKey?
+    internal var cachedFrameCommandRange: Range<Int>?
+    internal var cachedSceneKey: ViewPaintCacheKey?
+    internal var cachedScenePaintRange: Range<Int>?
 
     public init(
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
-        renderPath: RenderPath? = nil,
-        pathFillColor: Color = .clear,
-        pathStrokeColor: Color = .clear,
-        pathStrokeStyle: StrokeStyle? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -310,12 +458,6 @@ public final class ViewNode {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
-        minimumSize: Size? = nil,
-        maximumSize: Size? = nil,
-        fillsAvailableWidth: Bool = false,
-        fillsAvailableHeight: Bool = false,
-        fixedSizeHorizontal: Bool = false,
-        fixedSizeVertical: Bool = false,
         layoutPriority: Double = 0,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
@@ -335,15 +477,12 @@ public final class ViewNode {
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
+        paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
         self.frame = frame
         self.backgroundColor = backgroundColor
         self.backgroundGradient = backgroundGradient
-        self.renderPath = renderPath
-        self.pathFillColor = pathFillColor
-        self.pathStrokeColor = pathStrokeColor
-        self.pathStrokeStyle = pathStrokeStyle
         self.text = text
         self.textStyle = textStyle
         self.borderColor = borderColor
@@ -357,12 +496,6 @@ public final class ViewNode {
         self.clipsToBounds = clipsToBounds
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
-        self.minimumSize = minimumSize
-        self.maximumSize = maximumSize
-        self.fillsAvailableWidth = fillsAvailableWidth
-        self.fillsAvailableHeight = fillsAvailableHeight
-        self.fixedSizeHorizontal = fixedSizeHorizontal
-        self.fixedSizeVertical = fixedSizeVertical
         self.layoutPriority = layoutPriority
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
@@ -382,23 +515,19 @@ public final class ViewNode {
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
+        self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil
-        self.onPointerDownAt = nil
         self.onPointerUpInside = nil
         self.onPointerUpOutside = nil
         self.onFocusEnter = nil
         self.onFocusExit = nil
         self.onKeyDown = nil
-        self.onTextInput = nil
         self.onActivate = nil
         self.onDragStart = nil
         self.onDragChange = nil
         self.onDragEnd = nil
-        self.onDragStartAt = nil
-        self.onDragChangeAt = nil
-        self.onDragEndAt = nil
         self.onLayout = nil
         self.children = []
         self.resolvedFrame = frame
@@ -489,7 +618,21 @@ public final class ViewNode {
         }
     }
 
-    fileprivate func layoutSubtree() {
+    fileprivate func layoutSubtree(displayScale: Double) {
+        let layoutKey = ViewLayoutCacheKey(frame: resolvedFrame, displayScale: displayScale)
+        let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
+        if layoutDirtyFlags.isEmpty, cachedLayoutKey == layoutKey {
+            runtime?.recordLayoutReuse()
+            resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+
+            if hasDirtySubtree {
+                for child in children where child.hasDirtySubtree {
+                    child.layoutSubtree(displayScale: displayScale)
+                }
+            }
+            return
+        }
+
         onLayout?(resolvedFrame)
 
         switch layoutMode {
@@ -508,7 +651,7 @@ public final class ViewNode {
                     height: child.explicitHeight ?? size.height
                 )
                 child.resolvedFrame = Rect(origin: child.frame.origin, size: resolvedSize)
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 maxChildX = max(maxChildX, child.resolvedFrame.maxX)
                 maxChildY = max(maxChildY, child.resolvedFrame.maxY)
             }
@@ -539,8 +682,7 @@ public final class ViewNode {
                 allocatedMainSizes = allocateMainSizes(
                     desiredSizes: desiredMainSizes,
                     children: visibleChildren,
-                    availableExtent: availableChildMainExtent,
-                    axis: stackLayout.axis
+                    availableExtent: availableChildMainExtent
                 )
             }
 
@@ -569,27 +711,19 @@ public final class ViewNode {
                 } else if remaining < 0 {
                     // Shrink items with flexShrink > 0
                     let deficit = -remaining
-                    let shrinkCapacities = visibleChildren.enumerated().map { index, child in
-                        max(0, allocatedMainSizes[index] - minimumMainSize(for: child, axis: stackLayout.axis, currentSize: allocatedMainSizes[index]))
-                    }
-                    let participantIndices = visibleChildren.indices.filter {
-                        visibleChildren[$0].flexItem.shrink > 0 && shrinkCapacities[$0] > 0
-                    }
-                    let totalShrink = participantIndices.reduce(0.0) { partialResult, index in
-                        partialResult + visibleChildren[index].flexItem.shrink
-                    }
+                    let totalShrink = visibleChildren.reduce(0.0) { $0 + $1.flexItem.shrink }
                     if totalShrink > 0 {
-                        var remainingDeficit = deficit
-                        for (offset, index) in participantIndices.enumerated() {
+                        var leftover = deficit
+                        for (i, child) in visibleChildren.enumerated() {
+                            guard child.flexItem.shrink > 0 else { continue }
                             let share: Double
-                            if offset == participantIndices.count - 1 {
-                                share = remainingDeficit
+                            if i == visibleChildren.count - 1 {
+                                share = leftover
                             } else {
-                                share = deficit * (visibleChildren[index].flexItem.shrink / totalShrink)
+                                share = deficit * (child.flexItem.shrink / totalShrink)
+                                leftover -= share
                             }
-                            let appliedShare = min(shrinkCapacities[index], share)
-                            allocatedMainSizes[index] -= appliedShare
-                            remainingDeficit -= appliedShare
+                            allocatedMainSizes[i] = max(0, allocatedMainSizes[i] - share)
                         }
                     }
                 }
@@ -688,7 +822,7 @@ public final class ViewNode {
                 }
 
                 child.resolvedFrame = childFrame
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 visibleIndex += 1
             }
 
@@ -711,56 +845,6 @@ public final class ViewNode {
                     height: max(resolvedFrame.size.height, contentCrossExtent)
                 )
             }
-
-        case .grid(let gridLayout):
-            let contentRect = Rect(origin: .zero, size: resolvedFrame.size).inset(by: gridLayout.padding)
-            let visibleChildren = children.filter { !$0.isHidden }
-            let columnWidths = gridColumnWidths(for: contentRect.size.width, layout: gridLayout)
-            let columnCount = columnWidths.count
-            let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
-            let desiredSizes = visibleChildren.enumerated().map { index, child in
-                child.sizeThatFits(in: LayoutConstraints(maxWidth: columnWidths[index % columnCount]))
-            }
-            let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
-            var rowHeights = Array(repeating: 0.0, count: rowCount)
-
-            for (index, desiredSize) in desiredSizes.enumerated() {
-                rowHeights[index / columnCount] = max(rowHeights[index / columnCount], desiredSize.height)
-            }
-
-            var visibleIndex = 0
-            for child in children {
-                if child.isHidden {
-                    child.resolvedFrame = Rect(x: 0, y: 0, width: 0, height: 0)
-                    continue
-                }
-
-                let row = visibleIndex / columnCount
-                let column = visibleIndex % columnCount
-                let columnOffset = columnWidths.prefix(column).reduce(0, +) + gridLayout.columnSpacing * Double(column)
-                let rowOffset = rowHeights.prefix(row).reduce(0, +) + gridLayout.rowSpacing * Double(row)
-                child.resolvedFrame = Rect(
-                    x: contentRect.origin.x + columnOffset,
-                    y: contentRect.origin.y + rowOffset,
-                    width: columnWidths[column],
-                    height: rowHeights[row]
-                )
-                child.layoutSubtree()
-                visibleIndex += 1
-            }
-
-            let contentHeight = rowHeights.reduce(0, +)
-                + gridLayout.rowSpacing * Double(max(0, rowCount - 1))
-                + gridLayout.padding.top
-                + gridLayout.padding.bottom
-            let contentWidth = columnWidths.reduce(0, +)
-                + columnSpacingTotal
-                + gridLayout.padding.leading
-                + gridLayout.padding.trailing
-            resolvedContentSize = Size(
-                width: max(resolvedFrame.size.width, contentWidth),
-                height: max(resolvedFrame.size.height, contentHeight)
-            )
 
         case .flex(let flexStyle):
             let visibleChildren = children.filter { !$0.isHidden }
@@ -792,23 +876,328 @@ public final class ViewNode {
 
                 let childLayout = layouts[visibleIndex]
                 child.resolvedFrame = Rect(x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
-                child.layoutSubtree()
+                child.layoutSubtree(displayScale: displayScale)
                 visibleIndex += 1
             }
 
             resolvedContentSize = resolvedFrame.size
         }
 
+        cachedLayoutKey = layoutKey
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+    }
+
+    fileprivate func orderedChildrenForPaint() -> [ViewNode] {
+        if children.contains(where: { $0.zIndex != 0 }) {
+            return children.enumerated()
+                .sorted { a, b in
+                    if a.element.zIndex != b.element.zIndex {
+                        return a.element.zIndex < b.element.zIndex
+                    }
+                    return a.offset < b.offset
+                }
+                .map(\.element)
+        }
+
+        return children
+    }
+
+    fileprivate func appendPrepaintState(
+        into state: inout RuntimePrepaintState,
+        parentOrigin: Point,
+        inheritedClip: Rect?,
+        inheritedOpacity: Float = 1,
+        parentDispatchIndex: Int? = nil,
+        inheritedInverseTransform: Transform2D? = nil,
+        previousState: RuntimePrepaintState? = nil,
+        displayScale: Double = 1,
+        replayCount: inout Int
+    ) {
+        let startIndex = PrepaintStateIndex(
+            dispatchIndex: state.dispatchNodes.count,
+            interactionIndex: state.interactions.count,
+            focusOrderIndex: state.focusOrder.count,
+            deferredSubtreeIndex: state.deferredSubtrees.count,
+            deferredDrawIndex: state.deferredDraws.count,
+            deferredPriority: state.nextDeferredPriority
+        )
+
+        if isHidden {
+            cachedPrepaintKey = nil
+            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+            return
+        }
+
+        let absoluteFrame = Rect(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y,
+            width: resolvedFrame.size.width,
+            height: resolvedFrame.size.height
+        )
+
+        if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+            cachedPrepaintKey = nil
+            cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+            return
+        }
+
+        var effectiveClip = inheritedClip
+        if clipsToBounds {
+            if let inheritedClip {
+                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    cachedPrepaintKey = nil
+                    cachedPrepaintRange = PrepaintStateRange(start: startIndex, end: startIndex)
+                    return
+                }
+
+                effectiveClip = clippedRect
+            } else {
+                effectiveClip = absoluteFrame
+            }
+        }
+
+        let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let cacheKey = ViewPaintCacheKey(
+            bounds: absoluteFrame,
+            contentMask: effectiveClip,
+            opacity: effectiveOpacity,
+            displayScale: displayScale
+        )
+
+        if
+            let previousState,
+            !hasDirtySubtree,
+            cachedPrepaintKey == cacheKey,
+            let previousRange = cachedPrepaintRange
+        {
+            let dispatchDelta = startIndex.dispatchIndex - previousRange.start.dispatchIndex
+            let interactionDelta = startIndex.interactionIndex - previousRange.start.interactionIndex
+            let focusOrderDelta = startIndex.focusOrderIndex - previousRange.start.focusOrderIndex
+            let deferredSubtreeDelta = startIndex.deferredSubtreeIndex - previousRange.start.deferredSubtreeIndex
+            let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
+            let deferredPriorityDelta = startIndex.deferredPriority - previousRange.start.deferredPriority
+
+            let copiedDispatchNodes = previousState.dispatchNodes[previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex]
+                .enumerated()
+                .map { offset, dispatchState in
+                    var nextDispatchState = dispatchState
+                    if let parentIndex = dispatchState.parentIndex {
+                        if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
+                            nextDispatchState.parentIndex = parentIndex + dispatchDelta
+                        } else {
+                            nextDispatchState.parentIndex = parentDispatchIndex
+                        }
+                    } else {
+                        nextDispatchState.parentIndex = parentDispatchIndex
+                    }
+                    return nextDispatchState
+                }
+            state.dispatchNodes.append(contentsOf: copiedDispatchNodes)
+
+            let copiedInteractions = previousState.interactions[previousRange.start.interactionIndex..<previousRange.end.interactionIndex]
+                .map { interaction in
+                    var nextInteraction = interaction
+                    nextInteraction.dispatchIndex += dispatchDelta
+                    return nextInteraction
+                }
+            state.interactions.append(contentsOf: copiedInteractions)
+
+            let copiedFocusOrder = previousState.focusOrder[previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex]
+                .map { $0 + dispatchDelta }
+            state.focusOrder.append(contentsOf: copiedFocusOrder)
+
+            let copiedDeferredSubtrees = previousState.deferredSubtrees[previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex]
+                .map { deferredSubtree in
+                    var nextDeferredSubtree = deferredSubtree
+                    nextDeferredSubtree.priority += deferredPriorityDelta
+                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredSubtree.parentDispatchIndex {
+                        nextDeferredSubtree.parentDispatchIndex += dispatchDelta
+                    } else if let parentDispatchIndex {
+                        nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
+                    }
+                    return nextDeferredSubtree
+                }
+            state.deferredSubtrees.append(contentsOf: copiedDeferredSubtrees)
+
+            let copiedDeferredDraws = previousState.deferredDraws[previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex]
+                .map { deferredDraw in
+                    var nextDeferredDraw = deferredDraw
+                    nextDeferredDraw.priority += deferredPriorityDelta
+                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredDraw.parentDispatchIndex {
+                        nextDeferredDraw.parentDispatchIndex += dispatchDelta
+                    } else if let parentDispatchIndex {
+                        nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
+                    }
+                    nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
+                    return nextDeferredDraw
+                }
+            state.deferredDraws.append(contentsOf: copiedDeferredDraws)
+            state.nextDeferredPriority = max(
+                state.nextDeferredPriority,
+                startIndex.deferredPriority + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
+            )
+
+            shiftCachedPrepaintRangesRecursively(
+                dispatchDelta: dispatchDelta,
+                interactionDelta: interactionDelta,
+                focusOrderDelta: focusOrderDelta,
+                deferredSubtreeDelta: deferredSubtreeDelta,
+                deferredDrawDelta: deferredDrawDelta,
+                deferredPriorityDelta: deferredPriorityDelta
+            )
+            cachedPrepaintKey = cacheKey
+            cachedPrepaintRange = PrepaintStateRange(
+                start: startIndex,
+                end: PrepaintStateIndex(
+                    dispatchIndex: state.dispatchNodes.count,
+                    interactionIndex: state.interactions.count,
+                    focusOrderIndex: state.focusOrder.count,
+                    deferredSubtreeIndex: state.deferredSubtrees.count,
+                    deferredDrawIndex: state.deferredDraws.count,
+                    deferredPriority: state.nextDeferredPriority
+                )
+            )
+            replayCount += 1
+            return
+        }
+
+        let nodeInverseTransform: Transform2D?
+        if transform.isIdentity {
+            nodeInverseTransform = inheritedInverseTransform
+        } else {
+            let center = Point(
+                x: absoluteFrame.origin.x + absoluteFrame.size.width * 0.5,
+                y: absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
+            )
+            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+            if let inverseTransform = centeredTransform.inverseOrNil() {
+                if let inheritedInverseTransform {
+                    nodeInverseTransform = inheritedInverseTransform.concatenating(inverseTransform)
+                } else {
+                    nodeInverseTransform = inverseTransform
+                }
+            } else {
+                nodeInverseTransform = inheritedInverseTransform
+            }
+        }
+
+        let dispatchIndex = state.dispatchNodes.count
+        state.dispatchNodes.append(
+            PrepaintDispatchState(
+                node: self,
+                parentIndex: parentDispatchIndex
+            )
+        )
+
+        if isHitTestVisible || isScrollable {
+            state.interactions.append(
+                PrepaintInteractionState(
+                    dispatchIndex: dispatchIndex,
+                    node: self,
+                    frame: absoluteFrame,
+                    clipRect: effectiveClip,
+                    clipInverseTransform: inheritedInverseTransform,
+                    hitTestInverseTransform: nodeInverseTransform
+                )
+            )
+        }
+
+        if isFocusable {
+            state.focusOrder.append(dispatchIndex)
+        }
+
+        let absoluteOrigin = Point(
+            x: parentOrigin.x + resolvedFrame.origin.x,
+            y: parentOrigin.y + resolvedFrame.origin.y
+        )
+
+        let childOrigin = Point(
+            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
+            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
+        )
+
+        for child in orderedChildrenForPaint() {
+            if child.paintsInDeferredPhase {
+                state.deferredSubtrees.append(
+                    DeferredSubtreeState(
+                        priority: state.nextDeferredPriority,
+                        parentDispatchIndex: dispatchIndex,
+                        payload: DeferredSubtreePayload(
+                            node: child,
+                            parentOrigin: childOrigin,
+                            inheritedClip: effectiveClip,
+                            inheritedOpacity: effectiveOpacity,
+                            inheritedInverseTransform: nodeInverseTransform
+                        )
+                    )
+                )
+                state.nextDeferredPriority += 1
+                continue
+            }
+
+            child.appendPrepaintState(
+                into: &state,
+                parentOrigin: childOrigin,
+                inheritedClip: effectiveClip,
+                inheritedOpacity: effectiveOpacity,
+                parentDispatchIndex: dispatchIndex,
+                inheritedInverseTransform: nodeInverseTransform,
+                previousState: previousState,
+                displayScale: displayScale,
+                replayCount: &replayCount
+            )
+        }
+
+        if effectiveOpacity > 0, let track = scrollIndicatorTrack(in: absoluteFrame) {
+            let effectiveScrollIndicatorColor = scrollIndicatorColor.multipliedAlpha(by: effectiveOpacity)
+            state.deferredDraws.append(
+                DeferredDrawState(
+                    priority: state.nextDeferredPriority,
+                    parentDispatchIndex: dispatchIndex,
+                    contentMask: effectiveClip,
+                    payload: .scrollIndicator(
+                        ScrollIndicatorDeferredDrawPayload(
+                            dispatchIndex: dispatchIndex,
+                            track: track,
+                            color: effectiveScrollIndicatorColor,
+                            cornerRadius: min(track.indicatorRect.size.width, track.indicatorRect.size.height) * 0.5
+                        )
+                    ),
+                )
+            )
+            state.nextDeferredPriority += 1
+        }
+
+        cachedPrepaintKey = cacheKey
+        cachedPrepaintRange = PrepaintStateRange(
+            start: startIndex,
+            end: PrepaintStateIndex(
+                dispatchIndex: state.dispatchNodes.count,
+                interactionIndex: state.interactions.count,
+                focusOrderIndex: state.focusOrder.count,
+                deferredSubtreeIndex: state.deferredSubtrees.count,
+                deferredDrawIndex: state.deferredDraws.count,
+                deferredPriority: state.nextDeferredPriority
+            )
+        )
     }
 
     fileprivate func appendCommands(
         into commands: inout [RenderCommand],
         parentOrigin: Point,
         inheritedClip: Rect?,
-        inheritedOpacity: Double
+        inheritedOpacity: Float = 1,
+        previousRenderedFrame: RenderFrame? = nil,
+        displayScale: Double = 1,
+        replayCount: inout Int
     ) {
+        let startIndex = commands.count
         if isHidden {
+            cachedFrameKey = nil
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
             return
         }
 
@@ -823,6 +1212,9 @@ public final class ViewNode {
         // fully outside the inherited clip bounds (before allocating any
         // command structs).
         if !baseClipAllowsDrawing(baseClip: inheritedClip, rect: absoluteFrame) {
+            cachedFrameKey = nil
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
             return
         }
 
@@ -840,15 +1232,13 @@ public final class ViewNode {
         }
         previousFrame = absoluteFrame
 
-        let effectiveOpacity = clampedOpacity(inheritedOpacity * opacity)
-        guard effectiveOpacity > 0 else {
-            return
-        }
-
         var effectiveClip = inheritedClip
         if clipsToBounds {
             if let inheritedClip {
                 guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
+                    cachedFrameKey = nil
+                    cachedFrameCommandRange = startIndex..<startIndex
+                    markSubtreeRendered()
                     return
                 }
 
@@ -863,6 +1253,36 @@ public final class ViewNode {
         // texture first. Without that, each child is blended individually, which
         // causes overlapping children to double-blend.
         // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
+        // GPUI/Zed instead carries opacity as an inherited paint scalar.
+        let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let cacheKey = ViewPaintCacheKey(
+            bounds: absoluteFrame,
+            contentMask: effectiveClip,
+            opacity: effectiveOpacity,
+            displayScale: displayScale
+        )
+        guard effectiveOpacity > 0 else {
+            cachedFrameKey = cacheKey
+            cachedFrameCommandRange = startIndex..<startIndex
+            markSubtreeRendered()
+            return
+        }
+
+        if
+            let previousRenderedFrame,
+            !hasDirtySubtree,
+            cachedFrameKey == cacheKey,
+            let previousRange = cachedFrameCommandRange
+        {
+            commands.append(contentsOf: previousRenderedFrame.commands[previousRange])
+            let delta = startIndex - previousRange.lowerBound
+            shiftCachedFrameRangesRecursively(by: delta)
+            cachedFrameKey = cacheKey
+            cachedFrameCommandRange = startIndex..<commands.count
+            markSubtreeRendered()
+            replayCount += 1
+            return
+        }
 
         let absoluteOrigin = Point(
             x: parentOrigin.x + resolvedFrame.origin.x,
@@ -874,21 +1294,19 @@ public final class ViewNode {
             y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
 
-        let resolvedShadowColor = applyingOpacity(effectiveOpacity, to: shadowColor)
-        if resolvedShadowColor.alpha > 0 {
-            let shadowBounds = absoluteFrame
+        let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveShadowColor.alpha > 0 {
+            let shadowRect = absoluteFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
 
-            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowBounds) {
+            if baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) {
                 commands.append(
-                    .shadowRect(
-                        ShadowRectCommand(
-                            rect: absoluteFrame,
-                            color: resolvedShadowColor,
-                            cornerRadius: cornerRadius,
-                            blurRadius: shadowSpread,
-                            offset: shadowOffset,
+                    .fillRect(
+                        FillRectCommand(
+                            rect: shadowRect,
+                            color: effectiveShadowColor,
+                            cornerRadius: cornerRadius + max(0, shadowSpread),
                             clipRect: inheritedClip
                         )
                     )
@@ -896,15 +1314,15 @@ public final class ViewNode {
             }
         }
 
-        let resolvedOutlineColor = applyingOpacity(effectiveOpacity, to: outlineColor)
-        if resolvedOutlineColor.alpha > 0, outlineWidth > 0 {
+        let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
             let outlineRect = absoluteFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: outlineRect,
-                            color: resolvedOutlineColor,
+                            color: effectiveOutlineColor,
                             cornerRadius: cornerRadius + outlineWidth,
                             clipRect: inheritedClip
                         )
@@ -913,13 +1331,13 @@ public final class ViewNode {
             }
         }
 
-        let resolvedBorderColor = applyingOpacity(effectiveOpacity, to: borderColor)
-        if resolvedBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+        let effectiveBorderColor = borderColor.multipliedAlpha(by: effectiveOpacity)
+        if effectiveBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             commands.append(
                 .fillRect(
                     FillRectCommand(
                         rect: absoluteFrame,
-                        color: resolvedBorderColor,
+                        color: effectiveBorderColor,
                         cornerRadius: cornerRadius,
                         clipRect: effectiveClip
                     )
@@ -930,112 +1348,49 @@ public final class ViewNode {
         let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame
         let fillCornerRadius = max(0, cornerRadius - borderWidth)
 
-        let resolvedBackgroundColor = backgroundColor ?? backgroundGradient?.startColor
+        var resolvedBackgroundGradient = backgroundGradient
+        if var gradient = resolvedBackgroundGradient {
+            gradient.stops = gradient.stops.map { stop in
+                GradientStop(color: stop.color.multipliedAlpha(by: effectiveOpacity), position: stop.position)
+            }
+            resolvedBackgroundGradient = gradient
+        }
+        let resolvedBackgroundColor = backgroundColor?.multipliedAlpha(by: effectiveOpacity)
+            ?? resolvedBackgroundGradient?.startColor
         if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
                             rect: fillRect,
-                            color: applyingOpacity(effectiveOpacity, to: resolvedBackgroundColor),
+                            color: resolvedBackgroundColor,
                             cornerRadius: fillCornerRadius,
                             clipRect: effectiveClip,
-                            gradient: backgroundGradient.map { applyingOpacity(effectiveOpacity, to: $0) }
+                            gradient: resolvedBackgroundGradient
                         )
                     )
                 )
-            }
-        }
-
-        if let renderPath, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
-            let resolvedPathFillColor = applyingOpacity(effectiveOpacity, to: pathFillColor)
-            let resolvedPathStrokeColor = applyingOpacity(effectiveOpacity, to: pathStrokeColor)
-            let shouldFillPath = resolvedPathFillColor.alpha > 0
-            let shouldStrokePath = resolvedPathStrokeColor.alpha > 0 && (pathStrokeStyle?.lineWidth ?? 0) > 0
-
-            if shouldFillPath || shouldStrokePath {
-                if let effectiveClip {
-                    commands.append(.pushClip(ClipCommand(shape: .rect(effectiveClip, cornerRadius: 0))))
-                }
-
-                let pathTransform = AffineTransform.translation(x: fillRect.origin.x, y: fillRect.origin.y)
-                if shouldFillPath {
-                    commands.append(
-                        .fillPath(
-                            FillPathCommand(
-                                path: renderPath,
-                                color: resolvedPathFillColor,
-                                transform: pathTransform
-                            )
-                        )
-                    )
-                }
-
-                if shouldStrokePath, let pathStrokeStyle {
-                    commands.append(
-                        .strokePath(
-                            StrokePathCommand(
-                                path: renderPath,
-                                color: resolvedPathStrokeColor,
-                                style: pathStrokeStyle,
-                                transform: pathTransform
-                            )
-                        )
-                    )
-                }
-
-                if effectiveClip != nil {
-                    commands.append(.popClip)
-                }
             }
         }
 
         if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
-            let displayScale = runtime?.displayScale ?? 1.0
-            let textCommandStartIndex = commands.count
-            let cacheKey = TextRasterCacheKey(text: text, style: textStyle, size: fillRect.size, displayScale: displayScale)
-            if let cachedBitmap = runtime?.textRasterCache?.get(for: cacheKey) {
-                commands.append(
-                    .drawBitmap(
-                        DrawBitmapCommand(
-                            rect: fillRect,
-                            bitmap: cachedBitmap,
-                            opacity: 1.0,
-                            clipRect: effectiveClip
-                        )
-                    )
-                )
-            } else if NativeTextRenderer.appendCommands(for: text, in: fillRect, style: textStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
-                cacheRasterizedTextCommand(
-                    in: commands,
-                    from: textCommandStartIndex,
-                    key: cacheKey,
-                    cache: runtime?.textRasterCache
-                )
-            } else {
+            let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
+            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
-                    style: textStyle,
+                    style: effectiveTextStyle,
                     clipRect: effectiveClip,
                     into: &commands
                 )
             }
-            applyOpacity(to: &commands, from: textCommandStartIndex, opacity: effectiveOpacity)
         }
 
         // Gap/Fix: Emit blur render command — apply Gaussian blur over
         // the view's content region when blurRadius is set.
-        if blurRadius > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
-            commands.append(
-                .applyBlur(
-                    BlurCommand(
-                        region: absoluteFrame,
-                        radius: blurRadius
-                    )
-                )
-            )
-        }
+        // The active demo renderer does not implement post-process blur yet.
+        // Keep the property on ViewNode so the API surface can evolve, but do
+        // not emit a command that the current backend would silently drop.
 
         // Gap/Fix: Z-index sibling sort — children are drawn in zIndex
         // order (stable sort preserves original order for equal zIndex).
@@ -1044,42 +1399,24 @@ public final class ViewNode {
         // views should be added at the root level or to a dedicated
         // overlay container rather than relying on zIndex across
         // different subtrees.
-        let sortedChildren: [ViewNode]
-        if children.contains(where: { $0.zIndex != 0 }) {
-            sortedChildren = children.enumerated()
-                .sorted { a, b in
-                    if a.element.zIndex != b.element.zIndex {
-                        return a.element.zIndex < b.element.zIndex
-                    }
-                    return a.offset < b.offset
-                }
-                .map(\.element)
-        } else {
-            sortedChildren = children
-        }
-
-        for child in sortedChildren {
+        for child in orderedChildrenForPaint() {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
             child.appendCommands(
                 into: &commands,
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
-                inheritedOpacity: effectiveOpacity
+                inheritedOpacity: effectiveOpacity,
+                previousRenderedFrame: previousRenderedFrame,
+                displayScale: displayScale,
+                replayCount: &replayCount
             )
         }
 
-        let resolvedScrollIndicatorColor = applyingOpacity(effectiveOpacity, to: scrollIndicatorColor)
-        if let scrollIndicator = scrollIndicatorRect(in: absoluteFrame), resolvedScrollIndicatorColor.alpha > 0 {
-            commands.append(
-                .fillRect(
-                    FillRectCommand(
-                        rect: scrollIndicator,
-                        color: resolvedScrollIndicatorColor,
-                        cornerRadius: min(scrollIndicator.size.width, scrollIndicator.size.height) * 0.5,
-                        clipRect: effectiveClip
-                    )
-                )
-            )
-        }
+        cachedFrameKey = cacheKey
+        cachedFrameCommandRange = startIndex..<commands.count
+        markSubtreeRendered()
     }
 
     fileprivate func hitTest(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
@@ -1119,9 +1456,9 @@ public final class ViewNode {
         if !transform.isIdentity {
             let cx = absoluteFrame.origin.x + absoluteFrame.size.width * 0.5
             let cy = absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
-            let centeredTransform = Transform2D.translation(x: cx, y: cy)
+            let centeredTransform = Transform2D.translation(x: -cx, y: -cy)
                 .concatenating(transform)
-                .concatenating(.translation(x: -cx, y: -cy))
+                .concatenating(.translation(x: cx, y: cy))
             if let inverseTransform = centeredTransform.inverseOrNil() {
                 testPoint = inverseTransform.applying(to: point)
             } else {
@@ -1154,7 +1491,7 @@ public final class ViewNode {
         return nil
     }
 
-    fileprivate func scrollTarget(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+    fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
         if isHidden {
             return nil
         }
@@ -1194,77 +1531,122 @@ public final class ViewNode {
         )
 
         for child in children.reversed() {
-            if let target = child.scrollTarget(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+            if let target = child.scrollTarget(at: point, axis: axis, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
                 return target
             }
         }
 
-        if isScrollable, absoluteFrame.contains(point) {
+        if isScrollable,
+           absoluteFrame.contains(point),
+           axis == nil || scrollAxis == axis
+        {
             return self
         }
 
         return nil
     }
 
-    fileprivate func scrollIndicatorHit(at point: Point, parentOrigin: Point, inheritedClip: Rect?) -> ScrollIndicatorHit? {
-        if isHidden {
-            return nil
-        }
-
-        let absoluteFrame = Rect(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y,
-            width: resolvedFrame.size.width,
-            height: resolvedFrame.size.height
-        )
-
-        var effectiveClip = inheritedClip
-        if clipsToBounds {
-            if let inheritedClip {
-                guard let clippedRect = inheritedClip.intersected(with: absoluteFrame) else {
-                    return nil
-                }
-
-                effectiveClip = clippedRect
-            } else {
-                effectiveClip = absoluteFrame
-            }
-        }
-
-        if let effectiveClip, !effectiveClip.contains(point) {
-            return nil
-        }
-
-        let absoluteOrigin = Point(
-            x: parentOrigin.x + resolvedFrame.origin.x,
-            y: parentOrigin.y + resolvedFrame.origin.y
-        )
-
-        let childOrigin = Point(
-            x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
-            y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
-        )
-
-        for child in children.reversed() {
-            if let hit = child.scrollIndicatorHit(at: point, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
-                return hit
-            }
-        }
-
-        guard let track = scrollIndicatorTrack(in: absoluteFrame), track.indicatorRect.contains(point) else {
-            return nil
-        }
-
-        return ScrollIndicatorHit(node: self, track: track)
-    }
-
     private func invalidateRuntime(_ flags: DirtyFlags = .all) {
+        markDirty(flags)
         runtime?.invalidate(flags)
     }
 
+    var hasDirtySubtree: Bool {
+        !subtreeDirtyFlags.isEmpty
+    }
+
+    func markSubtreeRendered() {
+        subtreeDirtyFlags = []
+    }
+
+    private func markDirty(_ flags: DirtyFlags) {
+        var currentNode: ViewNode? = self
+        while let node = currentNode {
+            node.subtreeDirtyFlags.insert(flags)
+            currentNode = node.parent
+        }
+    }
+
+    func shiftCachedFrameRangesRecursively(by delta: Int) {
+        if let existingRange = cachedFrameCommandRange {
+            cachedFrameCommandRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        }
+
+        for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
+            child.shiftCachedFrameRangesRecursively(by: delta)
+        }
+    }
+
+    func shiftCachedPrepaintRangesRecursively(
+        dispatchDelta: Int,
+        interactionDelta: Int,
+        focusOrderDelta: Int,
+        deferredSubtreeDelta: Int,
+        deferredDrawDelta: Int,
+        deferredPriorityDelta: Int
+    ) {
+        if let existingRange = cachedPrepaintRange {
+            cachedPrepaintRange = PrepaintStateRange(
+                start: PrepaintStateIndex(
+                    dispatchIndex: existingRange.start.dispatchIndex + dispatchDelta,
+                    interactionIndex: existingRange.start.interactionIndex + interactionDelta,
+                    focusOrderIndex: existingRange.start.focusOrderIndex + focusOrderDelta,
+                    deferredSubtreeIndex: existingRange.start.deferredSubtreeIndex + deferredSubtreeDelta,
+                    deferredDrawIndex: existingRange.start.deferredDrawIndex + deferredDrawDelta,
+                    deferredPriority: existingRange.start.deferredPriority + deferredPriorityDelta
+                ),
+                end: PrepaintStateIndex(
+                    dispatchIndex: existingRange.end.dispatchIndex + dispatchDelta,
+                    interactionIndex: existingRange.end.interactionIndex + interactionDelta,
+                    focusOrderIndex: existingRange.end.focusOrderIndex + focusOrderDelta,
+                    deferredSubtreeIndex: existingRange.end.deferredSubtreeIndex + deferredSubtreeDelta,
+                    deferredDrawIndex: existingRange.end.deferredDrawIndex + deferredDrawDelta,
+                    deferredPriority: existingRange.end.deferredPriority + deferredPriorityDelta
+                )
+            )
+        }
+
+        for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
+            child.shiftCachedPrepaintRangesRecursively(
+                dispatchDelta: dispatchDelta,
+                interactionDelta: interactionDelta,
+                focusOrderDelta: focusOrderDelta,
+                deferredSubtreeDelta: deferredSubtreeDelta,
+                deferredDrawDelta: deferredDrawDelta,
+                deferredPriorityDelta: deferredPriorityDelta
+            )
+        }
+    }
+
+    func shiftCachedSceneRangesRecursively(by delta: Int) {
+        if let existingRange = cachedScenePaintRange {
+            cachedScenePaintRange = (existingRange.lowerBound + delta)..<(existingRange.upperBound + delta)
+        }
+
+        for child in children {
+            guard !child.paintsInDeferredPhase else {
+                continue
+            }
+            child.shiftCachedSceneRangesRecursively(by: delta)
+        }
+    }
+
     fileprivate func sizeThatFits(in constraints: LayoutConstraints) -> Size {
-        let measuringConstraints = fixedSizeMeasuringConstraints(from: constraints)
-        var measuredSize = textContentSize(in: measuringConstraints) ?? .zero
+        let displayScale = runtime?.displayScale ?? 1.0
+        let cacheKey = ViewMeasureCacheKey(constraints: constraints, displayScale: displayScale)
+        let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
+        if layoutDirtyFlags.isEmpty, cachedMeasureKey == cacheKey, let cachedMeasuredSize {
+            runtime?.recordMeasureReuse()
+            return cachedMeasuredSize
+        }
+
+        var measuredSize = textContentSize(in: constraints) ?? .zero
 
         switch layoutMode {
         case .absolute:
@@ -1273,8 +1655,8 @@ public final class ViewNode {
 
             for child in children where !child.isHidden {
                 let childConstraints = LayoutConstraints(
-                    maxWidth: remainingConstraintExtent(measuringConstraints.maxWidth, offset: child.frame.origin.x),
-                    maxHeight: remainingConstraintExtent(measuringConstraints.maxHeight, offset: child.frame.origin.y)
+                    maxWidth: remainingConstraintExtent(constraints.maxWidth, offset: child.frame.origin.x),
+                    maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: child.frame.origin.y)
                 )
                 let childSize = child.sizeThatFits(in: childConstraints)
                 let resolvedWidth = child.explicitWidth ?? childSize.width
@@ -1286,7 +1668,7 @@ public final class ViewNode {
             measuredSize = Size(width: maxChildX, height: maxChildY)
 
         case .stack(let stackLayout):
-            let contentConstraints = insetConstraints(measuringConstraints, by: stackLayout.padding)
+            let contentConstraints = insetConstraints(constraints, by: stackLayout.padding)
             let childConstraints = stackChildConstraints(for: contentConstraints, axis: stackLayout.axis)
             let visibleChildren = children.filter { !$0.isHidden }
             let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
@@ -1302,46 +1684,6 @@ public final class ViewNode {
                 width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
                 height: stackLayout.axis == .vertical ? mainExtent : crossExtent
             )
-
-        case .grid(let gridLayout):
-            let contentConstraints = insetConstraints(measuringConstraints, by: gridLayout.padding)
-            let visibleChildren = children.filter { !$0.isHidden }
-            let finiteContentWidth = contentConstraints.maxWidth.isFinite ? contentConstraints.maxWidth : nil
-            let preliminaryColumnWidths = gridColumnWidths(for: finiteContentWidth, layout: gridLayout)
-            let preliminaryColumnCount = preliminaryColumnWidths.count
-            let preliminaryChildSizes = visibleChildren.enumerated().map { index, child in
-                let columnWidth = preliminaryColumnWidths[index % preliminaryColumnCount]
-                let maxWidth = columnWidth > 0 ? columnWidth : .infinity
-                return child.sizeThatFits(in: LayoutConstraints(maxWidth: maxWidth))
-            }
-            let fallbackColumnWidth = preliminaryChildSizes.map(\.width).max() ?? 0
-            let columnWidths = gridColumnWidths(
-                for: finiteContentWidth,
-                layout: gridLayout,
-                measuredFallbackWidth: fallbackColumnWidth
-            )
-            let columnCount = columnWidths.count
-            let columnSpacingTotal = gridLayout.columnSpacing * Double(max(0, columnCount - 1))
-            let childSizes = visibleChildren.enumerated().map { index, child in
-                child.sizeThatFits(in: LayoutConstraints(maxWidth: columnWidths[index % columnCount]))
-            }
-            let rowCount = (visibleChildren.count + columnCount - 1) / columnCount
-            var rowHeights = Array(repeating: 0.0, count: rowCount)
-
-            for (index, childSize) in childSizes.enumerated() {
-                rowHeights[index / columnCount] = max(rowHeights[index / columnCount], childSize.height)
-            }
-
-            let measuredGridWidth = columnWidths.reduce(0, +)
-                + columnSpacingTotal
-                + gridLayout.padding.leading
-                + gridLayout.padding.trailing
-            let measuredGridHeight = rowHeights.reduce(0, +)
-                + gridLayout.rowSpacing * Double(max(0, rowCount - 1))
-                + gridLayout.padding.top
-                + gridLayout.padding.bottom
-
-            measuredSize = Size(width: measuredGridWidth, height: measuredGridHeight)
 
         case .flex(let flexStyle):
             let visibleChildren = children.filter { !$0.isHidden }
@@ -1367,7 +1709,10 @@ public final class ViewNode {
             )
         }
 
-        return applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+        let resolvedSize = applyingExplicitDimensions(to: measuredSize, constraints: constraints)
+        cachedMeasureKey = cacheKey
+        cachedMeasuredSize = resolvedSize
+        return resolvedSize
     }
 
     public func intrinsicContentSize() -> Size {
@@ -1381,54 +1726,18 @@ public final class ViewNode {
 
         let displayScale = runtime?.displayScale ?? 1.0
         let maxWidth = constraints.maxWidth.isFinite ? constraints.maxWidth : nil
-        let measurementKey = TextMeasurementCacheKey(
-            text: text,
-            style: textStyle,
-            maxWidth: maxWidth,
-            displayScale: displayScale
-        )
-        if let cachedSize = runtime?.textRasterCache?.measurement(for: measurementKey) {
-            return cachedSize
-        }
-
-        let measuredSize = NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
+        return runtime?.textSystem.measure(text, style: textStyle, maxWidth: maxWidth, scaleFactor: displayScale)
+            ?? NativeTextRenderer.measure(text, style: textStyle, scaleFactor: displayScale, maxWidth: maxWidth)
             ?? PixelFont.measure(text, style: textStyle, maxWidth: maxWidth)
-        runtime?.textRasterCache?.insertMeasurement(measuredSize, for: measurementKey)
-        return measuredSize
     }
 
     private func applyingExplicitDimensions(to size: Size, constraints: LayoutConstraints) -> Size {
-        var measuredWidth = explicitWidth ?? size.width
-        var measuredHeight = explicitHeight ?? size.height
-        let resolvedMinimumWidth = max(constraints.minWidth, minimumSize?.width ?? 0)
-        let resolvedMinimumHeight = max(constraints.minHeight, minimumSize?.height ?? 0)
-        let resolvedMaximumWidth = fixedSizeHorizontal
-            ? maximumSize?.width ?? .infinity
-            : minimumFiniteExtent(constraints.maxWidth, maximumSize?.width)
-        let resolvedMaximumHeight = fixedSizeVertical
-            ? maximumSize?.height ?? .infinity
-            : minimumFiniteExtent(constraints.maxHeight, maximumSize?.height)
-
-        if fillsAvailableWidth, constraints.maxWidth.isFinite {
-            measuredWidth = max(measuredWidth, constraints.maxWidth)
-        }
-
-        if fillsAvailableHeight, constraints.maxHeight.isFinite {
-            measuredHeight = max(measuredHeight, constraints.maxHeight)
-        }
+        let measuredWidth = explicitWidth ?? size.width
+        let measuredHeight = explicitHeight ?? size.height
 
         return Size(
-            width: clampedExtent(measuredWidth, min: resolvedMinimumWidth, max: resolvedMaximumWidth),
-            height: clampedExtent(measuredHeight, min: resolvedMinimumHeight, max: resolvedMaximumHeight)
-        )
-    }
-
-    private func fixedSizeMeasuringConstraints(from constraints: LayoutConstraints) -> LayoutConstraints {
-        LayoutConstraints(
-            minWidth: constraints.minWidth,
-            maxWidth: fixedSizeHorizontal ? .infinity : constraints.maxWidth,
-            minHeight: constraints.minHeight,
-            maxHeight: fixedSizeVertical ? .infinity : constraints.maxHeight
+            width: clampedExtent(measuredWidth, min: constraints.minWidth, max: constraints.maxWidth),
+            height: clampedExtent(measuredHeight, min: constraints.minHeight, max: constraints.maxHeight)
         )
     }
 
@@ -1459,25 +1768,22 @@ public final class ViewNode {
     private func allocateMainSizes(
         desiredSizes: [Double],
         children: [ViewNode],
-        availableExtent: Double,
-        axis: StackAxis
+        availableExtent: Double
     ) -> [Double] {
         var allocatedSizes = desiredSizes
         let desiredExtent = desiredSizes.reduce(0, +)
 
         if desiredExtent > availableExtent {
-            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent, axis: axis)
+            shrinkMainSizes(&allocatedSizes, children: children, deficit: desiredExtent - availableExtent)
         } else if desiredExtent < availableExtent {
-            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent, axis: axis)
+            growMainSizes(&allocatedSizes, children: children, extraExtent: availableExtent - desiredExtent)
         }
 
         return allocatedSizes
     }
 
-    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double, axis: StackAxis) {
-        let participantIndices = children.indices.filter {
-            children[$0].layoutPriority > 0 && !isFixedSize(children[$0], along: axis)
-        }
+    private func growMainSizes(_ sizes: inout [Double], children: [ViewNode], extraExtent: Double) {
+        let participantIndices = children.indices.filter { children[$0].layoutPriority > 0 }
         guard !participantIndices.isEmpty else {
             return
         }
@@ -1503,21 +1809,18 @@ public final class ViewNode {
         }
     }
 
-    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double, axis: StackAxis) {
+    private func shrinkMainSizes(_ sizes: inout [Double], children: [ViewNode], deficit: Double) {
         var remainingDeficit = deficit
         let priorities = Array(Set(children.map(\.layoutPriority))).sorted()
 
         for priority in priorities where remainingDeficit > 0 {
-            let indices = children.indices.filter {
-                children[$0].layoutPriority == priority
-                    && sizes[$0] > minimumMainSize(for: children[$0], axis: axis, currentSize: sizes[$0])
-            }
+            let indices = children.indices.filter { children[$0].layoutPriority == priority && sizes[$0] > 0 }
             guard !indices.isEmpty else {
                 continue
             }
 
             let shrinkCapacity = indices.reduce(0.0) { partialResult, index in
-                partialResult + max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index]))
+                partialResult + sizes[index]
             }
             guard shrinkCapacity > 0 else {
                 continue
@@ -1531,12 +1834,11 @@ public final class ViewNode {
                 if offset == indices.count - 1 {
                     reduction = remainingReduction
                 } else {
-                    let itemCapacity = max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index]))
-                    reduction = targetReduction * (itemCapacity / shrinkCapacity)
+                    reduction = targetReduction * (sizes[index] / shrinkCapacity)
                     remainingReduction -= reduction
                 }
 
-                let appliedReduction = min(max(0, sizes[index] - minimumMainSize(for: children[index], axis: axis, currentSize: sizes[index])), reduction)
+                let appliedReduction = min(sizes[index], reduction)
                 sizes[index] -= appliedReduction
             }
 
@@ -1544,103 +1846,12 @@ public final class ViewNode {
         }
     }
 
-    private func minimumMainSize(for child: ViewNode, axis: StackAxis, currentSize: Double) -> Double {
-        let configuredMinimum: Double
-        let fixedSize: Bool
-
-        switch axis {
-        case .vertical:
-            configuredMinimum = child.minimumSize?.height ?? 0
-            fixedSize = child.fixedSizeVertical
-        case .horizontal:
-            configuredMinimum = child.minimumSize?.width ?? 0
-            fixedSize = child.fixedSizeHorizontal
-        }
-
-        return fixedSize ? max(configuredMinimum, currentSize) : configuredMinimum
-    }
-
-    private func isFixedSize(_ child: ViewNode, along axis: StackAxis) -> Bool {
-        switch axis {
-        case .vertical:
-            return child.fixedSizeVertical
-        case .horizontal:
-            return child.fixedSizeHorizontal
-        }
-    }
-
-    private func gridColumnWidths(
-        for availableWidth: Double?,
-        layout: GridLayout,
-        measuredFallbackWidth: Double = 0
-    ) -> [Double] {
-        let columnCount = max(1, layout.columns, layout.columnWidths.count)
-        let spacingTotal = layout.columnSpacing * Double(max(0, columnCount - 1))
-
-        guard !layout.columnWidths.isEmpty else {
-            let equalWidth: Double
-            if let availableWidth {
-                equalWidth = max(0, (availableWidth - spacingTotal) / Double(columnCount))
-            } else {
-                equalWidth = max(0, measuredFallbackWidth)
-            }
-
-            return Array(repeating: equalWidth, count: columnCount)
-        }
-
-        var widths = Array(layout.columnWidths.prefix(columnCount)).map { max(0, $0) }
-        guard widths.count < columnCount else {
-            return widths
-        }
-
-        let missingCount = columnCount - widths.count
-        let usedWidth = widths.reduce(0, +)
-        let fillWidth: Double
-        if let availableWidth {
-            fillWidth = max(0, (availableWidth - spacingTotal - usedWidth) / Double(missingCount))
-        } else {
-            fillWidth = max(0, measuredFallbackWidth)
-        }
-
-        widths.append(contentsOf: Array(repeating: fillWidth, count: missingCount))
-        return widths
-    }
-
     fileprivate var isScrollable: Bool {
         scrollAxis != nil
     }
 
     fileprivate var isDraggable: Bool {
-        onDragStart != nil
-            || onDragChange != nil
-            || onDragEnd != nil
-            || onDragStartAt != nil
-            || onDragChangeAt != nil
-            || onDragEndAt != nil
-    }
-
-    fileprivate func localPoint(from point: Point) -> Point {
-        let origin = absoluteOrigin()
-        return Point(x: point.x - origin.x, y: point.y - origin.y)
-    }
-
-    private func absoluteOrigin() -> Point {
-        var origin = resolvedFrame.origin
-        var child: ViewNode = self
-
-        while let ancestor = child.parent {
-            origin.x += ancestor.resolvedFrame.origin.x
-            origin.y += ancestor.resolvedFrame.origin.y
-            if ancestor.scrollAxis == .horizontal {
-                origin.x -= ancestor.resolvedScrollOffset
-            }
-            if ancestor.scrollAxis == .vertical {
-                origin.y -= ancestor.resolvedScrollOffset
-            }
-            child = ancestor
-        }
-
-        return origin
+        onDragStart != nil || onDragChange != nil || onDragEnd != nil
     }
 
     fileprivate var maxScrollOffset: Double {
@@ -1700,7 +1911,7 @@ public final class ViewNode {
         return setScrollOffset(translatedOffset)
     }
 
-    fileprivate func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
+    func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
         guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
             return nil
         }
@@ -1889,35 +2100,12 @@ private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> D
     return max(0, maxExtent - offset)
 }
 
-private func minimumFiniteExtent(_ first: Double, _ second: Double?) -> Double {
-    guard let second, second.isFinite else {
-        return first
-    }
-
-    guard first.isFinite else {
-        return second
-    }
-
-    return min(first, second)
-}
-
 private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: Double) -> Double {
     var value = max(extent, minimum)
     if maximum.isFinite {
         value = min(value, maximum)
     }
     return value
-}
-
-@MainActor
-public struct TextClipboard {
-    public var readString: () -> String?
-    public var writeString: (String) -> Void
-
-    public init(readString: @escaping () -> String?, writeString: @escaping (String) -> Void) {
-        self.readString = readString
-        self.writeString = writeString
-    }
 }
 
 @MainActor
@@ -1948,6 +2136,21 @@ public final class RetainedViewRuntime {
     public private(set) var dirtyFlags: DirtyFlags = .all
     public var isDirty: Bool { !dirtyFlags.isEmpty }
     private var cachedFrame: RenderFrame?
+    private var cachedScene: GPUIScene?
+    private var prepaintState = RuntimePrepaintState()
+
+    /// Access to current prepaint state for testing deferred scene-path behavior.
+    @MainActor
+    internal var currentPrepaintState: RuntimePrepaintState { prepaintState }
+    internal private(set) var lastFrameReplayCount = 0
+    internal private(set) var lastSceneReplayCount = 0
+    internal private(set) var lastLayoutReuseCount = 0
+    internal private(set) var lastMeasureReuseCount = 0
+    internal private(set) var lastPrepaintReplayCount = 0
+    internal private(set) var lastDeferredOverlayReplayCount = 0
+    internal private(set) var lastDeferredDrawFrameReplayCount = 0
+    internal private(set) var lastDeferredDrawSceneReplayCount = 0
+    let textSystem: WindowTextSystem
     private weak var hoveredNode: ViewNode?
     private weak var pressedNode: ViewNode?
     private weak var focusedNode: ViewNode?
@@ -1960,10 +2163,6 @@ public final class RetainedViewRuntime {
     /// Optional text raster cache for scale-aware invalidation.
     public var textRasterCache: TextRasterCache?
 
-    /// Optional clipboard bridge used by retained text controls for editing
-    /// shortcuts without baking platform APIs into shared control state.
-    public var textClipboard: TextClipboard?
-
     // Gap/Fix: Frame pacing enforcement — minimum interval between renders.
     public var minimumFrameInterval: Double?
     private var lastRenderTime: Double = 0
@@ -1972,7 +2171,7 @@ public final class RetainedViewRuntime {
         self.clearColor = clearColor
         self.root = root
         self.displayScale = displayScale
-        self.textRasterCache = TextRasterCache()
+        self.textSystem = WindowTextSystem()
         self.root.setRuntime(self)
     }
 
@@ -1983,26 +2182,15 @@ public final class RetainedViewRuntime {
         }
     }
 
-    public var focusedViewNode: ViewNode? {
-        focusedNode
-    }
-
-    public func focus(_ node: ViewNode?) {
-        updateFocusTarget(to: node)
-    }
-
-    public func applyPendingFocusRequest() {
-        if let requestedNode = firstRequestedFocusNode(in: root) {
-            updateFocusTarget(to: requestedNode)
-        } else if let focusedNode, !containsNode(focusedNode, in: root) {
-            updateFocusTarget(to: nil)
-        } else if focusedNode?.clearsFocusWhenBindingInactive == true {
-            updateFocusTarget(to: nil)
-        }
-    }
-
     public func renderFrame(at timestamp: Double = 0) -> RenderFrame {
         if let cachedFrame, !isDirty {
+            lastFrameReplayCount = 0
+            lastLayoutReuseCount = 0
+            lastMeasureReuseCount = 0
+            lastPrepaintReplayCount = 0
+            lastDeferredOverlayReplayCount = 0
+            lastDeferredDrawFrameReplayCount = 0
+            lastDeferredDrawSceneReplayCount = 0
             return cachedFrame
         }
 
@@ -2011,17 +2199,44 @@ public final class RetainedViewRuntime {
         if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
             let elapsed = timestamp - lastRenderTime
             if elapsed < interval, let cachedFrame {
+                lastFrameReplayCount = 0
+                lastLayoutReuseCount = 0
+                lastMeasureReuseCount = 0
+                lastPrepaintReplayCount = 0
+                lastDeferredOverlayReplayCount = 0
+                lastDeferredDrawFrameReplayCount = 0
+                lastDeferredDrawSceneReplayCount = 0
                 return cachedFrame
             }
         }
 
         updateResolvedLayout()
 
+        let previousFrame = cachedFrame
         var commands: [RenderCommand] = []
-        root.appendCommands(into: &commands, parentOrigin: .zero, inheritedClip: nil, inheritedOpacity: 1.0)
+        var replayCount = 0
+        var deferredDrawReplayCount = 0
+        root.appendCommands(
+            into: &commands,
+            parentOrigin: .zero,
+            inheritedClip: nil,
+            previousRenderedFrame: previousFrame,
+            displayScale: displayScale,
+            replayCount: &replayCount
+        )
+        appendDeferredDraws(
+            into: &commands,
+            previousFrame: previousFrame,
+            displayScale: displayScale,
+            replayCount: &deferredDrawReplayCount
+        )
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
+        lastFrameReplayCount = replayCount
+        lastDeferredDrawFrameReplayCount = deferredDrawReplayCount
+        lastDeferredDrawSceneReplayCount = 0
         cachedFrame = frame
+        cachedScene = nil
         dirtyFlags = []
         if timestamp > 0 {
             lastRenderTime = timestamp
@@ -2031,8 +2246,62 @@ public final class RetainedViewRuntime {
 
     /// Render the current view tree as a GPUIScene for batch rendering.
     public func renderScene(at timestamp: Double = 0) -> GPUIScene {
-        let frame = renderFrame(at: timestamp)
-        return GPUIScene(from: frame, surfaceSize: root.frame.size)
+        if let cachedScene, !isDirty {
+            lastSceneReplayCount = 0
+            lastLayoutReuseCount = 0
+            lastMeasureReuseCount = 0
+            lastPrepaintReplayCount = 0
+            lastDeferredOverlayReplayCount = 0
+            lastDeferredDrawFrameReplayCount = 0
+            lastDeferredDrawSceneReplayCount = 0
+            return cachedScene
+        }
+
+        if let interval = minimumFrameInterval, timestamp > 0, lastRenderTime > 0 {
+            let elapsed = timestamp - lastRenderTime
+            if elapsed < interval, let cachedScene {
+                lastSceneReplayCount = 0
+                lastLayoutReuseCount = 0
+                lastMeasureReuseCount = 0
+                lastPrepaintReplayCount = 0
+                lastDeferredOverlayReplayCount = 0
+                lastDeferredDrawFrameReplayCount = 0
+                lastDeferredDrawSceneReplayCount = 0
+                return cachedScene
+            }
+        }
+
+        updateResolvedLayout()
+        let previousScene = cachedScene
+        var replayCount = 0
+        var deferredDrawReplayCount = 0
+        var deferredDraws = prepaintState.deferredDraws
+        let scene = ScenePainter.paint(
+            root: root,
+            clearColor: clearColor,
+            surfaceSize: root.frame.size,
+            displayScale: displayScale,
+            textSystem: textSystem,
+            previousScene: previousScene,
+            deferredDraws: &deferredDraws,
+            replayCount: &replayCount,
+            deferredReplayCount: &deferredDrawReplayCount
+        )
+        prepaintState.deferredDraws = deferredDraws
+
+        var cachedSceneCopy = scene
+        cachedSceneCopy.glyphAtlas = nil
+        cachedSceneCopy.pixelGlyphAtlas = nil
+        lastSceneReplayCount = replayCount
+        lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
+        lastDeferredDrawFrameReplayCount = 0
+        cachedScene = cachedSceneCopy
+        cachedFrame = nil
+        dirtyFlags = []
+        if timestamp > 0 {
+            lastRenderTime = timestamp
+        }
+        return scene
     }
 
     public func pointerMoved(to point: Point) {
@@ -2057,12 +2326,6 @@ public final class RetainedViewRuntime {
 
             let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
             node.onDragChange?(point, delta)
-            let localPoint = node.localPoint(from: point)
-            let localDelta = Point(
-                x: localPoint.x - dragState.startLocalPoint.x,
-                y: localPoint.y - dragState.startLocalPoint.y
-            )
-            node.onDragChangeAt?(localPoint, localDelta)
             return
         }
 
@@ -2077,8 +2340,8 @@ public final class RetainedViewRuntime {
         }
     }
 
-    public func mouseWheel(at point: Point, delta: Double) {
-        let scrollTarget = scrollTarget(at: point) ?? nearestScrollableNode(from: hoveredNode)
+    public func mouseWheel(at point: Point, delta: Double, axis: ScrollAxis? = nil) {
+        let scrollTarget = scrollTarget(at: point, axis: axis) ?? nearestScrollableNode(from: hoveredNode, axis: axis)
         guard let scrollableNode = scrollTarget else {
             return
         }
@@ -2097,23 +2360,17 @@ public final class RetainedViewRuntime {
         }
 
         let hitNode = hitTest(at: point)
-        updateFocusTarget(to: nearestFocusableNode(from: hitNode))
-        updateHoverTarget(to: hitNode)
-        hitNode?.onPointerDown?()
-        if let hitNode {
-            hitNode.onPointerDownAt?(hitNode.localPoint(from: point))
-        }
-
         if let draggableNode = nearestDraggableNode(from: hitNode) {
-            let localPoint = draggableNode.localPoint(from: point)
-            nodeDragState = NodeDragState(node: draggableNode, startPoint: point, startLocalPoint: localPoint)
-            pressedNode = nil
+            nodeDragState = NodeDragState(node: draggableNode, startPoint: point)
             draggableNode.onDragStart?(point)
-            draggableNode.onDragStartAt?(localPoint)
+            updateHoverTarget(to: hitNode)
             return
         }
 
+        updateFocusTarget(to: nearestFocusableNode(from: hitNode))
+        updateHoverTarget(to: hitNode)
         pressedNode = hitNode
+        hitNode?.onPointerDown?()
     }
 
     public func pointerUp(at point: Point) {
@@ -2135,12 +2392,6 @@ public final class RetainedViewRuntime {
             if let node = dragState.node {
                 let delta = Point(x: point.x - dragState.startPoint.x, y: point.y - dragState.startPoint.y)
                 node.onDragEnd?(point, delta)
-                let localPoint = node.localPoint(from: point)
-                let localDelta = Point(
-                    x: localPoint.x - dragState.startLocalPoint.x,
-                    y: localPoint.y - dragState.startLocalPoint.y
-                )
-                node.onDragEndAt?(localPoint, localDelta)
             }
             updateHoverTarget(to: hitTest(at: point))
             updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
@@ -2179,20 +2430,11 @@ public final class RetainedViewRuntime {
             break
         }
 
-        if let key = event.key, shouldRouteFocusedNodeBeforeScroll(key), let focusedKeyHandler = focusedNode?.onKeyDown {
-            focusedKeyHandler(event)
-            return
-        }
-
         if let key = event.key, handleScrollKey(key) {
             return
         }
 
         focusedNode?.onKeyDown?(event)
-    }
-
-    public func textInput(_ text: String) {
-        focusedNode?.onTextInput?(text)
     }
 
     public func keyboardFocusDidLeaveWindow() {
@@ -2261,131 +2503,242 @@ public final class RetainedViewRuntime {
         dirtyFlags.insert(flags)
     }
 
-    private func hitTest(at point: Point) -> ViewNode? {
-        updateResolvedLayout()
-        return root.hitTest(at: point, parentOrigin: .zero, inheritedClip: nil)
+    fileprivate func recordLayoutReuse() {
+        lastLayoutReuseCount += 1
     }
 
-    private func scrollTarget(at point: Point) -> ViewNode? {
+    fileprivate func recordMeasureReuse() {
+        lastMeasureReuseCount += 1
+    }
+
+    private func appendDeferredDraws(
+        into commands: inout [RenderCommand],
+        previousFrame: RenderFrame?,
+        displayScale: Double,
+        replayCount: inout Int
+    ) {
+        for deferredDrawIndex in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
+            let startCommandIndex = commands.count
+            if let previousFrame, let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange {
+                commands.append(contentsOf: previousFrame.commands[cachedFrameCommandRange])
+                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
+                replayCount += 1
+                continue
+            }
+
+            switch prepaintState.deferredDraws[deferredDrawIndex].payload {
+            case .scrollIndicator:
+                let fillRect = prepaintState.deferredDraws[deferredDrawIndex].payload.fillRectCommand(
+                    contentMask: prepaintState.deferredDraws[deferredDrawIndex].contentMask
+                )
+                commands.append(.fillRect(fillRect))
+            case .subtree(let payload):
+                guard let node = payload.node else {
+                    prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<startCommandIndex
+                    continue
+                }
+                node.appendCommands(
+                    into: &commands,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: payload.inheritedClip,
+                    inheritedOpacity: payload.inheritedOpacity,
+                    previousRenderedFrame: previousFrame,
+                    displayScale: displayScale,
+                    replayCount: &replayCount
+                )
+            }
+
+            prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
+        }
+    }
+
+    fileprivate func orderedDeferredDrawIndices(_ deferredDraws: [DeferredDrawState]) -> [Int] {
+        deferredDraws.indices.sorted { lhs, rhs in
+            let left = deferredDraws[lhs]
+            let right = deferredDraws[rhs]
+            if left.priority != right.priority {
+                return left.priority < right.priority
+            }
+            return lhs < rhs
+        }
+    }
+
+    fileprivate func orderedDeferredSubtreeIndices(
+        _ deferredSubtrees: ArraySlice<DeferredSubtreeState>
+    ) -> [Int] {
+        deferredSubtrees.indices.sorted { lhs, rhs in
+            let left = deferredSubtrees[lhs]
+            let right = deferredSubtrees[rhs]
+            if left.priority != right.priority {
+                return left.priority < right.priority
+            }
+            return lhs < rhs
+        }
+    }
+
+    private func deferredDrawRect(_ deferredDraw: DeferredDrawState) -> Rect {
+        deferredDraw.rect
+    }
+
+    private func deferredDrawContentMask(_ deferredDraw: DeferredDrawState) -> Rect? {
+        deferredDraw.contentMask
+    }
+
+    private func deferredDrawContains(_ point: Point, deferredDraw: DeferredDrawState) -> Bool {
+        if let contentMask = deferredDrawContentMask(deferredDraw), !contentMask.contains(point) {
+            return false
+        }
+        return deferredDrawRect(deferredDraw).contains(point)
+    }
+
+    private func deferredDrawsInteracting(at point: Point) -> [DeferredDrawState] {
+        orderedDeferredDrawIndices(prepaintState.deferredDraws).reversed().compactMap { index in
+            let deferredDraw = prepaintState.deferredDraws[index]
+            guard deferredDrawContains(point, deferredDraw: deferredDraw) else {
+                return nil
+            }
+            return deferredDraw
+        }
+    }
+
+    private func dispatchIndex(for node: ViewNode?) -> Int? {
+        guard let node else {
+            return nil
+        }
+
+        return prepaintState.dispatchNodes.firstIndex(where: { $0.node === node })
+    }
+
+    private func node(for dispatchIndex: Int?) -> ViewNode? {
+        guard let dispatchIndex, prepaintState.dispatchNodes.indices.contains(dispatchIndex) else {
+            return nil
+        }
+
+        return prepaintState.dispatchNodes[dispatchIndex].node
+    }
+
+    private func nearestDispatchIndex(
+        from dispatchIndex: Int?,
+        where predicate: (ViewNode) -> Bool
+    ) -> Int? {
+        var currentDispatchIndex = dispatchIndex
+        while let candidateDispatchIndex = currentDispatchIndex,
+              prepaintState.dispatchNodes.indices.contains(candidateDispatchIndex) {
+            let candidate = prepaintState.dispatchNodes[candidateDispatchIndex]
+            if predicate(candidate.node) {
+                return candidateDispatchIndex
+            }
+
+            currentDispatchIndex = candidate.parentIndex
+        }
+
+        return nil
+    }
+
+    private func hitDispatchIndex(at point: Point) -> Int? {
         updateResolvedLayout()
-        return root.scrollTarget(at: point, parentOrigin: .zero, inheritedClip: nil)
+        for interaction in prepaintState.interactions.reversed() where interaction.node.isHitTestVisible {
+            if interaction.containsForHitTesting(point) {
+                return interaction.dispatchIndex
+            }
+        }
+
+        return nil
+    }
+
+    private func hitTest(at point: Point) -> ViewNode? {
+        node(for: hitDispatchIndex(at: point))
+    }
+
+    private func scrollTargetDispatchIndex(at point: Point, axis: ScrollAxis? = nil) -> Int? {
+        updateResolvedLayout()
+        for interaction in prepaintState.interactions.reversed() {
+            guard interaction.node.isScrollable else {
+                continue
+            }
+
+            if let axis, interaction.node.scrollAxis != axis {
+                continue
+            }
+
+            if interaction.containsForScrollTarget(point) {
+                return interaction.dispatchIndex
+            }
+        }
+
+        return nil
+    }
+
+    private func scrollTarget(at point: Point, axis: ScrollAxis? = nil) -> ViewNode? {
+        node(for: scrollTargetDispatchIndex(at: point, axis: axis))
     }
 
     private func scrollIndicatorHit(at point: Point) -> ScrollIndicatorHit? {
         updateResolvedLayout()
-        return root.scrollIndicatorHit(at: point, parentOrigin: .zero, inheritedClip: nil)
+        for deferredDraw in deferredDrawsInteracting(at: point) {
+            switch deferredDraw.interaction {
+            case .scrollIndicator(let dispatchIndex, let track):
+                guard let node = node(for: dispatchIndex) else {
+                    continue
+                }
+                return ScrollIndicatorHit(node: node, track: track)
+            case nil:
+                continue
+            }
+        }
+
+        return nil
     }
 
     private func moveFocus(reverse: Bool) {
-        let focusableNodes = focusableNodes(in: root)
-        guard !focusableNodes.isEmpty else {
+        updateResolvedLayout()
+        let focusableDispatchIndices = prepaintState.focusOrder
+        guard !focusableDispatchIndices.isEmpty else {
             return
         }
 
-        guard let focusedNode, let index = focusableNodes.firstIndex(where: { $0 === focusedNode }) else {
-            updateFocusTarget(to: reverse ? focusableNodes.last : focusableNodes.first)
+        guard
+            let focusedDispatchIndex = nearestDispatchIndex(
+                from: dispatchIndex(for: focusedNode),
+                where: { $0.isFocusable }
+            ),
+            let index = focusableDispatchIndices.firstIndex(of: focusedDispatchIndex)
+        else {
+            updateFocusTarget(to: node(for: reverse ? focusableDispatchIndices.last : focusableDispatchIndices.first))
             return
         }
 
         let nextIndex: Int
         if reverse {
-            nextIndex = index == 0 ? focusableNodes.count - 1 : index - 1
+            nextIndex = index == 0 ? focusableDispatchIndices.count - 1 : index - 1
         } else {
-            nextIndex = index == focusableNodes.count - 1 ? 0 : index + 1
+            nextIndex = index == focusableDispatchIndices.count - 1 ? 0 : index + 1
         }
 
-        updateFocusTarget(to: focusableNodes[nextIndex])
-    }
-
-    private func focusableNodes(in node: ViewNode) -> [ViewNode] {
-        if node.isHidden {
-            return []
-        }
-
-        var result: [ViewNode] = []
-        if node.isFocusable {
-            result.append(node)
-        }
-
-        for child in node.children {
-            result.append(contentsOf: focusableNodes(in: child))
-        }
-
-        return result
-    }
-
-    private func firstRequestedFocusNode(in node: ViewNode) -> ViewNode? {
-        if node.isHidden {
-            return nil
-        }
-
-        if node.requestsFocus, node.isFocusable {
-            return node
-        }
-
-        for child in node.children {
-            if let requestedNode = firstRequestedFocusNode(in: child) {
-                return requestedNode
-            }
-        }
-
-        return nil
-    }
-
-    private func containsNode(_ candidate: ViewNode, in node: ViewNode) -> Bool {
-        if node === candidate {
-            return true
-        }
-
-        for child in node.children {
-            if containsNode(candidate, in: child) {
-                return true
-            }
-        }
-
-        return false
+        updateFocusTarget(to: node(for: focusableDispatchIndices[nextIndex]))
     }
 
     private func nearestFocusableNode(from node: ViewNode?) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isFocusable {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+        self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isFocusable }))
     }
 
-    private func nearestScrollableNode(from node: ViewNode?) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isScrollable {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+    private func nearestScrollableNode(from node: ViewNode?, axis: ScrollAxis? = nil) -> ViewNode? {
+        self.node(
+            for: nearestDispatchIndex(
+                from: dispatchIndex(for: node),
+                where: { candidate in
+                    candidate.isScrollable && (axis == nil || candidate.scrollAxis == axis)
+                }
+            )
+        )
     }
 
     private func nearestDraggableNode(from node: ViewNode?) -> ViewNode? {
-        var currentNode = node
-        while let candidate = currentNode {
-            if candidate.isDraggable {
-                return candidate
-            }
-
-            currentNode = candidate.parent
-        }
-
-        return nil
+        self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isDraggable }))
     }
 
     private func handleScrollKey(_ key: KeyboardKey) -> Bool {
+        updateResolvedLayout()
         let scrollableNode = nearestScrollableNode(from: focusedNode) ?? nearestScrollableNode(from: hoveredNode)
         guard let scrollableNode else {
             return false
@@ -2394,18 +2747,80 @@ public final class RetainedViewRuntime {
         return scrollableNode.applyKeyboardScroll(key)
     }
 
-    private func shouldRouteFocusedNodeBeforeScroll(_ key: KeyboardKey) -> Bool {
-        switch key {
-        case .backspace, .delete, .leftArrow, .rightArrow, .upArrow, .downArrow, .home, .end, .enter:
-            return true
-        default:
-            return false
-        }
+    private func updateResolvedLayout() {
+        lastLayoutReuseCount = 0
+        lastMeasureReuseCount = 0
+        lastPrepaintReplayCount = 0
+        lastDeferredOverlayReplayCount = 0
+        lastDeferredDrawFrameReplayCount = 0
+        lastDeferredDrawSceneReplayCount = 0
+        root.resolvedFrame = root.frame
+        root.layoutSubtree(displayScale: displayScale)
+        updatePrepaintState()
     }
 
-    private func updateResolvedLayout() {
-        root.resolvedFrame = root.frame
-        root.layoutSubtree()
+    private func updatePrepaintState() {
+        let previousState = prepaintState
+        var nextState = RuntimePrepaintState()
+        var replayCount = 0
+        root.appendPrepaintState(
+            into: &nextState,
+            parentOrigin: .zero,
+            inheritedClip: nil,
+            previousState: previousState,
+            displayScale: displayScale,
+            replayCount: &replayCount
+        )
+        processDeferredPrepaintDraws(
+            into: &nextState,
+            previousState: previousState,
+            displayScale: displayScale,
+            replayCount: &replayCount
+        )
+        prepaintState = nextState
+        lastPrepaintReplayCount = replayCount
+        lastDeferredOverlayReplayCount = replayCount
+    }
+
+    private func processDeferredPrepaintDraws(
+        into state: inout RuntimePrepaintState,
+        previousState: RuntimePrepaintState?,
+        displayScale: Double,
+        replayCount: inout Int
+    ) {
+        var cursor = 0
+        while cursor < state.deferredSubtrees.count {
+            let roundEnd = state.deferredSubtrees.count
+            for deferredSubtreeIndex in orderedDeferredSubtreeIndices(state.deferredSubtrees[cursor..<roundEnd]) {
+                let deferredSubtree = state.deferredSubtrees[deferredSubtreeIndex]
+                let payload = deferredSubtree.payload
+                guard let node = payload.node else {
+                    continue
+                }
+
+                state.deferredDraws.append(
+                    DeferredDrawState(
+                        priority: deferredSubtree.priority,
+                        parentDispatchIndex: deferredSubtree.parentDispatchIndex,
+                        contentMask: payload.inheritedClip,
+                        payload: .subtree(payload)
+                    )
+                )
+
+                node.appendPrepaintState(
+                    into: &state,
+                    parentOrigin: payload.parentOrigin,
+                    inheritedClip: payload.inheritedClip,
+                    inheritedOpacity: payload.inheritedOpacity,
+                    parentDispatchIndex: deferredSubtree.parentDispatchIndex,
+                    inheritedInverseTransform: payload.inheritedInverseTransform,
+                    previousState: previousState,
+                    displayScale: displayScale,
+                    replayCount: &replayCount
+                )
+            }
+            cursor = roundEnd
+        }
     }
 
     private func updateHoverTarget(to nextHoveredNode: ViewNode?) {
@@ -2459,7 +2874,7 @@ public final class RetainedViewRuntime {
     }
 }
 
-private struct ScrollIndicatorTrack {
+struct ScrollIndicatorTrack {
     let axis: ScrollAxis
     let origin: Double
     let travel: Double
@@ -2482,7 +2897,6 @@ private struct ScrollDragState {
 private struct NodeDragState {
     weak var node: ViewNode?
     let startPoint: Point
-    let startLocalPoint: Point
 }
 
 public enum AnimatedColorProperty: Hashable, Sendable {
@@ -2532,104 +2946,6 @@ private final class ViewColorAnimation {
 
 private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
-}
-
-private func clampedOpacity(_ opacity: Double) -> Double {
-    min(max(opacity, 0), 1)
-}
-
-private func applyingOpacity(_ opacity: Double, to color: Color) -> Color {
-    Color(
-        red: color.red,
-        green: color.green,
-        blue: color.blue,
-        alpha: color.alpha * Float(clampedOpacity(opacity))
-    )
-}
-
-private func applyingOpacity(_ opacity: Double, to gradient: LinearGradient) -> LinearGradient {
-    var gradient = gradient
-    gradient.stops = gradient.stops.map { stop in
-        GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
-    }
-    return gradient
-}
-
-private func applyingOpacity(_ opacity: Double, to gradient: GradientType?) -> GradientType? {
-    guard let gradient else {
-        return nil
-    }
-
-    switch gradient {
-    case .linear(let linear):
-        return .linear(applyingOpacity(opacity, to: linear))
-    case .radial(var radial):
-        radial.stops = radial.stops.map { stop in
-            GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
-        }
-        return .radial(radial)
-    case .conic(var conic):
-        conic.stops = conic.stops.map { stop in
-            GradientStop(color: applyingOpacity(opacity, to: stop.color), position: stop.position)
-        }
-        return .conic(conic)
-    }
-}
-
-private func applyOpacity(to commands: inout [RenderCommand], from startIndex: Int, opacity: Double) {
-    let opacity = clampedOpacity(opacity)
-    guard opacity < 1, startIndex < commands.count else {
-        return
-    }
-
-    for index in startIndex..<commands.count {
-        commands[index] = renderCommand(commands[index], applyingOpacity: opacity)
-    }
-}
-
-@MainActor
-private func cacheRasterizedTextCommand(
-    in commands: [RenderCommand],
-    from startIndex: Int,
-    key: TextRasterCacheKey,
-    cache: TextRasterCache?
-) {
-    guard let cache, commands.count == startIndex + 1 else {
-        return
-    }
-
-    guard case .drawBitmap(let command) = commands[startIndex] else {
-        return
-    }
-
-    cache.insert(command.bitmap, for: key)
-}
-
-private func renderCommand(_ command: RenderCommand, applyingOpacity opacity: Double) -> RenderCommand {
-    switch command {
-    case .fillRect(var fillRect):
-        fillRect.color = applyingOpacity(opacity, to: fillRect.color)
-        fillRect.gradient = applyingOpacity(opacity, to: fillRect.gradient)
-        return .fillRect(fillRect)
-    case .shadowRect(var shadowRect):
-        shadowRect.color = applyingOpacity(opacity, to: shadowRect.color)
-        return .shadowRect(shadowRect)
-    case .drawBitmap(var drawBitmap):
-        drawBitmap.opacity *= Float(clampedOpacity(opacity))
-        return .drawBitmap(drawBitmap)
-    case .fillPath(var fillPath):
-        fillPath.color = applyingOpacity(opacity, to: fillPath.color)
-        fillPath.gradient = applyingOpacity(opacity, to: fillPath.gradient)
-        return .fillPath(fillPath)
-    case .strokePath(var strokePath):
-        strokePath.color = applyingOpacity(opacity, to: strokePath.color)
-        return .strokePath(strokePath)
-    case .drawText(var drawText):
-        drawText.color = applyingOpacity(opacity, to: drawText.color)
-        return .drawText(drawText)
-    case .applyBlur, .pushClip, .popClip:
-        return command
-    }
 }
 
 // MARK: - Animation interpolation support

@@ -44,7 +44,6 @@ public final class ComponentHost {
         let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
 
         reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
-        runtime.applyPendingFocusRequest()
     }
 
     /// Basic view-diffing reconciliation.  Walk old and new child lists in
@@ -110,23 +109,17 @@ public final class ComponentHost {
             case .horizontal:
                 return "stack.h"
             }
-        case .grid(let layout):
-            return "grid.\(layout.columns).\(layout.rowSpacing).\(layout.columnSpacing).\(layout.columnWidths)"
         case .flex:
             return "flex"
         }
     }
 
     /// Copy visual / layout properties from `source` onto `target`, keeping
-    /// `target`'s identity (parent/runtime) intact while refreshing handlers.
+    /// `target`'s identity (parent, runtime, callbacks) intact.
     private func updateNodeProperties(target: ViewNode, source: ViewNode) {
         if target.frame != source.frame { target.frame = source.frame }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
         if target.backgroundGradient != source.backgroundGradient { target.backgroundGradient = source.backgroundGradient }
-        if target.renderPath != source.renderPath { target.renderPath = source.renderPath }
-        if target.pathFillColor != source.pathFillColor { target.pathFillColor = source.pathFillColor }
-        if target.pathStrokeColor != source.pathStrokeColor { target.pathStrokeColor = source.pathStrokeColor }
-        if target.pathStrokeStyle != source.pathStrokeStyle { target.pathStrokeStyle = source.pathStrokeStyle }
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }
@@ -138,51 +131,47 @@ public final class ComponentHost {
         if target.shadowSpread != source.shadowSpread { target.shadowSpread = source.shadowSpread }
         if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
+        if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
+        if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.opacity != source.opacity { target.opacity = source.opacity }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
-        if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
-        if target.minimumSize != source.minimumSize { target.minimumSize = source.minimumSize }
-        if target.maximumSize != source.maximumSize { target.maximumSize = source.maximumSize }
-        if target.fillsAvailableWidth != source.fillsAvailableWidth { target.fillsAvailableWidth = source.fillsAvailableWidth }
-        if target.fillsAvailableHeight != source.fillsAvailableHeight { target.fillsAvailableHeight = source.fillsAvailableHeight }
-        if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
+        if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
+        if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
+        if target.scrollOffset != source.scrollOffset { target.scrollOffset = source.scrollOffset }
+        if target.scrollStep != source.scrollStep { target.scrollStep = source.scrollStep }
+        if target.showsScrollIndicator != source.showsScrollIndicator { target.showsScrollIndicator = source.showsScrollIndicator }
+        if target.scrollIndicatorColor != source.scrollIndicatorColor { target.scrollIndicatorColor = source.scrollIndicatorColor }
+        if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor { target.scrollIndicatorIdleColor = source.scrollIndicatorIdleColor }
+        if target.scrollIndicatorHoverColor != source.scrollIndicatorHoverColor { target.scrollIndicatorHoverColor = source.scrollIndicatorHoverColor }
+        if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor { target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor }
+        if target.scrollIndicatorThickness != source.scrollIndicatorThickness { target.scrollIndicatorThickness = source.scrollIndicatorThickness }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
-        if target.selectionTag != source.selectionTag { target.selectionTag = source.selectionTag }
-        if target.requestsFocus != source.requestsFocus { target.requestsFocus = source.requestsFocus }
-        if target.clearsFocusWhenBindingInactive != source.clearsFocusWhenBindingInactive {
-            target.clearsFocusWhenBindingInactive = source.clearsFocusWhenBindingInactive
-        }
-
-        // Transfer layout mode -- compare via the tag helper since ViewLayoutMode
-        // doesn't conform to Equatable.
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)
         if targetLayoutTag != sourceLayoutTag {
             target.layoutMode = source.layoutMode
         }
+        target.previousPropertyValues = source.previousPropertyValues
+        target.animationStates = source.animationStates
 
         target.onPointerEnter = source.onPointerEnter
         target.onPointerExit = source.onPointerExit
         target.onPointerDown = source.onPointerDown
-        target.onPointerDownAt = source.onPointerDownAt
         target.onPointerUpInside = source.onPointerUpInside
         target.onPointerUpOutside = source.onPointerUpOutside
         target.onFocusEnter = source.onFocusEnter
         target.onFocusExit = source.onFocusExit
         target.onKeyDown = source.onKeyDown
-        target.onTextInput = source.onTextInput
         target.onActivate = source.onActivate
         target.onDragStart = source.onDragStart
         target.onDragChange = source.onDragChange
         target.onDragEnd = source.onDragEnd
-        target.onDragStartAt = source.onDragStartAt
-        target.onDragChangeAt = source.onDragChangeAt
-        target.onDragEndAt = source.onDragEndAt
         target.onLayout = source.onLayout
         target.onAppear = source.onAppear
         target.onDisappear = source.onDisappear

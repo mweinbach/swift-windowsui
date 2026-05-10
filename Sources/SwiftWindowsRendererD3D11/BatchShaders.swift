@@ -4,8 +4,7 @@ let batchQuadShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float scaleFactor;
-    float _pad0;
+    float2 _pad0;
 };
 
 struct QuadInstance
@@ -34,6 +33,7 @@ struct VSOutput
     float4 startColor : COLOR0;
     float4 endColor : COLOR1;
     float4 clipRect : TEXCOORD4;
+    float2 pixelPosition : TEXCOORD5;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -66,6 +66,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.startColor = float4(inst.startR, inst.startG, inst.startB, inst.startA);
     output.endColor = float4(inst.endR, inst.endG, inst.endB, inst.endA);
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
+    output.pixelPosition = pixelPosition;
     return output;
 }
 
@@ -81,22 +82,19 @@ float roundedRectDistance(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
-    float safeScale = max(scaleFactor, 1.0);
-    float2 logicalPixelPosition = input.position.xy / safeScale;
-
     // Per-pixel clip check: if clip rect has positive dimensions, discard outside it
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
-            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
-    float aa = max(fwidth(distance), 0.75 / safeScale);
+    float aa = max(fwidth(distance), 0.75);
     float alpha = saturate(0.5 - distance / aa);
 
     float gradientT = input.gradientAxis > 0.5
@@ -114,8 +112,7 @@ let batchImageShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float scaleFactor;
-    float _pad0;
+    float2 _pad0;
 };
 
 struct ImageInstance
@@ -139,6 +136,7 @@ struct VSOutput
     float2 uv : TEXCOORD0;
     float opacity : TEXCOORD1;
     float4 clipRect : TEXCOORD2;
+    float2 pixelPosition : TEXCOORD3;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -170,20 +168,18 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.uv = uvOrigin + unit * uvSize;
     output.opacity = inst.opacity;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
+    output.pixelPosition = pixelPosition;
     return output;
 }
 
 float4 psMain(VSOutput input) : SV_Target
 {
-    float safeScale = max(scaleFactor, 1.0);
-    float2 logicalPixelPosition = input.position.xy / safeScale;
-
     // Per-pixel clip check
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
-            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }
@@ -201,8 +197,7 @@ let batchShadowShaderSource = #"""
 cbuffer FrameUniforms : register(b0)
 {
     float2 surfaceSize;
-    float scaleFactor;
-    float _pad0;
+    float2 _pad0;
 };
 
 struct ShadowInstance
@@ -213,8 +208,7 @@ struct ShadowInstance
     float colorA;
     float blurRadius;
     float offsetX, offsetY;
-    float clipX, clipY;
-    float clipWidth, clipHeight;
+    float clipX, clipY, clipWidth, clipHeight;
 };
 
 StructuredBuffer<ShadowInstance> instances : register(t0);
@@ -229,6 +223,7 @@ struct VSOutput
     float4 shadowColor : COLOR0;
     float blurRadius : TEXCOORD4;
     float4 clipRect : TEXCOORD5;
+    float2 pixelPosition : TEXCOORD6;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -265,6 +260,7 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.shadowColor = float4(inst.colorR, inst.colorG, inst.colorB, inst.colorA);
     output.blurRadius = inst.blurRadius;
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
+    output.pixelPosition = pixelPosition;
     return output;
 }
 
@@ -280,14 +276,11 @@ float roundedRectDistanceShadow(float2 localPosition, float2 size, float radius)
 
 float4 psMain(VSOutput input) : SV_Target
 {
-    float safeScale = max(scaleFactor, 1.0);
-    float2 logicalPixelPosition = input.position.xy / safeScale;
-
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
-        if (logicalPixelPosition.x < input.clipRect.x || logicalPixelPosition.y < input.clipRect.y ||
-            logicalPixelPosition.x > input.clipRect.x + input.clipRect.z ||
-            logicalPixelPosition.y > input.clipRect.y + input.clipRect.w)
+        if (input.pixelPosition.x < input.clipRect.x || input.pixelPosition.y < input.clipRect.y ||
+            input.pixelPosition.x > input.clipRect.x + input.clipRect.z ||
+            input.pixelPosition.y > input.clipRect.y + input.clipRect.w)
         {
             discard;
         }

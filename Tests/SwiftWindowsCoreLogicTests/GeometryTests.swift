@@ -22,14 +22,6 @@ final class GeometryTests: XCTestCase {
         )
     }
 
-    func testEdgeInsetsDefaultsMatchSwiftUIConvenienceShape() {
-        XCTAssertEqual(EdgeInsets(), .zero)
-        XCTAssertEqual(
-            EdgeInsets(top: 4, bottom: 6),
-            EdgeInsets(top: 4, leading: 0, bottom: 6, trailing: 0)
-        )
-    }
-
     func testColorInterpolationClampsProgress() {
         let start = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
         let end = Color(red: 0.9, green: 0.8, blue: 0.7, alpha: 0.6)
@@ -41,12 +33,5 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(midpoint.green, 0.5, accuracy: 0.0001)
         XCTAssertEqual(midpoint.blue, 0.5, accuracy: 0.0001)
         XCTAssertEqual(midpoint.alpha, 0.5, accuracy: 0.0001)
-    }
-
-    func testNamedChannelColorsKeepInstanceChannelsAccessible() {
-        XCTAssertEqual(Color.red.red, 1.0, accuracy: 0.0001)
-        XCTAssertEqual(Color.red.green, 0.23, accuracy: 0.0001)
-        XCTAssertEqual(Color.green.green, 0.78, accuracy: 0.0001)
-        XCTAssertEqual(Color.blue.blue, 1.0, accuracy: 0.0001)
     }
 }

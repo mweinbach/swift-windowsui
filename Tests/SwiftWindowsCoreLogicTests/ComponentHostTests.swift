@@ -1,6 +1,5 @@
 import XCTest
 import SwiftWindowsCore
-import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
 
 final class ComponentHostTests: XCTestCase {
@@ -48,134 +47,71 @@ final class ComponentHostTests: XCTestCase {
         }
     }
 
-    func testReloadUpdatesEffectPropertiesInPlace() async {
+    func testReloadReusesNodeWithFreshStateAndHandlers() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
             let host = ComponentHost(runtime: runtime)
-            var opacity = 0.25
-            var blurRadius = 2.0
-            var zIndex = 1.0
-            var transform = Transform2D.translation(x: 4, y: 6)
+            var useSecondState = false
+            var pointerDownEvents: [String] = []
 
             host.setContent {
                 Component { _ in
-                    ViewNode(
-                        backgroundColor: .white,
-                        blurRadius: blurRadius,
-                        opacity: opacity,
-                        zIndex: zIndex,
-                        transform: transform
-                    )
-                }
-            }
+                    let node = ViewNode()
+                    let label = useSecondState ? "SECOND" : "FIRST"
+                    let eventLabel = useSecondState ? "second" : "first"
+                    let opacity = useSecondState ? 0.85 : 0.25
+                    let zIndex = useSecondState ? 9.0 : 2.0
+                    let transform = useSecondState
+                        ? Transform2D.translation(x: 24, y: 36)
+                        : Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1)
+                    let scrollOffset = useSecondState ? 48.0 : 12.0
 
-            let node = runtime.root.children[0]
-            opacity = 0.75
-            blurRadius = 8
-            zIndex = 3
-            transform = .scale(x: 2, y: 2)
-            host.reload()
-
-            XCTAssertTrue(runtime.root.children[0] === node)
-            XCTAssertEqual(node.opacity, 0.75, accuracy: 0.001)
-            XCTAssertEqual(node.blurRadius, 8)
-            XCTAssertEqual(node.zIndex, 3)
-            XCTAssertEqual(node.transform.scaleX, 2, accuracy: 0.001)
-        }
-    }
-
-    func testReloadUpdatesVectorPathPropertiesInPlace() async {
-        await MainActor.run {
-            let runtime = RetainedViewRuntime(root: ViewNode())
-            let host = ComponentHost(runtime: runtime)
-            var path = trianglePath(width: 10, height: 8)
-            var fill = Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 0.8)
-            var stroke = Color(red: 0.7, green: 0.8, blue: 0.9, alpha: 0.6)
-            var strokeStyle = StrokeStyle(lineWidth: 1)
-
-            host.setContent {
-                Component { _ in
-                    ViewNode(
-                        renderPath: path,
-                        pathFillColor: fill,
-                        pathStrokeColor: stroke,
-                        pathStrokeStyle: strokeStyle
-                    )
-                }
-            }
-
-            let node = runtime.root.children[0]
-            path = trianglePath(width: 20, height: 16)
-            fill = Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
-            stroke = Color(red: 1.0, green: 0.9, blue: 0.8, alpha: 1)
-            strokeStyle = StrokeStyle(lineWidth: 3)
-            host.reload()
-
-            XCTAssertTrue(runtime.root.children[0] === node)
-            XCTAssertEqual(node.renderPath, path)
-            XCTAssertEqual(node.pathFillColor, fill)
-            XCTAssertEqual(node.pathStrokeColor, stroke)
-            XCTAssertEqual(node.pathStrokeStyle?.lineWidth, 3)
-        }
-    }
-
-    func testReloadRefreshesHandlersInPlace() async {
-        await MainActor.run {
-            let runtime = RetainedViewRuntime(root: ViewNode())
-            let host = ComponentHost(runtime: runtime)
-            var version = 1
-            var activations: [Int] = []
-
-            host.setContent {
-                let capturedVersion = version
-                Component { _ in
-                    let node = ViewNode(backgroundColor: .white)
-                    node.onActivate = {
-                        activations.append(capturedVersion)
+                    node.text = label
+                    node.opacity = opacity
+                    node.zIndex = zIndex
+                    node.transform = transform
+                    node.scrollOffset = scrollOffset
+                    node.isFocusable = useSecondState
+                    node.animationStates = [
+                        .opacity: AnimationState(
+                            startValue: useSecondState ? 1.0 : 0.0,
+                            endValue: useSecondState ? 0.55 : 0.15,
+                            startTime: 10,
+                            duration: 2
+                        )
+                    ]
+                    node.onPointerDown = {
+                        pointerDownEvents.append(eventLabel)
                     }
                     return node
                 }
             }
 
-            let node = runtime.root.children[0]
-            node.onActivate?()
+            let firstNode = runtime.root.children.first
+            XCTAssertNotNil(firstNode)
+            XCTAssertEqual(firstNode?.text, "FIRST")
+            XCTAssertEqual(firstNode?.opacity, 0.25)
+            XCTAssertEqual(firstNode?.zIndex, 2)
+            XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
+            XCTAssertEqual(firstNode?.scrollOffset, 12)
+            XCTAssertEqual(firstNode?.isFocusable, false)
+            XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
-            version = 2
-            host.reload()
-            runtime.root.children[0].onActivate?()
-
-            XCTAssertTrue(runtime.root.children[0] === node)
-            XCTAssertEqual(activations, [1, 2])
-        }
-    }
-
-    func testReloadUpdatesFocusabilityInPlace() async {
-        await MainActor.run {
-            let runtime = RetainedViewRuntime(root: ViewNode())
-            let host = ComponentHost(runtime: runtime)
-            var isFocusable = true
-
-            host.setContent {
-                Component { _ in
-                    ViewNode(backgroundColor: .white, isFocusable: isFocusable)
-                }
-            }
-
-            let node = runtime.root.children[0]
-            isFocusable = false
+            useSecondState = true
             host.reload()
 
-            XCTAssertTrue(runtime.root.children[0] === node)
-            XCTAssertFalse(node.isFocusable)
+            let reusedNode = runtime.root.children.first
+            XCTAssertTrue(firstNode === reusedNode)
+            XCTAssertEqual(reusedNode?.text, "SECOND")
+            XCTAssertEqual(reusedNode?.opacity, 0.85)
+            XCTAssertEqual(reusedNode?.zIndex, 9)
+            XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
+            XCTAssertEqual(reusedNode?.scrollOffset, 48)
+            XCTAssertEqual(reusedNode?.isFocusable, true)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
+
+            reusedNode?.onPointerDown?()
+            XCTAssertEqual(pointerDownEvents, ["second"])
         }
     }
-}
-
-private func trianglePath(width: Double, height: Double) -> RenderPath {
-    var path = RenderPath()
-    path.move(to: Point(x: width * 0.5, y: 0))
-    path.addLine(to: Point(x: width, y: height))
-    path.addLine(to: Point(x: 0, y: height))
-    path.close()
-    return path
 }

@@ -9,7 +9,6 @@ public final class FoundationApp: WindowDelegate {
     private let renderer: any RenderBackend
     private let runtime: RetainedViewRuntime
     private let componentHost: ComponentHost
-    private let textClipboard: Win32TextClipboard
     private let surfaceDescriptorProvider: @MainActor (Win32Window) -> SurfaceDescriptor?
     private let textBackendLabel: String
     private var rendererBackendLabel: String
@@ -41,15 +40,9 @@ public final class FoundationApp: WindowDelegate {
             clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
             root: root
         )
-        let textClipboard = Win32TextClipboard()
-        runtime.textClipboard = TextClipboard(
-            readString: { textClipboard.readString() },
-            writeString: { textClipboard.writeString($0) }
-        )
 
         self.runtime = runtime
         self.componentHost = ComponentHost(runtime: runtime)
-        self.textClipboard = textClipboard
         self.textBackendLabel = TextSystem.capabilities().renderingLabel
         self.rendererBackendLabel = renderer.backendDisplayName
         self.rendererStatusDescription = renderer.backendStatusDescription
@@ -89,7 +82,6 @@ public final class FoundationApp: WindowDelegate {
             try renderer.attach(to: surface)
             refreshRendererStatus()
             isRendererReady = true
-            textClipboard.ownerWindow = window.nativeHandle
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             refreshDemoLayoutProfileIfNeeded(for: runtime.root.frame.size)
@@ -143,11 +135,6 @@ public final class FoundationApp: WindowDelegate {
 
     public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {
         runtime.keyDown(event)
-        commitRuntimeState(in: window)
-    }
-
-    public func window(_ window: Win32Window, textInput text: String) {
-        runtime.textInput(text)
         commitRuntimeState(in: window)
     }
 

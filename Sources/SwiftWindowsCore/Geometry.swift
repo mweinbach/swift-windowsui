@@ -181,7 +181,7 @@ public struct EdgeInsets: Equatable, Sendable {
     public var bottom: Double
     public var trailing: Double
 
-    public init(top: Double = 0, leading: Double = 0, bottom: Double = 0, trailing: Double = 0) {
+    public init(top: Double, leading: Double, bottom: Double, trailing: Double) {
         self.top = top
         self.leading = leading
         self.bottom = bottom
@@ -207,9 +207,6 @@ public struct Color: Equatable, Sendable {
     public static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     public static let white = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let clear = Color(red: 0, green: 0, blue: 0, alpha: 0)
-    public static let red = Color(red: 1.0, green: 0.23, blue: 0.19, alpha: 1.0)
-    public static let green = Color(red: 0.20, green: 0.78, blue: 0.35, alpha: 1.0)
-    public static let blue = Color(red: 0.0, green: 0.48, blue: 1.0, alpha: 1.0)
 
     public var rgba: (Float, Float, Float, Float) {
         (red, green, blue, alpha)

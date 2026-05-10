@@ -22,10 +22,6 @@ let package = Package(
             name: "swift-windowsui",
             targets: ["swift-windowsui"]
         ),
-        .executable(
-            name: "swift-windowsui-inspect",
-            targets: ["swift-windowsui-inspect"]
-        ),
     ],
     targets: [
         .target(
@@ -40,7 +36,6 @@ let package = Package(
             publicHeadersPath: "include",
             linkerSettings: [
                 .linkedLibrary("D2d1"),
-                .linkedLibrary("Dwrite"),
             ]
         ),
         .target(
@@ -93,16 +88,6 @@ let package = Package(
         .executableTarget(
             name: "swift-windowsui",
             dependencies: [
-                "WinSwiftUI",
-            ]
-        ),
-        .executableTarget(
-            name: "swift-windowsui-inspect",
-            dependencies: [
-                "SwiftWindowsCore",
-                "SwiftWindowsGraphics",
-                "SwiftWindowsRendererD3D11",
-                "SwiftWindowsUI",
                 "WinSwiftUI",
             ]
         ),

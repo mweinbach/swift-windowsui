@@ -1,5 +1,13 @@
 import SwiftWindowsCore
 
+public struct GPUIContentMask: Equatable, Sendable {
+    public var bounds: Rect?
+
+    public init(bounds: Rect? = nil) {
+        self.bounds = bounds
+    }
+}
+
 // MARK: - Quad Primitive
 
 /// A rounded rectangle with optional gradient fill, designed for direct upload
@@ -65,68 +73,42 @@ public struct QuadPrimitive: Equatable, Sendable {
         self._pad1 = 0
     }
 
-    public init(
-        x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
-        red: Float, green: Float, blue: Float, alpha: Float,
-        cornerRadius: Float = 0,
-        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
-    ) {
-        self.init(
-            x: x, y: y, width: width, height: height,
-            cornerRadius: cornerRadius,
-            startR: red, startG: green, startB: blue, startA: alpha,
-            endR: red, endG: green, endB: blue, endA: alpha,
-            gradientAxis: 0,
-            clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight
-        )
-    }
-
-    public var red: Float {
-        get { startR }
-        set {
-            startR = newValue
-            endR = newValue
-        }
-    }
-
-    public var green: Float {
-        get { startG }
-        set {
-            startG = newValue
-            endG = newValue
-        }
-    }
-
-    public var blue: Float {
-        get { startB }
-        set {
-            startB = newValue
-            endB = newValue
-        }
-    }
-
-    public var alpha: Float {
-        get { startA }
-        set {
-            startA = newValue
-            endA = newValue
-        }
-    }
-
-    public var clipRect: (Float, Float, Float, Float)? {
-        guard clipWidth > 0, clipHeight > 0 else {
-            return nil
-        }
-        return (clipX, clipY, clipWidth, clipHeight)
-    }
-
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Glyph Primitive
 
 /// A single glyph from a font atlas, designed for direct upload to a D3D11
-/// structured buffer. Total: 12 floats = 48 bytes (divisible by 16).
+/// structured buffer. Total: 16 floats = 64 bytes (divisible by 16).
 @frozen
 public struct GlyphPrimitive: Equatable, Sendable {
     // Screen destination
@@ -144,11 +126,17 @@ public struct GlyphPrimitive: Equatable, Sendable {
     public var colorG: Float
     public var colorB: Float
     public var colorA: Float
+    // Clip bounds
+    public var clipX: Float
+    public var clipY: Float
+    public var clipWidth: Float
+    public var clipHeight: Float
 
     public init(
         screenX: Float = 0, screenY: Float = 0, screenW: Float = 0, screenH: Float = 0,
         atlasU0: Float = 0, atlasV0: Float = 0, atlasU1: Float = 0, atlasV1: Float = 0,
-        colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1
+        colorR: Float = 1, colorG: Float = 1, colorB: Float = 1, colorA: Float = 1,
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
     ) {
         self.screenX = screenX
         self.screenY = screenY
@@ -162,9 +150,42 @@ public struct GlyphPrimitive: Equatable, Sendable {
         self.colorG = colorG
         self.colorB = colorB
         self.colorA = colorA
+        self.clipX = clipX
+        self.clipY = clipY
+        self.clipWidth = clipWidth
+        self.clipHeight = clipHeight
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Image Primitive
@@ -222,6 +243,35 @@ public struct ImagePrimitive: Equatable, Sendable {
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }
 
 // MARK: - Shadow Primitive
@@ -247,7 +297,7 @@ public struct ShadowPrimitive: Equatable, Sendable {
     // Shadow offset
     public var offsetX: Float
     public var offsetY: Float
-    // Clip bounds
+    // Content mask / clip bounds
     public var clipX: Float
     public var clipY: Float
     public var clipWidth: Float
@@ -279,50 +329,34 @@ public struct ShadowPrimitive: Equatable, Sendable {
         self.clipHeight = clipHeight
     }
 
-    public init(
-        x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
-        red: Float, green: Float, blue: Float, alpha: Float,
-        cornerRadius: Float = 0,
-        blurRadius: Float = 4,
-        offsetX: Float = 0, offsetY: Float = 0,
-        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
-    ) {
-        self.init(
-            x: x, y: y, width: width, height: height,
-            cornerRadius: cornerRadius,
-            colorR: red, colorG: green, colorB: blue, colorA: alpha,
-            blurRadius: blurRadius,
-            offsetX: offsetX, offsetY: offsetY,
-            clipX: clipX, clipY: clipY, clipWidth: clipWidth, clipHeight: clipHeight
-        )
-    }
-
-    public var red: Float {
-        get { colorR }
-        set { colorR = newValue }
-    }
-
-    public var green: Float {
-        get { colorG }
-        set { colorG = newValue }
-    }
-
-    public var blue: Float {
-        get { colorB }
-        set { colorB = newValue }
-    }
-
-    public var alpha: Float {
-        get { colorA }
-        set { colorA = newValue }
-    }
-
-    public var clipRect: (Float, Float, Float, Float)? {
-        guard clipWidth > 0, clipHeight > 0 else {
-            return nil
-        }
-        return (clipX, clipY, clipWidth, clipHeight)
-    }
-
     public static var byteSize: Int { MemoryLayout<Self>.size }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard clipWidth > 0, clipHeight > 0 else {
+                return GPUIContentMask()
+            }
+
+            return GPUIContentMask(bounds: Rect(
+                x: Double(clipX),
+                y: Double(clipY),
+                width: Double(clipWidth),
+                height: Double(clipHeight)
+            ))
+        }
+        set {
+            guard let bounds = newValue.bounds else {
+                clipX = 0
+                clipY = 0
+                clipWidth = 0
+                clipHeight = 0
+                return
+            }
+
+            clipX = Float(bounds.origin.x)
+            clipY = Float(bounds.origin.y)
+            clipWidth = Float(bounds.size.width)
+            clipHeight = Float(bounds.size.height)
+        }
+    }
 }

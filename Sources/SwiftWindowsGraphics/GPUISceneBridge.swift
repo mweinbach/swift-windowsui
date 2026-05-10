@@ -1,157 +1,192 @@
 import SwiftWindowsCore
 
+// MARK: - Clip Stack Entry
+
+/// Internal struct to track clip stack entries with their operation type.
+/// Used by GPUISceneBridge to implement proper intersect/replace semantics.
+private struct ClipStackEntry {
+    var rect: Rect
+    var operation: ClipOperation
+}
+
 // MARK: - RenderFrame to GPUIScene Bridge
-
-public struct GPUISceneBridgeSkippedCommandCounts: Equatable, Sendable {
-    public var fillPath: Int
-    public var strokePath: Int
-    public var drawText: Int
-    public var applyBlur: Int
-
-    public init(fillPath: Int = 0, strokePath: Int = 0, drawText: Int = 0, applyBlur: Int = 0) {
-        self.fillPath = fillPath
-        self.strokePath = strokePath
-        self.drawText = drawText
-        self.applyBlur = applyBlur
-    }
-
-    public var total: Int {
-        fillPath + strokePath + drawText + applyBlur
-    }
-
-    public var isEmpty: Bool {
-        total == 0
-    }
-
-    fileprivate mutating func record(_ command: RenderCommand) {
-        switch command {
-        case .fillPath:
-            fillPath += 1
-        case .strokePath:
-            strokePath += 1
-        case .drawText:
-            drawText += 1
-        case .applyBlur:
-            applyBlur += 1
-        case .fillRect, .shadowRect, .drawBitmap, .pushClip, .popClip:
-            break
-        }
-    }
-}
-
-public struct GPUISceneBridgeResult: Equatable, Sendable {
-    public var scene: GPUIScene
-    public var skippedCommands: GPUISceneBridgeSkippedCommandCounts
-
-    public init(scene: GPUIScene, skippedCommands: GPUISceneBridgeSkippedCommandCounts = GPUISceneBridgeSkippedCommandCounts()) {
-        self.scene = scene
-        self.skippedCommands = skippedCommands
-    }
-}
-
-/// Tracks which primitive type was most recently appended so the bridge
-/// can split layers on type transitions to preserve z-order.
-private enum LastPrimitiveKind {
-    case none
-    case shadow
-    case quad
-    case image
-}
 
 extension GPUIScene {
     /// Creates a `GPUIScene` from an existing `RenderFrame`.
     ///
     /// The bridge walks each `RenderCommand` and converts it to the
-    /// corresponding GPU primitive type. When consecutive commands produce
-    /// different primitive types (e.g. `fillRect` followed by `drawBitmap`),
-    /// a new layer is started to preserve z-ordering while still allowing
-    /// batch rendering within each layer.
+    /// corresponding GPU primitive type. Paint order is preserved through
+    /// per-layer paint operations instead of splitting layers every time the
+    /// primitive family changes.
+    ///
+    /// ## Supported Mappings (VAL-SCENE-008)
+    /// - Clear color: Preserved from frame to scene
+    /// - `fillRect`: Maps to `quad` primitive with color/gradient
+    /// - `drawBitmap`: Maps to `image` primitive
+    /// - Default clip: Uses full surface size when no clip is active
+    ///
+    /// ## Clip Stack Semantics (VAL-SCENE-009)
+    /// - `intersect`: Intersects with existing clip stack state (default behavior)
+    /// - `replace`: Discards prior clip state and uses the new clip exclusively
+    /// - `popClip` on empty stack: No-op (safe)
+    /// - Empty resulting clip: Command is suppressed (omitted from scene)
+    ///
+    /// ## Soft-Failure Behavior (VAL-SCENE-010, VAL-SCENE-011)
+    /// Unsupported commands are skipped safely without placeholder primitives:
+    /// - `drawText`: Skipped (text rendered through separate scene path)
+    /// - `fillPath`: Skipped (vector paths not yet supported)
+    /// - `strokePath`: Skipped (vector paths not yet supported)
+    /// - `applyBlur`: Skipped (blur effects not yet supported)
+    ///
+    /// Unsupported style features degrade to explicit fallbacks:
+    /// - Ellipse clips: Fallback to bounding rect of the ellipse
+    /// - Path clips: Fallback to full surface (no-op)
+    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
+    /// - Per-command blend modes: Ignored (uses default compositing; blend modes
+    ///   like .multiply, .screen, .overlay, .additive fall back to normal blending)
     ///
     /// - Parameters:
     ///   - frame: The backend-neutral render frame to convert.
     ///   - surfaceSize: The surface dimensions, used as the default clip rect
     ///     when no explicit clip is active.
     public init(from frame: RenderFrame, surfaceSize: Size) {
-        self = Self.bridgeResult(from: frame, surfaceSize: surfaceSize).scene
-    }
+        self = GPUIScene(clearColor: frame.clearColor)
 
-    /// Converts a `RenderFrame` while reporting command families that the
-    /// current batch scene shape cannot represent yet.
-    public static func bridgeResult(from frame: RenderFrame, surfaceSize: Size) -> GPUISceneBridgeResult {
-        var scene = GPUIScene(clearColor: frame.clearColor)
-        var skippedCommands = GPUISceneBridgeSkippedCommandCounts()
-
-        var clipStack = RenderClipStack(surfaceSize: surfaceSize)
-        var lastKind: LastPrimitiveKind = .none
+        // Clip stack entries track both the clip rect and whether it was a "replace" operation
+        // For replace operations, we don't intersect with parent clips
+        var clipStack: [ClipStackEntry] = []
 
         for command in frame.commands {
             switch command {
-            case .shadowRect(let cmd):
-                if lastKind != .none && lastKind != .shadow {
-                    scene.pushLayer()
-                }
-                lastKind = .shadow
-                let shadow = Self.makeShadow(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                scene.layers[scene.layers.count - 1].shadows.append(shadow)
-
             case .fillRect(let cmd):
-                if lastKind != .none && lastKind != .quad {
-                    scene.pushLayer()
-                }
-                lastKind = .quad
-                let quad = Self.makeQuad(from: cmd, clipStack: clipStack, surfaceSize: surfaceSize)
-                scene.layers[scene.layers.count - 1].quads.append(quad)
-
-            case .drawBitmap(let cmd):
-                if lastKind != .none && lastKind != .image {
-                    scene.pushLayer()
-                }
-                lastKind = .image
-                let textureID = scene.addImageResource(cmd.bitmap)
-                let image = Self.makeImage(
-                    from: cmd,
-                    textureID: textureID,
+                // Skip commands that result in an empty effective clip
+                let effectiveClip = Self.resolveEffectiveClip(
+                    commandClip: cmd.clipRect,
                     clipStack: clipStack,
                     surfaceSize: surfaceSize
                 )
-                scene.layers[scene.layers.count - 1].images.append(image)
+                guard !effectiveClip.isEmpty else {
+                    // VAL-SCENE-009: Empty resulting clip suppresses command
+                    continue
+                }
+                
+                let quad = Self.makeQuad(
+                    from: cmd,
+                    effectiveClip: effectiveClip
+                )
+                self.addQuad(quad)
+
+            case .drawBitmap(let cmd):
+                // Skip commands that result in an empty effective clip
+                let effectiveClip = Self.resolveEffectiveClip(
+                    commandClip: cmd.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: surfaceSize
+                )
+                guard !effectiveClip.isEmpty else {
+                    // VAL-SCENE-009: Empty resulting clip suppresses command
+                    continue
+                }
+
+                let textureID = self.registerImageResource(cmd.bitmap)
+                let image = Self.makeImage(
+                    from: cmd,
+                    effectiveClip: effectiveClip,
+                    textureID: textureID
+                )
+                self.addImage(image)
 
             case .pushClip(let cmd):
-                clipStack.push(cmd)
+                let clipRect: Rect
+                switch cmd.shape {
+                case .rect(let r, _):
+                    clipRect = r
+                case .ellipse(let center, let radiusX, let radiusY):
+                    // VAL-SCENE-011: Non-rect clips fallback to bounding rect
+                    clipRect = Rect(
+                        x: center.x - radiusX,
+                        y: center.y - radiusY,
+                        width: radiusX * 2,
+                        height: radiusY * 2
+                    )
+                case .path:
+                    // VAL-SCENE-011: Path clips fallback to full surface (no-op)
+                    clipRect = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
+                }
+                
+                clipStack.append(ClipStackEntry(rect: clipRect, operation: cmd.operation))
 
             case .popClip:
-                clipStack.pop()
+                // VAL-SCENE-009: Empty-stack popClip is a safe no-op
+                if !clipStack.isEmpty {
+                    clipStack.removeLast()
+                }
 
             case .drawText, .fillPath, .strokePath, .applyBlur:
-                // Not handled by the batch pipeline yet; skip.
-                skippedCommands.record(command)
+                // VAL-SCENE-010: Unsupported commands are skipped safely
+                // No placeholder primitives, no crashes, no reordering of neighbors
                 break
             }
         }
+    }
 
-        return GPUISceneBridgeResult(scene: scene, skippedCommands: skippedCommands)
+    // MARK: - Clip Resolution (VAL-SCENE-009)
+    
+    /// Resolves the effective clip rect from the stack and any per-command clip.
+    /// 
+    /// Clip semantics:
+    /// - `intersect` operations intersect with the existing clip state
+    /// - `replace` operations discard prior clip state for that level
+    /// - Per-command clips intersect with the stack result
+    /// - Empty stack uses full surface bounds
+    private static func resolveEffectiveClip(
+        commandClip: Rect?,
+        clipStack: [ClipStackEntry],
+        surfaceSize: Size
+    ) -> Rect {
+        let fullSurface = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
+        
+        // Build effective clip from stack, respecting intersect vs replace operations
+        var effective = fullSurface
+        
+        for entry in clipStack {
+            switch entry.operation {
+            case .intersect:
+                if let intersected = effective.intersected(with: entry.rect) {
+                    effective = intersected
+                } else {
+                    // No intersection - empty clip
+                    return Rect.zero
+                }
+            case .replace:
+                // Replace discards accumulated state and starts fresh
+                effective = entry.rect
+            }
+        }
+        
+        // Apply per-command clip if present (always intersects)
+        if let cmdClip = commandClip {
+            if let intersected = effective.intersected(with: cmdClip) {
+                effective = intersected
+            } else {
+                return Rect.zero
+            }
+        }
+        
+        return effective
     }
 
     // MARK: - Primitive Conversion Helpers
 
-    /// Resolves the effective clip rect from the stack and any per-command clip.
-    private static func resolveClip(
-        commandClip: Rect?,
-        clipStack: RenderClipStack,
-        surfaceSize: Size
-    ) -> Rect {
-        let fullSurface = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
-        return clipStack.resolvedClip(commandClip: commandClip) ?? fullSurface
-    }
-
     /// Converts a `FillRectCommand` to a `QuadPrimitive`.
+    /// 
+    /// Gradient handling (VAL-SCENE-011):
+    /// - Linear gradients: Mapped to quad gradient fields
+    /// - Radial/conic gradients: Fallback to base color (`cmd.color`)
     private static func makeQuad(
         from cmd: FillRectCommand,
-        clipStack: RenderClipStack,
-        surfaceSize: Size
+        effectiveClip: Rect
     ) -> QuadPrimitive {
-        let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)
-
         var startR = cmd.color.red
         var startG = cmd.color.green
         var startB = cmd.color.blue
@@ -175,7 +210,8 @@ extension GPUIScene {
                 endA = lg.endColor.alpha
                 axis = lg.axis == .horizontal ? 1 : 0
             case .radial, .conic:
-                // Fall back to solid color for unsupported gradient types.
+                // VAL-SCENE-011: Radial/conic gradients fallback to base color (cmd.color)
+                // (keep the base color values already set)
                 break
             }
         }
@@ -189,50 +225,19 @@ extension GPUIScene {
             startR: startR, startG: startG, startB: startB, startA: startA,
             endR: endR, endG: endG, endB: endB, endA: endA,
             gradientAxis: axis,
-            clipX: Float(clip.origin.x),
-            clipY: Float(clip.origin.y),
-            clipWidth: Float(clip.size.width),
-            clipHeight: Float(clip.size.height)
-        )
-    }
-
-    /// Converts a `ShadowRectCommand` to a `ShadowPrimitive`.
-    private static func makeShadow(
-        from cmd: ShadowRectCommand,
-        clipStack: RenderClipStack,
-        surfaceSize: Size
-    ) -> ShadowPrimitive {
-        let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)
-
-        return ShadowPrimitive(
-            x: Float(cmd.rect.origin.x),
-            y: Float(cmd.rect.origin.y),
-            width: Float(cmd.rect.size.width),
-            height: Float(cmd.rect.size.height),
-            cornerRadius: Float(cmd.cornerRadius),
-            colorR: cmd.color.red,
-            colorG: cmd.color.green,
-            colorB: cmd.color.blue,
-            colorA: cmd.color.alpha,
-            blurRadius: Float(max(0, cmd.blurRadius)),
-            offsetX: Float(cmd.offset.x),
-            offsetY: Float(cmd.offset.y),
-            clipX: Float(clip.origin.x),
-            clipY: Float(clip.origin.y),
-            clipWidth: Float(clip.size.width),
-            clipHeight: Float(clip.size.height)
+            clipX: Float(effectiveClip.origin.x),
+            clipY: Float(effectiveClip.origin.y),
+            clipWidth: Float(effectiveClip.size.width),
+            clipHeight: Float(effectiveClip.size.height)
         )
     }
 
     /// Converts a `DrawBitmapCommand` to an `ImagePrimitive`.
     private static func makeImage(
         from cmd: DrawBitmapCommand,
-        textureID: Int32,
-        clipStack: RenderClipStack,
-        surfaceSize: Size
+        effectiveClip: Rect,
+        textureID: Int32
     ) -> ImagePrimitive {
-        let clip = resolveClip(commandClip: cmd.clipRect, clipStack: clipStack, surfaceSize: surfaceSize)
-
         return ImagePrimitive(
             screenX: Float(cmd.rect.origin.x),
             screenY: Float(cmd.rect.origin.y),
@@ -240,10 +245,10 @@ extension GPUIScene {
             screenH: Float(cmd.rect.size.height),
             uvX: 0, uvY: 0, uvW: 1, uvH: 1,
             opacity: cmd.opacity,
-            clipX: Float(clip.origin.x),
-            clipY: Float(clip.origin.y),
-            clipWidth: Float(clip.size.width),
-            clipHeight: Float(clip.size.height),
+            clipX: Float(effectiveClip.origin.x),
+            clipY: Float(effectiveClip.origin.y),
+            clipWidth: Float(effectiveClip.size.width),
+            clipHeight: Float(effectiveClip.size.height),
             textureID: textureID
         )
     }

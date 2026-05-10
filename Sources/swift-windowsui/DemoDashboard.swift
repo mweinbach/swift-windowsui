@@ -43,7 +43,6 @@ final class DemoDashboardModel: ObservableObject {
 
 struct DemoRootView: View {
     @ObservedObject var model: DemoDashboardModel
-    @State private var commandQuery = ""
 
     var body: some View {
         GeometryReader { proxy in
@@ -71,7 +70,7 @@ struct DemoRootView: View {
                 )
 
                 VStack(alignment: .leading, spacing: layout.gap) {
-                    DemoToolbar(model: model, layout: layout, searchText: $commandQuery)
+                    DemoToolbar(model: model, layout: layout)
 
                     HStack(alignment: .top, spacing: layout.columnGap) {
                         DemoSidebar(model: model, layout: layout)
@@ -96,7 +95,6 @@ struct DemoRootView: View {
 struct DemoToolbar: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
-    let searchText: Binding<String>
 
     var body: some View {
         DemoGlassSurface(
@@ -131,8 +129,11 @@ struct DemoToolbar: View {
                         .foregroundColor(DemoTheme.secondaryText)
                         .font(.system(size: 12))
 
-                    TextField("SEARCH COMMANDS", text: searchText)
-                        .foregroundColor(DemoTheme.primaryText)
+                    Text("SEARCH COMMANDS")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(DemoTheme.secondaryText)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(1)
                 }
                 .padding(EdgeInsets(top: 0, leading: 14, bottom: 0, trailing: 14))
                 .frame(width: layout.searchWidth, height: layout.pillHeight, alignment: .leading)
@@ -147,6 +148,7 @@ struct DemoToolbar: View {
                 .padding(1)
                 .background(DemoTheme.surfaceStroke)
                 .cornerRadius(layout.pillHeight * 0.5 + 1)
+                .allowsHitTesting(false)
                 .layoutPriority(1)
 
                 Spacer(minLength: 0)

@@ -34,12 +34,20 @@ public struct D3D11RendererError: Error, CustomStringConvertible, Sendable {
     }
 }
 
+private struct UnsupportedRenderCommandError: Error, CustomStringConvertible, Sendable {
+    let backend: String
+    let commandName: String
+
+    var description: String {
+        "\(backend) does not support RenderCommand.\(commandName)."
+    }
+}
+
 /// Blend modes supported by the D3D11 fallback renderer.
 public enum D3D11BlendMode: Hashable, Sendable {
     case normal
     case additive
     case multiply
-    case screen
 }
 
 public final class D3D11Renderer: RenderBackend {
@@ -184,7 +192,6 @@ public final class D3D11Renderer: RenderBackend {
 
         let clearColor = frame.clearColor == .clear ? configuration.fallbackClearColor : frame.clearColor
         let scaleFactor = currentScaleFactor()
-        let logicalSurfaceSize = makeLogicalSurfaceSize(pixelSize: surface.pixelSize, scaleFactor: scaleFactor)
 
         if
             isDirect2DEnabled,
@@ -196,7 +203,6 @@ public final class D3D11Renderer: RenderBackend {
                     frame: frame,
                     clearColor: clearColor,
                     scaleFactor: scaleFactor,
-                    surfaceSize: logicalSurfaceSize,
                     deviceContext: direct2DDeviceContext,
                     targetBitmap: direct2DTargetBitmap
                 )
@@ -276,59 +282,20 @@ public final class D3D11Renderer: RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
-        var clipStack = RenderClipStack(surfaceSize: logicalSurfaceSize)
         for command in frame.commands {
-            switch command {
-            case .pushClip(let clipCommand):
-                clipStack.push(clipCommand)
-            case .popClip:
-                clipStack.pop()
-            case .fillRect(let fillRectCommand):
-                try draw(
-                    .fillRect(resolved(fillRect: fillRectCommand, clipStack: clipStack)),
-                    surfaceSize: surface.pixelSize,
-                    scaleFactor: scaleFactor,
-                    deviceContext: deviceContext,
-                    rectangleVertexShader: vertexShader,
-                    rectanglePixelShader: pixelShader,
-                    rectangleConstantBuffer: constantBuffer,
-                    bitmapVertexShader: bitmapVertexShader,
-                    bitmapPixelShader: bitmapPixelShader,
-                    bitmapConstantBuffer: bitmapConstantBuffer,
-                    bitmapSamplerState: bitmapSamplerState
-                )
-            case .shadowRect(let shadowRectCommand):
-                try draw(
-                    .fillRect(resolved(fillRect: shadowRectCommand.fallbackFillRect, clipStack: clipStack)),
-                    surfaceSize: surface.pixelSize,
-                    scaleFactor: scaleFactor,
-                    deviceContext: deviceContext,
-                    rectangleVertexShader: vertexShader,
-                    rectanglePixelShader: pixelShader,
-                    rectangleConstantBuffer: constantBuffer,
-                    bitmapVertexShader: bitmapVertexShader,
-                    bitmapPixelShader: bitmapPixelShader,
-                    bitmapConstantBuffer: bitmapConstantBuffer,
-                    bitmapSamplerState: bitmapSamplerState
-                )
-            case .drawBitmap(let drawBitmapCommand):
-                try draw(
-                    .drawBitmap(resolved(bitmap: drawBitmapCommand, clipStack: clipStack)),
-                    surfaceSize: surface.pixelSize,
-                    scaleFactor: scaleFactor,
-                    deviceContext: deviceContext,
-                    rectangleVertexShader: vertexShader,
-                    rectanglePixelShader: pixelShader,
-                    rectangleConstantBuffer: constantBuffer,
-                    bitmapVertexShader: bitmapVertexShader,
-                    bitmapPixelShader: bitmapPixelShader,
-                    bitmapConstantBuffer: bitmapConstantBuffer,
-                    bitmapSamplerState: bitmapSamplerState
-                )
-            case .fillPath, .strokePath, .applyBlur, .drawText:
-                // TODO: implement D3D11 path for new render commands.
-                break
-            }
+            try draw(
+                command,
+                surfaceSize: surface.pixelSize,
+                scaleFactor: scaleFactor,
+                deviceContext: deviceContext,
+                rectangleVertexShader: vertexShader,
+                rectanglePixelShader: pixelShader,
+                rectangleConstantBuffer: constantBuffer,
+                bitmapVertexShader: bitmapVertexShader,
+                bitmapPixelShader: bitmapPixelShader,
+                bitmapConstantBuffer: bitmapConstantBuffer,
+                bitmapSamplerState: bitmapSamplerState
+            )
         }
 
         let syncInterval: UINT = vsyncEnabled ? 1 : 0
@@ -404,10 +371,6 @@ public final class D3D11Renderer: RenderBackend {
             bitmapConstantBuffer != nil,
             bitmapSamplerState != nil,
             blendState != nil,
-            blendStates[.normal] != nil,
-            blendStates[.additive] != nil,
-            blendStates[.multiply] != nil,
-            blendStates[.screen] != nil,
             rasterizerState != nil
         {
             return
@@ -559,26 +522,6 @@ public final class D3D11Renderer: RenderBackend {
             blendStates[.multiply] = multiplyBlendState
         }
 
-        // Screen blend state: source-over style screen approximation.
-        var screenBlendDescriptor = D3D11_BLEND_DESC()
-        screenBlendDescriptor.AlphaToCoverageEnable = false
-        screenBlendDescriptor.IndependentBlendEnable = false
-        screenBlendDescriptor.RenderTarget.0.BlendEnable = true
-        screenBlendDescriptor.RenderTarget.0.SrcBlend = D3D11_BLEND_ONE
-        screenBlendDescriptor.RenderTarget.0.DestBlend = D3D11_BLEND_INV_SRC_COLOR
-        screenBlendDescriptor.RenderTarget.0.BlendOp = D3D11_BLEND_OP_ADD
-        screenBlendDescriptor.RenderTarget.0.SrcBlendAlpha = D3D11_BLEND_ONE
-        screenBlendDescriptor.RenderTarget.0.DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA
-        screenBlendDescriptor.RenderTarget.0.BlendOpAlpha = D3D11_BLEND_OP_ADD
-        screenBlendDescriptor.RenderTarget.0.RenderTargetWriteMask = UINT8(D3D11_COLOR_WRITE_ENABLE_ALL.rawValue)
-
-        var screenBlendState: UnsafeMutablePointer<ID3D11BlendState>?
-        let screenBlendStateHR = device.pointee.lpVtbl.pointee.CreateBlendState(device, &screenBlendDescriptor, &screenBlendState)
-        try throwIfFailed(screenBlendStateHR, operation: "ID3D11Device.CreateBlendState(screen)")
-        if let screenBlendState {
-            blendStates[.screen] = screenBlendState
-        }
-
         var rasterizerDescriptor = D3D11_RASTERIZER_DESC()
         rasterizerDescriptor.FillMode = D3D11_FILL_SOLID
         rasterizerDescriptor.CullMode = D3D11_CULL_NONE
@@ -668,7 +611,7 @@ public final class D3D11Renderer: RenderBackend {
         descriptor.BufferCount = 2
         descriptor.Scaling = DXGI_SCALING_STRETCH
         descriptor.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD
-        descriptor.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED
+        descriptor.AlphaMode = DXGI_ALPHA_MODE_IGNORE
         descriptor.Flags = swapChainFlags
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
@@ -778,7 +721,6 @@ public final class D3D11Renderer: RenderBackend {
         frame: RenderFrame,
         clearColor: Color,
         scaleFactor: Double,
-        surfaceSize: Size,
         deviceContext: UnsafeMutableRawPointer,
         targetBitmap: UnsafeMutableRawPointer
     ) throws {
@@ -800,54 +742,14 @@ public final class D3D11Renderer: RenderBackend {
 
         SWU_D2DClear(deviceContext, clearColor.red, clearColor.green, clearColor.blue, clearColor.alpha)
 
-        var clipStack = RenderClipStack(surfaceSize: surfaceSize)
         for command in frame.commands {
             switch command {
             case .fillRect(let fillRectCommand):
-                try drawWithDirect2D(
-                    fillRect: resolved(fillRect: fillRectCommand, clipStack: clipStack),
-                    deviceContext: deviceContext
-                )
-            case .shadowRect(let shadowRectCommand):
-                try drawWithDirect2D(
-                    fillRect: resolved(fillRect: shadowRectCommand.fallbackFillRect, clipStack: clipStack),
-                    deviceContext: deviceContext
-                )
+                try drawWithDirect2D(fillRect: fillRectCommand, deviceContext: deviceContext)
             case .drawBitmap(let drawBitmapCommand):
-                try drawWithDirect2D(
-                    bitmap: resolved(bitmap: drawBitmapCommand, clipStack: clipStack),
-                    scaleFactor: scaleFactor,
-                    deviceContext: deviceContext
-                )
-            case .fillPath(let fillPathCommand):
-                try drawWithDirect2D(
-                    fillPath: fillPathCommand,
-                    clipRect: clipStack.resolvedClip(commandClip: nil),
-                    deviceContext: deviceContext
-                )
-            case .strokePath(let strokePathCommand):
-                try drawWithDirect2D(
-                    strokePath: strokePathCommand,
-                    clipRect: clipStack.resolvedClip(commandClip: nil),
-                    deviceContext: deviceContext
-                )
-            case .drawText(let drawTextCommand):
-                try drawWithDirect2D(
-                    text: drawTextCommand,
-                    clipRect: clipStack.resolvedClip(commandClip: drawTextCommand.clipRect),
-                    deviceContext: deviceContext
-                )
-            case .applyBlur(let blurCommand):
-                try drawWithDirect2D(
-                    blur: blurCommand,
-                    clipRect: clipStack.resolvedClip(commandClip: nil),
-                    scaleFactor: scaleFactor,
-                    deviceContext: deviceContext
-                )
-            case .pushClip(let clipCommand):
-                clipStack.push(clipCommand)
-            case .popClip:
-                clipStack.pop()
+                try drawWithDirect2D(bitmap: drawBitmapCommand, scaleFactor: scaleFactor, deviceContext: deviceContext)
+            case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
+                throw unsupportedRenderCommand(command, backend: "Direct2D")
             }
         }
 
@@ -953,159 +855,6 @@ public final class D3D11Renderer: RenderBackend {
         try throwIfFailed(hr, operation: "Draw Direct2D bitmap")
     }
 
-    private func drawWithDirect2D(
-        fillPath command: FillPathCommand,
-        clipRect: Rect?,
-        deviceContext: UnsafeMutableRawPointer
-    ) throws {
-        let fillColor = solidPathFillColor(for: command)
-        guard fillColor.alpha > 0 else {
-            return
-        }
-
-        let pathBuffer = d2dPathBuffer(from: command.path, transform: command.transform)
-        guard !pathBuffer.segmentTypes.isEmpty, !pathBuffer.points.isEmpty else {
-            return
-        }
-
-        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
-            pathBuffer.segmentTypes.withUnsafeBufferPointer { segments in
-                pathBuffer.points.withUnsafeBufferPointer { points in
-                    SWU_D2DFillPathSolid(
-                        deviceContext,
-                        segments.baseAddress,
-                        Int32(segments.count),
-                        points.baseAddress,
-                        Int32(points.count),
-                        fillColor.red,
-                        fillColor.green,
-                        fillColor.blue,
-                        fillColor.alpha
-                    )
-                }
-            }
-        }
-
-        try throwIfFailed(hr, operation: "Draw Direct2D fillPath")
-    }
-
-    private func drawWithDirect2D(
-        strokePath command: StrokePathCommand,
-        clipRect: Rect?,
-        deviceContext: UnsafeMutableRawPointer
-    ) throws {
-        guard command.color.alpha > 0, command.style.lineWidth > 0 else {
-            return
-        }
-
-        let pathBuffer = d2dPathBuffer(from: command.path, transform: command.transform)
-        guard !pathBuffer.segmentTypes.isEmpty, !pathBuffer.points.isEmpty else {
-            return
-        }
-
-        let dashPattern = command.style.dashPattern.map { Float(max(0, $0)) }
-        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
-            pathBuffer.segmentTypes.withUnsafeBufferPointer { segments in
-                pathBuffer.points.withUnsafeBufferPointer { points in
-                    dashPattern.withUnsafeBufferPointer { dashes in
-                        SWU_D2DStrokePathSolid(
-                            deviceContext,
-                            segments.baseAddress,
-                            Int32(segments.count),
-                            points.baseAddress,
-                            Int32(points.count),
-                            command.color.red,
-                            command.color.green,
-                            command.color.blue,
-                            command.color.alpha,
-                            Float(command.style.lineWidth),
-                            dashes.baseAddress,
-                            Int32(dashes.count),
-                            Float(command.style.dashOffset),
-                            d2dLineCap(command.style.lineCap),
-                            d2dLineJoin(command.style.lineJoin)
-                        )
-                    }
-                }
-            }
-        }
-
-        try throwIfFailed(hr, operation: "Draw Direct2D strokePath")
-    }
-
-    private func drawWithDirect2D(
-        text command: DrawTextCommand,
-        clipRect: Rect?,
-        deviceContext: UnsafeMutableRawPointer
-    ) throws {
-        guard !command.text.isEmpty, command.fontSize > 0, command.color.alpha > 0 else {
-            return
-        }
-
-        let layoutRect = directWriteLayoutRect(for: command)
-        guard layoutRect.size.width > 0, layoutRect.size.height > 0 else {
-            return
-        }
-
-        if let clipRect, clipRect.intersected(with: layoutRect) == nil {
-            return
-        }
-
-        let fontFamily = command.fontName.isEmpty ? "Segoe UI" : command.fontName
-        let textLength = Int32(command.text.utf16.count)
-        let hr = try withDirect2DClip(clipRect, deviceContext: deviceContext) {
-            command.text.withCString(encodedAs: UTF16.self) { textPointer in
-                fontFamily.withCString(encodedAs: UTF16.self) { fontPointer in
-                    SWU_D2DDrawTextUTF16(
-                        deviceContext,
-                        textPointer,
-                        textLength,
-                        Float(layoutRect.minX),
-                        Float(layoutRect.minY),
-                        Float(layoutRect.maxX),
-                        Float(layoutRect.maxY),
-                        fontPointer,
-                        Float(command.fontSize),
-                        directWriteFontWeight(command.fontWeight),
-                        command.color.red,
-                        command.color.green,
-                        command.color.blue,
-                        command.color.alpha
-                    )
-                }
-            }
-        }
-
-        try throwIfFailed(hr, operation: "Draw Direct2D drawText")
-    }
-
-    private func drawWithDirect2D(
-        blur command: BlurCommand,
-        clipRect: Rect?,
-        scaleFactor: Double,
-        deviceContext: UnsafeMutableRawPointer
-    ) throws {
-        guard command.radius > 0, let region = direct2DBlurRegion(for: command, clipRect: clipRect) else {
-            return
-        }
-
-        let safeScale = max(scaleFactor, 1.0)
-        let dpi = Float(safeScale * logicalDpi)
-        let hr = SWU_D2DApplyGaussianBlur(
-            deviceContext,
-            Float(region.minX),
-            Float(region.minY),
-            Float(region.maxX),
-            Float(region.maxY),
-            Float(command.radius),
-            Float(safeScale),
-            dpi,
-            dpi
-        )
-
-        try throwIfFailed(hr, operation: "Draw Direct2D applyBlur")
-    }
-
     private func draw(
         _ command: RenderCommand,
         surfaceSize: IntSize,
@@ -1130,16 +879,6 @@ public final class D3D11Renderer: RenderBackend {
                 pixelShader: rectanglePixelShader,
                 constantBuffer: rectangleConstantBuffer
             )
-        case .shadowRect(let shadowRectCommand):
-            try draw(
-                fillRect: shadowRectCommand.fallbackFillRect,
-                surfaceSize: surfaceSize,
-                scaleFactor: scaleFactor,
-                deviceContext: deviceContext,
-                vertexShader: rectangleVertexShader,
-                pixelShader: rectanglePixelShader,
-                constantBuffer: rectangleConstantBuffer
-            )
         case .drawBitmap(let drawBitmapCommand):
             try draw(
                 bitmap: drawBitmapCommand,
@@ -1152,8 +891,7 @@ public final class D3D11Renderer: RenderBackend {
                 samplerState: bitmapSamplerState
             )
         case .fillPath, .strokePath, .applyBlur, .drawText, .pushClip, .popClip:
-            // TODO: implement D3D11 path for new render commands
-            break
+            throw unsupportedRenderCommand(command, backend: "D3D11 fallback")
         }
     }
 
@@ -1186,8 +924,6 @@ public final class D3D11Renderer: RenderBackend {
         guard let scissorRect = makeScissorRect(from: effectiveClip, surfaceSize: surfaceSize) else {
             return
         }
-
-        activateBlendMode(d3d11BlendMode(for: scaledCommand.blendMode), deviceContext: deviceContext)
 
         var activeScissorRect = scissorRect
         deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
@@ -1270,8 +1006,6 @@ public final class D3D11Renderer: RenderBackend {
         guard let scissorRect = makeScissorRect(from: effectiveClip, surfaceSize: surfaceSize) else {
             return
         }
-
-        activateBlendMode(d3d11BlendMode(for: scaledCommand.blendMode), deviceContext: deviceContext)
 
         var activeScissorRect = scissorRect
         deviceContext.pointee.lpVtbl.pointee.RSSetScissorRects(deviceContext, 1, &activeScissorRect)
@@ -1552,182 +1286,6 @@ private func makeScissorRect(from rect: Rect, surfaceSize: IntSize) -> D3D11_REC
     return D3D11_RECT(left: left, top: top, right: right, bottom: bottom)
 }
 
-func makeLogicalSurfaceSize(pixelSize: IntSize, scaleFactor: Double) -> Size {
-    let safeScale = max(scaleFactor, 1.0)
-    return Size(
-        width: Double(max(pixelSize.width, 0)) / safeScale,
-        height: Double(max(pixelSize.height, 0)) / safeScale
-    )
-}
-
-func resolved(fillRect command: FillRectCommand, clipStack: RenderClipStack) -> FillRectCommand {
-    FillRectCommand(
-        rect: command.rect,
-        color: command.color,
-        cornerRadius: command.cornerRadius,
-        clipRect: clipStack.resolvedClip(commandClip: command.clipRect),
-        gradient: command.gradient,
-        blendMode: command.blendMode
-    )
-}
-
-func resolved(bitmap command: DrawBitmapCommand, clipStack: RenderClipStack) -> DrawBitmapCommand {
-    DrawBitmapCommand(
-        rect: command.rect,
-        bitmap: command.bitmap,
-        opacity: command.opacity,
-        clipRect: clipStack.resolvedClip(commandClip: command.clipRect),
-        blendMode: command.blendMode
-    )
-}
-
-func d3d11BlendMode(for blendMode: BlendMode) -> D3D11BlendMode {
-    switch blendMode {
-    case .normal:
-        return .normal
-    case .additive:
-        return .additive
-    case .multiply:
-        return .multiply
-    case .screen:
-        return .screen
-    case .overlay:
-        // Overlay needs shader/effect composition; keep it safe for now.
-        return .normal
-    }
-}
-
-struct D2DPathBuffer: Equatable {
-    var segmentTypes: [Int32]
-    var points: [Float]
-}
-
-func d2dPathBuffer(
-    from path: RenderPath,
-    transform: SwiftWindowsGraphics.AffineTransform = .identity
-) -> D2DPathBuffer {
-    var segmentTypes: [Int32] = []
-    var points: [Float] = []
-
-    func append(_ point: Point) {
-        let transformed = transformedPoint(point, by: transform)
-        points.append(Float(transformed.x))
-        points.append(Float(transformed.y))
-    }
-
-    for segment in path.segments {
-        switch segment {
-        case .moveTo(let point):
-            segmentTypes.append(Int32(SWU_D2D_PATH_MOVE_TO))
-            append(point)
-        case .lineTo(let point):
-            segmentTypes.append(Int32(SWU_D2D_PATH_LINE_TO))
-            append(point)
-        case .quadCurveTo(let control, let end):
-            segmentTypes.append(Int32(SWU_D2D_PATH_QUAD_TO))
-            append(control)
-            append(end)
-        case .cubicCurveTo(let control1, let control2, let end):
-            segmentTypes.append(Int32(SWU_D2D_PATH_CUBIC_TO))
-            append(control1)
-            append(control2)
-            append(end)
-        case .close:
-            segmentTypes.append(Int32(SWU_D2D_PATH_CLOSE))
-        }
-    }
-
-    return D2DPathBuffer(segmentTypes: segmentTypes, points: points)
-}
-
-func transformedPoint(_ point: Point, by transform: SwiftWindowsGraphics.AffineTransform) -> Point {
-    Point(
-        x: point.x * transform.a + point.y * transform.c + transform.tx,
-        y: point.x * transform.b + point.y * transform.d + transform.ty
-    )
-}
-
-func d2dLineCap(_ cap: StrokeStyle.LineCap) -> Int32 {
-    switch cap {
-    case .butt:
-        return Int32(SWU_D2D_LINE_CAP_BUTT)
-    case .round:
-        return Int32(SWU_D2D_LINE_CAP_ROUND)
-    case .square:
-        return Int32(SWU_D2D_LINE_CAP_SQUARE)
-    }
-}
-
-func d2dLineJoin(_ join: StrokeStyle.LineJoin) -> Int32 {
-    switch join {
-    case .miter:
-        return Int32(SWU_D2D_LINE_JOIN_MITER)
-    case .round:
-        return Int32(SWU_D2D_LINE_JOIN_ROUND)
-    case .bevel:
-        return Int32(SWU_D2D_LINE_JOIN_BEVEL)
-    }
-}
-
-func solidPathFillColor(for command: FillPathCommand) -> Color {
-    guard let gradient = command.gradient else {
-        return command.color
-    }
-
-    switch gradient {
-    case .linear(let linearGradient):
-        return linearGradient.startColor
-    case .radial(let radialGradient):
-        return radialGradient.stops.first?.color ?? command.color
-    case .conic(let conicGradient):
-        return conicGradient.stops.first?.color ?? command.color
-    }
-}
-
-func directWriteLayoutRect(for command: DrawTextCommand) -> Rect {
-    let width = max(command.maxWidth ?? 4096, 1)
-    let height = max(command.fontSize * 4, 4096)
-    return Rect(
-        x: command.position.x,
-        y: command.position.y,
-        width: width,
-        height: height
-    )
-}
-
-func directWriteFontWeight(_ weight: DrawTextCommand.FontWeight) -> Int32 {
-    switch weight {
-    case .thin:
-        return 100
-    case .light:
-        return 300
-    case .regular:
-        return 400
-    case .medium:
-        return 500
-    case .semibold:
-        return 600
-    case .bold:
-        return 700
-    case .heavy:
-        return 800
-    case .black:
-        return 900
-    }
-}
-
-func direct2DBlurRegion(for command: BlurCommand, clipRect: Rect?) -> Rect? {
-    guard command.radius > 0, command.region.size.width > 0, command.region.size.height > 0 else {
-        return nil
-    }
-
-    guard let clipRect else {
-        return command.region
-    }
-
-    return command.region.intersected(with: clipRect)
-}
-
 private func scaled(fillRect command: FillRectCommand, factor: Double) -> FillRectCommand {
     FillRectCommand(
         rect: command.rect.scaled(by: factor),
@@ -1748,8 +1306,7 @@ private func scaled(bitmap command: DrawBitmapCommand, factor: Double) -> DrawBi
         ),
         bitmap: command.bitmap,
         opacity: command.opacity,
-        clipRect: command.clipRect?.scaled(by: factor),
-        blendMode: command.blendMode
+        clipRect: command.clipRect?.scaled(by: factor)
     )
 }
 
@@ -1785,6 +1342,31 @@ func releaseCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
     _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
     pointer = nil
+}
+
+private func unsupportedRenderCommand(_ command: RenderCommand, backend: String) -> UnsupportedRenderCommandError {
+    UnsupportedRenderCommandError(backend: backend, commandName: renderCommandName(command))
+}
+
+private func renderCommandName(_ command: RenderCommand) -> String {
+    switch command {
+    case .fillRect:
+        return "fillRect"
+    case .drawBitmap:
+        return "drawBitmap"
+    case .fillPath:
+        return "fillPath"
+    case .strokePath:
+        return "strokePath"
+    case .applyBlur:
+        return "applyBlur"
+    case .drawText:
+        return "drawText"
+    case .pushClip:
+        return "pushClip"
+    case .popClip:
+        return "popClip"
+    }
 }
 
 let hresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)

@@ -16,7 +16,6 @@ typealias DWriteLineSpacingMethod = UINT32
 
 let dwriteFactoryTypeShared: DWriteFactoryType = 0
 let dwriteFontStyleNormal: DWriteFontStyle = 0
-let dwriteFontStyleItalic: DWriteFontStyle = 2
 let dwriteFontStretchNormal: DWriteFontStretch = 5
 let dwriteTextAlignmentLeading: DWriteTextAlignment = 0
 let dwriteTextAlignmentTrailing: DWriteTextAlignment = 1

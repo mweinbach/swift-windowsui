@@ -1,4 +1,3 @@
-import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
@@ -189,9 +188,6 @@ public enum SymbolIcon: String, Sendable {
     case search = "\u{E721}"
     case folder = "\u{E8B7}"
     case settings = "\u{E713}"
-    case plus = "\u{E710}"
-    case minus = "\u{E738}"
-    case xmark = "\u{E711}"
     case lightning = "\u{E945}"
     case layout = "\u{ECA5}"
     case keyboard = "\u{E765}"
@@ -200,23 +196,8 @@ public enum SymbolIcon: String, Sendable {
     case activity = "\u{E7C3}"
     case document = "\u{E8A5}"
     case split = "\u{E7FD}"
-    case trash = "\u{E74D}"
     case checkmark = "\u{E73E}"
-    case chevronUp = "\u{E70E}"
     case chevronDown = "\u{E70D}"
-    case chevronLeft = "\u{E76B}"
-    case chevronRight = "\u{E76C}"
-    case star = "\u{E734}"
-    case starFill = "\u{E735}"
-    case calendar = "\u{E787}"
-    case person = "\u{E77B}"
-    case people = "\u{E716}"
-    case play = "\u{E768}"
-    case pause = "\u{E769}"
-    case refresh = "\u{E72C}"
-    case share = "\u{E72D}"
-    case lock = "\u{E72E}"
-    case unlock = "\u{E785}"
     case radioSelected = "\u{E915}"
     case radioUnselected = "\u{E916}"
 }
@@ -304,60 +285,6 @@ public enum Controls {
             layoutMode: .stack(stackLayout),
             isHitTestVisible: isHitTestVisible,
             children: children
-        )
-    }
-
-    public static func gridPanel(
-        frame: Rect = .zero,
-        preferredSize: Size? = nil,
-        layoutPriority: Double = 0,
-        backgroundColor: Color? = nil,
-        borderColor: Color = .clear,
-        borderWidth: Double = 0,
-        shadowColor: Color = .clear,
-        shadowOffset: Point = .zero,
-        shadowSpread: Double = 0,
-        cornerRadius: Double = 0,
-        clipsToBounds: Bool = false,
-        gridLayout: GridLayout,
-        isHitTestVisible: Bool = true,
-        children: [ViewNode] = []
-    ) -> ViewNode {
-        panel(
-            frame: frame,
-            preferredSize: preferredSize,
-            layoutPriority: layoutPriority,
-            backgroundColor: backgroundColor,
-            borderColor: borderColor,
-            borderWidth: borderWidth,
-            shadowColor: shadowColor,
-            shadowOffset: shadowOffset,
-            shadowSpread: shadowSpread,
-            cornerRadius: cornerRadius,
-            clipsToBounds: clipsToBounds,
-            layoutMode: .grid(gridLayout),
-            isHitTestVisible: isHitTestVisible,
-            children: children
-        )
-    }
-
-    public static func path(
-        _ path: RenderPath,
-        frame: Rect = .zero,
-        preferredSize: Size? = nil,
-        fillColor: Color,
-        strokeColor: Color = .clear,
-        strokeStyle: StrokeStyle? = nil,
-        isHitTestVisible: Bool = false
-    ) -> ViewNode {
-        ViewNode(
-            frame: frame,
-            renderPath: path,
-            pathFillColor: fillColor,
-            pathStrokeColor: strokeColor,
-            pathStrokeStyle: strokeStyle,
-            preferredSize: preferredSize,
-            isHitTestVisible: isHitTestVisible
         )
     }
 
@@ -688,37 +615,30 @@ public enum Controls {
         cornerRadius: Double,
         palette: SurfacePalette,
         chrome: SurfaceChrome = .elevatedButton,
-        isEnabled: Bool = true,
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil,
         children: [ViewNode] = []
     ) -> ViewNode {
-        let isInteractive = isEnabled
         let node = panel(
             frame: frame,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
-            backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
-            borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
+            backgroundColor: palette.idle,
+            borderColor: chrome.borderColor,
             borderWidth: chrome.borderWidth,
             outlineColor: .clear,
             outlineWidth: chrome.focusRingWidth,
-            shadowColor: isEnabled ? chrome.shadowColor : .clear,
+            shadowColor: chrome.shadowColor,
             shadowOffset: chrome.shadowOffset,
             shadowSpread: chrome.shadowSpread,
             cornerRadius: cornerRadius,
             clipsToBounds: clipsToBounds,
             layoutMode: layoutMode,
-            isHitTestVisible: isInteractive,
+            isHitTestVisible: true,
             children: children
         )
-
-        guard isInteractive else {
-            node.isFocusable = false
-            return node
-        }
 
         let interactionState = ButtonInteractionState()
 
@@ -806,15 +726,8 @@ public enum Controls {
         nativeFontSize: Double? = nil,
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero,
-        letterSpacing: Double = 1,
-        lineSpacing: Double = 2,
         lineBreakMode: TextLineBreakMode = .truncateTail,
-        maximumNumberOfLines: Int? = nil,
-        italic: Bool = false,
-        underline: Bool = false,
-        strikethrough: Bool = false,
-        enableKerning: Bool = true,
-        spans: [TextSpan]? = nil
+        maximumNumberOfLines: Int? = nil
     ) -> ViewNode {
         panel(
             frame: frame,
@@ -826,19 +739,12 @@ public enum Controls {
                 color: color,
                 scale: scale,
                 alignment: alignment,
-                letterSpacing: letterSpacing,
-                lineSpacing: lineSpacing,
                 insets: insets,
                 fontFamily: fontFamily,
                 nativeFontSize: nativeFontSize,
                 weight: weight,
                 lineBreakMode: lineBreakMode,
-                maximumNumberOfLines: maximumNumberOfLines,
-                italic: italic,
-                underline: underline,
-                strikethrough: strikethrough,
-                enableKerning: enableKerning,
-                spans: spans
+                maximumNumberOfLines: maximumNumberOfLines
             ),
             isHitTestVisible: false
         )
@@ -877,7 +783,6 @@ public enum Controls {
         titleColor: Color = .white,
         titleScale: Double = 2,
         titleWeight: TextWeight = .semibold,
-        isEnabled: Bool = true,
         clipsToBounds: Bool = true,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil
@@ -885,7 +790,7 @@ public enum Controls {
         let labelNode = label(
             title,
             layoutPriority: 1,
-            color: isEnabled ? titleColor : palette.disabledForeground,
+            color: titleColor,
             scale: titleScale,
             weight: titleWeight,
             lineBreakMode: .truncateTail,
@@ -899,405 +804,11 @@ public enum Controls {
             cornerRadius: cornerRadius,
             palette: palette,
             chrome: chrome,
-            isEnabled: isEnabled,
             clipsToBounds: clipsToBounds,
             layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
             animation: animation,
             action: action,
             children: [labelNode]
-        )
-    }
-
-    // MARK: - Text Field
-
-    public static func textField(
-        runtime: RetainedViewRuntime,
-        text: String,
-        placeholder: String = "",
-        isEnabled: Bool = true,
-        preferredSize: Size? = nil,
-        layoutPriority: Double = 0,
-        palette: SurfacePalette = SurfacePalette(
-            idle: Color(red: 0.15, green: 0.19, blue: 0.27, alpha: 0.92),
-            hovered: Color(red: 0.18, green: 0.23, blue: 0.32, alpha: 0.96),
-            focused: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98),
-            pressed: Color(red: 0.20, green: 0.27, blue: 0.38, alpha: 0.98)
-        ),
-        chrome: SurfaceChrome = SurfaceChrome(
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
-            borderHoveredColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
-            borderFocusedColor: Color(red: 0.48, green: 0.72, blue: 1.0, alpha: 0.58),
-            borderWidth: 1,
-            focusRingColor: Color(red: 0.50, green: 0.74, blue: 1.0, alpha: 0.20),
-            focusRingWidth: 2
-        ),
-        textColor: Color = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0),
-        placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
-        cornerRadius: Double = 12,
-        clipsToBounds: Bool = true,
-        animation: ControlAnimationStyle = .default,
-        isSecure: Bool = false,
-        isMultiline: Bool = false,
-        onTextChanged: ((String) -> Void)? = nil,
-        onSubmit: (() -> Void)? = nil
-    ) -> ViewNode {
-        let state = TextFieldState(text: text)
-        let resolvedTextColor = isEnabled ? textColor : palette.disabledForeground
-        let resolvedPlaceholderColor = isEnabled ? placeholderColor : palette.disabledForeground
-        let contentInsets = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
-        let textStyle = PixelTextStyle(
-            color: state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor,
-            scale: 1.6,
-            alignment: .leading,
-            fontFamily: "Segoe UI",
-            weight: .regular,
-            lineBreakMode: isMultiline ? .wrap : .truncateTail,
-            maximumNumberOfLines: isMultiline ? nil : 1
-        )
-
-        let textLabel = label(
-            state.displayText(placeholder: placeholder, isSecure: isSecure),
-            layoutPriority: 1,
-            color: state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor,
-            scale: 1.6,
-            weight: .regular,
-            alignment: .leading,
-            lineBreakMode: isMultiline ? .wrap : .truncateTail,
-            maximumNumberOfLines: isMultiline ? nil : 1
-        )
-
-        let selectionHighlight = panel(
-            backgroundColor: Color(red: 0.36, green: 0.62, blue: 1.0, alpha: 0.34),
-            cornerRadius: 4,
-            isHitTestVisible: false
-        )
-        selectionHighlight.isHidden = true
-        selectionHighlight.zIndex = -1
-
-        let caret = panel(
-            preferredSize: Size(width: 1.5, height: 18),
-            backgroundColor: resolvedTextColor,
-            cornerRadius: 0.75,
-            isHitTestVisible: false
-        )
-        caret.isHidden = true
-
-        let root = panel(
-            preferredSize: preferredSize ?? Size(width: isMultiline ? 320 : 220, height: isMultiline ? 120 : 38),
-            layoutPriority: layoutPriority,
-            backgroundColor: isEnabled ? palette.idle : palette.disabledBackground,
-            borderColor: isEnabled ? chrome.borderColor : palette.disabledBorder,
-            borderWidth: chrome.borderWidth,
-            outlineColor: .clear,
-            outlineWidth: chrome.focusRingWidth,
-            cornerRadius: cornerRadius,
-            clipsToBounds: clipsToBounds,
-            layoutMode: .absolute,
-            isHitTestVisible: true,
-            children: [textLabel, caret, selectionHighlight]
-        )
-
-        func refreshText() {
-            textLabel.text = state.displayText(placeholder: placeholder, isSecure: isSecure)
-            var style = textLabel.textStyle
-            style.color = state.text.isEmpty ? resolvedPlaceholderColor : resolvedTextColor
-            textLabel.textStyle = style
-        }
-
-        func measuredTextWidth(_ text: String) -> Double {
-            guard !text.isEmpty else {
-                return 0
-            }
-
-            return NativeTextRenderer.measure(text, style: textStyle, scaleFactor: runtime.displayScale)?.width
-                ?? PixelFont.measure(text, style: textStyle).width
-        }
-
-        func measuredPrefixWidth() -> Double {
-            measuredTextWidth(state.prefixBeforeCaret(isSecure: isSecure, currentLineOnly: isMultiline))
-        }
-
-        func layoutSelectionHighlight(
-            contentX: Double,
-            contentY: Double,
-            contentWidth: Double,
-            contentHeight: Double,
-            lineHeight: Double
-        ) {
-            guard let selectedText = state.selectedDisplayText(isSecure: isSecure), !selectedText.isEmpty else {
-                selectionHighlight.isHidden = true
-                selectionHighlight.frame = .zero
-                return
-            }
-
-            if isMultiline {
-                let selectedLineCount = selectedText.reduce(1) { count, character in
-                    character == "\n" ? count + 1 : count
-                }
-                let rawSelectionY = Double(state.lineIndexBeforeSelection()) * lineHeight
-                let selectionHeight = min(
-                    max(0, contentHeight),
-                    max(lineHeight, Double(selectedLineCount) * lineHeight)
-                )
-                let selectionY = contentY + min(max(0, contentHeight - selectionHeight), rawSelectionY)
-                selectionHighlight.frame = Rect(
-                    x: contentX,
-                    y: selectionY,
-                    width: contentWidth,
-                    height: selectionHeight
-                )
-            } else {
-                let prefixWidth = min(
-                    contentWidth,
-                    measuredTextWidth(state.prefixBeforeSelection(isSecure: isSecure))
-                )
-                let availableWidth = max(0, contentWidth - prefixWidth)
-                let selectionWidth = min(availableWidth, measuredTextWidth(selectedText))
-                let selectionHeight = min(max(0, contentHeight), max(2, lineHeight))
-                selectionHighlight.frame = Rect(
-                    x: contentX + prefixWidth,
-                    y: contentY + max(0, (contentHeight - selectionHeight) * 0.5),
-                    width: selectionWidth,
-                    height: selectionHeight
-                )
-            }
-
-            selectionHighlight.isHidden = selectionHighlight.frame.size.width <= 0
-                || selectionHighlight.frame.size.height <= 0
-        }
-
-        func layoutTextAndCaret(in bounds: Rect) {
-            let contentX = contentInsets.leading
-            let contentY = contentInsets.top
-            let contentWidth = max(0, bounds.size.width - contentInsets.leading - contentInsets.trailing)
-            let contentHeight = max(0, bounds.size.height - contentInsets.top - contentInsets.bottom)
-            textLabel.frame = isMultiline
-                ? Rect(x: contentX, y: contentY, width: contentWidth, height: contentHeight)
-                : Rect(x: contentX, y: 0, width: contentWidth, height: bounds.size.height)
-
-            let caretX = min(contentX + measuredPrefixWidth(), contentX + contentWidth)
-            let caretHeight = min(18, max(0, contentHeight))
-            let lineHeight = measuredLineHeight()
-            layoutSelectionHighlight(
-                contentX: contentX,
-                contentY: contentY,
-                contentWidth: contentWidth,
-                contentHeight: contentHeight,
-                lineHeight: lineHeight
-            )
-            let caretY = isMultiline
-                ? contentY + min(max(0, contentHeight - caretHeight), Double(state.lineIndexBeforeCaret()) * lineHeight)
-                : contentY + max(0, (contentHeight - caretHeight) * 0.5)
-            caret.frame = Rect(
-                x: caretX,
-                y: caretY,
-                width: 1.5,
-                height: caretHeight
-            )
-        }
-
-        func measuredLineHeight() -> Double {
-            NativeTextRenderer.measure("M", style: textStyle, scaleFactor: runtime.displayScale)?.height
-                ?? PixelFont.measure("M", style: textStyle).height
-        }
-
-        func applyTextMutation(_ didMutate: Bool) {
-            guard didMutate else {
-                return
-            }
-
-            refreshText()
-            layoutTextAndCaret(in: root.resolvedFrame)
-            onTextChanged?(state.text)
-        }
-
-        func applyCaretMove(_ didMove: Bool) {
-            guard didMove else {
-                return
-            }
-
-            layoutTextAndCaret(in: root.resolvedFrame)
-        }
-
-        func applySelectionChange(_ didChange: Bool) {
-            guard didChange else {
-                return
-            }
-
-            layoutTextAndCaret(in: root.resolvedFrame)
-        }
-
-        root.onLayout = { bounds in
-            layoutTextAndCaret(in: bounds)
-        }
-
-        if isEnabled {
-            let interactionState = ButtonInteractionState()
-
-            root.isFocusable = true
-            root.onPointerEnter = { [weak root] in
-                interactionState.isHovered = true
-                guard !interactionState.isFocused else {
-                    return
-                }
-                animate(.background, root, in: runtime, to: palette.hovered, duration: animation.focusDuration)
-                animate(.border, root, in: runtime, to: chrome.borderHoveredColor, duration: animation.focusDuration)
-            }
-            root.onPointerExit = { [weak root] in
-                interactionState.isHovered = false
-                guard !interactionState.isFocused else {
-                    return
-                }
-                animate(.background, root, in: runtime, to: palette.idle, duration: animation.focusDuration)
-                animate(.border, root, in: runtime, to: chrome.borderColor, duration: animation.focusDuration)
-            }
-            root.onFocusEnter = { [weak root, weak caret] in
-                interactionState.isFocused = true
-                caret?.isHidden = false
-                animate(.background, root, in: runtime, to: palette.focused, duration: animation.focusDuration)
-                animate(.border, root, in: runtime, to: chrome.borderFocusedColor, duration: animation.focusDuration)
-                animate(.outline, root, in: runtime, to: chrome.focusRingColor, duration: animation.focusDuration)
-            }
-            root.onFocusExit = { [weak root, weak caret] in
-                interactionState.isFocused = false
-                caret?.isHidden = true
-                let background = interactionState.isHovered ? palette.hovered : palette.idle
-                let border = interactionState.isHovered ? chrome.borderHoveredColor : chrome.borderColor
-                animate(.background, root, in: runtime, to: background, duration: animation.focusDuration)
-                animate(.border, root, in: runtime, to: border, duration: animation.focusDuration)
-                animate(.outline, root, in: runtime, to: .clear, duration: animation.focusDuration)
-            }
-            root.onTextInput = { input in
-                let sanitizedInput = sanitizedTextInput(input, allowsNewlines: isMultiline)
-                guard !sanitizedInput.isEmpty else {
-                    return
-                }
-
-                applyTextMutation(state.insert(sanitizedInput))
-            }
-            root.onPointerDownAt = { point in
-                let offset = caretOffset(at: point)
-                applyCaretMove(state.moveCaret(toTextOffset: offset))
-            }
-            root.onDragStartAt = { point in
-                applySelectionChange(state.beginSelection(atTextOffset: caretOffset(at: point)))
-            }
-            root.onDragChangeAt = { point, _ in
-                applySelectionChange(state.extendSelection(toTextOffset: caretOffset(at: point)))
-            }
-            root.onDragEndAt = { point, _ in
-                applySelectionChange(state.extendSelection(toTextOffset: caretOffset(at: point)))
-            }
-            root.onKeyDown = { event in
-                if event.modifiers.contains(.control) {
-                    switch event.keyCode {
-                    case 0x41:
-                        applySelectionChange(state.selectAll())
-                    case 0x43:
-                        if let clipboardText = state.selectedClipboardText(isSecure: isSecure) {
-                            runtime.textClipboard?.writeString(clipboardText)
-                        }
-                    case 0x58:
-                        guard let textClipboard = runtime.textClipboard else {
-                            break
-                        }
-
-                        if let clipboardText = state.cutSelectedText(isSecure: isSecure) {
-                            textClipboard.writeString(clipboardText)
-                            applyTextMutation(true)
-                        }
-                    case 0x56:
-                        guard let clipboardText = runtime.textClipboard?.readString() else {
-                            break
-                        }
-
-                        let sanitizedClipboardText = sanitizedTextInput(clipboardText, allowsNewlines: isMultiline)
-                        guard !sanitizedClipboardText.isEmpty else {
-                            break
-                        }
-
-                        applyTextMutation(state.insert(sanitizedClipboardText))
-                    default:
-                        break
-                    }
-                    return
-                }
-
-                switch event.key {
-                case .backspace:
-                    applyTextMutation(state.backspace())
-                case .delete:
-                    applyTextMutation(state.deleteForward())
-                case .leftArrow:
-                    applyCaretMove(state.moveCaretLeft(extendSelection: event.modifiers.contains(.shift)))
-                case .rightArrow:
-                    applyCaretMove(state.moveCaretRight(extendSelection: event.modifiers.contains(.shift)))
-                case .upArrow:
-                    guard isMultiline else {
-                        break
-                    }
-                    applyCaretMove(state.moveCaretUp(extendSelection: event.modifiers.contains(.shift)))
-                case .downArrow:
-                    guard isMultiline else {
-                        break
-                    }
-                    applyCaretMove(state.moveCaretDown(extendSelection: event.modifiers.contains(.shift)))
-                case .home:
-                    applyCaretMove(state.moveCaretToStart(extendSelection: event.modifiers.contains(.shift)))
-                case .end:
-                    applyCaretMove(state.moveCaretToEnd(extendSelection: event.modifiers.contains(.shift)))
-                case .enter:
-                    if isMultiline {
-                        applyTextMutation(state.insert("\n"))
-                    } else {
-                        onSubmit?()
-                    }
-                default:
-                    break
-                }
-            }
-        }
-
-        func caretOffset(at point: Point) -> Int {
-            let contentPoint = Point(
-                x: point.x - contentInsets.leading,
-                y: point.y - contentInsets.top
-            )
-            return state.caretOffset(
-                closestTo: contentPoint,
-                isSecure: isSecure,
-                isMultiline: isMultiline,
-                lineHeight: measuredLineHeight(),
-                measureTextWidth: measuredTextWidth
-            )
-        }
-
-        return root
-    }
-
-    public static func textEditor(
-        runtime: RetainedViewRuntime,
-        text: String,
-        isEnabled: Bool = true,
-        preferredSize: Size? = nil,
-        layoutPriority: Double = 0,
-        textColor: Color = Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1.0),
-        placeholderColor: Color = Color(red: 0.64, green: 0.70, blue: 0.78, alpha: 0.72),
-        animation: ControlAnimationStyle = .default,
-        onTextChanged: ((String) -> Void)? = nil
-    ) -> ViewNode {
-        textField(
-            runtime: runtime,
-            text: text,
-            placeholder: "",
-            isEnabled: isEnabled,
-            preferredSize: preferredSize ?? Size(width: 320, height: 120),
-            layoutPriority: layoutPriority,
-            textColor: textColor,
-            placeholderColor: placeholderColor,
-            animation: animation,
-            isMultiline: true,
-            onTextChanged: onTextChanged
         )
     }
 
@@ -1360,7 +871,6 @@ public enum Controls {
             cornerRadius: 8,
             palette: palette,
             chrome: chrome,
-            isEnabled: isEnabled,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             animation: animation,
@@ -1432,7 +942,6 @@ public enum Controls {
             cornerRadius: (trackHeight + 8) * 0.5,
             palette: palette,
             chrome: chrome,
-            isEnabled: isEnabled,
             clipsToBounds: false,
             layoutMode: .stack(.horizontal(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center, mainAlignment: .center)),
             animation: animation,
@@ -1579,133 +1088,6 @@ public enum Controls {
         )
     }
 
-    public static func progressRing(
-        value: Double,
-        total: Double = 1.0,
-        preferredSize: Size? = nil,
-        layoutPriority: Double = 0,
-        trackColor: Color = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0),
-        filledColor: Color = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0),
-        lineWidth: Double = 4
-    ) -> ViewNode {
-        let resolvedSize = preferredSize ?? Size(width: 32, height: 32)
-        let diameter = max(0, min(resolvedSize.width, resolvedSize.height))
-        let strokeWidth = min(max(1, lineWidth), max(1, diameter))
-        let radius = max(0, (diameter - strokeWidth) * 0.5)
-        let center = Point(x: resolvedSize.width * 0.5, y: resolvedSize.height * 0.5)
-        let progress = total > 0 ? min(max(value / total, 0), 1) : 0
-
-        let trackNode = path(
-            circlePath(center: center, radius: radius),
-            frame: Rect(origin: .zero, size: resolvedSize),
-            preferredSize: resolvedSize,
-            fillColor: .clear,
-            strokeColor: trackColor,
-            strokeStyle: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
-        )
-
-        let filledNode = path(
-            progressArcPath(center: center, radius: radius, progress: progress),
-            frame: Rect(origin: .zero, size: resolvedSize),
-            preferredSize: resolvedSize,
-            fillColor: .clear,
-            strokeColor: filledColor,
-            strokeStyle: StrokeStyle(lineWidth: strokeWidth, lineCap: .round, lineJoin: .round)
-        )
-
-        return panel(
-            preferredSize: resolvedSize,
-            layoutPriority: layoutPriority,
-            layoutMode: .absolute,
-            isHitTestVisible: false,
-            children: [trackNode, filledNode]
-        )
-    }
-
-    private static func circlePath(center: Point, radius: Double) -> RenderPath {
-        progressArcPath(center: center, radius: radius, progress: 1)
-    }
-
-    private static func progressArcPath(center: Point, radius: Double, progress: Double) -> RenderPath {
-        var path = RenderPath()
-        guard radius > 0, progress > 0 else {
-            path.move(to: Point(x: center.x, y: center.y - radius))
-            return path
-        }
-
-        let startAngle = -Double.pi * 0.5
-        let sweep = min(max(progress, 0), 1) * Double.pi * 2
-        appendArc(
-            to: &path,
-            center: center,
-            radius: radius,
-            startAngle: startAngle,
-            endAngle: startAngle + sweep
-        )
-        return path
-    }
-
-    private static func appendArc(
-        to path: inout RenderPath,
-        center: Point,
-        radius: Double,
-        startAngle: Double,
-        endAngle: Double
-    ) {
-        let sweep = endAngle - startAngle
-        let segmentCount = max(1, Int(ceil(abs(sweep) / (Double.pi * 0.5))))
-        let segmentSweep = sweep / Double(segmentCount)
-
-        var currentAngle = startAngle
-        path.move(to: pointOnCircle(center: center, radius: radius, angle: currentAngle))
-
-        for _ in 0..<segmentCount {
-            let nextAngle = currentAngle + segmentSweep
-            appendArcSegment(
-                to: &path,
-                center: center,
-                radius: radius,
-                startAngle: currentAngle,
-                endAngle: nextAngle
-            )
-            currentAngle = nextAngle
-        }
-    }
-
-    private static func appendArcSegment(
-        to path: inout RenderPath,
-        center: Point,
-        radius: Double,
-        startAngle: Double,
-        endAngle: Double
-    ) {
-        let delta = endAngle - startAngle
-        let controlDistance = 4.0 / 3.0 * tan(delta * 0.25) * radius
-        let start = pointOnCircle(center: center, radius: radius, angle: startAngle)
-        let end = pointOnCircle(center: center, radius: radius, angle: endAngle)
-        let startTangent = Point(x: -sin(startAngle), y: cos(startAngle))
-        let endTangent = Point(x: -sin(endAngle), y: cos(endAngle))
-
-        path.addCubicCurve(
-            to: end,
-            control1: Point(
-                x: start.x + startTangent.x * controlDistance,
-                y: start.y + startTangent.y * controlDistance
-            ),
-            control2: Point(
-                x: end.x - endTangent.x * controlDistance,
-                y: end.y - endTangent.y * controlDistance
-            )
-        )
-    }
-
-    private static func pointOnCircle(center: Point, radius: Double, angle: Double) -> Point {
-        Point(
-            x: center.x + cos(angle) * radius,
-            y: center.y + sin(angle) * radius
-        )
-    }
-
     // MARK: - Radio Button
 
     public static func radioButton(
@@ -1777,7 +1159,6 @@ public enum Controls {
             cornerRadius: 8,
             palette: palette,
             chrome: chrome,
-            isEnabled: isEnabled,
             clipsToBounds: true,
             layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             animation: animation,
@@ -1836,7 +1217,6 @@ public enum Controls {
 
         var rootChildren: [ViewNode] = [headerRow]
 
-        weak var optionsListReference: ViewNode?
         let optionNodes: [ViewNode] = options.enumerated().map { index, option in
             let isCurrentSelection = index == selectedIndex
             let optionColor = isCurrentSelection
@@ -1855,10 +1235,8 @@ public enum Controls {
                 titleColor: optionColor,
                 titleScale: 1.5,
                 titleWeight: isCurrentSelection ? .semibold : .regular,
-                isEnabled: isEnabled,
                 action: {
                     dropdownState.isOpen = false
-                    optionsListReference?.isHidden = true
                     onSelect?(index)
                 }
             )
@@ -1875,7 +1253,6 @@ public enum Controls {
             children: optionNodes
         )
         optionsList.isHidden = !dropdownState.isOpen
-        optionsListReference = optionsList
 
         rootChildren.append(optionsList)
 
@@ -1896,13 +1273,12 @@ public enum Controls {
                 focusRingColor: chrome.focusRingColor,
                 focusRingWidth: chrome.focusRingWidth
             ),
-            isEnabled: isEnabled,
             clipsToBounds: false,
             layoutMode: .stack(.vertical(spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
             animation: animation,
-            action: isEnabled ? { [weak optionsList] in
+            action: isEnabled ? {
                 dropdownState.isOpen = !dropdownState.isOpen
-                optionsList?.isHidden = !dropdownState.isOpen
+                optionsList.isHidden = !dropdownState.isOpen
             } : nil,
             children: rootChildren
         )
@@ -1951,7 +1327,6 @@ public enum Controls {
                 titleColor: titleColor,
                 titleScale: 1.5,
                 titleWeight: isSelected ? .semibold : .regular,
-                isEnabled: isEnabled,
                 clipsToBounds: true,
                 animation: animation,
                 action: isEnabled ? { onSelect?(index) } : nil
@@ -2016,435 +1391,6 @@ private final class ButtonInteractionState {
     var isHovered = false
     var isFocused = false
     var isPressed = false
-}
-
-private final class TextFieldState {
-    var text: String
-    var caretOffset: Int
-    private var selectionRange: Range<Int>?
-    private var selectionAnchorOffset: Int?
-
-    init(text: String) {
-        self.text = text
-        self.caretOffset = text.count
-    }
-
-    func displayText(placeholder: String, isSecure: Bool = false) -> String {
-        guard !text.isEmpty else {
-            return placeholder
-        }
-
-        return isSecure ? String(repeating: "*", count: text.count) : text
-    }
-
-    func prefixBeforeCaret(isSecure: Bool = false, currentLineOnly: Bool = false) -> String {
-        let prefixLength = clampedCaretOffset
-        let prefix = String(text.prefix(prefixLength))
-        let currentPrefix = currentLineOnly ? String(prefix.split(separator: "\n", omittingEmptySubsequences: false).last ?? "") : prefix
-        return isSecure ? String(repeating: "*", count: currentPrefix.count) : currentPrefix
-    }
-
-    func prefixBeforeSelection(isSecure: Bool = false) -> String {
-        guard let selectionRange = normalizedSelectionRange else {
-            return ""
-        }
-
-        let prefix = String(text.prefix(selectionRange.lowerBound))
-        return isSecure ? String(repeating: "*", count: prefix.count) : prefix
-    }
-
-    func selectedDisplayText(isSecure: Bool = false) -> String? {
-        guard let selectionRange = normalizedSelectionRange else {
-            return nil
-        }
-
-        let selectedText = String(text.dropFirst(selectionRange.lowerBound).prefix(selectionRange.count))
-        return isSecure ? String(repeating: "*", count: selectedText.count) : selectedText
-    }
-
-    func selectedClipboardText(isSecure: Bool = false) -> String? {
-        guard !isSecure, let selectionRange = normalizedSelectionRange else {
-            return nil
-        }
-
-        return String(text.dropFirst(selectionRange.lowerBound).prefix(selectionRange.count))
-    }
-
-    func lineIndexBeforeCaret() -> Int {
-        let prefix = text.prefix(clampedCaretOffset)
-        return prefix.reduce(0) { count, character in
-            character == "\n" ? count + 1 : count
-        }
-    }
-
-    func lineIndexBeforeSelection() -> Int {
-        guard let selectionRange = normalizedSelectionRange else {
-            return lineIndexBeforeCaret()
-        }
-
-        let prefix = text.prefix(selectionRange.lowerBound)
-        return prefix.reduce(0) { count, character in
-            character == "\n" ? count + 1 : count
-        }
-    }
-
-    func replace(with newText: String) -> Bool {
-        let hadSelection = selectionRange != nil
-        selectionRange = nil
-        selectionAnchorOffset = nil
-        guard text != newText else {
-            caretOffset = min(caretOffset, text.count)
-            return hadSelection
-        }
-
-        text = newText
-        caretOffset = text.count
-        return true
-    }
-
-    func selectAll() -> Bool {
-        let previousSelection = normalizedSelectionRange
-        let previousCaretOffset = caretOffset
-        let previousSelectionAnchorOffset = selectionAnchorOffset
-
-        guard !text.isEmpty else {
-            selectionRange = nil
-            selectionAnchorOffset = nil
-            caretOffset = 0
-            return previousSelection != nil || previousSelectionAnchorOffset != nil || previousCaretOffset != 0
-        }
-
-        selectionRange = 0..<text.count
-        selectionAnchorOffset = 0
-        caretOffset = text.count
-        let wasAlreadySelectedAll = previousSelection?.lowerBound == 0
-            && previousSelection?.upperBound == text.count
-        return !wasAlreadySelectedAll
-            || previousSelectionAnchorOffset != 0
-            || previousCaretOffset != text.count
-    }
-
-    func insert(_ input: String) -> Bool {
-        guard !input.isEmpty else {
-            return false
-        }
-
-        if let selectionRange = normalizedSelectionRange {
-            let replacementRange = stringRange(for: selectionRange)
-            text.replaceSubrange(replacementRange, with: input)
-            caretOffset = selectionRange.lowerBound + input.count
-            self.selectionRange = nil
-            selectionAnchorOffset = nil
-            return true
-        }
-
-        let offset = clampedCaretOffset
-        let insertionIndex = text.index(text.startIndex, offsetBy: offset)
-        text.insert(contentsOf: input, at: insertionIndex)
-        caretOffset = offset + input.count
-        selectionAnchorOffset = nil
-        return true
-    }
-
-    func backspace() -> Bool {
-        if removeSelection() {
-            return true
-        }
-
-        let offset = clampedCaretOffset
-        guard offset > 0 else {
-            return false
-        }
-
-        let removeEnd = text.index(text.startIndex, offsetBy: offset)
-        let removeStart = text.index(before: removeEnd)
-        text.removeSubrange(removeStart..<removeEnd)
-        caretOffset = offset - 1
-        return true
-    }
-
-    func deleteForward() -> Bool {
-        if removeSelection() {
-            return true
-        }
-
-        let offset = clampedCaretOffset
-        guard offset < text.count else {
-            return false
-        }
-
-        let removeStart = text.index(text.startIndex, offsetBy: offset)
-        let removeEnd = text.index(after: removeStart)
-        text.removeSubrange(removeStart..<removeEnd)
-        caretOffset = offset
-        return true
-    }
-
-    func cutSelectedText(isSecure: Bool = false) -> String? {
-        guard let selectedText = selectedClipboardText(isSecure: isSecure), removeSelection() else {
-            return nil
-        }
-
-        return selectedText
-    }
-
-    func moveCaretLeft(extendSelection: Bool = false) -> Bool {
-        if extendSelection {
-            return self.extendSelection(to: max(0, clampedCaretOffset - 1))
-        }
-
-        if let selectionRange = normalizedSelectionRange {
-            return moveCaret(to: selectionRange.lowerBound)
-        }
-
-        let nextOffset = max(0, clampedCaretOffset - 1)
-        return moveCaret(to: nextOffset)
-    }
-
-    func moveCaretRight(extendSelection: Bool = false) -> Bool {
-        if extendSelection {
-            return self.extendSelection(to: min(text.count, clampedCaretOffset + 1))
-        }
-
-        if let selectionRange = normalizedSelectionRange {
-            return moveCaret(to: selectionRange.upperBound)
-        }
-
-        let nextOffset = min(text.count, clampedCaretOffset + 1)
-        return moveCaret(to: nextOffset)
-    }
-
-    func moveCaretToStart(extendSelection: Bool = false) -> Bool {
-        extendSelection ? self.extendSelection(to: 0) : moveCaret(to: 0)
-    }
-
-    func moveCaretToEnd(extendSelection: Bool = false) -> Bool {
-        extendSelection ? self.extendSelection(to: text.count) : moveCaret(to: text.count)
-    }
-
-    func moveCaretUp(extendSelection: Bool = false) -> Bool {
-        moveCaretVertically(delta: -1, extendSelection: extendSelection)
-    }
-
-    func moveCaretDown(extendSelection: Bool = false) -> Bool {
-        moveCaretVertically(delta: 1, extendSelection: extendSelection)
-    }
-
-    func moveCaret(toTextOffset offset: Int) -> Bool {
-        moveCaret(to: offset)
-    }
-
-    func beginSelection(atTextOffset offset: Int) -> Bool {
-        let nextOffset = min(max(0, offset), text.count)
-        let didChange = normalizedSelectionRange != nil
-            || selectionAnchorOffset != nextOffset
-            || caretOffset != nextOffset
-        caretOffset = nextOffset
-        selectionAnchorOffset = nextOffset
-        selectionRange = nil
-        return didChange
-    }
-
-    func extendSelection(toTextOffset offset: Int) -> Bool {
-        extendSelection(to: offset)
-    }
-
-    func caretOffset(
-        closestTo point: Point,
-        isSecure: Bool = false,
-        isMultiline: Bool = false,
-        lineHeight: Double,
-        measureTextWidth: (String) -> Double
-    ) -> Int {
-        guard !text.isEmpty else {
-            return 0
-        }
-
-        let ranges = lineRanges()
-        let lineIndex: Int
-        if isMultiline {
-            let safeLineHeight = max(1, lineHeight)
-            let rawLineIndex = Int((max(0, point.y) / safeLineHeight).rounded(.down))
-            lineIndex = min(max(0, rawLineIndex), max(0, ranges.count - 1))
-        } else {
-            lineIndex = 0
-        }
-
-        let lineRange = ranges[lineIndex]
-        let lineText = String(text.dropFirst(lineRange.start).prefix(lineRange.end - lineRange.start))
-        let displayText = isSecure ? String(repeating: "*", count: lineText.count) : lineText
-        let column = closestColumn(in: displayText, to: max(0, point.x), measureTextWidth: measureTextWidth)
-        return lineRange.start + column
-    }
-
-    private func moveCaretVertically(delta: Int, extendSelection: Bool = false) -> Bool {
-        let ranges = lineRanges()
-        let offset = clampedCaretOffset
-        guard let currentLineIndex = ranges.firstIndex(where: { offset >= $0.start && offset <= $0.end }) else {
-            return false
-        }
-
-        let targetLineIndex = currentLineIndex + delta
-        guard ranges.indices.contains(targetLineIndex) else {
-            return false
-        }
-
-        let currentLine = ranges[currentLineIndex]
-        let targetLine = ranges[targetLineIndex]
-        let currentColumn = min(max(0, offset - currentLine.start), currentLine.end - currentLine.start)
-        let targetColumn = min(currentColumn, targetLine.end - targetLine.start)
-        let targetOffset = targetLine.start + targetColumn
-        return extendSelection ? self.extendSelection(to: targetOffset) : moveCaret(to: targetOffset)
-    }
-
-    private func moveCaret(to offset: Int) -> Bool {
-        let nextOffset = min(max(0, offset), text.count)
-        let hadSelection = selectionRange != nil || selectionAnchorOffset != nil
-        selectionRange = nil
-        selectionAnchorOffset = nil
-        guard nextOffset != caretOffset else {
-            return hadSelection
-        }
-
-        caretOffset = nextOffset
-        return true
-    }
-
-    private func extendSelection(to offset: Int) -> Bool {
-        let nextOffset = min(max(0, offset), text.count)
-        let anchorOffset = selectionAnchorForExtension
-        let previousSelection = normalizedSelectionRange
-        let previousCaretOffset = caretOffset
-        let previousSelectionAnchorOffset = selectionAnchorOffset
-
-        caretOffset = nextOffset
-        selectionAnchorOffset = anchorOffset
-        if anchorOffset == nextOffset {
-            selectionRange = nil
-        } else {
-            selectionRange = min(anchorOffset, nextOffset)..<max(anchorOffset, nextOffset)
-        }
-
-        return previousSelection != normalizedSelectionRange
-            || previousCaretOffset != caretOffset
-            || previousSelectionAnchorOffset != selectionAnchorOffset
-    }
-
-    private var clampedCaretOffset: Int {
-        min(max(0, caretOffset), text.count)
-    }
-
-    private var selectionAnchorForExtension: Int {
-        if let selectionAnchorOffset {
-            return min(max(0, selectionAnchorOffset), text.count)
-        }
-
-        if let selectionRange = normalizedSelectionRange {
-            return clampedCaretOffset <= selectionRange.lowerBound ? selectionRange.upperBound : selectionRange.lowerBound
-        }
-
-        return clampedCaretOffset
-    }
-
-    private var normalizedSelectionRange: Range<Int>? {
-        guard let selectionRange else {
-            return nil
-        }
-
-        let lowerBound = min(max(0, selectionRange.lowerBound), text.count)
-        let upperBound = min(max(lowerBound, selectionRange.upperBound), text.count)
-        guard lowerBound < upperBound else {
-            return nil
-        }
-
-        return lowerBound..<upperBound
-    }
-
-    private func removeSelection() -> Bool {
-        guard let selectionRange = normalizedSelectionRange else {
-            self.selectionRange = nil
-            selectionAnchorOffset = nil
-            return false
-        }
-
-        text.removeSubrange(stringRange(for: selectionRange))
-        caretOffset = selectionRange.lowerBound
-        self.selectionRange = nil
-        selectionAnchorOffset = nil
-        return true
-    }
-
-    private func stringRange(for range: Range<Int>) -> Range<String.Index> {
-        let lowerBound = text.index(text.startIndex, offsetBy: range.lowerBound)
-        let upperBound = text.index(text.startIndex, offsetBy: range.upperBound)
-        return lowerBound..<upperBound
-    }
-
-    private func closestColumn(
-        in displayText: String,
-        to x: Double,
-        measureTextWidth: (String) -> Double
-    ) -> Int {
-        guard !displayText.isEmpty else {
-            return 0
-        }
-
-        var bestColumn = 0
-        var bestDistance = abs(x)
-
-        for column in 1...displayText.count {
-            let width = measureTextWidth(String(displayText.prefix(column)))
-            let distance = abs(width - x)
-            if distance < bestDistance {
-                bestColumn = column
-                bestDistance = distance
-            }
-        }
-
-        return bestColumn
-    }
-
-    private func lineRanges() -> [(start: Int, end: Int)] {
-        var ranges: [(start: Int, end: Int)] = []
-        var lineStart = 0
-        var offset = 0
-
-        for character in text {
-            if character == "\n" {
-                ranges.append((start: lineStart, end: offset))
-                lineStart = offset + 1
-            }
-            offset += 1
-        }
-
-        ranges.append((start: lineStart, end: offset))
-        return ranges
-    }
-}
-
-private func sanitizedTextInput(_ input: String, allowsNewlines: Bool) -> String {
-    var sanitizedInput = ""
-    var previousWasCarriageReturn = false
-
-    for scalar in input.unicodeScalars {
-        switch scalar.value {
-        case 0x0D where allowsNewlines:
-            sanitizedInput.append("\n")
-            previousWasCarriageReturn = true
-        case 0x0A where allowsNewlines:
-            if !previousWasCarriageReturn {
-                sanitizedInput.append("\n")
-            }
-            previousWasCarriageReturn = false
-        case 0x20...0x10FFFF where scalar.value != 0x7F:
-            sanitizedInput.unicodeScalars.append(scalar)
-            previousWasCarriageReturn = false
-        default:
-            previousWasCarriageReturn = false
-        }
-    }
-
-    return sanitizedInput
 }
 
 private final class SliderDragState {

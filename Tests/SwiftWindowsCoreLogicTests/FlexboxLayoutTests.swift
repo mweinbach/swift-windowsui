@@ -1,5 +1,5 @@
 import XCTest
-@testable import SwiftWindowsCore
+import SwiftWindowsCore
 @testable import SwiftWindowsLayout
 
 final class FlexboxLayoutTests: XCTestCase {

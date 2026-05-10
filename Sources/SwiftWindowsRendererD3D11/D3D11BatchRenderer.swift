@@ -10,19 +10,10 @@ import WinSDK.DirectX
 /// Instead of one draw call per rectangle, all primitives of the same type are
 /// uploaded to a single GPU buffer and drawn in one DrawInstanced call.
 @MainActor
-public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
+public final class D3D11BatchRenderer: BatchRenderBackend {
     public private(set) var isAttached = false
 
     public var backendDisplayName: String { "D3D11 BATCH" }
-    public var primitiveCapabilities: BatchPrimitiveCapabilities { Self.currentPrimitiveCapabilities }
-
-    public static let currentPrimitiveCapabilities = BatchPrimitiveCapabilities(
-        shadows: true,
-        quads: true,
-        glyphs: true,
-        images: true
-    )
-    static let maxCachedImageTextures = 128
 
     // MARK: - D3D11 Core State
 
@@ -49,8 +40,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     private var blendState: UnsafeMutablePointer<ID3D11BlendState>?
     private var rasterizerState: UnsafeMutablePointer<ID3D11RasterizerState>?
     private var samplerState: UnsafeMutablePointer<ID3D11SamplerState>?
-    private var imageTextureCache: [BatchImageTextureKey: UnsafeMutablePointer<ID3D11ShaderResourceView>] = [:]
-    private var imageTextureCacheAccessOrder: [BatchImageTextureKey] = []
 
     // MARK: - Dynamic Instance Buffers
 
@@ -64,11 +53,26 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
 
     private var glyphInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var glyphInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-    private var glyphInstanceCapacity: Int = 256
+    private var glyphInstanceCapacity: Int = 512
 
     private var shadowInstanceBuffer: UnsafeMutablePointer<ID3D11Buffer>?
     private var shadowInstanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
     private var shadowInstanceCapacity: Int = 256
+
+    private var glyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+    private var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var glyphAtlasSize = IntSize.zero
+    private var pixelGlyphAtlasTexture: UnsafeMutablePointer<ID3D11Texture2D>?
+    private var pixelGlyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    private var pixelGlyphAtlasSize = IntSize.zero
+
+    private struct ImageResourceEntry {
+        var bitmap: BitmapSurface
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
+        var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+    }
+
+    private var imageResources: [Int32: ImageResourceEntry] = [:]
 
     // MARK: - Surface State
 
@@ -78,6 +82,182 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
     // MARK: - Init
 
     public init() {}
+
+    public enum AtlasSource: Equatable {
+        case snapshot
+        case cached
+    }
+
+    public struct CachedResources: Equatable {
+        public var hasGlyphAtlas: Bool
+        public var hasPixelGlyphAtlas: Bool
+        public var boundImageTextureIDs: Set<Int32>
+
+        public init(
+            hasGlyphAtlas: Bool = false,
+            hasPixelGlyphAtlas: Bool = false,
+            boundImageTextureIDs: Set<Int32> = []
+        ) {
+            self.hasGlyphAtlas = hasGlyphAtlas
+            self.hasPixelGlyphAtlas = hasPixelGlyphAtlas
+            self.boundImageTextureIDs = boundImageTextureIDs
+        }
+    }
+
+    public enum RenderStep: Equatable {
+        case shadows(layerIndex: Int, range: Range<Int>)
+        case quads(layerIndex: Int, range: Range<Int>)
+        case glyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
+        case pixelGlyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
+        case images(layerIndex: Int, range: Range<Int>, textureID: Int32)
+    }
+
+    public struct RenderPlan: Equatable {
+        public var glyphAtlasSource: AtlasSource?
+        public var pixelGlyphAtlasSource: AtlasSource?
+        public var steps: [RenderStep]
+        public var resultingResources: CachedResources
+
+        public init(
+            glyphAtlasSource: AtlasSource? = nil,
+            pixelGlyphAtlasSource: AtlasSource? = nil,
+            steps: [RenderStep] = [],
+            resultingResources: CachedResources = CachedResources()
+        ) {
+            self.glyphAtlasSource = glyphAtlasSource
+            self.pixelGlyphAtlasSource = pixelGlyphAtlasSource
+            self.steps = steps
+            self.resultingResources = resultingResources
+        }
+    }
+
+    public func bindImageResource(_ bitmap: BitmapSurface, for textureID: Int32) {
+        guard textureID >= 0 else {
+            return
+        }
+
+        if var existing = imageResources.removeValue(forKey: textureID) {
+            releaseCOMPointer(&existing.srv)
+            releaseCOMPointer(&existing.texture)
+        }
+
+        imageResources[textureID] = ImageResourceEntry(bitmap: bitmap, texture: nil, srv: nil)
+    }
+
+    public func bindResources(for scene: GPUIScene) {
+        for binding in scene.imageResources {
+            bindImageResource(binding.bitmap, for: binding.textureID)
+        }
+    }
+
+    internal var cachedResourcesForTesting: CachedResources {
+        CachedResources(
+            hasGlyphAtlas: glyphAtlasSRV != nil,
+            hasPixelGlyphAtlas: pixelGlyphAtlasSRV != nil,
+            boundImageTextureIDs: Set(imageResources.keys)
+        )
+    }
+
+    public static func makeRenderPlan(
+        for scene: GPUIScene,
+        cachedResources: CachedResources = CachedResources()
+    ) throws -> RenderPlan {
+        let usesGlyphs = scene.layers.contains { !$0.glyphs.isEmpty }
+        let usesPixelGlyphs = scene.layers.contains { !$0.pixelGlyphs.isEmpty }
+
+        let glyphAtlasSource: AtlasSource?
+        if usesGlyphs {
+            if scene.glyphAtlas != nil {
+                glyphAtlasSource = .snapshot
+            } else if cachedResources.hasGlyphAtlas {
+                glyphAtlasSource = .cached
+            } else {
+                throw BatchRendererError(
+                    operation: "Resolve glyph atlas resources",
+                    hresult: batchHresultInvalidArgument,
+                    details: "Scene contains glyph primitives but no native glyph atlas snapshot or cached upload is available."
+                )
+            }
+        } else {
+            glyphAtlasSource = nil
+        }
+
+        let pixelGlyphAtlasSource: AtlasSource?
+        if usesPixelGlyphs {
+            if scene.pixelGlyphAtlas != nil {
+                pixelGlyphAtlasSource = .snapshot
+            } else if cachedResources.hasPixelGlyphAtlas {
+                pixelGlyphAtlasSource = .cached
+            } else {
+                throw BatchRendererError(
+                    operation: "Resolve pixel glyph atlas resources",
+                    hresult: batchHresultInvalidArgument,
+                    details: "Scene contains pixel glyph primitives but no pixel glyph atlas snapshot or cached upload is available."
+                )
+            }
+        } else {
+            pixelGlyphAtlasSource = nil
+        }
+
+        var unresolvedTextureIDs = Set<Int32>()
+        for layer in scene.layers {
+            for image in layer.images where image.textureID < 0 || !cachedResources.boundImageTextureIDs.contains(image.textureID) {
+                unresolvedTextureIDs.insert(image.textureID)
+            }
+        }
+
+        if !unresolvedTextureIDs.isEmpty {
+            let sortedIDs = unresolvedTextureIDs.sorted()
+            let joinedIDs = sortedIDs.map(String.init).joined(separator: ", ")
+            throw BatchRendererError(
+                operation: "Resolve image resources",
+                hresult: batchHresultInvalidArgument,
+                details: "Scene contains image primitives without valid bound resources for texture IDs: \(joinedIDs)."
+            )
+        }
+
+        var steps: [RenderStep] = []
+        for (layerIndex, layer) in scene.layers.enumerated() {
+            var batches = layer.orderedBatches()
+            while let batch = batches.next() {
+                switch batch {
+                case .shadows(let range):
+                    steps.append(.shadows(layerIndex: layerIndex, range: range))
+                case .quads(let range):
+                    steps.append(.quads(layerIndex: layerIndex, range: range))
+                case .glyphs(let range):
+                    if let glyphAtlasSource {
+                        steps.append(.glyphs(layerIndex: layerIndex, range: range, atlasSource: glyphAtlasSource))
+                    }
+                case .pixelGlyphs(let range):
+                    if let pixelGlyphAtlasSource {
+                        steps.append(.pixelGlyphs(layerIndex: layerIndex, range: range, atlasSource: pixelGlyphAtlasSource))
+                    }
+                case .images(let range):
+                    var runStart = range.lowerBound
+                    while runStart < range.upperBound {
+                        let textureID = layer.images[runStart].textureID
+                        var runEnd = runStart + 1
+                        while runEnd < range.upperBound, layer.images[runEnd].textureID == textureID {
+                            runEnd += 1
+                        }
+                        steps.append(.images(layerIndex: layerIndex, range: runStart..<runEnd, textureID: textureID))
+                        runStart = runEnd
+                    }
+                }
+            }
+        }
+
+        var resultingResources = cachedResources
+        resultingResources.hasGlyphAtlas = cachedResources.hasGlyphAtlas || scene.glyphAtlas != nil
+        resultingResources.hasPixelGlyphAtlas = cachedResources.hasPixelGlyphAtlas || scene.pixelGlyphAtlas != nil
+        return RenderPlan(
+            glyphAtlasSource: glyphAtlasSource,
+            pixelGlyphAtlasSource: pixelGlyphAtlasSource,
+            steps: steps,
+            resultingResources: resultingResources
+        )
+    }
 
     // MARK: - BatchRenderBackend
 
@@ -110,7 +290,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         }
 
         releaseCOMPointer(&renderTargetView)
-        releaseCachedImageTextures()
         deviceContext?.pointee.lpVtbl.pointee.ClearState(deviceContext)
 
         let hr = swapChain.pointee.lpVtbl.pointee.ResizeBuffers(
@@ -144,6 +323,10 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             return
         }
 
+        var finishedScene = scene
+        finishedScene.finish()
+        let renderPlan = try Self.makeRenderPlan(for: finishedScene, cachedResources: cachedResourcesForTesting)
+
         var targetView: UnsafeMutablePointer<ID3D11RenderTargetView>? = renderTargetView
         deviceContext.pointee.lpVtbl.pointee.OMSetRenderTargets(deviceContext, 1, &targetView, nil)
 
@@ -165,63 +348,84 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             deviceContext.pointee.lpVtbl.pointee.OMSetBlendState(deviceContext, blendState, buffer.baseAddress, UINT.max)
         }
 
-        let cc = scene.clearColor
+        let cc = finishedScene.clearColor
         let clearValues: [FLOAT] = [cc.red, cc.green, cc.blue, cc.alpha]
         clearValues.withUnsafeBufferPointer { buffer in
             deviceContext.pointee.lpVtbl.pointee.ClearRenderTargetView(deviceContext, renderTargetView, buffer.baseAddress)
         }
 
-        try updateFrameUniforms(pixelSize: surface.pixelSize, scaleFactor: surface.scaleFactor)
+        try updateFrameUniforms(surfaceSize: surface.pixelSize)
+        if renderPlan.glyphAtlasSource == .snapshot, let glyphAtlas = finishedScene.glyphAtlas {
+            try updateGlyphAtlasTexture(
+                glyphAtlas,
+                texture: &glyphAtlasTexture,
+                srv: &glyphAtlasSRV,
+                size: &glyphAtlasSize
+            )
+        }
+        if renderPlan.pixelGlyphAtlasSource == .snapshot, let pixelGlyphAtlas = finishedScene.pixelGlyphAtlas {
+            try updateGlyphAtlasTexture(
+                pixelGlyphAtlas,
+                texture: &pixelGlyphAtlasTexture,
+                srv: &pixelGlyphAtlasSRV,
+                size: &pixelGlyphAtlasSize
+            )
+        }
 
         var cbuf: UnsafeMutablePointer<ID3D11Buffer>? = frameUniformBuffer
         deviceContext.pointee.lpVtbl.pointee.VSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
-        deviceContext.pointee.lpVtbl.pointee.PSSetConstantBuffers(deviceContext, 0, 1, &cbuf)
 
-        let imageTextureViews = try createImageTextureResourceViews(for: scene.imageResources)
-        let glyphAtlasTextureView = try createGlyphAtlasTextureResourceView(for: scene.glyphAtlasResource)
-
-        for layer in scene.layers {
-            if !layer.shadows.isEmpty {
-                try renderBatch(
-                    layer.shadows,
-                    capacity: &shadowInstanceCapacity,
-                    buffer: &shadowInstanceBuffer,
-                    srv: &shadowInstanceSRV,
-                    vs: shadowVS, ps: shadowPS,
-                    label: "shadow",
-                    deviceContext: deviceContext
-                )
-            }
-            if !layer.quads.isEmpty {
-                try renderBatch(
-                    layer.quads,
-                    capacity: &quadInstanceCapacity,
-                    buffer: &quadInstanceBuffer,
-                    srv: &quadInstanceSRV,
-                    vs: quadVS, ps: quadPS,
-                    label: "quad",
-                    deviceContext: deviceContext
-                )
-            }
-            if primitiveCapabilities.glyphs, !layer.glyphs.isEmpty, let glyphAtlasTextureView {
-                try renderBatch(
-                    layer.glyphs,
-                    capacity: &glyphInstanceCapacity,
-                    buffer: &glyphInstanceBuffer,
-                    srv: &glyphInstanceSRV,
-                    vs: glyphVS, ps: glyphPS,
-                    label: "glyph",
-                    deviceContext: deviceContext,
-                    bindSampler: true,
-                    pixelShaderResourceView: glyphAtlasTextureView
-                )
-            }
-            if primitiveCapabilities.images && !layer.images.isEmpty {
-                try renderImageBatches(
-                    layer.images,
-                    textureViews: imageTextureViews,
-                    deviceContext: deviceContext
-                )
+        for step in renderPlan.steps {
+            switch step {
+            case .shadows(let layerIndex, let range):
+                let layer = finishedScene.layers[layerIndex]
+                    try renderBatch(
+                        layer.shadows,
+                        range: range,
+                        capacity: &shadowInstanceCapacity,
+                        buffer: &shadowInstanceBuffer,
+                        srv: &shadowInstanceSRV,
+                        vs: shadowVS, ps: shadowPS,
+                        label: "shadow",
+                        deviceContext: deviceContext
+                    )
+            case .quads(let layerIndex, let range):
+                let layer = finishedScene.layers[layerIndex]
+                    try renderBatch(
+                        layer.quads,
+                        range: range,
+                        capacity: &quadInstanceCapacity,
+                        buffer: &quadInstanceBuffer,
+                        srv: &quadInstanceSRV,
+                        vs: quadVS, ps: quadPS,
+                        label: "quad",
+                        deviceContext: deviceContext
+                    )
+            case .glyphs(let layerIndex, let range, _):
+                let layer = finishedScene.layers[layerIndex]
+                    try renderGlyphBatch(
+                        layer.glyphs,
+                        range: range,
+                        atlasSRV: glyphAtlasSRV,
+                        deviceContext: deviceContext
+                    )
+            case .pixelGlyphs(let layerIndex, let range, _):
+                let layer = finishedScene.layers[layerIndex]
+                    try renderGlyphBatch(
+                        layer.pixelGlyphs,
+                        range: range,
+                        atlasSRV: pixelGlyphAtlasSRV,
+                        deviceContext: deviceContext
+                    )
+            case .images(let layerIndex, let range, let textureID):
+                let layer = finishedScene.layers[layerIndex]
+                let imageSRV = try ensureImageResourceSRV(for: textureID)
+                try renderImageBatch(
+                        layer.images,
+                        range: range,
+                        deviceContext: deviceContext,
+                        textureSRV: imageSRV
+                    )
             }
         }
 
@@ -229,18 +433,6 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         if hr < 0 {
             throw BatchRendererError(operation: "IDXGISwapChain1.Present", hresult: hr)
         }
-    }
-
-    public func render(frame: RenderFrame) throws {
-        guard let surface else {
-            return
-        }
-
-        let logicalSurfaceSize = makeLogicalSurfaceSize(
-            pixelSize: surface.pixelSize,
-            scaleFactor: surface.scaleFactor
-        )
-        try render(scene: GPUIScene(from: frame, surfaceSize: logicalSurfaceSize))
     }
 
     // MARK: - Static Shader Validation (for testing)
@@ -254,18 +446,18 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             source: batchImageShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var imagePSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchImageShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        var glyphVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: GlyphPipelineResources.vertexShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
-        var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
-            source: GlyphPipelineResources.vertexShaderSource, entryPoint: "psMain", profile: "ps_5_0")
         var shadowVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchShadowShaderSource, entryPoint: "vsMain", profile: "vs_5_0")
         var shadowPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
             source: batchShadowShaderSource, entryPoint: "psMain", profile: "ps_5_0")
-        releaseCOMPointer(&shadowPSBlob)
-        releaseCOMPointer(&shadowVSBlob)
+        var glyphVSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.vertexShaderEntryPoint, profile: "vs_5_0")
+        var glyphPSBlob: UnsafeMutablePointer<ID3DBlob>? = try compileShaderSource(
+            source: GlyphPipelineResources.vertexShaderSource, entryPoint: GlyphPipelineResources.pixelShaderEntryPoint, profile: "ps_5_0")
         releaseCOMPointer(&glyphPSBlob)
         releaseCOMPointer(&glyphVSBlob)
+        releaseCOMPointer(&shadowPSBlob)
+        releaseCOMPointer(&shadowVSBlob)
         releaseCOMPointer(&imagePSBlob)
         releaseCOMPointer(&imageVSBlob)
         releaseCOMPointer(&quadPSBlob)
@@ -355,7 +547,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         descriptor.BufferCount = 2
         descriptor.Scaling = DXGI_SCALING_STRETCH
         descriptor.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD
-        descriptor.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED
+        descriptor.AlphaMode = DXGI_ALPHA_MODE_IGNORE
         descriptor.Flags = 0
 
         let unknownDevice = UnsafeMutableRawPointer(device).assumingMemoryBound(to: IUnknown.self)
@@ -634,12 +826,9 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
         srvDesc.Format = DXGI_FORMAT_UNKNOWN
         srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER
-        // Set Buffer.FirstElement and Buffer.NumElements via raw memory
-        // (the union layout varies across WinSDK Swift overlay versions).
-        withUnsafeMutableBytes(of: &srvDesc) { raw in
-            let unionOffset = MemoryLayout<DXGI_FORMAT>.stride + MemoryLayout<D3D_SRV_DIMENSION>.stride
-            raw.storeBytes(of: UINT(0), toByteOffset: unionOffset, as: UINT.self)
-            raw.storeBytes(of: UINT(capacity), toByteOffset: unionOffset + MemoryLayout<UINT>.stride, as: UINT.self)
+        withUnsafeMutablePointer(to: &srvDesc.Buffer) { bufferView in
+            bufferView.pointee.FirstElement = 0
+            bufferView.pointee.NumElements = UINT(capacity)
         }
 
         let resource = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: ID3D11Resource.self)
@@ -679,9 +868,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
 
     private func uploadInstances<T>(
         _ instances: [T],
+        range: Range<Int>,
         buffer: UnsafeMutablePointer<ID3D11Buffer>,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
     ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
         let resource = UnsafeMutableRawPointer(buffer).assumingMemoryBound(to: ID3D11Resource.self)
         var mapped = D3D11_MAPPED_SUBRESOURCE()
         let mapHR = deviceContext.pointee.lpVtbl.pointee.Map(
@@ -699,137 +894,39 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             throw BatchRendererError(operation: "Map returned nil", hresult: batchHresultHandle)
         }
 
-        _ = instances.withUnsafeBytes { source in
-            memcpy(pData, source.baseAddress, source.count)
+        instances.withUnsafeBytes { source in
+            guard let baseAddress = source.baseAddress else {
+                return
+            }
+
+            let byteOffset = range.lowerBound * MemoryLayout<T>.stride
+            let byteCount = instanceCount * MemoryLayout<T>.stride
+            memcpy(pData, baseAddress.advanced(by: byteOffset), byteCount)
         }
 
         deviceContext.pointee.lpVtbl.pointee.Unmap(deviceContext, resource, 0)
     }
 
-    // MARK: - Image Texture Resources
-
-    private func createImageTextureResourceViews(
-        for resources: [GPUISceneImageResource]
-    ) throws -> [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] {
-        var views: [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>] = [:]
-        for resource in resources where resource.id >= 0 && isValidBitmapResource(resource.bitmap) {
-            views[resource.id] = try cachedShaderResourceView(for: resource.bitmap)
-        }
-        return views
-    }
-
-    private func createGlyphAtlasTextureResourceView(
-        for resource: GPUISceneGlyphAtlasResource?
-    ) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView>? {
-        guard let resource, isValidBitmapResource(resource.bitmap) else {
-            return nil
-        }
-
-        return try cachedShaderResourceView(for: resource.bitmap)
-    }
-
-    private func isValidBitmapResource(_ bitmap: BitmapSurface) -> Bool {
-        bitmap.width > 0
-            && bitmap.height > 0
-            && bitmap.bytesPerRow >= bitmap.width * 4
-            && bitmap.pixels.count >= Int(bitmap.bytesPerRow * bitmap.height)
-    }
-
-    private func createShaderResourceView(
-        for bitmap: BitmapSurface
-    ) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
-        guard let device else {
-            throw BatchRendererError(operation: "Create image texture", hresult: batchHresultHandle)
-        }
-
-        var textureDescriptor = D3D11_TEXTURE2D_DESC()
-        textureDescriptor.Width = UINT(bitmap.width)
-        textureDescriptor.Height = UINT(bitmap.height)
-        textureDescriptor.MipLevels = 1
-        textureDescriptor.ArraySize = 1
-        textureDescriptor.Format = DXGI_FORMAT_B8G8R8A8_UNORM
-        textureDescriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
-        textureDescriptor.Usage = D3D11_USAGE_DEFAULT
-        textureDescriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
-
-        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
-        let textureHR = bitmap.pixels.withUnsafeBytes { pixels in
-            var subresource = D3D11_SUBRESOURCE_DATA()
-            subresource.pSysMem = pixels.baseAddress
-            subresource.SysMemPitch = UINT(bitmap.bytesPerRow)
-            subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
-            return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
-        }
-        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image)")
-
-        guard let texture else {
-            throw BatchRendererError(operation: "ID3D11Device.CreateTexture2D(image)", hresult: batchHresultHandle)
-        }
-        defer {
-            var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
-            releaseCOMPointer(&releasableTexture)
-        }
-
-        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
-        var shaderResourceView: UnsafeMutablePointer<ID3D11ShaderResourceView>?
-        let viewHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, nil, &shaderResourceView)
-        try throwIfFailed(viewHR, operation: "ID3D11Device.CreateShaderResourceView(image)")
-
-        guard let shaderResourceView else {
-            throw BatchRendererError(operation: "ID3D11Device.CreateShaderResourceView(image)", hresult: batchHresultHandle)
-        }
-
-        return shaderResourceView
-    }
-
-    private func cachedShaderResourceView(
-        for bitmap: BitmapSurface
-    ) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
-        let key = BatchImageTextureKey(bitmap)
-        if let cachedView = imageTextureCache[key] {
-            markImageTextureCacheAccess(key)
-            return cachedView
-        }
-
-        let view = try createShaderResourceView(for: bitmap)
-        imageTextureCache[key] = view
-        markImageTextureCacheAccess(key)
-        evictImageTextureCacheIfNeeded()
-        return view
-    }
-
-    private func markImageTextureCacheAccess(_ key: BatchImageTextureKey) {
-        imageTextureCacheAccessOrder.removeAll { $0 == key }
-        imageTextureCacheAccessOrder.append(key)
-    }
-
-    private func evictImageTextureCacheIfNeeded() {
-        while imageTextureCacheAccessOrder.count > Self.maxCachedImageTextures {
-            let key = imageTextureCacheAccessOrder.removeFirst()
-            if let view = imageTextureCache.removeValue(forKey: key) {
-                var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = view
-                releaseCOMPointer(&releasableView)
-            }
-        }
-    }
-
-    private func releaseCachedImageTextures() {
-        for view in imageTextureCache.values {
-            var releasableView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = view
-            releaseCOMPointer(&releasableView)
-        }
-        imageTextureCache.removeAll()
-        imageTextureCacheAccessOrder.removeAll()
-    }
-
     // MARK: - Frame Uniforms
 
-    private func updateFrameUniforms(pixelSize: IntSize, scaleFactor: Double) throws {
+    private struct FrameUniforms {
+        var surfaceWidth: Float
+        var surfaceHeight: Float
+        var pad0: Float
+        var pad1: Float
+    }
+
+    private func updateFrameUniforms(surfaceSize: IntSize) throws {
         guard let deviceContext, let frameUniformBuffer else {
             return
         }
 
-        var uniforms = makeBatchFrameUniforms(pixelSize: pixelSize, scaleFactor: scaleFactor)
+        var uniforms = FrameUniforms(
+            surfaceWidth: Float(surfaceSize.width),
+            surfaceHeight: Float(surfaceSize.height),
+            pad0: 0,
+            pad1: 0
+        )
 
         let resource = UnsafeMutableRawPointer(frameUniformBuffer).assumingMemoryBound(to: ID3D11Resource.self)
         withUnsafePointer(to: &uniforms) { ptr in
@@ -845,36 +942,203 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         }
     }
 
-    // MARK: - Render Batches
-
-    private func renderImageBatches(
-        _ images: [ImagePrimitive],
-        textureViews: [Int32: UnsafeMutablePointer<ID3D11ShaderResourceView>],
-        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    private func updateGlyphAtlasTexture(
+        _ snapshot: GlyphAtlasSnapshot,
+        texture: inout UnsafeMutablePointer<ID3D11Texture2D>?,
+        srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
+        size: inout IntSize
     ) throws {
-        for run in imagePrimitiveRuns(images) {
-            guard let textureView = textureViews[run.textureID] else {
-                continue
+        guard let device, let deviceContext else {
+            return
+        }
+
+        if texture == nil || size.width != snapshot.width || size.height != snapshot.height {
+            releaseCOMPointer(&srv)
+            releaseCOMPointer(&texture)
+
+            var textureDesc = D3D11_TEXTURE2D_DESC()
+            textureDesc.Width = UINT(snapshot.width)
+            textureDesc.Height = UINT(snapshot.height)
+            textureDesc.MipLevels = 1
+            textureDesc.ArraySize = 1
+            textureDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM
+            textureDesc.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+            textureDesc.Usage = D3D11_USAGE_DEFAULT
+            textureDesc.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
+
+            let textureHR = device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDesc, nil, &texture)
+            try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(glyph atlas)")
+
+            guard let texture else {
+                throw BatchRendererError(operation: "CreateTexture2D(glyph atlas)", hresult: batchHresultHandle)
             }
 
-            try renderBatch(
-                Array(images[run.range]),
-                capacity: &imageInstanceCapacity,
-                buffer: &imageInstanceBuffer,
-                srv: &imageInstanceSRV,
-                vs: imageVS, ps: imagePS,
-                label: "image",
-                deviceContext: deviceContext,
-                bindSampler: true,
-                pixelShaderResourceView: textureView
-            )
+            var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
+            srvDesc.Format = textureDesc.Format
+            srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D
+            withUnsafeMutablePointer(to: &srvDesc.Texture2D) { textureView in
+                textureView.pointee.MostDetailedMip = 0
+                textureView.pointee.MipLevels = 1
+            }
+
+            let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+            let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
+            try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(glyph atlas)")
+            size = IntSize(width: snapshot.width, height: snapshot.height)
+        }
+
+        guard let texture else {
+            return
+        }
+
+        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        let rowPitch = UINT(snapshot.width * 4)
+        snapshot.pixels.withUnsafeBytes { pixels in
+            guard let baseAddress = pixels.baseAddress else {
+                return
+            }
+
+            if let dirtyRegion = snapshot.dirtyRegion,
+               dirtyRegion.width > 0,
+               dirtyRegion.height > 0,
+               size.width == snapshot.width,
+               size.height == snapshot.height {
+                let bytesOffset = Int((dirtyRegion.y * snapshot.width + dirtyRegion.x) * 4)
+                var updateBox = D3D11_BOX(
+                    left: UINT(dirtyRegion.x),
+                    top: UINT(dirtyRegion.y),
+                    front: 0,
+                    right: UINT(dirtyRegion.x + dirtyRegion.width),
+                    bottom: UINT(dirtyRegion.y + dirtyRegion.height),
+                    back: 1
+                )
+                let regionPointer = UnsafeRawPointer(baseAddress.advanced(by: bytesOffset))
+                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                    deviceContext,
+                    resource,
+                    0,
+                    &updateBox,
+                    regionPointer,
+                    rowPitch,
+                    0
+                )
+            } else {
+                deviceContext.pointee.lpVtbl.pointee.UpdateSubresource(
+                    deviceContext,
+                    resource,
+                    0,
+                    nil,
+                    baseAddress,
+                    rowPitch,
+                    0
+                )
+            }
         }
     }
+
+    private func ensureImageResourceSRV(for textureID: Int32) throws -> UnsafeMutablePointer<ID3D11ShaderResourceView> {
+        guard var entry = imageResources[textureID] else {
+            throw BatchRendererError(
+                operation: "Resolve image resource",
+                hresult: batchHresultInvalidArgument,
+                details: "No bound bitmap exists for texture ID \(textureID)."
+            )
+        }
+
+        if entry.srv == nil || entry.texture == nil {
+            let (texture, srv) = try createImageTextureResource(for: entry.bitmap)
+            entry.texture = texture
+            entry.srv = srv
+            imageResources[textureID] = entry
+        }
+
+        guard let srv = entry.srv else {
+            throw BatchRendererError(
+                operation: "Create image resource view",
+                hresult: batchHresultHandle,
+                details: "Image texture ID \(textureID) did not produce a shader resource view."
+            )
+        }
+        return srv
+    }
+
+    private func createImageTextureResource(
+        for bitmap: BitmapSurface
+    ) throws -> (
+        texture: UnsafeMutablePointer<ID3D11Texture2D>,
+        srv: UnsafeMutablePointer<ID3D11ShaderResourceView>
+    ) {
+        guard let device else {
+            throw BatchRendererError(
+                operation: "Create image texture",
+                hresult: batchHresultHandle,
+                details: "D3D11 device is not available."
+            )
+        }
+
+        var textureDescriptor = D3D11_TEXTURE2D_DESC()
+        textureDescriptor.Width = UINT(bitmap.width)
+        textureDescriptor.Height = UINT(bitmap.height)
+        textureDescriptor.MipLevels = 1
+        textureDescriptor.ArraySize = 1
+        textureDescriptor.Format = DXGI_FORMAT_R8G8B8A8_UNORM
+        textureDescriptor.SampleDesc = DXGI_SAMPLE_DESC(Count: 1, Quality: 0)
+        textureDescriptor.Usage = D3D11_USAGE_DEFAULT
+        textureDescriptor.BindFlags = UINT(D3D11_BIND_SHADER_RESOURCE.rawValue)
+
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>?
+        let textureHR = bitmap.pixels.withUnsafeBytes { pixels in
+            guard let baseAddress = pixels.baseAddress else {
+                return HRESULT(bitPattern: 0x80004005)
+            }
+
+            var subresource = D3D11_SUBRESOURCE_DATA()
+            subresource.pSysMem = baseAddress
+            subresource.SysMemPitch = UINT(bitmap.bytesPerRow)
+            subresource.SysMemSlicePitch = UINT(bitmap.bytesPerRow * bitmap.height)
+            return device.pointee.lpVtbl.pointee.CreateTexture2D(device, &textureDescriptor, &subresource, &texture)
+        }
+        try throwIfFailed(textureHR, operation: "ID3D11Device.CreateTexture2D(image)")
+
+        guard let texture else {
+            throw BatchRendererError(operation: "CreateTexture2D(image)", hresult: batchHresultHandle)
+        }
+
+        var srvDesc = D3D11_SHADER_RESOURCE_VIEW_DESC()
+        srvDesc.Format = textureDescriptor.Format
+        srvDesc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D
+        withUnsafeMutablePointer(to: &srvDesc.Texture2D) { textureView in
+            textureView.pointee.MostDetailedMip = 0
+            textureView.pointee.MipLevels = 1
+        }
+
+        var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?
+        let resource = UnsafeMutableRawPointer(texture).assumingMemoryBound(to: ID3D11Resource.self)
+        let srvHR = device.pointee.lpVtbl.pointee.CreateShaderResourceView(device, resource, &srvDesc, &srv)
+        do {
+            try throwIfFailed(srvHR, operation: "ID3D11Device.CreateShaderResourceView(image)")
+        } catch {
+            var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
+            releaseCOMPointer(&releasableTexture)
+            throw error
+        }
+
+        guard let srv else {
+            var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
+            releaseCOMPointer(&releasableTexture)
+            throw BatchRendererError(operation: "CreateShaderResourceView(image)", hresult: batchHresultHandle)
+        }
+
+        return (texture, srv)
+    }
+
+    // MARK: - Render Batches
 
     /// Unified batch draw: uploads instances to a structured buffer, binds
     /// shaders and SRV, issues a single DrawInstanced call, then unbinds.
     private func renderBatch<T>(
         _ instances: [T],
+        range: Range<Int>,
         capacity: inout Int,
         buffer: inout UnsafeMutablePointer<ID3D11Buffer>?,
         srv: inout UnsafeMutablePointer<ID3D11ShaderResourceView>?,
@@ -882,11 +1146,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
         ps: UnsafeMutablePointer<ID3D11PixelShader>?,
         label: String,
         deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
-        bindSampler: Bool = false,
-        pixelShaderResourceView: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
+        bindSampler: Bool = false
     ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
         try ensureInstanceBufferCapacity(
-            count: instances.count,
+            count: instanceCount,
             capacity: &capacity,
             strideBytes: MemoryLayout<T>.stride,
             buffer: &buffer,
@@ -896,7 +1164,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
 
         guard let buffer, let srv else { return }
 
-        try uploadInstances(instances, buffer: buffer, deviceContext: deviceContext)
+        try uploadInstances(instances, range: range, buffer: buffer, deviceContext: deviceContext)
 
         deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, vs, nil, 0)
         deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, ps, nil, 0)
@@ -908,22 +1176,110 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
             deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
         }
-        if let pixelShaderResourceView {
-            var textureSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = pixelShaderResourceView
-            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &textureSRV)
-        }
 
-        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instances.count), 0, 0)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
 
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
-        if pixelShaderResourceView != nil {
-            deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
+    }
+
+    private func renderGlyphBatch(
+        _ instances: [GlyphPrimitive],
+        range: Range<Int>,
+        atlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>?,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
         }
-        if bindSampler {
-            var nullSampler: UnsafeMutablePointer<ID3D11SamplerState>? = nil
-            deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &nullSampler)
+
+        try ensureInstanceBufferCapacity(
+            count: instanceCount,
+            capacity: &glyphInstanceCapacity,
+            strideBytes: MemoryLayout<GlyphPrimitive>.stride,
+            buffer: &glyphInstanceBuffer,
+            srv: &glyphInstanceSRV,
+            label: "glyph"
+        )
+
+        guard
+            let glyphInstanceBuffer,
+            let glyphInstanceSRV,
+            let atlasSRV,
+            let glyphVS,
+            let glyphPS
+        else {
+            return
         }
+
+        try uploadInstances(instances, range: range, buffer: glyphInstanceBuffer, deviceContext: deviceContext)
+
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, glyphVS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, glyphPS, nil, 0)
+
+        var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = glyphInstanceSRV
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
+
+        var glyphAtlasSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = atlasSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &glyphAtlasSRV)
+
+        var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
+        deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
+    }
+
+    private func renderImageBatch(
+        _ instances: [ImagePrimitive],
+        range: Range<Int>,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>,
+        textureSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>
+    ) throws {
+        let instanceCount = range.count
+        guard instanceCount > 0 else {
+            return
+        }
+
+        try ensureInstanceBufferCapacity(
+            count: instanceCount,
+            capacity: &imageInstanceCapacity,
+            strideBytes: MemoryLayout<ImagePrimitive>.stride,
+            buffer: &imageInstanceBuffer,
+            srv: &imageInstanceSRV,
+            label: "image"
+        )
+
+        guard
+            let imageInstanceBuffer,
+            let imageInstanceSRV,
+            let imageVS,
+            let imagePS
+        else {
+            return
+        }
+
+        try uploadInstances(instances, range: range, buffer: imageInstanceBuffer, deviceContext: deviceContext)
+
+        deviceContext.pointee.lpVtbl.pointee.VSSetShader(deviceContext, imageVS, nil, 0)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShader(deviceContext, imagePS, nil, 0)
+
+        var instanceSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = imageInstanceSRV
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &instanceSRV)
+
+        var textureSRVPointer: UnsafeMutablePointer<ID3D11ShaderResourceView>? = textureSRV
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &textureSRVPointer)
+
+        var samplerPtr: UnsafeMutablePointer<ID3D11SamplerState>? = samplerState
+        deviceContext.pointee.lpVtbl.pointee.PSSetSamplers(deviceContext, 0, 1, &samplerPtr)
+        deviceContext.pointee.lpVtbl.pointee.DrawInstanced(deviceContext, 6, UINT(instanceCount), 0, 0)
+
+        var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
+        deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
+        deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
     }
 
     // MARK: - Helpers
@@ -933,6 +1289,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend, RenderBackend {
             throw BatchRendererError(operation: operation, hresult: hr)
         }
     }
+
 }
 
 // MARK: - Error Type
@@ -968,67 +1325,6 @@ private func releaseCOMPointer<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     let unknown = UnsafeMutableRawPointer(rawPointer).assumingMemoryBound(to: IUnknown.self)
     _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
     pointer = nil
-}
-
-struct BatchFrameUniforms: Equatable {
-    var surfaceWidth: Float
-    var surfaceHeight: Float
-    var scaleFactor: Float
-    var pad0: Float
-}
-
-struct BatchImageTextureKey: Hashable {
-    var width: Int32
-    var height: Int32
-    var bytesPerRow: Int32
-    var pixels: Data
-
-    init(_ bitmap: BitmapSurface) {
-        self.width = bitmap.width
-        self.height = bitmap.height
-        self.bytesPerRow = bitmap.bytesPerRow
-        self.pixels = bitmap.pixels
-    }
-}
-
-struct ImagePrimitiveRun: Equatable {
-    var textureID: Int32
-    var range: Range<Int>
-}
-
-func imagePrimitiveRuns(_ images: [ImagePrimitive]) -> [ImagePrimitiveRun] {
-    guard !images.isEmpty else {
-        return []
-    }
-
-    var runs: [ImagePrimitiveRun] = []
-    var runStart = images.startIndex
-    var activeTextureID = images[runStart].textureID
-
-    var index = images.index(after: runStart)
-    while index < images.endIndex {
-        let textureID = images[index].textureID
-        if textureID != activeTextureID {
-            runs.append(ImagePrimitiveRun(textureID: activeTextureID, range: runStart..<index))
-            runStart = index
-            activeTextureID = textureID
-        }
-        index = images.index(after: index)
-    }
-
-    runs.append(ImagePrimitiveRun(textureID: activeTextureID, range: runStart..<images.endIndex))
-    return runs
-}
-
-func makeBatchFrameUniforms(pixelSize: IntSize, scaleFactor: Double) -> BatchFrameUniforms {
-    let safeScale = max(scaleFactor, 1.0)
-    let logicalSurfaceSize = makeLogicalSurfaceSize(pixelSize: pixelSize, scaleFactor: safeScale)
-    return BatchFrameUniforms(
-        surfaceWidth: Float(logicalSurfaceSize.width),
-        surfaceHeight: Float(logicalSurfaceSize.height),
-        scaleFactor: Float(safeScale),
-        pad0: 0
-    )
 }
 
 private let batchHresultHandle: HRESULT = HRESULT(bitPattern: 0x80070006)

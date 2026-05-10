@@ -735,7 +735,7 @@ private final class DirectWriteSystem {
                     familyName,
                     nil,
                     style.weight.dwriteWeight,
-                    style.dwriteFontStyle,
+                    dwriteFontStyleNormal,
                     dwriteFontStretchNormal,
                     FLOAT(style.nativeFontPixelSize),
                     localeName,
@@ -873,11 +873,6 @@ private final class DirectWriteSystem {
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontWeight {
                 let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UINT32, UINT32) -> HRESULT).self)
                 _ = proc(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, startPosition, length)
-            }
-
-            if let fn = layout.pointee.lpVtbl!.pointee.SetFontStyle {
-                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontStyle, UINT32, UINT32) -> HRESULT).self)
-                _ = proc(UnsafeMutableRawPointer(layout), spanStyle.dwriteFontStyle, startPosition, length)
             }
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontSize {
@@ -1527,12 +1522,6 @@ private enum DirectWriteError: Error {
 private extension TextWeight {
     var dwriteWeight: DWriteFontWeight {
         DWriteFontWeight(gdiWeight)
-    }
-}
-
-private extension PixelTextStyle {
-    var dwriteFontStyle: DWriteFontStyle {
-        italic ? dwriteFontStyleItalic : dwriteFontStyleNormal
     }
 }
 

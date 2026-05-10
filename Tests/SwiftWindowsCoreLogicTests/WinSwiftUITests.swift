@@ -1613,6 +1613,14 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let optionalColor: Color? = Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)
             let nilColor: Color? = nil
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.1, green: 0.6, blue: 0.9, alpha: 1),
+                    Color(red: 0.8, green: 0.2, blue: 0.5, alpha: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
             let optionalNode = makeNode(
                 Text("OPTIONAL")
                     .background(optionalColor, ignoresSafeAreaEdges: .top)
@@ -1620,6 +1628,10 @@ final class WinSwiftUITests: XCTestCase {
             let concreteNode = makeNode(
                 Text("CONCRETE")
                     .background(Color(red: 0.7, green: 0.2, blue: 0.4, alpha: 1), ignoresSafeAreaEdges: .all)
+            )
+            let gradientNode = makeNode(
+                Text("GRADIENT")
+                    .background(gradient, ignoresSafeAreaEdges: .horizontal)
             )
             let nilNode = makeNode(
                 Text("PLAIN")
@@ -1629,6 +1641,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(optionalNode.backgroundColor, optionalColor)
             XCTAssertEqual(firstText(in: optionalNode.children[0]), "OPTIONAL")
             XCTAssertEqual(concreteNode.children[0].text, "CONCRETE")
+            XCTAssertEqual(gradientNode.backgroundGradient, gradient)
+            XCTAssertEqual(firstText(in: gradientNode.children[0]), "GRADIENT")
             XCTAssertEqual(nilNode.text, "PLAIN")
         }
     }

@@ -2792,6 +2792,11 @@ public extension View {
         }
     }
 
+    func background(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
+        _ = edges
+        return background(gradient)
+    }
+
     func background<Background: View>(_ background: Background, alignment: Alignment = .center) -> some View {
         self.background(alignment: alignment) {
             background

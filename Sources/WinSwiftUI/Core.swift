@@ -268,6 +268,10 @@ public struct ViewBuildContext {
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
     private let isEnabledProvider: () -> Bool
+    private let foregroundColorProvider: () -> Color
+    private let fontProvider: () -> Font
+    private let textAlignmentProvider: () -> TextAlignment
+    private let lineLimitProvider: () -> Int?
 
     public var canvasSize: Size {
         canvasSizeProvider()
@@ -277,16 +281,40 @@ public struct ViewBuildContext {
         isEnabledProvider()
     }
 
+    public var foregroundColor: Color {
+        foregroundColorProvider()
+    }
+
+    public var font: Font {
+        fontProvider()
+    }
+
+    public var textAlignment: TextAlignment {
+        textAlignmentProvider()
+    }
+
+    public var lineLimit: Int? {
+        lineLimitProvider()
+    }
+
     init(
         canvasSizeProvider: @escaping () -> Size,
         invalidateHandler: @escaping () -> Void,
         observedObjectHandler: @escaping (any ObservableObject) -> Void = { _ in },
-        isEnabledProvider: @escaping () -> Bool = { true }
+        isEnabledProvider: @escaping () -> Bool = { true },
+        foregroundColorProvider: @escaping () -> Color = { .white },
+        fontProvider: @escaping () -> Font = { .system(size: 2) },
+        textAlignmentProvider: @escaping () -> TextAlignment = { .center },
+        lineLimitProvider: @escaping () -> Int? = { nil }
     ) {
         self.canvasSizeProvider = canvasSizeProvider
         self.invalidateHandler = invalidateHandler
         self.observedObjectHandler = observedObjectHandler
         self.isEnabledProvider = isEnabledProvider
+        self.foregroundColorProvider = foregroundColorProvider
+        self.fontProvider = fontProvider
+        self.textAlignmentProvider = textAlignmentProvider
+        self.lineLimitProvider = lineLimitProvider
     }
 
     func invalidate() {
@@ -304,7 +332,63 @@ public struct ViewBuildContext {
             observedObjectHandler: observedObjectHandler,
             isEnabledProvider: {
                 self.isEnabled && isEnabled
-            }
+            },
+            foregroundColorProvider: foregroundColorProvider,
+            fontProvider: fontProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider
+        )
+    }
+
+    func withForegroundColor(_ color: Color) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: { color },
+            fontProvider: fontProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider
+        )
+    }
+
+    func withFont(_ font: Font) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            fontProvider: { font },
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider
+        )
+    }
+
+    func withTextAlignment(_ alignment: TextAlignment) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            fontProvider: fontProvider,
+            textAlignmentProvider: { alignment },
+            lineLimitProvider: lineLimitProvider
+        )
+    }
+
+    func withLineLimit(_ lineLimit: Int?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            fontProvider: fontProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: { lineLimit }
         )
     }
 }
@@ -1045,6 +1129,30 @@ public extension View {
                     children: [childNode]
                 )
             }
+        }
+    }
+
+    func foregroundColor(_ color: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withForegroundColor(color))
+        }
+    }
+
+    func font(_ font: Font) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withFont(font))
+        }
+    }
+
+    func multilineTextAlignment(_ alignment: TextAlignment) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTextAlignment(alignment))
+        }
+    }
+
+    func lineLimit(_ lineLimit: Int?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLineLimit(lineLimit))
         }
     }
 

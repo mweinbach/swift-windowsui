@@ -39,6 +39,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContainerTextStyleModifiersPropagateToText() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .foregroundColor(Color(red: 0.8, green: 0.2, blue: 0.1, alpha: 1))
+                .font(.system(size: 16, weight: .bold, design: .monospaced))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            for child in node.children {
+                XCTAssertEqual(child.textStyle.color, Color(red: 0.8, green: 0.2, blue: 0.1, alpha: 1))
+                XCTAssertEqual(child.textStyle.scale, 1.6)
+                XCTAssertEqual(child.textStyle.nativeFontSize, 16)
+                XCTAssertEqual(child.textStyle.weight, .bold)
+                XCTAssertEqual(child.textStyle.fontFamily, "Cascadia Mono")
+                XCTAssertEqual(child.textStyle.alignment, .trailing)
+                XCTAssertEqual(child.textStyle.maximumNumberOfLines, 1)
+            }
+        }
+    }
+
+    func testExplicitTextStyleOverridesInheritedStyle() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("ONE")
+                        .foregroundColor(.white)
+                        .font(.system(size: 18, weight: .semibold))
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(nil)
+                }
+                .foregroundColor(Color(red: 0.8, green: 0.2, blue: 0.1, alpha: 1))
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+            )
+
+            let child = node.children[0]
+            XCTAssertEqual(child.textStyle.color, .white)
+            XCTAssertEqual(child.textStyle.scale, 1.8)
+            XCTAssertEqual(child.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(child.textStyle.weight, .semibold)
+            XCTAssertEqual(child.textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(child.textStyle.alignment, .leading)
+            XCTAssertNil(child.textStyle.maximumNumberOfLines)
+        }
+    }
+
     func testVStackMapsToVerticalStackPanel() async {
         await MainActor.run {
             let node = makeNode(

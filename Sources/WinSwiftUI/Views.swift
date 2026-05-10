@@ -95,16 +95,16 @@ public struct Text: View {
     public typealias Body = Never
 
     private let content: String
-    private var color: Color
-    private var font: Font
-    private var alignment: TextAlignment
-    private var lineLimit: Int?
+    private var color: Color?
+    private var font: Font?
+    private var alignment: TextAlignment?
+    private var lineLimit: Int??
 
     public init(_ content: String) {
         self.content = content
-        self.color = .white
-        self.font = .system(size: 2)
-        self.alignment = .center
+        self.color = nil
+        self.font = nil
+        self.alignment = nil
         self.lineLimit = nil
     }
 
@@ -113,17 +113,27 @@ public struct Text: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { _ in
+        let resolvedColor = color ?? context.foregroundColor
+        let resolvedFont = font ?? context.font
+        let resolvedAlignment = alignment ?? context.textAlignment
+        let resolvedLineLimit: Int?
+        if let lineLimit {
+            resolvedLineLimit = lineLimit
+        } else {
+            resolvedLineLimit = context.lineLimit
+        }
+
+        return Component { _ in
             Controls.label(
                 content,
-                color: color,
-                scale: font.resolvedScale,
-                weight: font.weight.textWeight,
-                fontFamily: font.resolvedFamily,
-                nativeFontSize: font.resolvedNativeTextSize,
-                alignment: alignment.horizontalAlignment.textAlignment,
-                lineBreakMode: resolvedLineBreakMode,
-                maximumNumberOfLines: lineLimit
+                color: resolvedColor,
+                scale: resolvedFont.resolvedScale,
+                weight: resolvedFont.weight.textWeight,
+                fontFamily: resolvedFont.resolvedFamily,
+                nativeFontSize: resolvedFont.resolvedNativeTextSize,
+                alignment: resolvedAlignment.horizontalAlignment.textAlignment,
+                lineBreakMode: resolvedLineBreakMode(lineLimit: resolvedLineLimit),
+                maximumNumberOfLines: resolvedLineLimit
             )
         }
     }
@@ -148,11 +158,11 @@ public struct Text: View {
 
     public func lineLimit(_ lineLimit: Int?) -> Text {
         var copy = self
-        copy.lineLimit = lineLimit
+        copy.lineLimit = .some(lineLimit)
         return copy
     }
 
-    private var resolvedLineBreakMode: TextLineBreakMode {
+    private func resolvedLineBreakMode(lineLimit: Int?) -> TextLineBreakMode {
         if let lineLimit, lineLimit == 1 {
             return .truncateTail
         }

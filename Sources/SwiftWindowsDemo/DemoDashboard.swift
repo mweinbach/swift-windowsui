@@ -5,7 +5,7 @@ import WinSwiftUI
 #endif
 
 @MainActor
-final class DemoDashboardModel: ObservableObject {
+public final class DemoDashboardModel: ObservableObject {
     @Published var selectedModule: DemoModule = .layout
     @Published var interactionCount = 0
     @Published var lastAction = "READY"
@@ -14,6 +14,8 @@ final class DemoDashboardModel: ObservableObject {
         "D3D11 READY",
         "WINDOW TOOLKIT ACTIVE",
     ]
+
+    public init() {}
 
     func selectModule(_ module: DemoModule) {
         selectedModule = module
@@ -41,10 +43,14 @@ final class DemoDashboardModel: ObservableObject {
     }
 }
 
-struct DemoRootView: View {
+public struct DemoRootView: View {
     @ObservedObject var model: DemoDashboardModel
 
-    var body: some View {
+    public init(model: DemoDashboardModel) {
+        self.model = model
+    }
+
+    public var body: some View {
         GeometryReader { proxy in
             let layout = DemoLayout(size: proxy.size)
 

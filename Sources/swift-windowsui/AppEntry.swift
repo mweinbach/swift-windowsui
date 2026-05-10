@@ -3,6 +3,7 @@ import SwiftUI
 #else
 import WinSwiftUI
 #endif
+import SwiftWindowsDemo
 
 @main
 struct SwiftWindowsUIDemoApp: App {

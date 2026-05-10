@@ -21,6 +21,6 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter GPU
 Visual checks:
 
 - `scripts/demo-probe.ps1` launches the demo long enough to record presenter selection, then exits.
-- `scripts/demo-screenshot.ps1` launches the real native demo window, captures `artifacts/demo-screenshot.png`, and closes it.
+- `scripts/demo-screenshot.ps1` builds the shared demo view through `WinSwiftUIRendererSnapshotter`, pulls the raw retained runtime scene, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`.
 - Add `-FrameDebug` to either command to force the `RenderFrame` fallback path.
-- Add `-KeepOpen` to `demo-screenshot.ps1` when an agent or human needs to interact with the running window after capture.
+- `demo-screenshot.ps1` does not depend on desktop window visibility, monitor placement, or foreground focus. It also leaves the raw BMP source next to the PNG as `*.raw.bmp` for inspection.

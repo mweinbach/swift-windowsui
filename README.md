@@ -141,7 +141,7 @@ Useful focused command:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1 -Filter WinSwiftUITests
 ```
 
-The screenshot helper builds the demo, opens the real native window, captures it to `artifacts/demo-screenshot.png`, and closes the window by default. Pass `-KeepOpen` to leave the demo running after capture, or `-FrameDebug` to force the `RenderFrame` fallback path for visual comparison.
+The screenshot helper builds the same shared demo view through the WinSwiftUI retained runtime, pulls the raw scene/frame data, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`. Pass `-FrameDebug` to force the `RenderFrame` fallback path for visual comparison.
 
 Verified in this pass:
 

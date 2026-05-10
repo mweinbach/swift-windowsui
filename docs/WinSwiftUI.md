@@ -215,7 +215,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
-- Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`.
+- Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`. `font(_:)` accepts `Font?`, bridges through `EnvironmentValues.font`, and `.font(nil)` resets a subtree to the retained default font.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.
@@ -225,7 +225,7 @@ Surface direction:
 - `imageScale(_:)` propagates through `EnvironmentValues` and maps `.small`, `.medium`, and `.large` to retained symbol icon scale for `Image(systemName:)` and label icons.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.
 - `labelsHidden()` propagates through `ViewBuildContext` and suppresses retained label nodes for controls such as `Toggle`, `Picker`, `Stepper`, `Slider`, and `ProgressView`.
-- `tint(_:)`, `accentColor(_:)`, and `controlSize(_:)` bridge into `EnvironmentValues`, so `@Environment(\.tint)`, `@Environment(\.controlSize)`, `.environment(\.tint, ...)`, and `.environment(\.controlSize, ...)` share the same inherited values consumed by retained controls.
+- `font(_:)`, `tint(_:)`, `accentColor(_:)`, and `controlSize(_:)` bridge into `EnvironmentValues`, so `@Environment(\.font)`, `@Environment(\.tint)`, `@Environment(\.controlSize)`, `.environment(\.font, ...)`, `.environment(\.tint, ...)`, and `.environment(\.controlSize, ...)` share the same inherited values consumed by retained text and controls.
 - `controlSize(_:)` maps to retained preferred sizes for text inputs, toggle, menu picker, stepper buttons, slider, and progress bar surfaces.
 - `labelStyle(_:)` propagates through `EnvironmentValues` and maps `.automatic` / `.titleAndIcon`, `.iconOnly`, and `.titleOnly` to retained `Label` composition.
 - `toggleStyle(_:)` propagates through `EnvironmentValues`; `.automatic` and `.switch` use the retained switch, `.checkbox` maps to retained checkbox chrome with arbitrary SwiftUI-shaped label content, and `.button` maps to retained selected/unselected button chrome.
@@ -290,7 +290,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values for `isEnabled` plus `colorScheme`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `colorScheme`, `font`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

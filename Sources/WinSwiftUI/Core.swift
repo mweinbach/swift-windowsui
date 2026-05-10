@@ -340,6 +340,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
+    public var font: Font?
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
@@ -352,6 +353,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
+        font: Font? = nil,
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
@@ -362,6 +364,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle
         self.tint = tint
+        self.font = font
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
@@ -557,7 +560,7 @@ public struct ViewBuildContext {
     }
 
     public var font: Font {
-        var resolvedFont = fontProvider()
+        var resolvedFont = environmentValuesProvider().font ?? fontProvider()
         if let design = fontDesignProvider() {
             resolvedFont = resolvedFont.withDesign(design)
         }
@@ -817,7 +820,7 @@ public struct ViewBuildContext {
         )
     }
 
-    func withFont(_ font: Font) -> ViewBuildContext {
+    func withFont(_ font: Font?) -> ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
@@ -825,7 +828,7 @@ public struct ViewBuildContext {
             isEnabledProvider: isEnabledProvider,
             foregroundColorProvider: foregroundColorProvider,
             tintProvider: tintProvider,
-            fontProvider: { font },
+            fontProvider: fontProvider,
             fontDesignProvider: fontDesignProvider,
             fontWeightProvider: fontWeightProvider,
             textAlignmentProvider: textAlignmentProvider,
@@ -838,7 +841,11 @@ public struct ViewBuildContext {
             stackAxisProvider: stackAxisProvider,
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
-            environmentValuesProvider: environmentValuesProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.font = font
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -2957,6 +2964,12 @@ public extension View {
     }
 
     func font(_ font: Font) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withFont(font))
+        }
+    }
+
+    func font(_ font: Font?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withFont(font))
         }

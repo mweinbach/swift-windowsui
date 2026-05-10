@@ -499,6 +499,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontModifierAndEnvironmentValueBridgeRetainedTextFont() async {
+        await MainActor.run {
+            struct FontEnvironmentReaderView: View {
+                @Environment(\.font) var font
+
+                var body: some View {
+                    Text(font == .system(size: 18, weight: .bold, design: .monospaced) ? "FONT" : "DEFAULT")
+                }
+            }
+
+            let environmentFont = Font.system(size: 18, weight: .bold, design: .monospaced)
+            let optionalFont: Font? = .system(size: 16, weight: .semibold)
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("RESET")
+                        .font(nil as Font?)
+                }
+                .font(environmentFont)
+            )
+            let optionalNode = makeNode(
+                Text("OPTIONAL")
+                    .font(optionalFont)
+            )
+            let environmentNode = makeNode(
+                Text("ENVIRONMENT")
+                    .environment(\.font, environmentFont)
+            )
+            let readerNode = makeNode(
+                FontEnvironmentReaderView()
+                    .font(environmentFont)
+            )
+
+            XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 18)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(inheritedNode.children[1].textStyle.nativeFontSize, 20)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.weight, .regular)
+            XCTAssertEqual(optionalNode.textStyle.nativeFontSize, 16)
+            XCTAssertEqual(optionalNode.textStyle.weight, .semibold)
+            XCTAssertEqual(environmentNode.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(environmentNode.textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(readerNode.text, "FONT")
+        }
+    }
+
     func testFontDesignModifierPropagatesThroughViewContext() async {
         await MainActor.run {
             let inheritedNode = makeNode(

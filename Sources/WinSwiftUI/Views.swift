@@ -1551,11 +1551,13 @@ public struct ProgressView: View {
     private let value: Double?
     private let total: Double
     private let label: [AnyView]
+    private let currentValueLabel: [AnyView]
 
     public init(value: Double? = nil, total: Double = 1.0) {
         self.value = value
         self.total = total
         self.label = []
+        self.currentValueLabel = []
     }
 
     public init(_ title: String, value: Double? = nil, total: Double = 1.0) {
@@ -1569,6 +1571,7 @@ public struct ProgressView: View {
                     .lineLimit(1)
             )
         ]
+        self.currentValueLabel = []
     }
 
     public init(_ titleKey: LocalizedStringKey, value: Double? = nil, total: Double = 1.0) {
@@ -1579,6 +1582,19 @@ public struct ProgressView: View {
         self.value = value
         self.total = total
         self.label = label()
+        self.currentValueLabel = []
+    }
+
+    public init(
+        value: Double? = nil,
+        total: Double = 1.0,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.value = value
+        self.total = total
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
     }
 
     public var body: Never {
@@ -1592,18 +1608,44 @@ public struct ProgressView: View {
             fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
             isHitTestVisible: false
         )
+        let currentValueLabelComponent = composeComponent(
+            from: currentValueLabel,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
 
         return Component { runtime in
             let progressNode = Controls.progressBar(value: value ?? 0, total: total, filledColor: context.tint)
-            guard !label.isEmpty else {
+            guard !label.isEmpty || !currentValueLabel.isEmpty else {
                 return progressNode
             }
 
-            let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard !currentValueLabel.isEmpty else {
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [labelNode, progressNode]
+                )
+            }
+
+            var headerChildren: [ViewNode] = []
+            if !label.isEmpty {
+                headerChildren.append(labelComponent.makeNode(runtime: runtime))
+            }
+            headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
+
+            let headerNode = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 8, alignment: .center),
+                isHitTestVisible: false,
+                children: headerChildren
+            )
+
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [labelNode, progressNode]
+                children: [headerNode, progressNode]
             )
         }
     }

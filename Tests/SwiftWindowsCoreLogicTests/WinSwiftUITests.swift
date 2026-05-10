@@ -1230,6 +1230,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewCurrentValueLabelInitializerComposesHeaderAndProgressBar() async {
+        await MainActor.run {
+            let node = makeNode(
+                ProgressView(value: 0.75, total: 1.0) {
+                    Text("DOWNLOAD")
+                } currentValueLabel: {
+                    Text("75%")
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(firstText(in: node.children[0].children[0]), "DOWNLOAD")
+            XCTAssertEqual(firstText(in: node.children[0].children[1]), "75%")
+            XCTAssertEqual(node.children[1].children[1].frame.size.width, 150)
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true

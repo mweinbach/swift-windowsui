@@ -3340,6 +3340,22 @@ public extension View {
         }
     }
 
+    func help<S: StringProtocol>(_ text: S) -> some View {
+        helpText(String(text))
+    }
+
+    func help(_ textKey: LocalizedStringKey) -> some View {
+        helpText(textKey.resolvedString)
+    }
+
+    func help(_ text: Text) -> some View {
+        helpText(text.plainContent)
+    }
+
+    private func helpText(_ text: String) -> some View {
+        accessibilityHintText(text)
+    }
+
     func accessibilityIdentifier(_ identifier: String) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

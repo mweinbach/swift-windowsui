@@ -201,6 +201,7 @@ Modifiers:
 - `accessibilityHint`
 - `accessibilityIdentifier`
 - `accessibilityHidden`
+- `help`
 - `tag`
 
 Compatibility helpers:
@@ -277,7 +278,7 @@ Surface direction:
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle. Minimum, maximum, and main label overloads wrap the retained slider in small retained stacks while preserving the same binding/editing behavior.
 - `ProgressView(value:total:)` maps into the retained progress bar control; title, builder-label, and current-value label overloads wrap that retained bar in small retained stacks.
-- Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, and hidden state) so the tree has stable semantic data. Native Win32 UI Automation exposure is not implemented yet.
+- Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, and hidden state) so the tree has stable semantic data. `help(_:)` maps to the same retained hint metadata for desktop shared-source compatibility. Native Win32 UI Automation exposure is not implemented yet.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping; the antialiasing flag is accepted for call-site compatibility but is not distinguished by the retained renderer today.
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, and `Capsule` to retained bounds clipping with matching retained corner-radius behavior. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.

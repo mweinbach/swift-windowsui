@@ -3227,6 +3227,18 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testHelpModifierMapsToRetainedAccessibilityHint() async {
+        await MainActor.run {
+            let stringNode = makeNode(Text("SAVE").help("Writes changes"))
+            let keyNode = makeNode(Text("OPEN").help(LocalizedStringKey("Opens a file")))
+            let textNode = makeNode(Text("CLOSE").help(Text("Closes the window")))
+
+            XCTAssertEqual(stringNode.accessibilityHint, "Writes changes")
+            XCTAssertEqual(keyNode.accessibilityHint, "Opens a file")
+            XCTAssertEqual(textNode.accessibilityHint, "Closes the window")
+        }
+    }
+
     func testClippedModifierMapsToRetainedBoundsClip() async {
         await MainActor.run {
             let node = makeNode(Text("CLIP").clipped(antialiased: true))

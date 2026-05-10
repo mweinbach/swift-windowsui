@@ -27,6 +27,17 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSwiftUIColorInitializersMapToCoreRGBA() async {
+        await MainActor.run {
+            assertColor(Color(white: 0.25, opacity: 0.75), red: 0.25, green: 0.25, blue: 0.25, alpha: 0.75)
+            assertColor(Color(white: 1.5, opacity: -0.25), red: 1, green: 1, blue: 1, alpha: 0)
+            assertColor(Color(hue: 0, saturation: 1, brightness: 1), red: 1, green: 0, blue: 0, alpha: 1)
+            assertColor(Color(hue: 1.0 / 3.0, saturation: 1, brightness: 1), red: 0, green: 1, blue: 0, alpha: 1)
+            assertColor(Color(hue: 0.5, saturation: 0.5, brightness: 0.8, opacity: 0.6), red: 0.4, green: 0.8, blue: 0.8, alpha: 0.6)
+            assertColor(Color(hue: -0.25, saturation: 1, brightness: 0.5), red: 0.25, green: 0, blue: 0.5, alpha: 1)
+        }
+    }
+
     func testTextMapsToLabelNode() async {
         await MainActor.run {
             let node = makeNode(
@@ -1195,6 +1206,22 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+private func assertColor(
+    _ color: Color,
+    red: Float,
+    green: Float,
+    blue: Float,
+    alpha: Float,
+    accuracy: Float = 0.0001,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    XCTAssertEqual(color.red, red, accuracy: accuracy, file: file, line: line)
+    XCTAssertEqual(color.green, green, accuracy: accuracy, file: file, line: line)
+    XCTAssertEqual(color.blue, blue, accuracy: accuracy, file: file, line: line)
+    XCTAssertEqual(color.alpha, alpha, accuracy: accuracy, file: file, line: line)
 }
 
 @MainActor

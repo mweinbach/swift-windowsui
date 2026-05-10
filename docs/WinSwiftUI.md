@@ -125,6 +125,8 @@ Modifiers:
 Compatibility helpers:
 
 - `Color(red:green:blue:opacity:)`
+- `Color(white:opacity:)`
+- `Color(hue:saturation:brightness:opacity:)`
 - common `Color` constants such as `red`, `blue`, `gray`, `primary`, `secondary`, and `accentColor`
 - `Color.opacity(_:)`
 - `LinearGradient(colors:startPoint:endPoint)`
@@ -143,6 +145,7 @@ Surface direction:
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
 - `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
+- SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
 - Text and foreground styling modifiers on containers propagate through `ViewBuildContext`, while explicit `Text`, `Image`, and `Label` styling still takes precedence.
 - `tint` and `accentColor` propagate through `ViewBuildContext`; retained controls consume the inherited tint for toggle-on, slider-fill, and progress-fill colors.

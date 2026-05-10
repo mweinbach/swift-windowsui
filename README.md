@@ -100,7 +100,7 @@ Included today:
 - Collection helpers: `ForEach`, including open and closed integer ranges
 - Controls: `Button` including `ButtonRole` overloads, `Toggle`, `Slider`, `ProgressView`
 - Modifiers: `frame`, including fixed and min/ideal/max overloads, `padding`, `background`, `background(_:alignment:)`, `background(alignment:content:)`, `overlay(_:alignment:)`, `overlay(alignment:content:)`, `foregroundColor`, `foregroundStyle`, `tint`, `accentColor`, `font`, `fontWeight`, `bold`, `multilineTextAlignment`, `lineLimit`, `cornerRadius(_:antialiased:)`, `clipped`, `clipShape`, `border`, `shadow`, `layoutPriority`, `allowsHitTesting`, `opacity`, `hidden`, `zIndex`, `offset`, `scaleEffect`, `rotationEffect`, `blur`, `disabled`, `onAppear`, `onDisappear`, `onTapGesture`
-- Compatibility helpers: `Color(red:green:blue:opacity:)`, common `Color` constants, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `LocalizedStringKey`
+- Compatibility helpers: `Color(red:green:blue:opacity:)`, `Color(white:opacity:)`, `Color(hue:saturation:brightness:opacity:)`, common `Color` constants, `Color.opacity(_:)`, `LinearGradient(colors:startPoint:endPoint)`, `UnitPoint`, `Angle`, `LocalizedStringKey`
 - Shared-source support: `CGFloat`/`CGPoint`/`CGSize`/`CGRect` aliases and minimal `Binding` / `State` / `ObservableObject` / `Published` / `ObservedObject`
 - Modernized defaults: rounded translucent button chrome, hover/focus/press states, and softer glass-style surface styling in the demo
 

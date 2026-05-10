@@ -1211,10 +1211,65 @@ public extension SwiftWindowsCore.Color {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
     }
 
+    init(white: Double, opacity: Double = 1.0) {
+        let channel = Float(clampedUnitInterval(white))
+        self.init(red: channel, green: channel, blue: channel, alpha: Float(clampedUnitInterval(opacity)))
+    }
+
+    init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1.0) {
+        let normalizedHue = normalizedHueUnit(hue)
+        let saturation = clampedUnitInterval(saturation)
+        let brightness = clampedUnitInterval(brightness)
+        let chroma = brightness * saturation
+        let hueSector = normalizedHue * 6
+        let secondary = chroma * (1 - abs(hueSector.truncatingRemainder(dividingBy: 2) - 1))
+        let match = brightness - chroma
+
+        let components: (Double, Double, Double)
+        switch hueSector {
+        case 0..<1:
+            components = (chroma, secondary, 0)
+        case 1..<2:
+            components = (secondary, chroma, 0)
+        case 2..<3:
+            components = (0, chroma, secondary)
+        case 3..<4:
+            components = (0, secondary, chroma)
+        case 4..<5:
+            components = (secondary, 0, chroma)
+        default:
+            components = (chroma, 0, secondary)
+        }
+
+        self.init(
+            red: Float(components.0 + match),
+            green: Float(components.1 + match),
+            blue: Float(components.2 + match),
+            alpha: Float(clampedUnitInterval(opacity))
+        )
+    }
+
     func opacity(_ value: Double) -> SwiftWindowsCore.Color {
         let components = rgba
         return SwiftWindowsCore.Color(red: components.0, green: components.1, blue: components.2, alpha: Float(value))
     }
+}
+
+private func clampedUnitInterval(_ value: Double) -> Double {
+    guard value.isFinite else {
+        return 0
+    }
+
+    return min(max(value, 0), 1)
+}
+
+private func normalizedHueUnit(_ hue: Double) -> Double {
+    guard hue.isFinite else {
+        return 0
+    }
+
+    let normalized = hue.truncatingRemainder(dividingBy: 1)
+    return normalized >= 0 ? normalized : normalized + 1
 }
 
 public extension SwiftWindowsGraphics.LinearGradient {

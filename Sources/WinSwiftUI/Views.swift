@@ -771,6 +771,13 @@ public struct NavigationLink: View {
         self.value = nil
     }
 
+    public init<S: StringProtocol, Destination: View>(
+        _ title: S,
+        destination: Destination
+    ) {
+        self.init(String(title), destination: destination)
+    }
+
     public init<Destination: View>(
         _ titleKey: LocalizedStringKey,
         destination: Destination
@@ -794,6 +801,13 @@ public struct NavigationLink: View {
         self.label = [AnyView(Text(title))]
         self.destination = []
         self.value = AnyHashable(value)
+    }
+
+    public init<S: StringProtocol, Value: Hashable>(
+        _ title: S,
+        value: Value
+    ) {
+        self.init(String(title), value: value)
     }
 
     public init<Value: Hashable>(
@@ -1549,6 +1563,10 @@ public struct Label: View {
         self.spacing = 10
     }
 
+    public init<S: StringProtocol>(_ title: S, systemImage: String) {
+        self.init(String(title), systemImage: systemImage)
+    }
+
     public init(_ titleKey: LocalizedStringKey, systemImage: String) {
         self.init(titleKey.resolvedString, systemImage: systemImage)
     }
@@ -2283,6 +2301,10 @@ public struct Menu: View {
         }
     }
 
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
     public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, content: content)
     }
@@ -2687,6 +2709,10 @@ public struct Toggle: View {
                     .lineLimit(1)
             )
         ]
+    }
+
+    public init<S: StringProtocol>(_ title: S, isOn: Binding<Bool>) {
+        self.init(String(title), isOn: isOn)
     }
 
     public init(_ titleKey: LocalizedStringKey, isOn: Binding<Bool>) {
@@ -3608,6 +3634,10 @@ public struct ProgressView: View {
         self.currentValueLabel = []
     }
 
+    public init<S: StringProtocol>(_ title: S, value: Double? = nil, total: Double = 1.0) {
+        self.init(String(title), value: value, total: total)
+    }
+
     public init(_ titleKey: LocalizedStringKey, value: Double? = nil, total: Double = 1.0) {
         self.init(titleKey.resolvedString, value: value, total: total)
     }
@@ -3739,6 +3769,10 @@ public struct Button: View {
         self.hasCustomSurfaceStyle = false
     }
 
+    public init<S: StringProtocol>(_ title: S, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), action: action)
+    }
+
     public init(_ title: String, systemImage: String, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -3748,6 +3782,10 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), systemImage: systemImage, action: action)
     }
 
     public init(_ titleKey: LocalizedStringKey, systemImage: String, action: @escaping @MainActor () -> Void) {
@@ -3774,6 +3812,10 @@ public struct Button: View {
         self.hasCustomSurfaceStyle = false
     }
 
+    public init<S: StringProtocol>(_ title: S, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), role: role, action: action)
+    }
+
     public init(_ title: String, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -3783,6 +3825,10 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), systemImage: systemImage, role: role, action: action)
     }
 
     public init(_ titleKey: LocalizedStringKey, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {

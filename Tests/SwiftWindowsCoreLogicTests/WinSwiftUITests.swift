@@ -118,6 +118,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStringProtocolInputsMapToLabelBearingControls() async {
+        await MainActor.run {
+            let source = "PREFIX-SAVE"
+            let title = source.dropFirst(7)
+
+            let node = makeNode(
+                VStack {
+                    Label(title, systemImage: "gear")
+                    NavigationLink(title, destination: Text("DESTINATION"))
+                    NavigationLink(title, value: "detail")
+                    Menu(title) {
+                        Button(title) {}
+                    }
+                    Toggle(title, isOn: .constant(true))
+                    ProgressView(title, value: 0.5, total: 1.0)
+                    Button(title) {}
+                    Button(title, systemImage: "doc.text") {}
+                    Button(title, role: .cancel) {}
+                    Button(title, systemImage: "trash", role: .destructive) {}
+                }
+            )
+
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 10)
+        }
+    }
+
     func testTextCaseAppliesExplicitAndInheritedCasing() async {
         await MainActor.run {
             let uppercaseNode = makeNode(Text("MiXeD").textCase(.uppercase))

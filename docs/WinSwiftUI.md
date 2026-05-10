@@ -67,6 +67,7 @@ Views and containers:
   - `Image(systemName:variableValue:)`
   - `resizable(capInsets:resizingMode:)`
 - `Label`
+  - `StringProtocol` title inputs
   - `Label { title } icon: { icon }`
 - `Rectangle`
 - `RoundedRectangle(cornerRadius:style:)`
@@ -82,6 +83,7 @@ Views and containers:
 - `NavigationSplitView`
 - `NavigationLink`
   - `NavigationLink { destination } label: { label }`
+  - `StringProtocol` title inputs
 - `TabView`
 - `VStack`
 - `HStack`
@@ -101,6 +103,7 @@ Views and containers:
 - `VSplitView`
 - `Menu`
 - `Button`
+  - `StringProtocol` title inputs
   - `Button(_:systemImage:...)`
   - `ButtonRole.destructive`
   - `ButtonRole.cancel`
@@ -111,6 +114,7 @@ Views and containers:
   - `prompt: Text?` overloads
 - `TextEditor`
 - `Toggle`
+  - `StringProtocol` title inputs
 - `Picker`
   - `.pickerStyle(.segmented)`
   - `.pickerStyle(.menu)`
@@ -119,6 +123,7 @@ Views and containers:
   - `Slider(value:in:step:onEditingChanged:)`
   - minimum, maximum, and main label overloads
 - `ProgressView`
+  - `StringProtocol` title inputs
   - title, label, and current-value label overloads
 
 Modifiers:
@@ -236,7 +241,7 @@ Surface direction:
 ## Mapping Notes
 
 - `Text` maps into retained label nodes and the current runtime text renderer path.
-- `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet.
+- `LocalizedStringKey` is a source-compatibility shim that resolves to plain retained text today; it does not perform bundle lookup or real localization yet. Common title-bearing controls also accept `StringProtocol` inputs such as `Substring` and forward them through the same retained label paths as `String` titles.
 - Named `Font` styles and `Font.system(_:design:weight:)` text-style overloads are fixed point-size and weight presets today; they do not implement Dynamic Type scaling yet. `Font.monospaced()`, `Text.monospaced()`, and `fontDesign(_:)` resolve through the same retained font family mapping as `.system(..., design: .monospaced)`. `font(_:)` accepts `Font?`, bridges through `EnvironmentValues.font`, and `.font(nil)` resets a subtree to the retained default font.
 - SwiftUI-shaped RGB, white, and HSB `Color` initializers reduce to the renderer-neutral RGBA color type used by the retained scene.
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.

@@ -4877,6 +4877,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDynamicPropertyProtocolAcceptsWinSwiftUIWrappers() async {
+        await MainActor.run {
+            final class DynamicModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            @MainActor
+            func acceptDynamicProperty<Property: DynamicProperty>(_ property: Property) {
+                var property = property
+                property.update()
+            }
+
+            let model = DynamicModel()
+            let suiteName = "WinSwiftUITests.DynamicProperty.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            acceptDynamicProperty(ObservedObject(wrappedValue: model))
+            acceptDynamicProperty(Environment(\.colorScheme))
+            acceptDynamicProperty(EnvironmentObject<DynamicModel>())
+            acceptDynamicProperty(FocusedValue(\.testFocusedLabel))
+            acceptDynamicProperty(FocusedBinding(\.testFocusedBinding))
+            acceptDynamicProperty(FocusedObject<DynamicModel>())
+            acceptDynamicProperty(StateObject(wrappedValue: model))
+            acceptDynamicProperty(Binding.constant(1))
+            acceptDynamicProperty(State(wrappedValue: 1))
+            acceptDynamicProperty(AppStorage(wrappedValue: 1, "count", store: store))
+            acceptDynamicProperty(SceneStorage(wrappedValue: "value", "dynamicProperty"))
+            acceptDynamicProperty(ScaledMetric(wrappedValue: 1.0))
+            acceptDynamicProperty(FocusState<Bool>())
+        }
+    }
+
     func testAppStorageReadsWritesUserDefaultsAndProvidesBinding() async {
         await MainActor.run {
             struct AppStorageReaderView: View {

@@ -217,6 +217,15 @@ struct NavigationPresentedDestination {
 public protocol ObservableObject: AnyObject {}
 
 @MainActor
+public protocol DynamicProperty {
+    mutating func update()
+}
+
+public extension DynamicProperty {
+    mutating func update() {}
+}
+
+@MainActor
 public final class ObservationToken {
     private let cancelHandler: @MainActor () -> Void
 
@@ -303,7 +312,7 @@ public struct Published<Value> {
 
 @MainActor
 @propertyWrapper
-public struct ObservedObject<ObjectType: ObservableObject> {
+public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
     private var object: ObjectType
 
     public init(wrappedValue: ObjectType) {
@@ -1225,7 +1234,7 @@ public struct EnvironmentValues: @unchecked Sendable {
 
 @MainActor
 @propertyWrapper
-public struct Environment<Value> {
+public struct Environment<Value>: DynamicProperty {
     private let keyPath: KeyPath<EnvironmentValues, Value>
 
     public init(_ keyPath: KeyPath<EnvironmentValues, Value>) {
@@ -1240,7 +1249,7 @@ public struct Environment<Value> {
 
 @MainActor
 @propertyWrapper
-public struct EnvironmentObject<ObjectType: ObservableObject> {
+public struct EnvironmentObject<ObjectType: ObservableObject>: DynamicProperty {
     public init() {}
 
     public var wrappedValue: ObjectType {
@@ -1260,7 +1269,7 @@ public struct EnvironmentObject<ObjectType: ObservableObject> {
 
 @MainActor
 @propertyWrapper
-public struct FocusedValue<Value> {
+public struct FocusedValue<Value>: DynamicProperty {
     private let keyPath: KeyPath<FocusedValues, Value>
 
     public init(_ keyPath: KeyPath<FocusedValues, Value>) {
@@ -1275,7 +1284,7 @@ public struct FocusedValue<Value> {
 
 @MainActor
 @propertyWrapper
-public struct FocusedBinding<Value> {
+public struct FocusedBinding<Value>: DynamicProperty {
     private let keyPath: KeyPath<FocusedValues, Binding<Value>?>
 
     public init(_ keyPath: KeyPath<FocusedValues, Binding<Value>?>) {
@@ -1306,7 +1315,7 @@ public struct FocusedBinding<Value> {
 
 @MainActor
 @propertyWrapper
-public struct FocusedObject<ObjectType: ObservableObject> {
+public struct FocusedObject<ObjectType: ObservableObject>: DynamicProperty {
     public init() {}
 
     public var wrappedValue: ObjectType? {
@@ -1320,7 +1329,7 @@ public struct FocusedObject<ObjectType: ObservableObject> {
 
 @MainActor
 @propertyWrapper
-public struct StateObject<ObjectType: ObservableObject> {
+public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     private var object: ObjectType
 
     public init(wrappedValue: @autoclosure () -> ObjectType) {
@@ -1344,7 +1353,7 @@ public struct StateObject<ObjectType: ObservableObject> {
 
 @MainActor
 @propertyWrapper
-public struct Binding<Value> {
+public struct Binding<Value>: DynamicProperty {
     private let getValue: @MainActor () -> Value
     private let setValue: @MainActor (Value) -> Void
 
@@ -1373,7 +1382,7 @@ public struct Binding<Value> {
 
 @MainActor
 @propertyWrapper
-public struct State<Value> {
+public struct State<Value>: DynamicProperty {
     @MainActor
     private final class Storage {
         var value: Value
@@ -1423,7 +1432,7 @@ public struct State<Value> {
 
 @MainActor
 @propertyWrapper
-public struct AppStorage<Value> {
+public struct AppStorage<Value>: DynamicProperty {
     @MainActor
     private final class Storage {
         let key: String
@@ -1535,7 +1544,7 @@ private final class SceneStorageCenter {
 
 @MainActor
 @propertyWrapper
-public struct SceneStorage<Value> {
+public struct SceneStorage<Value>: DynamicProperty {
     @MainActor
     private final class Storage {
         let key: String
@@ -1608,7 +1617,7 @@ public struct SceneStorage<Value> {
 
 @MainActor
 @propertyWrapper
-public struct ScaledMetric<Value: BinaryFloatingPoint> {
+public struct ScaledMetric<Value: BinaryFloatingPoint>: DynamicProperty {
     private let baseValue: Value
     private let relativeTextStyle: Font.TextStyle
 
@@ -1633,7 +1642,7 @@ public struct ScaledMetric<Value: BinaryFloatingPoint> {
 
 @MainActor
 @propertyWrapper
-public struct FocusState<Value> {
+public struct FocusState<Value>: DynamicProperty {
     @MainActor
     private final class Storage {
         var value: Value

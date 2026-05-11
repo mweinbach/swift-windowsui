@@ -368,6 +368,7 @@ Modifiers:
 - `flipsForRightToLeftLayoutDirection`
 - `rotationEffect`
 - `blur`
+- `transition`
 - `animation`
 - `disabled`
 - `scrollDisabled`
@@ -417,6 +418,7 @@ Compatibility helpers:
 - `ViewModifier`
 - `ViewModifier.Content`
 - `ModifiedContent`
+- `AnyTransition`
 - `ListStyle`
 - `LocalizedStringResource` text inputs
 - `String(localized: LocalizedStringResource)`
@@ -620,6 +622,7 @@ Surface direction:
 - `zIndex(_:)`, `offset`, `scaleEffect`, `flipsForRightToLeftLayoutDirection(_:)`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
 - `@Namespace` creates stable SwiftUI-shaped namespace IDs, and `matchedGeometryEffect(id:in:properties:anchor:isSource:)` records retained metadata on the node. WinSwiftUI does not yet interpolate geometry across matched source/destination pairs, but the metadata is available to the retained runtime for future animation work.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
+- `transition(_:)` accepts common `AnyTransition` values such as `.identity`, `.opacity`, `.move(edge:)`, `.offset(...)`, `.push(from:)`, `.scale`, `.slide`, `.asymmetric(...)`, and `.combined(with:)` for source compatibility. Retained insertion/removal animation semantics are not modeled yet, so the modifier currently preserves the rendered subtree unchanged.
 - `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation`, `Transaction`, `withTransaction`, and `transaction(_:)` accept SwiftUI-shaped call sites and execute their body/transform closures, but transaction propagation is not yet modeled by the retained runtime.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `scrollDisabled(_:)` propagates `EnvironmentValues.isScrollEnabled`; retained `ScrollView`, `List`, and scrolling `Section` nodes keep their layout and clipping but remove their scroll axis and indicators when disabled.

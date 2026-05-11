@@ -4447,7 +4447,7 @@ public enum ContentMode: Sendable {
     case fill
 }
 
-public enum Edge {
+public enum Edge: Sendable, Equatable, Hashable {
     case top
     case leading
     case bottom
@@ -4467,6 +4467,59 @@ public enum Edge {
         public static let horizontal: Set = [.leading, .trailing]
         public static let vertical: Set = [.top, .bottom]
         public static let all: Set = [.top, .leading, .bottom, .trailing]
+    }
+}
+
+public struct AnyTransition: Sendable, Equatable {
+    indirect enum Kind: Sendable, Equatable {
+        case identity
+        case move(edge: Edge)
+        case offset(x: Double, y: Double)
+        case opacity
+        case push(from: Edge)
+        case scale(scale: Double, anchor: UnitPoint)
+        case slide
+        case asymmetric(insertion: AnyTransition, removal: AnyTransition)
+        case combined(AnyTransition, AnyTransition)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let identity = AnyTransition(kind: .identity)
+    public static let opacity = AnyTransition(kind: .opacity)
+    public static let scale = AnyTransition(kind: .scale(scale: 1, anchor: .center))
+    public static let slide = AnyTransition(kind: .slide)
+
+    public static func move(edge: Edge) -> AnyTransition {
+        AnyTransition(kind: .move(edge: edge))
+    }
+
+    public static func offset(_ offset: CGSize) -> AnyTransition {
+        AnyTransition(kind: .offset(x: offset.width, y: offset.height))
+    }
+
+    public static func offset(x: Double, y: Double) -> AnyTransition {
+        AnyTransition(kind: .offset(x: x, y: y))
+    }
+
+    public static func push(from edge: Edge) -> AnyTransition {
+        AnyTransition(kind: .push(from: edge))
+    }
+
+    public static func scale(scale: Double, anchor: UnitPoint = .center) -> AnyTransition {
+        AnyTransition(kind: .scale(scale: scale, anchor: anchor))
+    }
+
+    public static func asymmetric(insertion: AnyTransition, removal: AnyTransition) -> AnyTransition {
+        AnyTransition(kind: .asymmetric(insertion: insertion, removal: removal))
+    }
+
+    public func combined(with other: AnyTransition) -> AnyTransition {
+        AnyTransition(kind: .combined(self, other))
     }
 }
 
@@ -12170,6 +12223,13 @@ public extension View {
                 )
                 return node
             }
+        }
+    }
+
+    func transition(_ transition: AnyTransition) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = transition
+            return content.makeComponent(context: context)
         }
     }
 

@@ -12419,6 +12419,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAnyTransitionCompatibilityModifierPreservesRenderedContent() async {
+        await MainActor.run {
+            let combined = AnyTransition.opacity
+                .combined(with: .move(edge: .leading))
+            let asymmetric = AnyTransition.asymmetric(
+                insertion: .push(from: .trailing),
+                removal: .offset(x: 12, y: -4)
+            )
+            let scale = AnyTransition.scale(scale: 0.8, anchor: .topLeading)
+            let sizedOffset = AnyTransition.offset(CGSize(width: 3, height: 4))
+
+            let node = makeNode(
+                VStack {
+                    Text("FADE").transition(combined)
+                    Text("SWAP").transition(asymmetric)
+                    Text("GROW").transition(scale)
+                    Text("SHIFT").transition(sizedOffset)
+                    Text("STAY").transition(.identity)
+                    Text("SLIDE").transition(.slide)
+                    Text("SCALE").transition(.scale)
+                }
+            )
+
+            XCTAssertNotEqual(combined, .identity)
+            XCTAssertEqual(allTexts(in: node), ["FADE", "SWAP", "GROW", "SHIFT", "STAY", "SLIDE", "SCALE"])
+        }
+    }
+
     func testTransactionCompatibilityShimsExecuteBodiesAndTransforms() async {
         await MainActor.run {
             var value = 0

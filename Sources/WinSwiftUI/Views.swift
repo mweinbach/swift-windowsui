@@ -9886,7 +9886,7 @@ public struct ProgressView: View {
     private let currentValueLabel: [AnyView]
 
     public init<Value: BinaryFloatingPoint>(value: Value?, total: Value = 1.0) {
-        self.init(value: value.map(Double.init), total: Double(total))
+        self.init(value: value.map { Double($0) }, total: Double(total))
     }
 
     public init(value: Double? = nil, total: Double = 1.0) {
@@ -9897,7 +9897,7 @@ public struct ProgressView: View {
     }
 
     public init<Value: BinaryFloatingPoint>(_ title: String, value: Value?, total: Value = 1.0) {
-        self.init(title, value: value.map(Double.init), total: Double(total))
+        self.init(title, value: value.map { Double($0) }, total: Double(total))
     }
 
     public init(_ title: String, value: Double? = nil, total: Double = 1.0) {
@@ -9935,7 +9935,7 @@ public struct ProgressView: View {
         total: Value = 1.0,
         @ViewBuilder label: () -> [AnyView]
     ) {
-        self.init(value: value.map(Double.init), total: Double(total), label: label)
+        self.init(value: value.map { Double($0) }, total: Double(total), label: label)
     }
 
     public init(value: Double? = nil, total: Double = 1.0, @ViewBuilder label: () -> [AnyView]) {
@@ -9952,7 +9952,7 @@ public struct ProgressView: View {
         @ViewBuilder currentValueLabel: () -> [AnyView]
     ) {
         self.init(
-            value: value.map(Double.init),
+            value: value.map { Double($0) },
             total: Double(total),
             label: label,
             currentValueLabel: currentValueLabel

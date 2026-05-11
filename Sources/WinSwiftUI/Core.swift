@@ -906,6 +906,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isFocusEffectEnabled: Bool
     public var buttonRepeatBehavior: ButtonRepeatBehavior
     public var buttonSizing: ButtonSizing
+    public var buttonBorderShape: ButtonBorderShape
     public var menuIndicatorVisibility: Visibility
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
@@ -998,6 +999,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isFocusEffectEnabled: Bool = true,
         buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
         buttonSizing: ButtonSizing = .automatic,
+        buttonBorderShape: ButtonBorderShape = .automatic,
         menuIndicatorVisibility: Visibility = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
@@ -1086,6 +1088,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isFocusEffectEnabled = isFocusEffectEnabled
         self.buttonRepeatBehavior = buttonRepeatBehavior
         self.buttonSizing = buttonSizing
+        self.buttonBorderShape = buttonBorderShape
         self.menuIndicatorVisibility = menuIndicatorVisibility
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
@@ -3121,6 +3124,58 @@ public struct ButtonSizing: Sendable, Equatable, Hashable {
     }
 }
 
+public struct ButtonBorderShape: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case capsule
+        case circle
+        case roundedRectangle(Double?)
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ButtonBorderShape(.automatic)
+    public static let capsule = ButtonBorderShape(.capsule)
+    public static let circle = ButtonBorderShape(.circle)
+    public static let roundedRectangle = ButtonBorderShape(.roundedRectangle(nil))
+
+    public static func roundedRectangle(radius: CGFloat) -> ButtonBorderShape {
+        ButtonBorderShape(.roundedRectangle(max(0, radius)))
+    }
+
+    func retainedCornerRadius(default defaultRadius: Double) -> Double {
+        switch kind {
+        case .automatic:
+            return defaultRadius
+        case .roundedRectangle(let radius):
+            return radius ?? defaultRadius
+        case .capsule, .circle:
+            return 0
+        }
+    }
+
+    @MainActor
+    func applyRetainedDynamicCornerRadius(to node: ViewNode) {
+        switch kind {
+        case .capsule, .circle:
+            let existingOnLayout = node.onLayout
+            node.onLayout = { [weak node] bounds in
+                existingOnLayout?(bounds)
+                let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                if node?.cornerRadius != radius {
+                    node?.cornerRadius = radius
+                }
+            }
+        case .automatic, .roundedRectangle:
+            break
+        }
+    }
+}
+
 public struct PickerStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -4558,6 +4613,12 @@ public extension View {
     func buttonSizing(_ sizing: ButtonSizing) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.buttonSizing, sizing))
+        }
+    }
+
+    func buttonBorderShape(_ shape: ButtonBorderShape) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.buttonBorderShape, shape))
         }
     }
 

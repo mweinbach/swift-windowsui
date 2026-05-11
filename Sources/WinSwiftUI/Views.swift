@@ -5806,10 +5806,11 @@ public struct Button: View {
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let buttonStyle = resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle)
-            return Controls.button(
+            let buttonBorderShape = context.environmentValues.buttonBorderShape
+            let node = Controls.button(
                 runtime: runtime,
                 layoutPriority: context.environmentValues.buttonSizing.retainedLayoutPriority,
-                cornerRadius: surfaceStyle.cornerRadius,
+                cornerRadius: buttonBorderShape.retainedCornerRadius(default: surfaceStyle.cornerRadius),
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,
                 clipsToBounds: surfaceStyle.clipsToBounds,
@@ -5824,6 +5825,8 @@ public struct Button: View {
                 },
                 children: [labelNode]
             )
+            buttonBorderShape.applyRetainedDynamicCornerRadius(to: node)
+            return node
         }
     }
 

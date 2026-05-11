@@ -2672,6 +2672,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonBorderShapeBridgesThroughEnvironmentAndUpdatesButtonChrome() async {
+        await MainActor.run {
+            struct ButtonBorderShapeReaderView: View {
+                @Environment(\.buttonBorderShape) var buttonBorderShape
+
+                var body: some View {
+                    Text(buttonBorderShape == .capsule ? "CAPSULE" : buttonBorderShape == .roundedRectangle(radius: 6) ? "ROUNDED" : "AUTOMATIC")
+                }
+            }
+
+            let defaultNode = makeNode(ButtonBorderShapeReaderView())
+            let modifierNode = makeNode(
+                ButtonBorderShapeReaderView()
+                    .buttonBorderShape(.capsule)
+            )
+            let environmentNode = makeNode(
+                ButtonBorderShapeReaderView()
+                    .environment(\.buttonBorderShape, .roundedRectangle(radius: 6))
+            )
+            let roundedButtonNode = makeNode(
+                Button("SAVE") {}
+                    .buttonBorderShape(.roundedRectangle(radius: 6))
+            )
+            let inheritedRoundedButtonNode = makeNode(
+                VStack {
+                    Button("SAVE") {}
+                }
+                .buttonBorderShape(.roundedRectangle(radius: 4))
+            )
+            .children[0]
+            let capsuleButtonNode = makeNode(
+                Button("PILL") {}
+                    .buttonBorderShape(.capsule)
+            )
+
+            capsuleButtonNode.onLayout?(Rect(x: 0, y: 0, width: 120, height: 30))
+
+            XCTAssertEqual(defaultNode.text, "AUTOMATIC")
+            XCTAssertEqual(modifierNode.text, "CAPSULE")
+            XCTAssertEqual(environmentNode.text, "ROUNDED")
+            XCTAssertEqual(roundedButtonNode.cornerRadius, 6)
+            XCTAssertEqual(inheritedRoundedButtonNode.cornerRadius, 4)
+            XCTAssertEqual(capsuleButtonNode.cornerRadius, 15)
+        }
+    }
+
     func testScrollViewConfiguresScrollChrome() async {
         await MainActor.run {
             let node = makeNode(

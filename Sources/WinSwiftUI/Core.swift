@@ -2934,6 +2934,53 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
 }
 
 @MainActor
+public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata {
+    public typealias Body = Never
+
+    public let content: Content
+
+    public init(content: Content) {
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("EquatableView has no body")
+    }
+
+    var anySelectionTag: AnyHashable? {
+        (content as? any TaggedViewMetadata)?.anySelectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyTabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyBadge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        (content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        (content as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+@MainActor
 public protocol Shape: View {}
 
 public extension Shape {
@@ -4694,6 +4741,10 @@ private final class OnChangeObservationRegistry {
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
+    }
+
+    func equatable() -> EquatableView<Self> where Self: Equatable {
+        EquatableView(content: self)
     }
 
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {

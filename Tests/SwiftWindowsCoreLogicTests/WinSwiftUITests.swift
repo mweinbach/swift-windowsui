@@ -1835,6 +1835,25 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEquatableViewRendersContent() async {
+        await MainActor.run {
+            struct EquatableRow: View, Equatable {
+                var title: String
+
+                var body: some View {
+                    Text(title)
+                }
+            }
+
+            let first = EquatableView(content: EquatableRow(title: "ROW"))
+            let directNode = makeNode(first)
+            let node = makeNode(EquatableRow(title: "ROW").equatable())
+
+            XCTAssertEqual(directNode.text, "ROW")
+            XCTAssertEqual(node.text, "ROW")
+        }
+    }
+
     func testForegroundStyleMultiArgumentOverloadsUsePrimaryStyle() async {
         await MainActor.run {
             let primaryColor = Color(red: 0.6, green: 0.2, blue: 0.9, alpha: 1)

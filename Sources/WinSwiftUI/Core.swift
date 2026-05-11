@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var formStyle: FormStyle
     public var groupBoxStyle: GroupBoxStyle
     public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
@@ -1279,6 +1280,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        formStyle: FormStyle = .automatic,
         groupBoxStyle: GroupBoxStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
@@ -1377,6 +1379,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.formStyle = formStyle
         self.groupBoxStyle = groupBoxStyle
         self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
@@ -2056,6 +2059,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var formStyle: FormStyle {
+        environmentValuesProvider().formStyle
     }
 
     public var groupBoxStyle: GroupBoxStyle {
@@ -4120,6 +4127,40 @@ public struct GroupBoxStyle: Sendable, Equatable {
 }
 
 public typealias DefaultGroupBoxStyle = GroupBoxStyle
+
+public struct FormStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case columns
+        case grouped
+    }
+
+    let kind: Kind
+
+    public init() {
+        self.kind = .automatic
+    }
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = FormStyle(kind: .automatic)
+    public static let columns = FormStyle(kind: .columns)
+    public static let grouped = FormStyle(kind: .grouped)
+}
+
+public struct AutomaticFormStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ColumnsFormStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct GroupedFormStyle: Sendable, Equatable {
+    public init() {}
+}
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
@@ -6896,6 +6937,24 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
         }
+    }
+
+    func formStyle(_ style: FormStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.formStyle, style))
+        }
+    }
+
+    func formStyle(_ style: AutomaticFormStyle) -> some View {
+        formStyle(.automatic)
+    }
+
+    func formStyle(_ style: ColumnsFormStyle) -> some View {
+        formStyle(.columns)
+    }
+
+    func formStyle(_ style: GroupedFormStyle) -> some View {
+        formStyle(.grouped)
     }
 
     func groupBoxStyle(_ style: GroupBoxStyle) -> some View {

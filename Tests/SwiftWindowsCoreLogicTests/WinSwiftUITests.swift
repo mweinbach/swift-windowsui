@@ -3956,6 +3956,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFormStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct FormStyleReaderView: View {
+                @Environment(\.formStyle) var formStyle
+
+                var body: some View {
+                    Text(formStyle == .columns ? "COLUMNS" : formStyle == .grouped ? "GROUPED" : "AUTOMATIC")
+                }
+            }
+
+            let columnsReaderNode = makeNode(FormStyleReaderView().formStyle(ColumnsFormStyle()))
+            let groupedReaderNode = makeNode(FormStyleReaderView().formStyle(.grouped))
+            let inheritedNode = makeNode(
+                VStack {
+                    Form {
+                        Text("NAME")
+                        Text("VALUE")
+                    }
+                }
+                .formStyle(GroupedFormStyle())
+            )
+
+            XCTAssertEqual(columnsReaderNode.text, "COLUMNS")
+            XCTAssertEqual(groupedReaderNode.text, "GROUPED")
+            XCTAssertEqual(inheritedNode.children[0].children.count, 2)
+            XCTAssertEqual(inheritedNode.children[0].children[0].text, "NAME")
+        }
+    }
+
     func testSectionSupportsHeaderFooterBuilderSyntax() async {
         await MainActor.run {
             let node = makeNode(

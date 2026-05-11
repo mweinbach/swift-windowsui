@@ -802,6 +802,89 @@ public enum Visibility: Sendable, Equatable {
     }
 }
 
+public struct ContentMarginPlacement: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case scrollContent
+        case scrollIndicators
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ContentMarginPlacement(kind: .automatic)
+    public static let scrollContent = ContentMarginPlacement(kind: .scrollContent)
+    public static let scrollIndicators = ContentMarginPlacement(kind: .scrollIndicators)
+}
+
+struct ContentMarginEdges: Sendable, Equatable {
+    var top: CGFloat?
+    var leading: CGFloat?
+    var bottom: CGFloat?
+    var trailing: CGFloat?
+
+    static let empty = ContentMarginEdges()
+
+    mutating func set(_ edges: Edge.Set, to length: CGFloat?) {
+        if edges.contains(.top) {
+            top = length
+        }
+        if edges.contains(.leading) {
+            leading = length
+        }
+        if edges.contains(.bottom) {
+            bottom = length
+        }
+        if edges.contains(.trailing) {
+            trailing = length
+        }
+    }
+
+    func applying(to insets: EdgeInsets) -> EdgeInsets {
+        EdgeInsets(
+            top: top ?? insets.top,
+            leading: leading ?? insets.leading,
+            bottom: bottom ?? insets.bottom,
+            trailing: trailing ?? insets.trailing
+        )
+    }
+}
+
+struct ContentMarginValues: Sendable, Equatable {
+    var automatic = ContentMarginEdges.empty
+    var scrollContent = ContentMarginEdges.empty
+    var scrollIndicators = ContentMarginEdges.empty
+
+    static let empty = ContentMarginValues()
+
+    mutating func set(_ edges: Edge.Set, to length: CGFloat?, for placement: ContentMarginPlacement) {
+        switch placement.kind {
+        case .automatic:
+            automatic.set(edges, to: length)
+        case .scrollContent:
+            scrollContent.set(edges, to: length)
+        case .scrollIndicators:
+            scrollIndicators.set(edges, to: length)
+        }
+    }
+
+    func insets(for placement: ContentMarginPlacement, defaultInsets: EdgeInsets) -> EdgeInsets {
+        var resolved = automatic.applying(to: defaultInsets)
+        switch placement.kind {
+        case .automatic:
+            return resolved
+        case .scrollContent:
+            resolved = scrollContent.applying(to: resolved)
+        case .scrollIndicators:
+            resolved = scrollIndicators.applying(to: resolved)
+        }
+        return resolved
+    }
+}
+
 public struct PresentationDetent: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case medium
@@ -1457,6 +1540,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isPrivacySensitive: Bool
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
+    var contentMargins: ContentMarginValues
     var listRowSpacing: Double?
     var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
@@ -1685,6 +1769,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isPrivacySensitive = isPrivacySensitive
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
+        self.contentMargins = .empty
         self.listRowSpacing = nil
         self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
@@ -2460,6 +2545,10 @@ public struct ViewBuildContext {
 
     var scrollContentBackgroundVisibility: Visibility {
         environmentValuesProvider().scrollContentBackgroundVisibility
+    }
+
+    func contentInsets(for placement: ContentMarginPlacement, defaultInsets: EdgeInsets) -> EdgeInsets {
+        environmentValuesProvider().contentMargins.insets(for: placement, defaultInsets: defaultInsets)
     }
 
     var listRowSpacing: Double? {
@@ -9860,6 +9949,24 @@ public extension View {
                 resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollIndicatorVisibility, visibility)
             }
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func contentMargins(_ length: CGFloat, for placement: ContentMarginPlacement = .automatic) -> some View {
+        contentMargins(.all, length, for: placement)
+    }
+
+    func contentMargins(
+        _ edges: Edge.Set = .all,
+        _ length: CGFloat?,
+        for placement: ContentMarginPlacement = .automatic
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withTransformedEnvironmentValue(\.contentMargins) { margins in
+                    margins.set(edges, to: length, for: placement)
+                }
+            )
         }
     }
 

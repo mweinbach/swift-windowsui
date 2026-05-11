@@ -3770,7 +3770,10 @@ public struct ScrollView: View {
                 shadowOffset: style.shadowOffset,
                 shadowSpread: style.shadowSpread,
                 cornerRadius: style.cornerRadius,
-                stackLayout: scrollStackLayout(layoutDirection: context.layoutDirection),
+                stackLayout: scrollStackLayout(
+                    layoutDirection: context.layoutDirection,
+                    padding: context.contentInsets(for: .scrollContent, defaultInsets: style.padding)
+                ),
                 scrollStep: style.scrollStep,
                 scrollIndicatorColor: style.indicatorColor,
                 scrollIndicatorHoverColor: style.indicatorHoverColor,
@@ -3793,14 +3796,14 @@ public struct ScrollView: View {
         }
     }
 
-    private func scrollStackLayout(layoutDirection: LayoutDirection) -> StackLayout {
+    private func scrollStackLayout(layoutDirection: LayoutDirection, padding: EdgeInsets) -> StackLayout {
         switch axis {
         case .horizontal:
-            return .horizontal(spacing: style.spacing, padding: style.padding, alignment: .center)
+            return .horizontal(spacing: style.spacing, padding: padding, alignment: .center)
         case .vertical:
             return .vertical(
                 spacing: style.spacing,
-                padding: style.padding,
+                padding: padding,
                 alignment: style.alignment.stackAlignment(layoutDirection: layoutDirection)
             )
         }
@@ -3960,7 +3963,7 @@ public struct List: View {
                 cornerRadius: listChrome.cornerRadius,
                 stackLayout: .vertical(
                     spacing: context.listRowSpacing ?? listChrome.defaultSpacing,
-                    padding: listChrome.padding,
+                    padding: context.contentInsets(for: .scrollContent, defaultInsets: listChrome.padding),
                     alignment: .stretch
                 ),
                 isHitTestVisible: false,
@@ -4327,7 +4330,9 @@ public struct Section: View {
                 clipsToBounds: true,
                 stackLayout: .vertical(
                     spacing: style.spacing,
-                    padding: style.padding,
+                    padding: style.scrollAxis == nil
+                        ? style.padding
+                        : context.contentInsets(for: .scrollContent, defaultInsets: style.padding),
                     alignment: style.alignment.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: style.isHitTestVisible,

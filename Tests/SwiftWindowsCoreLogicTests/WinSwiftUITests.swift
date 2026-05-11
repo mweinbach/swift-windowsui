@@ -4147,6 +4147,77 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentMarginsMapToRetainedScrollContentPadding() async {
+        await MainActor.run {
+            let baseInsets = EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
+            let placements: Set<ContentMarginPlacement> = [.automatic, .scrollContent, .scrollIndicators]
+
+            let scrollNode = makeNode(
+                ScrollView(.vertical, style: ScrollViewStyle(padding: baseInsets, alignment: .trailing)) {
+                    Text("ROW")
+                }
+                .contentMargins(.horizontal, 12)
+                .contentMargins(.top, 6, for: .scrollContent)
+                .contentMargins(.bottom, 24, for: .scrollIndicators)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .contentMargins(10)
+            )
+            let scrollingSectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(padding: baseInsets, scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .contentMargins(.vertical, 9)
+            )
+            let plainSectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(padding: baseInsets)) {
+                    Text("ITEM")
+                }
+                .contentMargins(9)
+            )
+
+            guard case .stack(let scrollLayout) = scrollNode.layoutMode,
+                  case .stack(let listLayout) = listNode.layoutMode,
+                  case .stack(let scrollingSectionLayout) = scrollingSectionNode.layoutMode,
+                  case .stack(let plainSectionLayout) = plainSectionNode.layoutMode else {
+                return XCTFail("Expected retained stack layouts for content margin assertions")
+            }
+
+            XCTAssertEqual(placements.count, 3)
+            XCTAssertEqual(
+                scrollLayout,
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 6, leading: 12, bottom: 3, trailing: 12),
+                    alignment: .trailing
+                )
+            )
+            XCTAssertEqual(
+                listLayout,
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(
+                scrollingSectionLayout,
+                .vertical(
+                    spacing: 16,
+                    padding: EdgeInsets(top: 9, leading: 2, bottom: 9, trailing: 4),
+                    alignment: .leading
+                )
+            )
+            XCTAssertEqual(
+                plainSectionLayout,
+                .vertical(spacing: 16, padding: baseInsets, alignment: .leading)
+            )
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

@@ -6991,6 +6991,36 @@ public extension View {
         }
     }
 
+    func navigationBarItems<Leading: View>(leading: Leading) -> some View {
+        toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                leading
+            }
+        }
+    }
+
+    func navigationBarItems<Trailing: View>(trailing: Trailing) -> some View {
+        toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                trailing
+            }
+        }
+    }
+
+    func navigationBarItems<Leading: View, Trailing: View>(
+        leading: Leading,
+        trailing: Trailing
+    ) -> some View {
+        toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                leading
+            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                trailing
+            }
+        }
+    }
+
     func sheet(
         isPresented: Binding<Bool>,
         onDismiss: (() -> Void)? = nil,

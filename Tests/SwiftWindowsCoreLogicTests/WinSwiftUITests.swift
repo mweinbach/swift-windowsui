@@ -11372,6 +11372,65 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationBarItemsBridgeToRetainedToolbarRow() async {
+        await MainActor.run {
+            var leadingActivations = 0
+            var trailingActivations = 0
+            let node = makeNode(
+                Text("DETAIL")
+                    .navigationBarItems(
+                        leading: Button("LEADING") {
+                            leadingActivations += 1
+                        },
+                        trailing: Button("TRAILING") {
+                            trailingActivations += 1
+                        }
+                    )
+            )
+
+            guard case .stack(let rootLayout) = node.layoutMode else {
+                return XCTFail("Expected navigationBarItems to wrap content in a vertical stack")
+            }
+
+            XCTAssertEqual(rootLayout, .vertical(spacing: 0, alignment: .stretch))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[1].text, "DETAIL")
+
+            let toolbarTexts = allTexts(in: node.children[0])
+            XCTAssertTrue(toolbarTexts.contains("LEADING"))
+            XCTAssertTrue(toolbarTexts.contains("TRAILING"))
+
+            let focusables = focusableNodes(in: node.children[0])
+            XCTAssertEqual(focusables.count, 2)
+            focusables[0].onActivate?()
+            focusables[1].onActivate?()
+
+            XCTAssertEqual(leadingActivations, 1)
+            XCTAssertEqual(trailingActivations, 1)
+        }
+    }
+
+    func testNavigationBarItemsSingleSideOverloadsBridgeToRetainedToolbarRows() async {
+        await MainActor.run {
+            let leadingNode = makeNode(
+                Text("DETAIL")
+                    .navigationBarItems(leading: Button("LEADING") {})
+            )
+            let trailingNode = makeNode(
+                Text("DETAIL")
+                    .navigationBarItems(trailing: Button("TRAILING") {})
+            )
+
+            XCTAssertTrue(allTexts(in: leadingNode.children[0]).contains("LEADING"))
+            XCTAssertFalse(allTexts(in: leadingNode.children[0]).contains("TRAILING"))
+            XCTAssertEqual(leadingNode.children[1].text, "DETAIL")
+
+            XCTAssertTrue(allTexts(in: trailingNode.children[0]).contains("TRAILING"))
+            XCTAssertFalse(allTexts(in: trailingNode.children[0]).contains("LEADING"))
+            XCTAssertEqual(trailingNode.children[1].text, "DETAIL")
+        }
+    }
+
     func testContentUnavailableViewMapsToRetainedPlaceholderSurface() async {
         await MainActor.run {
             var retryCount = 0

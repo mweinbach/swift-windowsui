@@ -876,6 +876,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testWritingToolsBehaviorModifierRetainsTextMetadata() async {
+        await MainActor.run {
+            struct WritingToolsEnvironmentReader: View {
+                @Environment(\.writingToolsBehavior) var writingToolsBehavior
+
+                var body: some View {
+                    Text(writingToolsBehavior == .limited ? "LIMITED" : "OTHER")
+                }
+            }
+
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let textNode = makeNode(
+                Text("NOTE")
+                    .writingToolsBehavior(.complete)
+            )
+            let fieldNode = makeNode(
+                TextField("TITLE", text: binding)
+                    .writingToolsBehavior(.disabled)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("SUMMARY")
+                    TextEditor(text: binding)
+                        .writingToolsBehavior(.automatic)
+                    WritingToolsEnvironmentReader()
+                }
+                .writingToolsBehavior(.limited)
+            )
+
+            XCTAssertEqual(textNode.writingToolsBehavior, .complete)
+            XCTAssertEqual(fieldNode.writingToolsBehavior, .disabled)
+            XCTAssertEqual(inheritedNode.children[0].writingToolsBehavior, .limited)
+            XCTAssertEqual(inheritedNode.children[1].writingToolsBehavior, .automatic)
+            XCTAssertEqual(inheritedNode.children[2].text, "LIMITED")
+        }
+    }
+
     func testTextEditorFindAndReplaceModifiersRetainMetadata() async {
         await MainActor.run {
             var value = "Find me"

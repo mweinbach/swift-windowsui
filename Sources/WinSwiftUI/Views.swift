@@ -2573,6 +2573,7 @@ public struct Text: View {
             node.redactionReasons = redactionReasons
             node.isPrivacySensitive = isPrivacySensitive
             node.textSelectability = context.environmentValues.textSelectability?.retainedSelectability
+            node.writingToolsBehavior = context.writingToolsBehavior?.retainedBehavior
             if let baselineOffset, baselineOffset != 0 {
                 node.transform = node.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
             }
@@ -6490,6 +6491,7 @@ private func textInputComponent(
             context: context,
             runtime: runtime
         )
+        node.writingToolsBehavior = context.writingToolsBehavior?.retainedBehavior
         node.isFindDisabled = context.isFindDisabled
         node.isReplaceDisabled = context.isReplaceDisabled
         node.isFindNavigatorPresented = context.isFindNavigatorPresented

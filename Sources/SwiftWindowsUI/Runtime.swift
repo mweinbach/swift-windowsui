@@ -204,6 +204,13 @@ public struct RetainedTextInputSuggestion: Sendable, Equatable, Hashable {
     }
 }
 
+public enum RetainedWritingToolsBehavior: Sendable, Equatable, Hashable {
+    case automatic
+    case complete
+    case limited
+    case disabled
+}
+
 public struct RetainedAccessibilityAction {
     public var name: String?
     public var kind: RetainedAccessibilityActionKind?
@@ -964,6 +971,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var writingToolsBehavior: RetainedWritingToolsBehavior? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isFindDisabled: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1183,6 +1194,7 @@ public final class ViewNode {
         textContentType: RetainedTextContentType? = nil,
         textInputCompletion: String? = nil,
         textInputSuggestions: [RetainedTextInputSuggestion] = [],
+        writingToolsBehavior: RetainedWritingToolsBehavior? = nil,
         isFindDisabled: Bool = false,
         isReplaceDisabled: Bool = false,
         isFindNavigatorPresented: Bool = false,
@@ -1271,6 +1283,7 @@ public final class ViewNode {
         self.textContentType = textContentType
         self.textInputCompletion = textInputCompletion
         self.textInputSuggestions = textInputSuggestions
+        self.writingToolsBehavior = writingToolsBehavior
         self.isFindDisabled = isFindDisabled
         self.isReplaceDisabled = isReplaceDisabled
         self.isFindNavigatorPresented = isFindNavigatorPresented

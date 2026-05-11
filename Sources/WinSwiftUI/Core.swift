@@ -792,6 +792,39 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case characters
 }
 
+public struct WritingToolsBehavior: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case complete
+        case limited
+        case disabled
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = WritingToolsBehavior(kind: .automatic)
+    public static let complete = WritingToolsBehavior(kind: .complete)
+    public static let limited = WritingToolsBehavior(kind: .limited)
+    public static let disabled = WritingToolsBehavior(kind: .disabled)
+
+    var retainedBehavior: RetainedWritingToolsBehavior {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .complete:
+            return .complete
+        case .limited:
+            return .limited
+        case .disabled:
+            return .disabled
+        }
+    }
+}
+
 public struct NSTextContentType: RawRepresentable, Sendable, Equatable, Hashable, ExpressibleByStringLiteral {
     public var rawValue: String
 
@@ -1710,6 +1743,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var textContentType: NSTextContentType?
     var textInputCompletion: String?
     var textInputSuggestions: [AnyView]?
+    public var writingToolsBehavior: WritingToolsBehavior?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
@@ -1948,6 +1982,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textContentType = nil
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
+        self.writingToolsBehavior = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
@@ -2755,6 +2790,10 @@ public struct ViewBuildContext {
 
     var textInputSuggestions: [AnyView]? {
         environmentValuesProvider().textInputSuggestions
+    }
+
+    public var writingToolsBehavior: WritingToolsBehavior? {
+        environmentValuesProvider().writingToolsBehavior
     }
 
     var isFindDisabled: Bool {
@@ -10212,6 +10251,12 @@ public extension View {
     ) -> some View where Data: RandomAccessCollection, ID: Hashable {
         textInputSuggestions {
             ForEach(data, id: id, content: content)
+        }
+    }
+
+    func writingToolsBehavior(_ behavior: WritingToolsBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.writingToolsBehavior, Optional(behavior)))
         }
     }
 

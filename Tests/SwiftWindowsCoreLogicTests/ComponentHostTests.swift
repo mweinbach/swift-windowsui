@@ -100,6 +100,7 @@ final class ComponentHostTests: XCTestCase {
                             completion: useSecondState ? "second value" : "first value"
                         )
                     ]
+                    let writingToolsBehavior: RetainedWritingToolsBehavior = useSecondState ? .disabled : .complete
                     let isFindDisabled = useSecondState
                     let isReplaceDisabled = !useSecondState
                     let isFindNavigatorPresented = useSecondState
@@ -193,6 +194,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textContentType = textContentType
                     node.textInputCompletion = textInputCompletion
                     node.textInputSuggestions = textInputSuggestions
+                    node.writingToolsBehavior = writingToolsBehavior
                     node.isFindDisabled = isFindDisabled
                     node.isReplaceDisabled = isReplaceDisabled
                     node.isFindNavigatorPresented = isFindNavigatorPresented
@@ -257,6 +259,7 @@ final class ComponentHostTests: XCTestCase {
                 firstNode?.textInputSuggestions,
                 [RetainedTextInputSuggestion(displayText: "FIRST SUGGESTION", completion: "first value")]
             )
+            XCTAssertEqual(firstNode?.writingToolsBehavior, .complete)
             XCTAssertFalse(firstNode?.isFindDisabled ?? true)
             XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
             XCTAssertFalse(firstNode?.isFindNavigatorPresented ?? true)
@@ -346,6 +349,7 @@ final class ComponentHostTests: XCTestCase {
                 reusedNode?.textInputSuggestions,
                 [RetainedTextInputSuggestion(displayText: "SECOND SUGGESTION", completion: "second value")]
             )
+            XCTAssertEqual(reusedNode?.writingToolsBehavior, .disabled)
             XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
             XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)
             XCTAssertTrue(reusedNode?.isFindNavigatorPresented ?? false)

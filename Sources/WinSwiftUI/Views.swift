@@ -3891,6 +3891,7 @@ public struct DatePicker: View {
         let labelViews = label
         let selection = selection
         let displayedComponents = displayedComponents
+        let environmentValues = context.environmentValues
         let labelComponent = composeComponent(
             from: labelViews,
             context: context
@@ -3902,7 +3903,12 @@ public struct DatePicker: View {
         )
 
         return Component { runtime in
-            let valueNode = Text(Self.formattedValue(selection.wrappedValue, components: displayedComponents))
+            let valueNode = Text(Self.formattedValue(
+                selection.wrappedValue,
+                components: displayedComponents,
+                calendar: environmentValues.calendar,
+                timeZone: environmentValues.timeZone
+            ))
                 .monospaced()
                 .lineLimit(1)
                 .makeComponent(
@@ -3926,9 +3932,14 @@ public struct DatePicker: View {
         }
     }
 
-    private static func formattedValue(_ date: Date, components: DatePickerComponents) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    private static func formattedValue(
+        _ date: Date,
+        components: DatePickerComponents,
+        calendar: Calendar,
+        timeZone: TimeZone
+    ) -> String {
+        var calendar = calendar
+        calendar.timeZone = timeZone
         let dateComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         let dateText = String(
             format: "%04d-%02d-%02d",

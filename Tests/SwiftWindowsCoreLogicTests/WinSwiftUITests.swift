@@ -4197,6 +4197,15 @@ final class WinSwiftUITests: XCTestCase {
 
     func testDatePickerMapsToRetainedLabelValueRow() async {
         await MainActor.run {
+            struct DateEnvironmentReaderView: View {
+                @Environment(\.calendar) var calendar
+                @Environment(\.timeZone) var timeZone
+
+                var body: some View {
+                    Text(calendar.identifier == .gregorian && timeZone.secondsFromGMT() == 3_600 ? "DATEENV" : "DEFAULT")
+                }
+            }
+
             let date = Date(timeIntervalSince1970: 1_778_423_880)
             let dateNode = makeNode(
                 DatePicker("START", selection: .constant(date), displayedComponents: .date)
@@ -4225,6 +4234,14 @@ final class WinSwiftUITests: XCTestCase {
                     Text("UNTIL")
                 }
             )
+            let timeZoneNode = makeNode(
+                DatePicker("LOCAL", selection: .constant(date), displayedComponents: .hourAndMinute)
+                    .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
+            )
+            let environmentReaderNode = makeNode(
+                DateEnvironmentReaderView()
+                    .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
+            )
 
             XCTAssertEqual(allTexts(in: dateNode), ["START", "2026-05-10"])
             XCTAssertTrue(allTexts(in: timeNode).contains("WINDOW"))
@@ -4233,6 +4250,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(allTexts(in: partialRangeNode), ["AFTER", "2026-05-10"])
             XCTAssertEqual(allTexts(in: throughRangeNode), ["BEFORE", "14:38"])
             XCTAssertEqual(allTexts(in: upToRangeNode), ["UNTIL", "2026-05-10"])
+            XCTAssertEqual(allTexts(in: timeZoneNode), ["LOCAL", "15:38"])
+            XCTAssertEqual(environmentReaderNode.text, "DATEENV")
             XCTAssertEqual(dateNode.children[0].layoutPriority, 1)
         }
     }

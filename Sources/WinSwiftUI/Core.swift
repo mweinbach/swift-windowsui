@@ -533,6 +533,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var accessibilityReduceMotion: Bool
     public var accessibilityReduceTransparency: Bool
     public var accessibilityShowButtonShapes: Bool
+    public var calendar: Calendar
+    public var timeZone: TimeZone
     public var layoutDirection: LayoutDirection
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
@@ -581,6 +583,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         accessibilityReduceMotion: Bool = false,
         accessibilityReduceTransparency: Bool = false,
         accessibilityShowButtonShapes: Bool = false,
+        calendar: Calendar = Calendar(identifier: .gregorian),
+        timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
         layoutDirection: LayoutDirection = .leftToRight,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
@@ -623,6 +627,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.accessibilityReduceMotion = accessibilityReduceMotion
         self.accessibilityReduceTransparency = accessibilityReduceTransparency
         self.accessibilityShowButtonShapes = accessibilityShowButtonShapes
+        var resolvedCalendar = calendar
+        resolvedCalendar.timeZone = timeZone
+        self.calendar = resolvedCalendar
+        self.timeZone = timeZone
         self.layoutDirection = layoutDirection
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled

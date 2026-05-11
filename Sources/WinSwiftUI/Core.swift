@@ -4940,6 +4940,46 @@ private func retainedSheetPresentation(
 }
 
 @MainActor
+private func retainedFullScreenCoverPresentation(
+    base: Component,
+    cover: Component
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let coverContentNode = cover.makeNode(runtime: runtime)
+        let coverNode = Controls.stackPanel(
+            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1.0),
+            stackLayout: .vertical(
+                spacing: 0,
+                padding: EdgeInsets(top: 24, leading: 24, bottom: 24, trailing: 24),
+                alignment: .stretch,
+                mainAlignment: .start
+            ),
+            isHitTestVisible: false,
+            children: [coverContentNode]
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, coverNode]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+            if coverNode.frame != boundsFrame {
+                coverNode.frame = boundsFrame
+            }
+        }
+
+        return root
+    }
+}
+
+@MainActor
 private func retainedPopoverPresentation(
     base: Component,
     popover: Component,
@@ -5585,6 +5625,70 @@ public extension View {
             )
 
             return retainedSheetPresentation(base: base, sheet: sheet, context: context)
+        }
+    }
+
+    func fullScreenCover(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content coverContent: @escaping () -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let coverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard isPresented.wrappedValue else {
+                        return
+                    }
+
+                    isPresented.wrappedValue = false
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let cover = composeComponent(
+                from: coverContent(),
+                context: coverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedFullScreenCoverPresentation(base: base, cover: cover)
+        }
+    }
+
+    func fullScreenCover<Item>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content coverContent: @escaping (Item) -> [AnyView]
+    ) -> some View where Item: Identifiable {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let coverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard item.wrappedValue != nil else {
+                        return
+                    }
+
+                    item.wrappedValue = nil
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let cover = composeComponent(
+                from: coverContent(selectedItem),
+                context: coverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedFullScreenCoverPresentation(base: base, cover: cover)
         }
     }
 

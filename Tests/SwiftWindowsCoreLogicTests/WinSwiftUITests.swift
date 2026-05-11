@@ -4816,6 +4816,115 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFullScreenCoverIsPresentedComposesRetainedCoverAndDismisses() async {
+        await MainActor.run {
+            struct FullScreenCoverContent: View {
+                @Environment(\.dismiss) var dismiss
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    VStack {
+                        Text(isPresented ? "FULL COVER" : "ROOT")
+                        Button("DONE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var isPresented = true
+            var dismissCount = 0
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 240, height: 140)
+                .fullScreenCover(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    onDismiss: {
+                        dismissCount += 1
+                    }
+                ) {
+                    FullScreenCoverContent()
+                }
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected fullScreenCover to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("FULL COVER"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+
+            presentedNode.onLayout?(Rect(x: 0, y: 0, width: 240, height: 140))
+            XCTAssertEqual(presentedNode.children[1].frame, Rect(x: 0, y: 0, width: 240, height: 140))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertEqual(dismissCount, 1)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("FULL COVER"))
+        }
+    }
+
+    func testFullScreenCoverItemRendersSelectedItemAndClearsOnDismiss() async {
+        await MainActor.run {
+            struct ItemFullScreenCoverContent: View {
+                let id: String
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    VStack {
+                        Text(id)
+                        Button("CLOSE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "FULL DETAIL")
+            var didDismiss = false
+            let view = Text("ROOT")
+                .fullScreenCover(
+                    item: Binding(
+                        get: { selectedItem },
+                        set: { selectedItem = $0 }
+                    ),
+                    onDismiss: {
+                        didDismiss = true
+                    }
+                ) { item in
+                    ItemFullScreenCoverContent(id: item.id)
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("FULL DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CLOSE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertNil(selectedItem)
+            XCTAssertTrue(didDismiss)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testPopoverIsPresentedComposesRetainedFloatingPanelAndDismisses() async {
         await MainActor.run {
             struct PopoverContent: View {

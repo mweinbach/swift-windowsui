@@ -3187,6 +3187,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonNamedImageInitializersBuildBitmapLabelContentAndRoleSurface() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-button-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            var didRunStringAction = false
+            var didRunProtocolAction = false
+            var didRunKeyAction = false
+            let stringNode = makeNode(Button("PHOTO", image: url.path) {
+                didRunStringAction = true
+            })
+            let protocolTitle: Substring = "TOOLS"[...]
+            let protocolNode = makeNode(Button(protocolTitle, image: url.path, role: .destructive) {
+                didRunProtocolAction = true
+            })
+            let keyNode = makeNode(Button(LocalizedStringKey("ALBUM"), image: url.path, role: .cancel) {
+                didRunKeyAction = true
+            })
+
+            XCTAssertTrue(allTexts(in: stringNode).contains("PHOTO"))
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.height, 1)
+            XCTAssertTrue(allTexts(in: protocolNode).contains("TOOLS"))
+            XCTAssertEqual(protocolNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertTrue(allTexts(in: keyNode).contains("ALBUM"))
+            XCTAssertEqual(keyNode.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+
+            stringNode.onActivate?()
+            protocolNode.onActivate?()
+            keyNode.onActivate?()
+
+            XCTAssertTrue(didRunStringAction)
+            XCTAssertTrue(didRunProtocolAction)
+            XCTAssertTrue(didRunKeyAction)
+        }
+    }
+
     func testLinkMapsToPlainRetainedButtonAndUsesOpenURLEnvironment() async {
         await MainActor.run {
             var openedURLs: [URL] = []

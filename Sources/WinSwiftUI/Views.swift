@@ -7408,6 +7408,25 @@ public struct Button: View {
         self.init(String(title), action: action)
     }
 
+    public init(_ title: String, image name: String, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(Label(title, image: name))
+        ]
+        self.role = nil
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), image: name, action: action)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, image: name, action: action)
+    }
+
     public init(_ title: String, systemImage: String, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -7449,6 +7468,25 @@ public struct Button: View {
 
     public init<S: StringProtocol>(_ title: S, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
         self.init(String(title), role: role, action: action)
+    }
+
+    public init(_ title: String, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(Label(title, image: name))
+        ]
+        self.role = role
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(String(title), image: name, role: role, action: action)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, image: name, role: role, action: action)
     }
 
     public init(_ title: String, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {

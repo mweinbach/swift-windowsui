@@ -9535,6 +9535,100 @@ public struct Slider: View {
     private let minimumValueLabel: [AnyView]
     private let maximumValueLabel: [AnyView]
 
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        step: Value,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            step: Double(step),
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            label: label,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        step: Value,
+        @ViewBuilder label: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            step: Double(step),
+            label: label,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            label: label,
+            minimumValueLabel: minimumValueLabel,
+            maximumValueLabel: maximumValueLabel,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value> = 0...1,
+        step: Value,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.init(
+            value: Self.doubleBinding(value),
+            in: Self.doubleRange(bounds),
+            step: Double(step),
+            label: label,
+            minimumValueLabel: minimumValueLabel,
+            maximumValueLabel: maximumValueLabel,
+            onEditingChanged: onEditingChanged
+        )
+    }
+
     public init(
         value: Binding<Double>,
         in bounds: ClosedRange<Double> = 0...1,
@@ -9764,6 +9858,21 @@ public struct Slider: View {
 
         let snapped = ((clampedValue - bounds.lowerBound) / step).rounded() * step + bounds.lowerBound
         return min(max(snapped, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private static func doubleBinding<Value: BinaryFloatingPoint>(_ value: Binding<Value>) -> Binding<Double> {
+        Binding<Double>(
+            get: {
+                Double(value.wrappedValue)
+            },
+            set: { newValue in
+                value.wrappedValue = Value(newValue)
+            }
+        )
+    }
+
+    private static func doubleRange<Value: BinaryFloatingPoint>(_ bounds: ClosedRange<Value>) -> ClosedRange<Double> {
+        Double(bounds.lowerBound)...Double(bounds.upperBound)
     }
 }
 

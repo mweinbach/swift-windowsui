@@ -11008,6 +11008,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSliderGenericBinaryFloatingPointBindingWritesThroughDoubleRetainedSlider() async {
+        await MainActor.run {
+            var value: Float = 0.0
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: Float(0)...Float(1),
+                    step: Float(0.25),
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    }
+                )
+            )
+
+            node.onDragStart?(Point(x: 0, y: 0))
+            node.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            node.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 0.5, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false])
+
+            let labeledNode = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: Float(0)...Float(1),
+                    step: Float(0.25)
+                ) {
+                    Text("LEVEL")
+                } minimumValueLabel: {
+                    Text("MIN")
+                } maximumValueLabel: {
+                    Text("MAX")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: labeledNode.children[0]).contains("LEVEL"))
+            XCTAssertTrue(allTexts(in: labeledNode.children[1]).contains("MIN"))
+            XCTAssertTrue(allTexts(in: labeledNode.children[1]).contains("MAX"))
+        }
+    }
+
     func testSliderCurrentLabelInitializerComposesLabelAndKeepsBindingBehavior() async {
         await MainActor.run {
             var value = 0.0

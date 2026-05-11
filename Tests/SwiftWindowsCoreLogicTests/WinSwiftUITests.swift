@@ -7399,6 +7399,73 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationBackgroundInteractionControlsRetainedSheetScrimHitTesting() async {
+        await MainActor.run {
+            var enabledPresented = true
+            var enabledDismissCount = 0
+            let enabledNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { enabledPresented },
+                            set: { enabledPresented = $0 }
+                        ),
+                        onDismiss: {
+                            enabledDismissCount += 1
+                        }
+                    ) {
+                        Text("SHEET")
+                            .presentationBackgroundInteraction(.enabled)
+                    }
+            )
+
+            XCTAssertEqual(enabledNode.children[1].nodeTag, "sheet-scrim-background-interactive")
+            XCTAssertFalse(enabledNode.children[1].isHitTestVisible)
+            XCTAssertNil(enabledNode.children[1].onActivate)
+            XCTAssertTrue(enabledPresented)
+            XCTAssertEqual(enabledDismissCount, 0)
+
+            var upThroughPresented = true
+            let upThroughNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { upThroughPresented },
+                            set: { upThroughPresented = $0 }
+                        )
+                    ) {
+                        Text("SHEET")
+                            .presentationBackgroundInteraction(.enabled(upThrough: .height(120)))
+                    }
+            )
+
+            XCTAssertEqual(upThroughNode.children[1].nodeTag, "sheet-scrim-background-interactive")
+            XCTAssertFalse(upThroughNode.children[1].isHitTestVisible)
+            XCTAssertNil(upThroughNode.children[1].onActivate)
+            XCTAssertTrue(upThroughPresented)
+
+            var disabledPresented = true
+            let disabledNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { disabledPresented },
+                            set: { disabledPresented = $0 }
+                        )
+                    ) {
+                        Text("SHEET")
+                            .presentationBackgroundInteraction(.enabled)
+                            .presentationBackgroundInteraction(.disabled)
+                    }
+            )
+
+            XCTAssertEqual(disabledNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(disabledNode.children[1].isHitTestVisible)
+            disabledNode.children[1].onActivate?()
+            XCTAssertFalse(disabledPresented)
+        }
+    }
+
     func testPresentationDetentAndDismissModifiersPreserveRetainedSheetContent() async {
         await MainActor.run {
             struct SheetContent: View {

@@ -1063,6 +1063,15 @@ public struct PresentationBackgroundInteraction: Sendable, Equatable, Hashable {
     public static func enabled(upThrough detent: PresentationDetent) -> PresentationBackgroundInteraction {
         PresentationBackgroundInteraction(kind: .enabledUpThrough(detent))
     }
+
+    var allowsRetainedBackgroundInteraction: Bool {
+        switch kind {
+        case .enabled, .enabledUpThrough:
+            return true
+        case .automatic, .disabled:
+            return false
+        }
+    }
 }
 
 public struct HoverEffect: Sendable, Equatable, Hashable {
@@ -6752,6 +6761,10 @@ private func mergedPresentationChrome(
         result.hasInteractiveDismissDisabledOverride = true
         result.interactiveDismissDisabled = override.interactiveDismissDisabled
     }
+    if override.hasBackgroundInteractionOverride {
+        result.hasBackgroundInteractionOverride = true
+        result.allowsBackgroundInteraction = override.allowsBackgroundInteraction
+    }
     return result
 }
 
@@ -6875,14 +6888,21 @@ private func retainedSheetPresentation(
         let baseNode = base.makeNode(runtime: runtime)
         let sheetContentNode = sheet.makeNode(runtime: runtime)
         let presentationChrome = retainedPresentationChrome(in: sheetContentNode)
+        let allowsBackgroundInteraction = presentationChrome.allowsBackgroundInteraction
+        let scrimDismissesSheet = !allowsBackgroundInteraction
+            && !presentationChrome.interactiveDismissDisabled
         let scrimNode = Controls.panel(
             backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.48),
-            isHitTestVisible: !presentationChrome.interactiveDismissDisabled
+            isHitTestVisible: scrimDismissesSheet
         )
-        scrimNode.nodeTag = presentationChrome.interactiveDismissDisabled
-            ? "sheet-scrim-dismiss-disabled"
-            : "sheet-scrim-dismiss-enabled"
-        if !presentationChrome.interactiveDismissDisabled {
+        if allowsBackgroundInteraction {
+            scrimNode.nodeTag = "sheet-scrim-background-interactive"
+        } else if presentationChrome.interactiveDismissDisabled {
+            scrimNode.nodeTag = "sheet-scrim-dismiss-disabled"
+        } else {
+            scrimNode.nodeTag = "sheet-scrim-dismiss-enabled"
+        }
+        if scrimDismissesSheet {
             scrimNode.onActivate = {
                 onInteractiveDismiss()
             }
@@ -8286,9 +8306,14 @@ public extension View {
     }
 
     func presentationBackgroundInteraction(_ interaction: PresentationBackgroundInteraction) -> some View {
-        _ = interaction
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasBackgroundInteractionOverride = true
+                node.presentationChrome.allowsBackgroundInteraction = interaction.allowsRetainedBackgroundInteraction
+                return node
+            }
         }
     }
 

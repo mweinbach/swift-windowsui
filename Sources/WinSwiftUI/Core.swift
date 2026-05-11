@@ -92,6 +92,12 @@ public struct LocalizedStringResource: Sendable, Equatable, Hashable, Expressibl
     }
 }
 
+public extension String {
+    init(localized resource: LocalizedStringResource) {
+        self = resource.resolvedString
+    }
+}
+
 public struct ImageResource: Equatable, Hashable, @unchecked Sendable {
     public var name: String
     public var bundle: Bundle

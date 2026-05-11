@@ -396,6 +396,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNotEqual(resource, otherResource)
             XCTAssertTrue(Set([resource]).contains(sameResource))
             XCTAssertEqual(String(describing: resource), "SYNC 3")
+            XCTAssertEqual(String(localized: resource), "SYNC 3")
             XCTAssertEqual(textNode.text, "SYNC 3")
         }
     }

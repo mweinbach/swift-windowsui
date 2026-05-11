@@ -5521,6 +5521,143 @@ public struct LongPressGesture: Gesture {
     }
 }
 
+public struct DragGesture: Gesture {
+    public struct Value: Sendable, Equatable {
+        public var time: Date
+        public var location: CGPoint
+        public var startLocation: CGPoint
+        public var translation: CGSize
+        public var predictedEndLocation: CGPoint
+        public var predictedEndTranslation: CGSize
+
+        public init(
+            time: Date,
+            location: CGPoint,
+            startLocation: CGPoint,
+            translation: CGSize,
+            predictedEndLocation: CGPoint,
+            predictedEndTranslation: CGSize
+        ) {
+            self.time = time
+            self.location = location
+            self.startLocation = startLocation
+            self.translation = translation
+            self.predictedEndLocation = predictedEndLocation
+            self.predictedEndTranslation = predictedEndTranslation
+        }
+    }
+
+    public var minimumDistance: CGFloat
+    private let changedAction: (@MainActor (Value) -> Void)?
+    private let endedAction: (@MainActor (Value) -> Void)?
+
+    public init(minimumDistance: CGFloat = 10) {
+        self.minimumDistance = minimumDistance
+        self.changedAction = nil
+        self.endedAction = nil
+    }
+
+    private init(
+        minimumDistance: CGFloat,
+        changedAction: (@MainActor (Value) -> Void)?,
+        endedAction: (@MainActor (Value) -> Void)?
+    ) {
+        self.minimumDistance = minimumDistance
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
+        DragGesture(
+            minimumDistance: minimumDistance,
+            changedAction: action,
+            endedAction: endedAction
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
+        DragGesture(
+            minimumDistance: minimumDistance,
+            changedAction: changedAction,
+            endedAction: action
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            ModifiedView(content: view) { content, context in
+                let child = content.makeComponent(context: context)
+                let minimumDistance = max(0, self.minimumDistance)
+                return Component { runtime in
+                    let childNode = child.makeNode(runtime: runtime)
+                    childNode.isHitTestVisible = true
+                    var startLocation: CGPoint?
+                    var hasRecognized = false
+
+                    func makeValue(location: CGPoint, translation: CGSize) -> Value {
+                        let start = startLocation ?? CGPoint(
+                            x: location.x - translation.width,
+                            y: location.y - translation.height
+                        )
+                        return Value(
+                            time: Date(),
+                            location: location,
+                            startLocation: start,
+                            translation: translation,
+                            predictedEndLocation: location,
+                            predictedEndTranslation: translation
+                        )
+                    }
+
+                    let existingOnDragStart = childNode.onDragStart
+                    childNode.onDragStart = { point in
+                        existingOnDragStart?(point)
+                        startLocation = point
+                        hasRecognized = minimumDistance == 0
+                        if hasRecognized {
+                            changedAction?(makeValue(location: point, translation: CGSize(width: 0, height: 0)))
+                        }
+                    }
+
+                    let existingOnDragChange = childNode.onDragChange
+                    childNode.onDragChange = { point, delta in
+                        existingOnDragChange?(point, delta)
+                        let distance = hypot(delta.x, delta.y)
+                        guard hasRecognized || distance >= minimumDistance else {
+                            return
+                        }
+
+                        hasRecognized = true
+                        changedAction?(makeValue(location: point, translation: CGSize(width: delta.x, height: delta.y)))
+                    }
+
+                    let existingOnDragEnd = childNode.onDragEnd
+                    childNode.onDragEnd = { point, delta in
+                        existingOnDragEnd?(point, delta)
+                        defer {
+                            startLocation = nil
+                            hasRecognized = false
+                        }
+
+                        let distance = hypot(delta.x, delta.y)
+                        guard hasRecognized || distance >= minimumDistance else {
+                            return
+                        }
+
+                        endedAction?(makeValue(location: point, translation: CGSize(width: delta.x, height: delta.y)))
+                    }
+
+                    return childNode
+                }
+            }
+        )
+    }
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 

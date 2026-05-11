@@ -14392,6 +14392,77 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDragGestureObjectMapsRetainedDragValues() async {
+        await MainActor.run {
+            var changes: [DragGesture.Value] = []
+            var endings: [DragGesture.Value] = []
+            let node = makeNode(
+                Text("DRAG")
+                    .gesture(
+                        DragGesture(minimumDistance: 5)
+                            .onChanged { value in
+                                changes.append(value)
+                            }
+                            .onEnded { value in
+                                endings.append(value)
+                            }
+                    )
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onDragStart?(Point(x: 10, y: 20))
+            node.onDragChange?(Point(x: 13, y: 24), Point(x: 3, y: 4))
+            node.onDragChange?(Point(x: 18, y: 31), Point(x: 8, y: 11))
+            node.onDragEnd?(Point(x: 20, y: 34), Point(x: 10, y: 14))
+
+            XCTAssertEqual(changes.count, 2)
+            XCTAssertEqual(changes[0].startLocation, Point(x: 10, y: 20))
+            XCTAssertEqual(changes[0].location, Point(x: 13, y: 24))
+            XCTAssertEqual(changes[0].translation, Size(width: 3, height: 4))
+            XCTAssertEqual(changes[1].location, Point(x: 18, y: 31))
+            XCTAssertEqual(changes[1].translation, Size(width: 8, height: 11))
+            XCTAssertEqual(endings.map(\.location), [Point(x: 20, y: 34)])
+            XCTAssertEqual(endings.map(\.translation), [Size(width: 10, height: 14)])
+        }
+    }
+
+    func testDragGestureMinimumDistanceZeroStartsImmediatelyAndMaskCanDisable() async {
+        await MainActor.run {
+            var immediateChanges: [DragGesture.Value] = []
+            var disabledChanges: [DragGesture.Value] = []
+            let immediateNode = makeNode(
+                Text("DRAG")
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                immediateChanges.append(value)
+                            }
+                    )
+            )
+            let disabledNode = makeNode(
+                Text("DRAG")
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                disabledChanges.append(value)
+                            },
+                        including: .none
+                    )
+            )
+
+            immediateNode.onDragStart?(Point(x: 2, y: 3))
+            disabledNode.onDragStart?(Point(x: 2, y: 3))
+
+            XCTAssertEqual(immediateChanges.map(\.location), [Point(x: 2, y: 3)])
+            XCTAssertEqual(immediateChanges.map(\.translation), [Size(width: 0, height: 0)])
+            XCTAssertEqual(disabledChanges.count, 0)
+            XCTAssertNil(disabledNode.onDragStart)
+            XCTAssertNil(disabledNode.onDragChange)
+            XCTAssertNil(disabledNode.onDragEnd)
+        }
+    }
+
     func testViewThatFitsSelectsFirstCandidateMatchingRequestedAxes() async {
         await MainActor.run {
             let horizontalNode = makeNode(

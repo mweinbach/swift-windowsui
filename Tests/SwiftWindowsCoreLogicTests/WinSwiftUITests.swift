@@ -384,6 +384,22 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextLocalizedStringKeyTableBundleCommentInitializerMapsToPlainRetainedText() async {
+        await MainActor.run {
+            let key = LocalizedStringKey("PROFILE TITLE")
+            let node = makeNode(
+                Text(
+                    key,
+                    tableName: "Account",
+                    bundle: .main,
+                    comment: "Displayed above the account settings form"
+                )
+            )
+
+            XCTAssertEqual(node.text, "PROFILE TITLE")
+        }
+    }
+
     func testLocalizedStringResourceInputMapsToLocalizedRetainedText() async {
         await MainActor.run {
             let count = 3

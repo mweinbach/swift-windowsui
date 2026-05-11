@@ -1719,7 +1719,15 @@ public struct Text: View {
         self.strikethroughColor = strikethrough ? strikethroughColor : nil
     }
 
-    public init(_ key: LocalizedStringKey) {
+    public init(
+        _ key: LocalizedStringKey,
+        tableName: String? = nil,
+        bundle: Bundle? = nil,
+        comment: StaticString? = nil
+    ) {
+        _ = tableName
+        _ = bundle
+        _ = comment
         self.init(key.resolvedString)
     }
 

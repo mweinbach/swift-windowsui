@@ -490,6 +490,38 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testHoverEffectUsesHoverContentShapeForVisualRadius() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .black,
+                cornerRadius: 4,
+                hoverEffect: .highlight,
+                contentShapes: [
+                    RetainedContentShape(kinds: .hoverEffect, style: .capsule)
+                ]
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerMoved(to: Point(x: 20, y: 20))
+            let frame = runtime.renderFrame()
+            let scene = runtime.renderScene()
+
+            let hoverColor = Color(red: 1, green: 1, blue: 1, alpha: 0.10)
+            XCTAssertTrue(
+                fillRectCommands(in: frame).contains {
+                    $0.color == hoverColor && $0.cornerRadius == 20
+                }
+            )
+            XCTAssertTrue(
+                scene.layers.flatMap(\.quads).contains {
+                    Color(red: $0.startR, green: $0.startG, blue: $0.startB, alpha: $0.startA) == hoverColor
+                        && $0.cornerRadius == 20
+                }
+            )
+        }
+    }
+
     func testHoverEffectLiftRendersShadowAndOverlay() async {
         await MainActor.run {
             let node = ViewNode(
@@ -535,6 +567,38 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertTrue(node.isFocused)
             XCTAssertTrue(fillRectCommands(in: frame).contains { $0.color == focusColor })
             XCTAssertTrue(sceneQuadColors(in: scene).contains(focusColor))
+        }
+    }
+
+    func testFocusEffectUsesFocusContentShapeForVisualRadius() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 80, height: 40),
+                backgroundColor: .black,
+                cornerRadius: 4,
+                isFocusable: true,
+                contentShapes: [
+                    RetainedContentShape(kinds: .focusEffect, style: .roundedRectangle(12))
+                ]
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerDown(at: Point(x: 20, y: 20))
+            let frame = runtime.renderFrame()
+            let scene = runtime.renderScene()
+
+            let focusColor = Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75)
+            XCTAssertTrue(
+                fillRectCommands(in: frame).contains {
+                    $0.color == focusColor && $0.cornerRadius == 14
+                }
+            )
+            XCTAssertTrue(
+                scene.layers.flatMap(\.quads).contains {
+                    Color(red: $0.startR, green: $0.startG, blue: $0.startB, alpha: $0.startA) == focusColor
+                        && $0.cornerRadius == 14
+                }
+            )
         }
     }
 

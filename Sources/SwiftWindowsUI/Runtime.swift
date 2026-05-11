@@ -113,6 +113,17 @@ public enum RetainedContentShapeStyle: Sendable, Equatable {
             return ellipseContains(point, in: rect)
         }
     }
+
+    public func visualCornerRadius(in rect: Rect) -> Double {
+        switch self {
+        case .rectangle:
+            return 0
+        case .roundedRectangle(let radius):
+            return max(0, radius)
+        case .capsule, .ellipse:
+            return max(0, min(rect.size.width, rect.size.height) * 0.5)
+        }
+    }
 }
 
 public struct RetainedContentShape: Sendable, Equatable {
@@ -1996,7 +2007,7 @@ public final class ViewNode {
         return FillRectCommand(
             rect: shadowRect,
             color: shadowColor,
-            cornerRadius: cornerRadius + spread,
+            cornerRadius: effectCornerRadius(for: absoluteFrame, kinds: .hoverEffect, fallback: cornerRadius) + spread,
             clipRect: inheritedClip
         )
     }
@@ -2030,7 +2041,7 @@ public final class ViewNode {
         return FillRectCommand(
             rect: fillRect,
             color: color,
-            cornerRadius: cornerRadius,
+            cornerRadius: effectCornerRadius(for: fillRect, kinds: .hoverEffect, fallback: cornerRadius),
             clipRect: clipRect
         )
     }
@@ -2061,9 +2072,21 @@ public final class ViewNode {
         return FillRectCommand(
             rect: ringRect,
             color: color,
-            cornerRadius: cornerRadius + width,
+            cornerRadius: effectCornerRadius(for: absoluteFrame, kinds: .focusEffect, fallback: cornerRadius) + width,
             clipRect: inheritedClip
         )
+    }
+
+    private func effectCornerRadius(
+        for rect: Rect,
+        kinds: RetainedContentShapeKinds,
+        fallback: Double
+    ) -> Double {
+        guard let shape = contentShapes.last(where: { $0.kinds.intersection(kinds).isEmpty == false }) else {
+            return fallback
+        }
+
+        return shape.style.visualCornerRadius(in: rect)
     }
 
     fileprivate func containsInteractionPoint(_ point: Point, in frame: Rect) -> Bool {

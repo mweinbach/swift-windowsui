@@ -2607,6 +2607,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRequestReviewEnvironmentActionCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct RequestReviewReaderView: View {
+                @Environment(\.requestReview) var requestReview
+
+                var body: some View {
+                    Button("REQUEST REVIEW") {
+                        requestReview()
+                    }
+                }
+            }
+
+            var requestCount = 0
+            var didInvalidate = false
+            let node = makeNode(
+                RequestReviewReaderView()
+                    .environment(\.requestReview, RequestReviewAction {
+                        requestCount += 1
+                    }),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: node).contains("REQUEST REVIEW"))
+
+            node.onActivate?()
+
+            XCTAssertEqual(requestCount, 1)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testButtonStyleModifierPropagatesThroughViewContextAndCanBeOverridden() async {
         await MainActor.run {
             let customColor = Color(red: 0.2, green: 0.7, blue: 0.4, alpha: 1)

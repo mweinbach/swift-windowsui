@@ -790,6 +790,21 @@ public struct OpenSettingsAction: @unchecked Sendable {
     public static let noop = OpenSettingsAction {}
 }
 
+public struct RequestReviewAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = RequestReviewAction {}
+}
+
 public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
     public struct NavigationBarDrawerDisplayMode: Sendable, Equatable, Hashable {
         private let rawValue: String
@@ -898,6 +913,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var openWindow: OpenWindowAction
     public var dismissWindow: DismissWindowAction
     public var openSettings: OpenSettingsAction
+    public var requestReview: RequestReviewAction
     public var focusedValues: FocusedValues
     private var customValues: [ObjectIdentifier: Any]
 
@@ -966,6 +982,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         openWindow: OpenWindowAction = .noop,
         dismissWindow: DismissWindowAction = .noop,
         openSettings: OpenSettingsAction = .noop,
+        requestReview: RequestReviewAction = .noop,
         focusedValues: FocusedValues = FocusedValues()
     ) {
         self.colorScheme = colorScheme
@@ -1038,6 +1055,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.openWindow = openWindow
         self.dismissWindow = dismissWindow
         self.openSettings = openSettings
+        self.requestReview = requestReview
         self.focusedValues = focusedValues
         self.customValues = [:]
     }

@@ -8052,6 +8052,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPopoverAttachmentAnchorPositionsRetainedFloatingPanel() async {
+        await MainActor.run {
+            let topLeadingNode = makeNode(
+                Text("ROOT")
+                    .frame(width: 120, height: 80)
+                    .popover(
+                        isPresented: .constant(true),
+                        attachmentAnchor: .point(.topLeading),
+                        arrowEdge: .top
+                    ) {
+                        Text("TOP")
+                            .frame(width: 80, height: 40)
+                    },
+                size: Size(width: 320, height: 200)
+            )
+            topLeadingNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 200))
+
+            guard let topLeadingPopover = topLeadingNode.children.last else {
+                return XCTFail("Expected top-leading retained popover")
+            }
+            XCTAssertEqual(topLeadingPopover.frame.origin.x, 0, accuracy: 0.001)
+            XCTAssertEqual(topLeadingPopover.frame.origin.y, 0, accuracy: 0.001)
+
+            let bottomTrailingNode = makeNode(
+                Text("ROOT")
+                    .frame(width: 120, height: 80)
+                    .popover(
+                        isPresented: .constant(true),
+                        attachmentAnchor: .rect(.bottomTrailing),
+                        arrowEdge: .bottom
+                    ) {
+                        Text("BOTTOM")
+                            .frame(width: 80, height: 40)
+                    },
+                size: Size(width: 320, height: 200)
+            )
+            bottomTrailingNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 200))
+
+            guard let bottomTrailingPopover = bottomTrailingNode.children.last else {
+                return XCTFail("Expected bottom-trailing retained popover")
+            }
+            XCTAssertEqual(
+                bottomTrailingPopover.frame.origin.x + bottomTrailingPopover.frame.size.width,
+                320,
+                accuracy: 0.001
+            )
+            XCTAssertEqual(
+                bottomTrailingPopover.frame.origin.y + bottomTrailingPopover.frame.size.height,
+                200,
+                accuracy: 0.001
+            )
+            XCTAssertTrue(allTexts(in: bottomTrailingPopover).contains("BOTTOM"))
+        }
+    }
+
     func testPopoverItemRendersSelectedItemAndClearsOnDismiss() async {
         await MainActor.run {
             struct ItemPopoverContent: View {

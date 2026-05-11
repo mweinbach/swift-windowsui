@@ -7096,6 +7096,7 @@ private func retainedPopoverPresentation(
     base: Component,
     popover: Component,
     context: ViewBuildContext,
+    attachmentAnchor: PopoverAttachmentAnchor,
     arrowEdge: Edge
 ) -> Component {
     Component { runtime in
@@ -7143,10 +7144,11 @@ private func retainedPopoverPresentation(
             }
 
             let popoverSize = popoverNode.intrinsicContentSize()
-            let alignment = popoverAlignment(for: arrowEdge, layoutDirection: context.layoutDirection)
-            let popoverOrigin = alignment.frameOrigin(
+            let popoverOrigin = popoverOrigin(
                 for: popoverSize,
                 in: bounds.size,
+                attachmentAnchor: attachmentAnchor,
+                arrowEdge: arrowEdge,
                 layoutDirection: context.layoutDirection
             )
             let popoverFrame = Rect(origin: popoverOrigin, size: popoverSize)
@@ -7159,17 +7161,68 @@ private func retainedPopoverPresentation(
     }
 }
 
-private func popoverAlignment(for arrowEdge: Edge, layoutDirection: LayoutDirection) -> Alignment {
-    switch arrowEdge {
-    case .top:
-        return .top
-    case .bottom:
-        return .bottom
-    case .leading:
-        return layoutDirection == .rightToLeft ? .trailing : .leading
-    case .trailing:
-        return layoutDirection == .rightToLeft ? .leading : .trailing
+private func popoverAttachmentPoint(_ anchor: PopoverAttachmentAnchor, in size: Size) -> Point {
+    let unitPoint: UnitPoint
+    switch anchor.kind {
+    case let .rect(point), let .point(point):
+        unitPoint = point
     }
+    return Point(
+        x: size.width * min(1, max(0, unitPoint.x)),
+        y: size.height * min(1, max(0, unitPoint.y))
+    )
+}
+
+private func resolvedPopoverArrowEdge(_ edge: Edge, layoutDirection: LayoutDirection) -> Edge {
+    switch (edge, layoutDirection) {
+    case (.leading, .rightToLeft):
+        return .trailing
+    case (.trailing, .rightToLeft):
+        return .leading
+    default:
+        return edge
+    }
+}
+
+private func clampedPopoverOrigin(_ origin: Point, popoverSize: Size, boundsSize: Size) -> Point {
+    Point(
+        x: min(max(0, boundsSize.width - popoverSize.width), max(0, origin.x)),
+        y: min(max(0, boundsSize.height - popoverSize.height), max(0, origin.y))
+    )
+}
+
+private func popoverOrigin(
+    for popoverSize: Size,
+    in boundsSize: Size,
+    attachmentAnchor: PopoverAttachmentAnchor,
+    arrowEdge: Edge,
+    layoutDirection: LayoutDirection
+) -> Point {
+    let attachmentPoint = popoverAttachmentPoint(attachmentAnchor, in: boundsSize)
+    let origin: Point
+    switch resolvedPopoverArrowEdge(arrowEdge, layoutDirection: layoutDirection) {
+    case .top:
+        origin = Point(
+            x: attachmentPoint.x - popoverSize.width * 0.5,
+            y: attachmentPoint.y
+        )
+    case .bottom:
+        origin = Point(
+            x: attachmentPoint.x - popoverSize.width * 0.5,
+            y: attachmentPoint.y - popoverSize.height
+        )
+    case .leading:
+        origin = Point(
+            x: attachmentPoint.x,
+            y: attachmentPoint.y - popoverSize.height * 0.5
+        )
+    case .trailing:
+        origin = Point(
+            x: attachmentPoint.x - popoverSize.width,
+            y: attachmentPoint.y - popoverSize.height * 0.5
+        )
+    }
+    return clampedPopoverOrigin(origin, popoverSize: popoverSize, boundsSize: boundsSize)
 }
 
 @MainActor
@@ -7197,6 +7250,7 @@ private func retainedCompactAdaptivePopoverPresentation(
     base: Component,
     popover: Component,
     context: ViewBuildContext,
+    attachmentAnchor: PopoverAttachmentAnchor,
     arrowEdge: Edge,
     onInteractiveDismiss: @escaping @MainActor @Sendable () -> Void
 ) -> Component {
@@ -7224,6 +7278,7 @@ private func retainedCompactAdaptivePopoverPresentation(
                 base: baseComponent,
                 popover: popoverComponent,
                 context: context,
+                attachmentAnchor: attachmentAnchor,
                 arrowEdge: arrowEdge
             )
             .makeNode(runtime: runtime)
@@ -8219,7 +8274,6 @@ public extension View {
         arrowEdge: Edge = .top,
         @ViewBuilder content popoverContent: @escaping () -> [AnyView]
     ) -> some View {
-        _ = attachmentAnchor
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
             guard isPresented.wrappedValue else {
@@ -8255,6 +8309,7 @@ public extension View {
                 base: base,
                 popover: popover,
                 context: context,
+                attachmentAnchor: attachmentAnchor,
                 arrowEdge: arrowEdge,
                 onInteractiveDismiss: dismiss
             )
@@ -8267,7 +8322,6 @@ public extension View {
         arrowEdge: Edge = .top,
         @ViewBuilder content popoverContent: @escaping (Item) -> [AnyView]
     ) -> some View where Item: Identifiable {
-        _ = attachmentAnchor
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
             guard let selectedItem = item.wrappedValue else {
@@ -8303,6 +8357,7 @@ public extension View {
                 base: base,
                 popover: popover,
                 context: context,
+                attachmentAnchor: attachmentAnchor,
                 arrowEdge: arrowEdge,
                 onInteractiveDismiss: dismiss
             )

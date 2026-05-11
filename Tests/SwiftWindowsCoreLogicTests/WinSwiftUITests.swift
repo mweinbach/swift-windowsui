@@ -6590,6 +6590,67 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testWindowSceneActionsCanForwardTypedPayloadsToInjectedHandlers() async {
+        await MainActor.run {
+            struct WindowPayloadActionView: View {
+                @Environment(\.openWindow) var openWindow
+                @Environment(\.dismissWindow) var dismissWindow
+
+                var body: some View {
+                    VStack {
+                        Button("OPEN PAYLOADS") {
+                            openWindow(id: "detail", value: 7)
+                            openWindow(value: "payload")
+                        }
+                        Button("DISMISS PAYLOADS") {
+                            dismissWindow(id: "detail", value: 9)
+                            dismissWindow(value: "closed")
+                        }
+                    }
+                }
+            }
+
+            var opened: [WindowActionPayload] = []
+            var dismissed: [WindowActionPayload] = []
+            let node = makeNode(
+                WindowPayloadActionView()
+                    .environment(
+                        \.openWindow,
+                        OpenWindowAction(payloadHandler: { payload in
+                            opened.append(payload)
+                        })
+                    )
+                    .environment(
+                        \.dismissWindow,
+                        DismissWindowAction(payloadHandler: { payload in
+                            dismissed.append(payload)
+                        })
+                    )
+            )
+
+            let focusableNodes = focusableNodes(in: node)
+            XCTAssertEqual(focusableNodes.count, 2)
+
+            focusableNodes[0].onActivate?()
+            focusableNodes[1].onActivate?()
+
+            XCTAssertEqual(
+                opened,
+                [
+                    WindowActionPayload(id: "detail", value: AnyHashable(7)),
+                    WindowActionPayload(value: AnyHashable("payload")),
+                ]
+            )
+            XCTAssertEqual(
+                dismissed,
+                [
+                    WindowActionPayload(id: "detail", value: AnyHashable(9)),
+                    WindowActionPayload(value: AnyHashable("closed")),
+                ]
+            )
+        }
+    }
+
     func testSupportsMultipleWindowsEnvironmentCanBeReadAndOverridden() async {
         await MainActor.run {
             struct MultipleWindowsReaderView: View {

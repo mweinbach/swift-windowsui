@@ -736,59 +736,77 @@ public struct RefreshAction: @unchecked Sendable {
     }
 }
 
+public struct WindowActionPayload: @unchecked Sendable, Equatable {
+    public var id: String?
+    public var value: AnyHashable?
+
+    public init(id: String? = nil, value: AnyHashable? = nil) {
+        self.id = id
+        self.value = value
+    }
+}
+
 public struct OpenWindowAction: @unchecked Sendable {
-    private let handler: @MainActor (_ id: String?) -> Void
+    private let handler: @MainActor (_ payload: WindowActionPayload) -> Void
 
     public init(handler: @escaping @MainActor (_ id: String?) -> Void) {
-        self.handler = handler
+        self.handler = { payload in handler(payload.id) }
+    }
+
+    public init(payloadHandler: @escaping @MainActor (_ payload: WindowActionPayload) -> Void) {
+        self.handler = payloadHandler
     }
 
     @MainActor
     public func callAsFunction(id: String) {
-        handler(id)
+        handler(WindowActionPayload(id: id))
     }
 
     @MainActor
     public func callAsFunction<Value>(id: String, value: Value) where Value: Codable, Value: Hashable {
-        handler(id)
+        handler(WindowActionPayload(id: id, value: AnyHashable(value)))
     }
 
     @MainActor
     public func callAsFunction<Value>(value: Value) where Value: Codable, Value: Hashable {
-        handler(nil)
+        handler(WindowActionPayload(value: AnyHashable(value)))
     }
 
-    public static let noop = OpenWindowAction { _ in }
+    public static let noop = OpenWindowAction(handler: { _ in })
 }
 
 public struct DismissWindowAction: @unchecked Sendable {
-    private let handler: @MainActor (_ id: String?) -> Void
+    private let handler: @MainActor (_ payload: WindowActionPayload) -> Void
 
     public init(handler: @escaping @MainActor (_ id: String?) -> Void) {
-        self.handler = handler
+        self.handler = { payload in handler(payload.id) }
+    }
+
+    public init(payloadHandler: @escaping @MainActor (_ payload: WindowActionPayload) -> Void) {
+        self.handler = payloadHandler
     }
 
     @MainActor
     public func callAsFunction() {
-        handler(nil)
+        handler(WindowActionPayload())
     }
 
     @MainActor
     public func callAsFunction(id: String) {
-        handler(id)
+        handler(WindowActionPayload(id: id))
     }
 
     @MainActor
     public func callAsFunction<Value>(id: String, value: Value) where Value: Codable, Value: Hashable {
-        handler(id)
+        handler(WindowActionPayload(id: id, value: AnyHashable(value)))
     }
 
     @MainActor
     public func callAsFunction<Value>(value: Value) where Value: Codable, Value: Hashable {
-        handler(nil)
+        handler(WindowActionPayload(value: AnyHashable(value)))
     }
 
-    public static let noop = DismissWindowAction { _ in }
+    public static let noop = DismissWindowAction(handler: { _ in })
 }
 
 public struct OpenSettingsAction: @unchecked Sendable {

@@ -5528,7 +5528,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(buttonReaderNode.text, "BUTTON")
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
-            XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["ACTIONS", ">"])
+            XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["ACTIONS"])
+            XCTAssertEqual(inheritedNode.children[0].children[0].backgroundColor, .clear)
+            XCTAssertEqual(inheritedNode.children[0].children[0].borderColor, .clear)
         }
     }
 

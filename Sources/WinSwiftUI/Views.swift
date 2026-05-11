@@ -4937,6 +4937,29 @@ public struct Menu: View {
         )
 
         return Component { runtime in
+            let menuStyle = context.menuStyle
+            let menuSurfaceStyle: ButtonSurfaceStyle
+            let styleShowsMenuIndicator: Bool
+            switch menuStyle.kind {
+            case .borderlessButtonStyle(let showsMenuIndicator):
+                menuSurfaceStyle = .plain
+                styleShowsMenuIndicator = showsMenuIndicator
+            case .borderedButtonStyle(let showsMenuIndicator):
+                menuSurfaceStyle = .default
+                styleShowsMenuIndicator = showsMenuIndicator
+            case .automatic, .button:
+                menuSurfaceStyle = .default
+                styleShowsMenuIndicator = true
+            }
+            let showsMenuIndicator: Bool
+            switch context.environmentValues.menuIndicatorVisibility {
+            case .hidden:
+                showsMenuIndicator = false
+            case .visible:
+                showsMenuIndicator = true
+            case .automatic:
+                showsMenuIndicator = styleShowsMenuIndicator
+            }
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let disclosureNode = Controls.label(
                 menuState.isOpen ? "V" : ">",
@@ -4947,9 +4970,7 @@ public struct Menu: View {
                 lineBreakMode: .truncateTail,
                 maximumNumberOfLines: 1
             )
-            let headerChildren = context.environmentValues.menuIndicatorVisibility == .hidden
-                ? [labelNode]
-                : [labelNode, disclosureNode]
+            let headerChildren = showsMenuIndicator ? [labelNode, disclosureNode] : [labelNode]
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
                 stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .center),
@@ -4958,12 +4979,13 @@ public struct Menu: View {
             )
             let menuButton = Controls.button(
                 runtime: runtime,
-                cornerRadius: ButtonSurfaceStyle.default.cornerRadius,
-                palette: ButtonSurfaceStyle.default.palette,
-                chrome: ButtonSurfaceStyle.default.chrome,
-                clipsToBounds: ButtonSurfaceStyle.default.clipsToBounds,
+                cornerRadius: menuSurfaceStyle.cornerRadius,
+                palette: menuSurfaceStyle.palette,
+                chrome: menuSurfaceStyle.chrome,
+                clipsToBounds: menuSurfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
                 isEnabled: context.isEnabled,
+                animation: menuSurfaceStyle.animation,
                 action: {
                     if let primaryAction {
                         primaryAction()

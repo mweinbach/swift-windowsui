@@ -2150,6 +2150,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLinkMapsToPlainRetainedButtonAndUsesOpenURLEnvironment() async {
+        await MainActor.run {
+            var openedURLs: [URL] = []
+            var didInvalidate = false
+            let docsURL = URL(string: "https://example.com/docs")!
+            let statusURL = URL(string: "https://example.com/status")!
+            let linkTint = Color(red: 0.1, green: 0.7, blue: 0.9, alpha: 1)
+            let openURL = OpenURLAction { url in
+                openedURLs.append(url)
+                return .handled
+            }
+
+            let node = makeNode(
+                VStack {
+                    Link("DOCS", destination: docsURL)
+                    Link(destination: statusURL) {
+                        Label("STATUS", systemImage: "link")
+                    }
+                }
+                .environment(\.openURL, openURL)
+                .tint(linkTint),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("DOCS"))
+            XCTAssertTrue(allTexts(in: node.children[1]).contains("STATUS"))
+            XCTAssertTrue(node.children[0].isFocusable)
+            XCTAssertEqual(node.children[0].backgroundColor, ButtonSurfaceStyle.plain.palette.idle)
+            XCTAssertEqual(firstTextNode(in: node.children[0])?.textStyle.color, linkTint)
+
+            node.children[0].onActivate?()
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(openedURLs, [docsURL, statusURL])
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testButtonStyleModifierPropagatesThroughViewContextAndCanBeOverridden() async {
         await MainActor.run {
             let customColor = Color(red: 0.2, green: 0.7, blue: 0.4, alpha: 1)
@@ -5438,6 +5479,21 @@ private func firstText(in node: ViewNode) -> String? {
     for child in node.children {
         if let text = firstText(in: child) {
             return text
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func firstTextNode(in node: ViewNode) -> ViewNode? {
+    if node.text != nil {
+        return node
+    }
+
+    for child in node.children {
+        if let textNode = firstTextNode(in: child) {
+            return textNode
         }
     }
 

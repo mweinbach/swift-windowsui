@@ -73,6 +73,9 @@ Views and containers:
 - `Label`
   - `StringProtocol` title inputs
   - `Label { title } icon: { icon }`
+- `Link`
+  - `StringProtocol` title inputs
+  - `Link(destination:label:)`
 - `ContentUnavailableView`
   - `ContentUnavailableView(_:systemImage:description:)`
   - builder label/description/actions forms
@@ -272,7 +275,7 @@ Compatibility helpers:
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - `EdgeInsets()`
-- minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `OpenURLAction`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -316,6 +319,7 @@ Surface direction:
 - `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
 - `Image.resizable`, `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. `resizingMode` is retained as compatibility metadata; real tile rendering is not implemented yet.
 - `LabeledContent` maps title/value and builder-label forms to a retained horizontal row with secondary leading label text and trailing content, matching common settings and form call sites without adding native control dependencies.
+- `Link` maps title and builder labels onto a retained plain button. Activation calls `EnvironmentValues.openURL`, whose default action asks the Windows shell to open the destination URL; tests and apps can inject an `OpenURLAction` through `.environment(\.openURL, ...)`.
 - `ContentUnavailableView` maps placeholder label, description, and action builders to retained centered vertical chrome. The title/system-image and search convenience forms reuse retained `Label` / text / button composition; platform-specific empty-state styling is intentionally minimal.
 - `ViewThatFits(in:_:)` chooses the first retained child whose intrinsic size fits the current build context canvas along the requested axes, then falls back to the last child when none fit. It does not yet perform SwiftUI-style proposal probing through nested layout.
 - `Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, and `Ellipse` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, `stroke` and `strokeBorder` accept `Color`, stored `ForegroundStyle`, `LinearGradient`, and `StrokeStyle` overloads. `StrokeStyle.lineWidth` maps to retained border width; line caps, joins, miter limits, and dash patterns are accepted for source compatibility but are not rendered by the retained border path yet. Rounded corner styles currently share the same retained rounded-rect path.

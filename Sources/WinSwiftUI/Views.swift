@@ -4899,6 +4899,74 @@ public struct Gauge: View {
 }
 
 @MainActor
+public struct Link: View {
+    public typealias Body = Never
+
+    private let destination: URL
+    private let label: [AnyView]
+
+    public init(destination: URL, @ViewBuilder label: () -> [AnyView]) {
+        self.destination = destination
+        self.label = label()
+    }
+
+    public init(_ title: String, destination: URL) {
+        self.destination = destination
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 2, weight: .semibold))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1)
+            )
+        ]
+    }
+
+    public init<S: StringProtocol>(_ title: S, destination: URL) {
+        self.init(String(title), destination: destination)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, destination: URL) {
+        self.init(titleKey.resolvedString, destination: destination)
+    }
+
+    public var body: Never {
+        fatalError("Link has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context
+                .withForegroundColor(context.tint)
+                .withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+        let openURL = context.environmentValues.openURL
+        let destination = destination
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: ButtonSurfaceStyle.plain.cornerRadius,
+                palette: ButtonSurfaceStyle.plain.palette,
+                chrome: ButtonSurfaceStyle.plain.chrome,
+                clipsToBounds: ButtonSurfaceStyle.plain.clipsToBounds,
+                layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                isEnabled: context.isEnabled,
+                animation: ButtonSurfaceStyle.plain.animation,
+                action: {
+                    _ = openURL(destination)
+                    context.invalidate()
+                },
+                children: [labelNode]
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Button: View {
     public typealias Body = Never
 

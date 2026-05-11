@@ -376,6 +376,30 @@ public protocol EnvironmentKey {
     static var defaultValue: Value { get }
 }
 
+public struct OpenURLAction: @unchecked Sendable {
+    public enum Result: Sendable, Equatable {
+        case handled
+        case discarded
+        case systemAction
+    }
+
+    private let handler: @MainActor (URL) -> Result
+
+    public init(handler: @escaping @MainActor (URL) -> Result) {
+        self.handler = handler
+    }
+
+    @discardableResult
+    @MainActor
+    public func callAsFunction(_ url: URL) -> Result {
+        handler(url)
+    }
+
+    public static let system = OpenURLAction { url in
+        defaultOpenURL(url) ? .handled : .discarded
+    }
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var isEnabled: Bool
@@ -405,6 +429,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var badgeProminence: BadgeProminence
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
+    public var openURL: OpenURLAction
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -432,7 +457,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         headerProminence: Prominence = .standard,
         badgeProminence: BadgeProminence = .standard,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
-        verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic
+        verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
+        openURL: OpenURLAction = .system
     ) {
         self.colorScheme = colorScheme
         self.isEnabled = isEnabled
@@ -462,6 +488,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.badgeProminence = badgeProminence
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
+        self.openURL = openURL
         self.customValues = [:]
     }
 

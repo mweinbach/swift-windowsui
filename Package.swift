@@ -91,6 +91,9 @@ let package = Package(
                 "SwiftWindowsPlatform",
                 "SwiftWindowsUI",
                 "SwiftWindowsRendererD3D11",
+            ],
+            linkerSettings: [
+                .linkedLibrary("Shell32"),
             ]
         ),
         .target(

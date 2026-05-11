@@ -233,6 +233,60 @@ public struct Alert {
     }
 }
 
+@MainActor
+public struct ActionSheet {
+    @MainActor
+    public struct Button {
+        let label: Text
+        let role: ButtonRole?
+        let action: (@MainActor () -> Void)?
+
+        private init(label: Text, role: ButtonRole?, action: (@MainActor () -> Void)?) {
+            self.label = label
+            self.role = role
+            self.action = action
+        }
+
+        public static func `default`(_ label: Text) -> Button {
+            Button(label: label, role: nil, action: nil)
+        }
+
+        public static func `default`(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: nil, action: action)
+        }
+
+        public static func cancel() -> Button {
+            Button(label: Text("Cancel"), role: .cancel, action: nil)
+        }
+
+        public static func cancel(_ label: Text) -> Button {
+            Button(label: label, role: .cancel, action: nil)
+        }
+
+        public static func cancel(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: .cancel, action: action)
+        }
+
+        public static func destructive(_ label: Text) -> Button {
+            Button(label: label, role: .destructive, action: nil)
+        }
+
+        public static func destructive(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: .destructive, action: action)
+        }
+    }
+
+    let title: Text
+    let message: Text?
+    let buttons: [Button]
+
+    public init(title: Text, message: Text? = nil, buttons: [Button] = [.cancel()]) {
+        self.title = title
+        self.message = message
+        self.buttons = buttons
+    }
+}
+
 public struct MatchedGeometryProperties: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -5315,6 +5369,38 @@ private func retainedConfirmationDialogPresentation(
     }
 }
 
+@MainActor
+private func retainedActionSheetPresentation(
+    base: Component,
+    actionSheet: ActionSheet,
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
+) -> Component {
+    let sheetContext = context
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        .withEnvironmentValue(\.isPresented, true)
+    let messageViews = actionSheet.message.map { [AnyView($0.foregroundStyle(.secondary))] } ?? []
+    let buttons = (actionSheet.buttons.isEmpty ? [.cancel()] : actionSheet.buttons).map { button in
+        AnyView(
+            Button(button.label.plainContent, role: button.role) {
+                button.action?()
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+        )
+    }
+
+    return retainedConfirmationDialogPresentation(
+        base: base,
+        title: actionSheet.title,
+        titleVisibility: .visible,
+        messageViews: messageViews,
+        actionViews: buttons,
+        context: sheetContext,
+        dismiss: dismiss
+    )
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5914,6 +6000,59 @@ public extension View {
             actions: actions,
             message: message
         )
+    }
+
+    func actionSheet(isPresented: Binding<Bool>, content actionSheetContent: @escaping () -> ActionSheet) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedActionSheetPresentation(
+                base: base,
+                actionSheet: actionSheetContent(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func actionSheet<Item>(
+        item: Binding<Item?>,
+        content actionSheetContent: @escaping (Item) -> ActionSheet
+    ) -> some View where Item: Identifiable {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
+
+                item.wrappedValue = nil
+                context.invalidate()
+            }
+
+            return retainedActionSheetPresentation(
+                base: base,
+                actionSheet: actionSheetContent(selectedItem),
+                context: context,
+                dismiss: dismiss
+            )
+        }
     }
 
     func confirmationDialog(

@@ -5144,6 +5144,90 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testActionSheetIsPresentedComposesRetainedDialogAndDismissesButton() async {
+        await MainActor.run {
+            var isPresented = true
+            var didDelete = false
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 240, height: 120)
+                .actionSheet(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    )
+                ) {
+                    ActionSheet(
+                        title: Text("FILE ACTIONS"),
+                        message: Text("CHOOSE ONE"),
+                        buttons: [
+                            .destructive(Text("DELETE")) {
+                                didDelete = true
+                            },
+                            .cancel(Text("KEEP"))
+                        ]
+                    )
+                }
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected actionSheet to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("FILE ACTIONS"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CHOOSE ONE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DELETE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("KEEP"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertTrue(didDelete)
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("FILE ACTIONS"))
+        }
+    }
+
+    func testActionSheetItemRendersSelectedItemAndClearsOnDismiss() async {
+        await MainActor.run {
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "SHEET DETAIL")
+            let view = Text("ROOT")
+                .actionSheet(
+                    item: Binding(
+                        get: { selectedItem },
+                        set: { selectedItem = $0 }
+                    )
+                ) { item in
+                    ActionSheet(
+                        title: Text(item.id),
+                        buttons: [.default(Text("OPEN"))]
+                    )
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("SHEET DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("OPEN"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertNil(selectedItem)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testConfirmationDialogComposesRetainedDialogAndDefaultCancelDismisses() async {
         await MainActor.run {
             struct DialogMessage: View {

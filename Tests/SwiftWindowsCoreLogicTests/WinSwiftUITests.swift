@@ -4764,6 +4764,82 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testKeyboardShortcutModifierMapsAndActivatesRetainedNode() async {
+        await MainActor.run {
+            var activations = 0
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let node = Button("SAVE") {
+                activations += 1
+            }
+            .keyboardShortcut("s")
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(
+                node.keyboardShortcuts,
+                [KeyboardShortcutBinding(keyCode: 0x53, modifiers: [.control])]
+            )
+
+            runtime.keyDown(KeyboardEvent(keyCode: 0x53, modifiers: []))
+            XCTAssertEqual(activations, 0)
+
+            runtime.keyDown(KeyboardEvent(keyCode: 0x53, modifiers: [.control]))
+            XCTAssertEqual(activations, 1)
+        }
+    }
+
+    func testKeyboardShortcutSupportsExplicitModifiersAndDefaultAction() async {
+        await MainActor.run {
+            var modifiedActivations = 0
+            var defaultActivations = 0
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {}
+            )
+            let modifiedNode = Button("RUN") {
+                modifiedActivations += 1
+            }
+            .keyboardShortcut("r", modifiers: [.shift, .option])
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+            let defaultNode = Button("OK") {
+                defaultActivations += 1
+            }
+            .keyboardShortcut(.defaultAction)
+            .makeComponent(context: context)
+            .makeNode(runtime: runtime)
+
+            runtime.root.addChild(modifiedNode)
+            runtime.root.addChild(defaultNode)
+            runtime.setRootSize(IntSize(width: 320, height: 180))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(
+                modifiedNode.keyboardShortcuts,
+                [KeyboardShortcutBinding(keyCode: 0x52, modifiers: [.shift, .alt])]
+            )
+            XCTAssertEqual(
+                defaultNode.keyboardShortcuts,
+                [KeyboardShortcutBinding(keyCode: KeyboardKey.enter.rawValue, modifiers: [])]
+            )
+
+            runtime.keyDown(KeyboardEvent(keyCode: 0x52, modifiers: [.shift, .alt]))
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(modifiedActivations, 1)
+            XCTAssertEqual(defaultActivations, 1)
+        }
+    }
+
     func testAccessibilityModifiersMapToRetainedMetadata() async {
         await MainActor.run {
             let node = makeNode(

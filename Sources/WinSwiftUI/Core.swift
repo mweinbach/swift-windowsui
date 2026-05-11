@@ -1990,6 +1990,104 @@ public struct ContentShapeKinds: OptionSet, Sendable {
     public static let accessibility = ContentShapeKinds(rawValue: 1 << 5)
 }
 
+public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let capsLock = EventModifiers(rawValue: 1 << 0)
+    public static let shift = EventModifiers(rawValue: 1 << 1)
+    public static let control = EventModifiers(rawValue: 1 << 2)
+    public static let option = EventModifiers(rawValue: 1 << 3)
+    public static let command = EventModifiers(rawValue: 1 << 4)
+    public static let numericPad = EventModifiers(rawValue: 1 << 5)
+    public static let all: EventModifiers = [.capsLock, .shift, .control, .option, .command, .numericPad]
+
+    var retainedKeyboardModifiers: KeyboardModifiers {
+        var modifiers: KeyboardModifiers = []
+        if contains(.shift) {
+            modifiers.insert(.shift)
+        }
+        if contains(.control) || contains(.command) {
+            modifiers.insert(.control)
+        }
+        if contains(.option) {
+            modifiers.insert(.alt)
+        }
+        return modifiers
+    }
+}
+
+public struct KeyEquivalent: Sendable, Equatable, Hashable, ExpressibleByExtendedGraphemeClusterLiteral, ExpressibleByUnicodeScalarLiteral {
+    public typealias ExtendedGraphemeClusterLiteralType = Character
+    public typealias UnicodeScalarLiteralType = UnicodeScalar
+
+    let retainedKeyCode: UInt32
+
+    public init(_ character: Character) {
+        self.retainedKeyCode = Self.retainedKeyCode(for: character)
+    }
+
+    public init(extendedGraphemeClusterLiteral value: Character) {
+        self.init(value)
+    }
+
+    public init(unicodeScalarLiteral value: UnicodeScalar) {
+        self.retainedKeyCode = value.value
+    }
+
+    private init(retainedKeyCode: UInt32) {
+        self.retainedKeyCode = retainedKeyCode
+    }
+
+    public static let upArrow = KeyEquivalent(retainedKeyCode: 0x26)
+    public static let downArrow = KeyEquivalent(retainedKeyCode: 0x28)
+    public static let leftArrow = KeyEquivalent(retainedKeyCode: 0x25)
+    public static let rightArrow = KeyEquivalent(retainedKeyCode: 0x27)
+    public static let escape = KeyEquivalent(retainedKeyCode: 0x1B)
+    public static let delete = KeyEquivalent(retainedKeyCode: 0x08)
+    public static let deleteForward = KeyEquivalent(retainedKeyCode: 0x2E)
+    public static let `return` = KeyEquivalent(retainedKeyCode: 0x0D)
+    public static let tab = KeyEquivalent(retainedKeyCode: 0x09)
+    public static let space = KeyEquivalent(retainedKeyCode: 0x20)
+
+    private static func retainedKeyCode(for character: Character) -> UInt32 {
+        switch character {
+        case " ":
+            return KeyboardKey.space.rawValue
+        case "\t":
+            return KeyboardKey.tab.rawValue
+        case "\n", "\r":
+            return KeyboardKey.enter.rawValue
+        default:
+            let uppercased = String(character).uppercased()
+            return uppercased.unicodeScalars.first?.value ?? 0
+        }
+    }
+}
+
+public struct KeyboardShortcut: Sendable, Equatable, Hashable {
+    let key: KeyEquivalent
+    let modifiers: EventModifiers
+
+    public init(_ key: KeyEquivalent, modifiers: EventModifiers = .command) {
+        self.key = key
+        self.modifiers = modifiers
+    }
+
+    public static let defaultAction = KeyboardShortcut(.return, modifiers: [])
+    public static let cancelAction = KeyboardShortcut(.escape, modifiers: [])
+
+    var retainedBinding: KeyboardShortcutBinding {
+        KeyboardShortcutBinding(
+            keyCode: key.retainedKeyCode,
+            modifiers: modifiers.retainedKeyboardModifiers
+        )
+    }
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -4044,6 +4142,21 @@ public extension View {
                 if isFocusable {
                     childNode.isHitTestVisible = true
                 }
+                return childNode
+            }
+        }
+    }
+
+    func keyboardShortcut(_ key: KeyEquivalent, modifiers: EventModifiers = .command) -> some View {
+        keyboardShortcut(KeyboardShortcut(key, modifiers: modifiers))
+    }
+
+    func keyboardShortcut(_ shortcut: KeyboardShortcut?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.keyboardShortcuts = shortcut.map { [$0.retainedBinding] } ?? []
                 return childNode
             }
         }

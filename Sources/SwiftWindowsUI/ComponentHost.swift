@@ -159,6 +159,7 @@ public final class ComponentHost {
         if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
         if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
         if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
+        if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

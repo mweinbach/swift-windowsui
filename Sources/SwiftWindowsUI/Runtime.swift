@@ -33,6 +33,20 @@ struct ViewMeasureCacheKey: Equatable, Sendable {
     var displayScale: Double
 }
 
+public struct KeyboardShortcutBinding: Sendable, Equatable {
+    public var keyCode: UInt32
+    public var modifiers: KeyboardModifiers
+
+    public init(keyCode: UInt32, modifiers: KeyboardModifiers = []) {
+        self.keyCode = keyCode
+        self.modifiers = modifiers
+    }
+
+    func matches(_ event: KeyboardEvent) -> Bool {
+        event.keyCode == keyCode && event.modifiers == modifiers
+    }
+}
+
 struct ViewLayoutCacheKey: Equatable, Sendable {
     var frame: Rect
     var displayScale: Double
@@ -424,6 +438,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var keyboardShortcuts: [KeyboardShortcutBinding] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -527,6 +545,7 @@ public final class ViewNode {
         accessibilityHint: String? = nil,
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
+        keyboardShortcuts: [KeyboardShortcutBinding] = [],
         paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
@@ -573,6 +592,7 @@ public final class ViewNode {
         self.accessibilityHint = accessibilityHint
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
+        self.keyboardShortcuts = keyboardShortcuts
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil
@@ -2546,6 +2566,16 @@ public final class RetainedViewRuntime {
             moveFocus(reverse: event.modifiers.contains(.shift))
             return
 
+        default:
+            break
+        }
+
+        if activateKeyboardShortcut(for: event) {
+            return
+        }
+
+        switch event.key {
+
         case .enter, .space:
             focusedNode?.onActivate?()
 
@@ -2862,6 +2892,25 @@ public final class RetainedViewRuntime {
 
     private func nearestDraggableNode(from node: ViewNode?) -> ViewNode? {
         self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isDraggable }))
+    }
+
+    private func activateKeyboardShortcut(for event: KeyboardEvent) -> Bool {
+        updateResolvedLayout()
+        for dispatchState in prepaintState.dispatchNodes {
+            let node = dispatchState.node
+            guard
+                node.onActivate != nil,
+                node.keyboardShortcuts.contains(where: { $0.matches(event) })
+            else {
+                continue
+            }
+
+            updateFocusTarget(to: nearestFocusableNode(from: node))
+            node.onActivate?()
+            return true
+        }
+
+        return false
     }
 
     private func handleScrollKey(_ key: KeyboardKey) -> Bool {

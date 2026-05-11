@@ -964,6 +964,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testWritingToolsAffordanceVisibilityModifierRetainsTextInputMetadata() async {
+        await MainActor.run {
+            struct WritingToolsAffordanceVisibilityReader: View {
+                @Environment(\.writingToolsAffordanceVisibility) var writingToolsAffordanceVisibility
+
+                var body: some View {
+                    Text(writingToolsAffordanceVisibility == .hidden ? "HIDDEN" : "OTHER")
+                }
+            }
+
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let visibleNode = makeNode(
+                TextField("TITLE", text: binding)
+                    .writingToolsAffordanceVisibility(.visible)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    SecureField("PASSWORD", text: binding)
+                    TextEditor(text: binding)
+                        .writingToolsAffordanceVisibility(.automatic)
+                    WritingToolsAffordanceVisibilityReader()
+                }
+                .writingToolsAffordanceVisibility(.hidden)
+            )
+            let textNode = makeNode(
+                Text("NOTE")
+                    .writingToolsAffordanceVisibility(.hidden)
+            )
+
+            XCTAssertEqual(visibleNode.writingToolsAffordanceVisibility, .visible)
+            XCTAssertEqual(inheritedNode.children[0].writingToolsAffordanceVisibility, .hidden)
+            XCTAssertEqual(inheritedNode.children[1].writingToolsAffordanceVisibility, .automatic)
+            XCTAssertEqual(inheritedNode.children[2].text, "HIDDEN")
+            XCTAssertEqual(textNode.writingToolsAffordanceVisibility, .automatic)
+        }
+    }
+
     func testTextEditorFindAndReplaceModifiersRetainMetadata() async {
         await MainActor.run {
             var value = "Find me"

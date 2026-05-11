@@ -226,6 +226,12 @@ public enum RetainedWritingToolsBehavior: Sendable, Equatable, Hashable {
     case disabled
 }
 
+public enum RetainedWritingToolsAffordanceVisibility: Sendable, Equatable, Hashable {
+    case automatic
+    case visible
+    case hidden
+}
+
 public enum RetainedTextInputDictationActivation: Sendable, Equatable, Hashable {
     case onLook
     case onSelect
@@ -1005,6 +1011,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var writingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var textInputDictationBehavior: RetainedTextInputDictationBehavior? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1230,6 +1240,7 @@ public final class ViewNode {
         textInputCompletion: String? = nil,
         textInputSuggestions: [RetainedTextInputSuggestion] = [],
         writingToolsBehavior: RetainedWritingToolsBehavior? = nil,
+        writingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility = .automatic,
         textInputDictationBehavior: RetainedTextInputDictationBehavior? = nil,
         isFindDisabled: Bool = false,
         isReplaceDisabled: Bool = false,
@@ -1321,6 +1332,7 @@ public final class ViewNode {
         self.textInputCompletion = textInputCompletion
         self.textInputSuggestions = textInputSuggestions
         self.writingToolsBehavior = writingToolsBehavior
+        self.writingToolsAffordanceVisibility = writingToolsAffordanceVisibility
         self.textInputDictationBehavior = textInputDictationBehavior
         self.isFindDisabled = isFindDisabled
         self.isReplaceDisabled = isReplaceDisabled

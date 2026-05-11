@@ -993,6 +993,17 @@ public enum Visibility: Sendable, Equatable {
     var hidesRetainedScrollContentBackground: Bool {
         self == .hidden
     }
+
+    var retainedWritingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .visible:
+            return .visible
+        case .hidden:
+            return .hidden
+        }
+    }
 }
 
 public struct ContentMarginPlacement: Sendable, Equatable, Hashable {
@@ -1854,6 +1865,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var textInputCompletion: String?
     var textInputSuggestions: [AnyView]?
     public var writingToolsBehavior: WritingToolsBehavior?
+    public var writingToolsAffordanceVisibility: Visibility
     var searchDictationBehavior: TextInputDictationBehavior?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
@@ -2095,6 +2107,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
         self.writingToolsBehavior = nil
+        self.writingToolsAffordanceVisibility = .automatic
         self.searchDictationBehavior = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
@@ -2911,6 +2924,10 @@ public struct ViewBuildContext {
 
     public var writingToolsBehavior: WritingToolsBehavior? {
         environmentValuesProvider().writingToolsBehavior
+    }
+
+    public var writingToolsAffordanceVisibility: Visibility {
+        environmentValuesProvider().writingToolsAffordanceVisibility
     }
 
     var searchDictationBehavior: TextInputDictationBehavior? {
@@ -10384,6 +10401,12 @@ public extension View {
     func writingToolsBehavior(_ behavior: WritingToolsBehavior) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.writingToolsBehavior, Optional(behavior)))
+        }
+    }
+
+    func writingToolsAffordanceVisibility(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.writingToolsAffordanceVisibility, visibility))
         }
     }
 

@@ -6494,6 +6494,7 @@ private func textInputComponent(
             runtime: runtime
         )
         node.writingToolsBehavior = context.writingToolsBehavior?.retainedBehavior
+        node.writingToolsAffordanceVisibility = context.writingToolsAffordanceVisibility.retainedWritingToolsAffordanceVisibility
         node.isFindDisabled = context.isFindDisabled
         node.isReplaceDisabled = context.isReplaceDisabled
         node.isFindNavigatorPresented = context.isFindNavigatorPresented

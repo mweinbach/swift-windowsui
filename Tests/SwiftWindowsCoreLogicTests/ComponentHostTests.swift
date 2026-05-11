@@ -102,6 +102,9 @@ final class ComponentHostTests: XCTestCase {
                         )
                     ]
                     let writingToolsBehavior: RetainedWritingToolsBehavior = useSecondState ? .disabled : .complete
+                    let writingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility = useSecondState
+                        ? .hidden
+                        : .visible
                     let dictationBehavior: RetainedTextInputDictationBehavior = useSecondState
                         ? .preventDictation
                         : .inline(activation: .onSelect)
@@ -200,6 +203,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputCompletion = textInputCompletion
                     node.textInputSuggestions = textInputSuggestions
                     node.writingToolsBehavior = writingToolsBehavior
+                    node.writingToolsAffordanceVisibility = writingToolsAffordanceVisibility
                     node.textInputDictationBehavior = dictationBehavior
                     node.isFindDisabled = isFindDisabled
                     node.isReplaceDisabled = isReplaceDisabled
@@ -267,6 +271,7 @@ final class ComponentHostTests: XCTestCase {
                 [RetainedTextInputSuggestion(displayText: "FIRST SUGGESTION", completion: "first value")]
             )
             XCTAssertEqual(firstNode?.writingToolsBehavior, .complete)
+            XCTAssertEqual(firstNode?.writingToolsAffordanceVisibility, .visible)
             XCTAssertEqual(firstNode?.textInputDictationBehavior, .inline(activation: .onSelect))
             XCTAssertFalse(firstNode?.isFindDisabled ?? true)
             XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
@@ -359,6 +364,7 @@ final class ComponentHostTests: XCTestCase {
                 [RetainedTextInputSuggestion(displayText: "SECOND SUGGESTION", completion: "second value")]
             )
             XCTAssertEqual(reusedNode?.writingToolsBehavior, .disabled)
+            XCTAssertEqual(reusedNode?.writingToolsAffordanceVisibility, .hidden)
             XCTAssertEqual(reusedNode?.textInputDictationBehavior, .preventDictation)
             XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
             XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)

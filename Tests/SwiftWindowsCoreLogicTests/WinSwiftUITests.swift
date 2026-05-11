@@ -8555,6 +8555,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStyleWheelUsesRetainedWheelRowsAndDefaultItemHeight() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.wheel)
+                .defaultWheelPickerItemHeight(44),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let wheelNode = node.children[1]
+            XCTAssertEqual(wheelNode.children.count, 2)
+            XCTAssertEqual(allTexts(in: wheelNode), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(wheelNode.children[0].layoutConstraints?.minHeight, 44)
+            XCTAssertEqual(wheelNode.children[1].layoutConstraints?.minHeight, 44)
+            XCTAssertNotNil(wheelNode.children[0].backgroundColor)
+            XCTAssertEqual(wheelNode.children[0].borderWidth, 1)
+            XCTAssertEqual(wheelNode.children[1].borderWidth, 0)
+
+            wheelNode.children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testDatePickerMapsToRetainedLabelValueRow() async {
         await MainActor.run {
             struct DateEnvironmentReaderView: View {

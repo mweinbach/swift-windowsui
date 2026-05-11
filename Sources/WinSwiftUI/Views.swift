@@ -6904,7 +6904,7 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             let pickerNode: ViewNode
             switch context.pickerStyle.kind {
-            case .automatic, .inline, .segmented, .navigationLink, .palette, .wheel:
+            case .automatic, .inline, .segmented, .navigationLink, .palette:
                 pickerNode = Self.segmentedPickerNode(
                     runtime: runtime,
                     context: context,
@@ -6915,6 +6915,14 @@ public struct Picker<SelectionValue: Hashable>: View {
                 )
             case .radioGroup:
                 pickerNode = Self.radioGroupPickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
+                    selectedAnyValue: selectedAnyValue,
+                    options: options
+                )
+            case .wheel:
+                pickerNode = Self.wheelPickerNode(
                     runtime: runtime,
                     context: context,
                     selection: selection,
@@ -7023,6 +7031,78 @@ public struct Picker<SelectionValue: Hashable>: View {
             stackLayout: .horizontal(
                 spacing: 4,
                 padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: optionNodes
+        )
+    }
+
+    private static func wheelPickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedAnyValue: AnyHashable,
+        options: [Option]
+    ) -> ViewNode {
+        let itemHeight = max(1, Double(context.environmentValues.defaultWheelPickerItemHeight))
+        let optionNodes: [ViewNode] = options.enumerated().map { index, option in
+            let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
+            let title = firstText(in: option.node) ?? "OPTION \(index + 1)"
+            let palette = isSelected ? selectedPalette(tint: context.tint) : unselectedPalette
+            let optionNode = Controls.button(
+                runtime: runtime,
+                layoutPriority: 1,
+                cornerRadius: 8,
+                palette: palette,
+                chrome: SurfaceChrome(
+                    borderColor: isSelected ? context.tint.opacity(0.48) : .clear,
+                    borderHoveredColor: isSelected ? context.tint.opacity(0.64) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                    borderFocusedColor: isSelected ? context.tint.opacity(0.78) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.24),
+                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                    borderWidth: isSelected ? 1 : 0,
+                    focusRingColor: context.tint.opacity(0.28),
+                    focusRingWidth: 2
+                ),
+                clipsToBounds: true,
+                layoutMode: .stack(.vertical(
+                    padding: EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12),
+                    alignment: .center,
+                    mainAlignment: .center
+                )),
+                isEnabled: context.isEnabled && option.value != nil,
+                action: option.value.map { value in
+                    {
+                        selection.wrappedValue = value
+                        context.invalidate()
+                    }
+                },
+                children: [
+                    Controls.label(
+                        title,
+                        layoutPriority: 1,
+                        color: isSelected ? .white : .secondary,
+                        scale: 1.6,
+                        weight: isSelected ? .semibold : .regular,
+                        alignment: .center,
+                        lineBreakMode: .truncateTail,
+                        maximumNumberOfLines: 1
+                    )
+                ]
+            )
+            optionNode.applyDefaultMinimumHeight(itemHeight)
+            return optionNode
+        }
+
+        return Controls.stackPanel(
+            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.68),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            borderWidth: 1,
+            cornerRadius: 12,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 2,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
                 alignment: .stretch
             ),
             isHitTestVisible: false,

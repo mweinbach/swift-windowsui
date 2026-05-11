@@ -7062,6 +7062,7 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected height-detent sheet panel")
             }
             XCTAssertEqual(heightDetentPanel.frame.size.height, 320, accuracy: 0.001)
+            XCTAssertEqual(heightDetentPanel.frame.origin.y, 266, accuracy: 0.001)
 
             let (_, fractionDetentNode) = makeRuntimeNode(
                 Text("ROOT")

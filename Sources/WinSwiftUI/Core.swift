@@ -6664,7 +6664,7 @@ private func retainedSheetPresentation(
             ) {
                 sheetSize.height = detentHeight
             }
-            let sheetOrigin = Alignment.center.frameOrigin(
+            let sheetOrigin = Alignment.bottom.frameOrigin(
                 for: sheetSize,
                 in: bounds.size,
                 layoutDirection: context.layoutDirection

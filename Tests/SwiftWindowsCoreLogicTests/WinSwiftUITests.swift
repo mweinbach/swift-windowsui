@@ -248,6 +248,9 @@ final class WinSwiftUITests: XCTestCase {
                     ControlGroup(title) {
                         Button(title) {}
                     }
+                    ControlGroup(title, systemImage: "slider.horizontal.3") {
+                        Button(title) {}
+                    }
                     Toggle(title, isOn: .constant(true))
                     ProgressView(title, value: 0.5, total: 1.0)
                     Button(title) {}
@@ -258,7 +261,7 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 13)
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 15)
         }
     }
 
@@ -4148,6 +4151,16 @@ final class WinSwiftUITests: XCTestCase {
                     Button("SYNC") {}
                 }
             )
+            let systemImageNode = makeNode(
+                ControlGroup("TOOLS", systemImage: "slider.horizontal.3") {
+                    Button("RESET") {}
+                }
+            )
+            let localizedImageNode = makeNode(
+                ControlGroup(LocalizedStringKey("ACTIONS"), systemImage: "gearshape") {
+                    Button("APPLY") {}
+                }
+            )
 
             XCTAssertEqual(allTexts(in: node), ["TOOLS", "EXPORT", "ARCHIVE"])
             XCTAssertEqual(node.children[0].layoutPriority, 1)
@@ -4157,6 +4170,10 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(activationCount, 1)
             XCTAssertEqual(allTexts(in: titleNode), ["ACTIONS", "SYNC"])
+            XCTAssertTrue(allTexts(in: systemImageNode).contains("TOOLS"))
+            XCTAssertTrue(allTexts(in: systemImageNode).contains("RESET"))
+            XCTAssertTrue(allTexts(in: localizedImageNode).contains("ACTIONS"))
+            XCTAssertTrue(allTexts(in: localizedImageNode).contains("APPLY"))
         }
     }
 

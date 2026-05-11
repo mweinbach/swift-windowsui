@@ -3745,6 +3745,20 @@ public struct ControlGroup: View {
         self.init(titleKey.resolvedString, content: content)
     }
 
+    public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Label(title, systemImage: systemImage)
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), systemImage: systemImage, content: content)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, systemImage: systemImage, content: content)
+    }
+
     public var body: Never {
         fatalError("ControlGroup has no body")
     }

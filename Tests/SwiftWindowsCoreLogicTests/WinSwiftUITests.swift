@@ -5052,6 +5052,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDatePickerWritesBindingFromKeyboardWithinRange() async {
+        await MainActor.run {
+            var selectedDate = Date(timeIntervalSince1970: 1_778_400_000)
+            let nextDay = selectedDate.addingTimeInterval(86_400)
+            var invalidationCount = 0
+            let binding = Binding<Date>(
+                get: { selectedDate },
+                set: { selectedDate = $0 }
+            )
+            let node = makeNode(
+                DatePicker("START", selection: binding, in: selectedDate...nextDay, displayedComponents: .date),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            XCTAssertEqual(selectedDate, nextDay)
+            XCTAssertEqual(invalidationCount, 1)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            XCTAssertEqual(selectedDate, nextDay)
+            XCTAssertEqual(invalidationCount, 1)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            XCTAssertEqual(selectedDate, Date(timeIntervalSince1970: 1_778_400_000))
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
     func testColorPickerMapsToRetainedLabelValueSwatch() async {
         await MainActor.run {
             let color = Color(red: 51.0 / 255.0, green: 102.0 / 255.0, blue: 153.0 / 255.0, opacity: 128.0 / 255.0)

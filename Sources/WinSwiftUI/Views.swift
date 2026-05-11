@@ -3967,6 +3967,38 @@ public struct DatePickerComponents: OptionSet, Sendable, Equatable {
     public static let all: DatePickerComponents = [.date, .hourAndMinute]
 }
 
+private struct DatePickerRange: Sendable {
+    var lowerBound: Date?
+    var upperBound: Date?
+    var includesUpperBound: Bool
+
+    static let unbounded = DatePickerRange(
+        lowerBound: nil,
+        upperBound: nil,
+        includesUpperBound: true
+    )
+
+    init(
+        lowerBound: Date? = nil,
+        upperBound: Date? = nil,
+        includesUpperBound: Bool = true
+    ) {
+        self.lowerBound = lowerBound
+        self.upperBound = upperBound
+        self.includesUpperBound = includesUpperBound
+    }
+
+    func contains(_ date: Date) -> Bool {
+        if let lowerBound, date < lowerBound {
+            return false
+        }
+        if let upperBound {
+            return includesUpperBound ? date <= upperBound : date < upperBound
+        }
+        return true
+    }
+}
+
 @MainActor
 public struct DatePicker: View {
     public typealias Body = Never
@@ -3974,15 +4006,26 @@ public struct DatePicker: View {
     private let selection: Binding<Date>
     private let displayedComponents: DatePickerComponents
     private let label: [AnyView]
+    private let range: DatePickerRange
 
     public init(
         selection: Binding<Date>,
         displayedComponents: DatePickerComponents = .all,
         @ViewBuilder label: () -> [AnyView]
     ) {
+        self.init(selection: selection, displayedComponents: displayedComponents, range: .unbounded, label: label)
+    }
+
+    private init(
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents,
+        range: DatePickerRange,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
         self.selection = selection
         self.displayedComponents = displayedComponents
         self.label = label()
+        self.range = range
     }
 
     public init<S: StringProtocol>(
@@ -4009,8 +4052,12 @@ public struct DatePicker: View {
         displayedComponents: DatePickerComponents = .all,
         @ViewBuilder label: () -> [AnyView]
     ) {
-        _ = range
-        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+        self.init(
+            selection: selection,
+            displayedComponents: displayedComponents,
+            range: DatePickerRange(lowerBound: range.lowerBound, upperBound: range.upperBound),
+            label: label
+        )
     }
 
     public init<S: StringProtocol>(
@@ -4019,8 +4066,9 @@ public struct DatePicker: View {
         in range: ClosedRange<Date>,
         displayedComponents: DatePickerComponents = .all
     ) {
-        _ = range
-        self.init(title, selection: selection, displayedComponents: displayedComponents)
+        self.init(selection: selection, in: range, displayedComponents: displayedComponents) {
+            Text(String(title))
+        }
     }
 
     public init(
@@ -4038,8 +4086,12 @@ public struct DatePicker: View {
         displayedComponents: DatePickerComponents = .all,
         @ViewBuilder label: () -> [AnyView]
     ) {
-        _ = range
-        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+        self.init(
+            selection: selection,
+            displayedComponents: displayedComponents,
+            range: DatePickerRange(lowerBound: range.lowerBound),
+            label: label
+        )
     }
 
     public init<S: StringProtocol>(
@@ -4048,8 +4100,9 @@ public struct DatePicker: View {
         in range: PartialRangeFrom<Date>,
         displayedComponents: DatePickerComponents = .all
     ) {
-        _ = range
-        self.init(title, selection: selection, displayedComponents: displayedComponents)
+        self.init(selection: selection, in: range, displayedComponents: displayedComponents) {
+            Text(String(title))
+        }
     }
 
     public init(
@@ -4067,8 +4120,12 @@ public struct DatePicker: View {
         displayedComponents: DatePickerComponents = .all,
         @ViewBuilder label: () -> [AnyView]
     ) {
-        _ = range
-        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+        self.init(
+            selection: selection,
+            displayedComponents: displayedComponents,
+            range: DatePickerRange(upperBound: range.upperBound),
+            label: label
+        )
     }
 
     public init<S: StringProtocol>(
@@ -4077,8 +4134,9 @@ public struct DatePicker: View {
         in range: PartialRangeThrough<Date>,
         displayedComponents: DatePickerComponents = .all
     ) {
-        _ = range
-        self.init(title, selection: selection, displayedComponents: displayedComponents)
+        self.init(selection: selection, in: range, displayedComponents: displayedComponents) {
+            Text(String(title))
+        }
     }
 
     public init(
@@ -4096,8 +4154,12 @@ public struct DatePicker: View {
         displayedComponents: DatePickerComponents = .all,
         @ViewBuilder label: () -> [AnyView]
     ) {
-        _ = range
-        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+        self.init(
+            selection: selection,
+            displayedComponents: displayedComponents,
+            range: DatePickerRange(upperBound: range.upperBound, includesUpperBound: false),
+            label: label
+        )
     }
 
     public init<S: StringProtocol>(
@@ -4106,8 +4168,9 @@ public struct DatePicker: View {
         in range: PartialRangeUpTo<Date>,
         displayedComponents: DatePickerComponents = .all
     ) {
-        _ = range
-        self.init(title, selection: selection, displayedComponents: displayedComponents)
+        self.init(selection: selection, in: range, displayedComponents: displayedComponents) {
+            Text(String(title))
+        }
     }
 
     public init(
@@ -4127,7 +4190,10 @@ public struct DatePicker: View {
         let labelViews = label
         let selection = selection
         let displayedComponents = displayedComponents
+        let range = range
         let environmentValues = context.environmentValues
+        var interactionCalendar = environmentValues.calendar
+        interactionCalendar.timeZone = environmentValues.timeZone
         let labelComponent = composeComponent(
             from: labelViews,
             context: context
@@ -4156,17 +4222,86 @@ public struct DatePicker: View {
                 .makeNode(runtime: runtime)
 
             guard !context.labelsHidden, !labelViews.isEmpty else {
+                Self.configureInteraction(
+                    on: valueNode,
+                    selection: selection,
+                    range: range,
+                    components: displayedComponents,
+                    calendar: interactionCalendar,
+                    isEnabled: context.isEnabled,
+                    invalidate: context.invalidate
+                )
                 return valueNode
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
             labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
-                isHitTestVisible: false,
+                isHitTestVisible: context.isEnabled,
                 children: [labelNode, valueNode]
             )
+            Self.configureInteraction(
+                on: node,
+                selection: selection,
+                range: range,
+                components: displayedComponents,
+                calendar: interactionCalendar,
+                isEnabled: context.isEnabled,
+                invalidate: context.invalidate
+            )
+            return node
         }
+    }
+
+    private static func configureInteraction(
+        on node: ViewNode,
+        selection: Binding<Date>,
+        range: DatePickerRange,
+        components: DatePickerComponents,
+        calendar: Calendar,
+        isEnabled: Bool,
+        invalidate: @escaping () -> Void
+    ) {
+        guard isEnabled else {
+            return
+        }
+
+        node.isFocusable = true
+        node.isHitTestVisible = true
+        node.onKeyDown = { event in
+            let direction: Int
+            switch event.key {
+            case .upArrow, .rightArrow:
+                direction = 1
+            case .downArrow, .leftArrow:
+                direction = -1
+            default:
+                return
+            }
+
+            guard let proposedDate = steppedDate(
+                from: selection.wrappedValue,
+                direction: direction,
+                components: components,
+                calendar: calendar
+            ), range.contains(proposedDate) else {
+                return
+            }
+
+            selection.wrappedValue = proposedDate
+            invalidate()
+        }
+    }
+
+    private static func steppedDate(
+        from date: Date,
+        direction: Int,
+        components: DatePickerComponents,
+        calendar: Calendar
+    ) -> Date? {
+        let component: Calendar.Component = components == .date ? .day : .minute
+        return calendar.date(byAdding: component, value: direction, to: date)
     }
 
     private static func formattedValue(

@@ -853,6 +853,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var supportsMultipleWindows: Bool
     public var isPresented: Bool
     public var editMode: Binding<EditMode>?
+    public var isFocused: Bool
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
@@ -891,6 +892,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isScrollEnabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
+    public var isFocusEffectEnabled: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
     var isScrollClipDisabled: Bool
@@ -926,6 +928,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         supportsMultipleWindows: Bool = false,
         isPresented: Bool = false,
         editMode: Binding<EditMode>? = nil,
+        isFocused: Bool = false,
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
@@ -964,6 +967,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isScrollEnabled: Bool = true,
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
+        isFocusEffectEnabled: Bool = true,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
         defaultMinListRowHeight: Double = 0,
@@ -993,6 +997,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.supportsMultipleWindows = supportsMultipleWindows
         self.isPresented = isPresented
         self.editMode = editMode
+        self.isFocused = isFocused
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength
@@ -1033,6 +1038,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isScrollEnabled = isScrollEnabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
+        self.isFocusEffectEnabled = isFocusEffectEnabled
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
         self.isScrollClipDisabled = false
@@ -4980,7 +4986,11 @@ public extension View {
 
     func focusEffectDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
-            let child = content.makeComponent(context: context)
+            let resolvedContext = context.withEnvironmentValue(
+                \.isFocusEffectEnabled,
+                context.environmentValues.isFocusEffectEnabled && !disabled
+            )
+            let child = content.makeComponent(context: resolvedContext)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isFocusEffectDisabled = disabled

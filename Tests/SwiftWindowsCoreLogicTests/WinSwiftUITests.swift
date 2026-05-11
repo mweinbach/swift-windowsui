@@ -5356,6 +5356,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFocusEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct FocusEnvironmentReader: View {
+                @Environment(\.isFocused) var isFocused
+                @Environment(\.isFocusEffectEnabled) var isFocusEffectEnabled
+
+                var body: some View {
+                    Text(
+                        "\(isFocused ? "FOCUSED" : "UNFOCUSED") "
+                            + "\(isFocusEffectEnabled ? "FOCUSFX" : "NOFOCUSFX")"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(FocusEnvironmentReader())
+            let focusedNode = makeNode(
+                FocusEnvironmentReader()
+                    .environment(\.isFocused, true)
+            )
+            let disabledEffectNode = makeNode(
+                VStack {
+                    FocusEnvironmentReader()
+                    FocusEnvironmentReader()
+                        .focusEffectDisabled()
+                    FocusEnvironmentReader()
+                        .focusEffectDisabled(false)
+                }
+            )
+
+            XCTAssertEqual(defaultNode.text, "UNFOCUSED FOCUSFX")
+            XCTAssertEqual(focusedNode.text, "FOCUSED FOCUSFX")
+            XCTAssertEqual(disabledEffectNode.children[0].text, "UNFOCUSED FOCUSFX")
+            XCTAssertEqual(disabledEffectNode.children[1].text, "UNFOCUSED NOFOCUSFX")
+            XCTAssertEqual(disabledEffectNode.children[2].text, "UNFOCUSED FOCUSFX")
+        }
+    }
+
     func testRedactionModifiersPropagateThroughEnvironmentAndRetainedNodes() async {
         await MainActor.run {
             struct RedactionEnvironmentReader: View {

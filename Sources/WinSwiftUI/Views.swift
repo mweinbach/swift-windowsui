@@ -6193,6 +6193,7 @@ public struct DatePicker: View {
         let displayedComponents = displayedComponents
         let range = range
         let environmentValues = context.environmentValues
+        let datePickerStyle = context.datePickerStyle
         var interactionCalendar = environmentValues.calendar
         interactionCalendar.timeZone = environmentValues.timeZone
         let labelComponent = composeComponent(
@@ -6221,10 +6222,16 @@ public struct DatePicker: View {
                         .withLineLimit(1)
                 )
                 .makeNode(runtime: runtime)
+            valueNode.layoutPriority = max(valueNode.layoutPriority, 1)
+            let controlNode = Self.retainedValueControl(
+                for: valueNode,
+                style: datePickerStyle,
+                context: context
+            )
 
             guard !context.labelsHidden, !labelViews.isEmpty else {
                 Self.configureInteraction(
-                    on: valueNode,
+                    on: controlNode,
                     selection: selection,
                     range: range,
                     components: displayedComponents,
@@ -6232,7 +6239,7 @@ public struct DatePicker: View {
                     isEnabled: context.isEnabled,
                     invalidate: context.invalidate
                 )
-                return valueNode
+                return controlNode
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
@@ -6240,7 +6247,7 @@ public struct DatePicker: View {
             let node = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
                 isHitTestVisible: context.isEnabled,
-                children: [labelNode, valueNode]
+                children: [labelNode, controlNode]
             )
             Self.configureInteraction(
                 on: node,
@@ -6252,6 +6259,155 @@ public struct DatePicker: View {
                 invalidate: context.invalidate
             )
             return node
+        }
+    }
+
+    private static func retainedValueControl(
+        for valueNode: ViewNode,
+        style: DatePickerStyle,
+        context: ViewBuildContext
+    ) -> ViewNode {
+        switch style.kind {
+        case .automatic:
+            return valueNode
+        case .compact:
+            let disclosureNode = Controls.icon(
+                .chevronDown,
+                preferredSize: Size(width: 14, height: 14),
+                color: context.foregroundColor.opacity(context.isEnabled ? 0.78 : 0.45),
+                scale: 1.1
+            )
+            return Controls.stackPanel(
+                preferredSize: context.controlSize.singleLineTextInputSize,
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.17, alpha: context.isEnabled ? 0.64 : 0.34),
+                borderColor: context.tint.opacity(context.isEnabled ? 0.32 : 0.16),
+                borderWidth: 1,
+                cornerRadius: 8,
+                stackLayout: .horizontal(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 8),
+                    alignment: .center
+                ),
+                isHitTestVisible: context.isEnabled,
+                children: [valueNode, disclosureNode]
+            )
+        case .field:
+            return Controls.stackPanel(
+                preferredSize: context.controlSize.singleLineTextInputSize,
+                backgroundColor: Color(red: 0.05, green: 0.07, blue: 0.10, alpha: context.isEnabled ? 0.52 : 0.28),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.22 : 0.10),
+                borderWidth: 1,
+                cornerRadius: 3,
+                stackLayout: .vertical(
+                    padding: EdgeInsets(top: 7, leading: 9, bottom: 7, trailing: 9),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: context.isEnabled,
+                children: [valueNode]
+            )
+        case .stepperField:
+            let stepperNode = Controls.stackPanel(
+                preferredSize: Size(width: 22, height: context.controlSize.singleLineTextInputSize.height),
+                backgroundColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.08 : 0.04),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                borderWidth: 1,
+                cornerRadius: 4,
+                stackLayout: .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 2, leading: 0, bottom: 2, trailing: 0),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: [
+                    Controls.label("+", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
+                    Controls.label("-", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0)
+                ]
+            )
+            return Controls.stackPanel(
+                preferredSize: Size(
+                    width: context.controlSize.singleLineTextInputSize.width + 30,
+                    height: context.controlSize.singleLineTextInputSize.height
+                ),
+                backgroundColor: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: context.isEnabled ? 0.58 : 0.30),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.24 : 0.11),
+                borderWidth: 1,
+                cornerRadius: 7,
+                stackLayout: .horizontal(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 4),
+                    alignment: .center
+                ),
+                isHitTestVisible: context.isEnabled,
+                children: [valueNode, stepperNode]
+            )
+        case .wheel:
+            let guideColor = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.14 : 0.07)
+            let topGuide = Controls.panel(
+                preferredSize: Size(width: 1, height: 7),
+                backgroundColor: guideColor,
+                isHitTestVisible: false
+            )
+            let bottomGuide = Controls.panel(
+                preferredSize: Size(width: 1, height: 7),
+                backgroundColor: guideColor,
+                isHitTestVisible: false
+            )
+            return Controls.stackPanel(
+                preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 64),
+                backgroundColor: Color(red: 0.07, green: 0.09, blue: 0.13, alpha: context.isEnabled ? 0.60 : 0.30),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.18 : 0.08),
+                borderWidth: 1,
+                cornerRadius: 10,
+                clipsToBounds: true,
+                stackLayout: .vertical(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: context.isEnabled,
+                children: [topGuide, valueNode, bottomGuide]
+            )
+        case .graphical:
+            let headerLine = Controls.panel(
+                preferredSize: Size(width: 1, height: 2),
+                backgroundColor: context.tint.opacity(context.isEnabled ? 0.34 : 0.16),
+                cornerRadius: 1,
+                isHitTestVisible: false
+            )
+            let gridHint = Controls.stackPanel(
+                backgroundColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.05 : 0.02),
+                cornerRadius: 5,
+                stackLayout: .horizontal(
+                    spacing: 3,
+                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: (0..<5).map { index in
+                    Controls.panel(
+                        preferredSize: Size(width: 10, height: 10),
+                        backgroundColor: index == 2
+                            ? context.tint.opacity(context.isEnabled ? 0.62 : 0.26)
+                            : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.10 : 0.04),
+                        cornerRadius: 3,
+                        isHitTestVisible: false
+                    )
+                }
+            )
+            return Controls.stackPanel(
+                preferredSize: Size(width: context.controlSize.singleLineTextInputSize.width, height: 78),
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: context.isEnabled ? 0.68 : 0.34),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: context.isEnabled ? 0.18 : 0.08),
+                borderWidth: 1,
+                cornerRadius: 12,
+                stackLayout: .vertical(
+                    spacing: 7,
+                    padding: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10),
+                    alignment: .stretch
+                ),
+                isHitTestVisible: context.isEnabled,
+                children: [headerLine, valueNode, gridHint]
+            )
         }
     }
 

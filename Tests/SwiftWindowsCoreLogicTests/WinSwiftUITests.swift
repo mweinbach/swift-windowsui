@@ -8798,6 +8798,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDatePickerStylesUseRetainedStyleChrome() async {
+        await MainActor.run {
+            let date = Date(timeIntervalSince1970: 1_778_423_880)
+
+            let compactNode = makeNode(
+                DatePicker("COMPACT", selection: .constant(date), displayedComponents: .date)
+                    .datePickerStyle(CompactDatePickerStyle())
+            )
+            let fieldNode = makeNode(
+                DatePicker("FIELD", selection: .constant(date), displayedComponents: .date)
+                    .datePickerStyle(FieldDatePickerStyle())
+            )
+            let stepperNode = makeNode(
+                DatePicker("STEPPER", selection: .constant(date), displayedComponents: .date)
+                    .datePickerStyle(StepperFieldDatePickerStyle())
+            )
+            let wheelNode = makeNode(
+                DatePicker("WHEEL", selection: .constant(date), displayedComponents: .date)
+                    .datePickerStyle(WheelDatePickerStyle())
+            )
+            let graphicalNode = makeNode(
+                DatePicker("GRAPHICAL", selection: .constant(date), displayedComponents: .date)
+                    .datePickerStyle(GraphicalDatePickerStyle())
+            )
+
+            let compactControl = compactNode.children[1]
+            XCTAssertEqual(compactControl.children.count, 2)
+            XCTAssertEqual(compactControl.borderWidth, 1)
+            XCTAssertEqual(compactControl.cornerRadius, 8)
+            XCTAssertEqual(compactControl.preferredSize, Size(width: 220, height: 36))
+            XCTAssertTrue(allTexts(in: compactControl).contains("2026-05-10"))
+
+            let fieldControl = fieldNode.children[1]
+            XCTAssertEqual(fieldControl.children.count, 1)
+            XCTAssertEqual(fieldControl.borderWidth, 1)
+            XCTAssertEqual(fieldControl.cornerRadius, 3)
+            XCTAssertEqual(fieldControl.preferredSize, Size(width: 220, height: 36))
+
+            let stepperControl = stepperNode.children[1]
+            XCTAssertEqual(stepperControl.children.count, 2)
+            XCTAssertEqual(stepperControl.borderWidth, 1)
+            XCTAssertEqual(stepperControl.cornerRadius, 7)
+            XCTAssertEqual(stepperControl.preferredSize, Size(width: 250, height: 36))
+            XCTAssertEqual(allTexts(in: stepperControl.children[1]), ["+", "-"])
+
+            let wheelControl = wheelNode.children[1]
+            XCTAssertEqual(wheelControl.children.count, 3)
+            XCTAssertEqual(wheelControl.borderWidth, 1)
+            XCTAssertEqual(wheelControl.cornerRadius, 10)
+            XCTAssertEqual(wheelControl.preferredSize, Size(width: 220, height: 64))
+            XCTAssertEqual(allTexts(in: wheelControl), ["2026-05-10"])
+
+            let graphicalControl = graphicalNode.children[1]
+            XCTAssertEqual(graphicalControl.children.count, 3)
+            XCTAssertEqual(graphicalControl.borderWidth, 1)
+            XCTAssertEqual(graphicalControl.cornerRadius, 12)
+            XCTAssertEqual(graphicalControl.preferredSize, Size(width: 220, height: 78))
+            XCTAssertEqual(graphicalControl.children[2].children.count, 5)
+            XCTAssertTrue(allTexts(in: graphicalControl).contains("2026-05-10"))
+        }
+    }
+
     func testDatePickerWritesBindingFromKeyboardWithinRange() async {
         await MainActor.run {
             var selectedDate = Date(timeIntervalSince1970: 1_778_400_000)

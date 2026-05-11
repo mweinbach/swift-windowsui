@@ -5879,6 +5879,28 @@ public struct TextField: View {
         self.init(titleKey.resolvedString, value: value, formatter: formatter, prompt: prompt)
     }
 
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value?>,
+        formatter: Formatter,
+        prompt: Text? = nil
+    ) {
+        self.init(
+            String(title),
+            text: optionalFormatterBackedTextBinding(value: value, formatter: formatter),
+            prompt: prompt
+        )
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value?>,
+        formatter: Formatter,
+        prompt: Text? = nil
+    ) {
+        self.init(titleKey.resolvedString, value: value, formatter: formatter, prompt: prompt)
+    }
+
     public init<S: StringProtocol, F: ParseableFormatStyle>(
         _ title: S,
         value: Binding<F.FormatInput>,
@@ -5984,6 +6006,22 @@ public struct TextField: View {
     ) {
         self.title = ""
         self.text = formatterBackedTextBinding(value: value, formatter: formatter)
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.selection = nil
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init<Value>(
+        value: Binding<Value?>,
+        formatter: Formatter,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = optionalFormatterBackedTextBinding(value: value, formatter: formatter)
         self.prompt = prompt?.plainContent
         self.axis = .horizontal
         self.label = label()
@@ -6272,6 +6310,27 @@ private func formatterBackedTextBinding<Value>(
             formatter.string(for: value.wrappedValue) ?? String(describing: value.wrappedValue)
         },
         set: { text in
+            if let parsedValue: Value = parsedFormatterValue(text, formatter: formatter) {
+                value.wrappedValue = parsedValue
+            }
+        }
+    )
+}
+
+@MainActor
+private func optionalFormatterBackedTextBinding<Value>(
+    value: Binding<Value?>,
+    formatter: Formatter
+) -> Binding<String> {
+    Binding<String>(
+        get: {
+            value.wrappedValue.flatMap { formatter.string(for: $0) } ?? ""
+        },
+        set: { text in
+            if text.isEmpty {
+                value.wrappedValue = nil
+                return
+            }
             if let parsedValue: Value = parsedFormatterValue(text, formatter: formatter) {
                 value.wrappedValue = parsedValue
             }

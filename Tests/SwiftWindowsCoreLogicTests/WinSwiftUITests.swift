@@ -726,6 +726,48 @@ final class WinSwiftUITests: XCTestCase {
             builderNode.onKeyDown?(KeyboardEvent(keyCode: 0x39))
 
             XCTAssertEqual(builderValue, 79)
+
+            var optionalValue: Int? = 5
+            let optionalNode = makeNode(
+                TextField(
+                    LocalizedStringKey("COUNT"),
+                    value: Binding(
+                        get: { optionalValue },
+                        set: { optionalValue = $0 }
+                    ),
+                    formatter: formatter
+                )
+            )
+
+            XCTAssertEqual(optionalNode.children[0].text, "5")
+
+            optionalNode.onKeyDown?(KeyboardEvent(keyCode: 0x36))
+
+            XCTAssertEqual(optionalValue, 56)
+
+            optionalNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+
+            XCTAssertEqual(optionalValue, 56)
+
+            var emptyOptional: Int? = nil
+            let emptyOptionalNode = makeNode(
+                TextField(
+                    value: Binding(
+                        get: { emptyOptional },
+                        set: { emptyOptional = $0 }
+                    ),
+                    formatter: formatter,
+                    prompt: Text("COUNT")
+                ) {
+                    Text("COUNT")
+                }
+            )
+
+            XCTAssertEqual(emptyOptionalNode.children[0].text, "COUNT")
+
+            emptyOptionalNode.onKeyDown?(KeyboardEvent(keyCode: 0x38))
+
+            XCTAssertEqual(emptyOptional, 8)
         }
     }
 

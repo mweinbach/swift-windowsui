@@ -4252,15 +4252,15 @@ public extension View {
     }
 
     func safeAreaPadding(_ length: Double? = nil) -> some View {
-        self
+        padding(length)
     }
 
     func safeAreaPadding(_ edges: Edge.Set, _ length: Double? = nil) -> some View {
-        self
+        padding(edges, length)
     }
 
     func safeAreaPadding(_ insets: EdgeInsets) -> some View {
-        self
+        padding(insets)
     }
 
     func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {

@@ -1992,7 +1992,7 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testSafeAreaCompatibilityModifiersPassThroughView() async {
+    func testIgnoringSafeAreaCompatibilityModifiersPassThroughView() async {
         await MainActor.run {
             let ignoredNode = makeNode(
                 Text("SAFE")
@@ -2002,6 +2002,14 @@ final class WinSwiftUITests: XCTestCase {
                 Text("LEGACY")
                     .edgesIgnoringSafeArea(.all)
             )
+
+            XCTAssertEqual(ignoredNode.text, "SAFE")
+            XCTAssertEqual(legacyNode.text, "LEGACY")
+        }
+    }
+
+    func testSafeAreaPaddingMapsToRetainedPaddingLayout() async {
+        await MainActor.run {
             let defaultPaddingNode = makeNode(
                 Text("DEFAULT")
                     .safeAreaPadding()
@@ -2019,12 +2027,41 @@ final class WinSwiftUITests: XCTestCase {
                     .safeAreaPadding(EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
             )
 
-            XCTAssertEqual(ignoredNode.text, "SAFE")
-            XCTAssertEqual(legacyNode.text, "LEGACY")
-            XCTAssertEqual(defaultPaddingNode.text, "DEFAULT")
-            XCTAssertEqual(edgePaddingNode.text, "EDGE")
-            XCTAssertEqual(optionalPaddingNode.text, "OPTIONAL")
-            XCTAssertEqual(insetPaddingNode.text, "INSETS")
+            guard case .stack(let defaultPaddingLayout) = defaultPaddingNode.layoutMode else {
+                return XCTFail("Expected safeAreaPadding to wrap content in a stack layout")
+            }
+            guard case .stack(let edgePaddingLayout) = edgePaddingNode.layoutMode else {
+                return XCTFail("Expected edge safeAreaPadding to wrap content in a stack layout")
+            }
+            guard case .stack(let optionalPaddingLayout) = optionalPaddingNode.layoutMode else {
+                return XCTFail("Expected optional safeAreaPadding to wrap content in a stack layout")
+            }
+            guard case .stack(let insetPaddingLayout) = insetPaddingNode.layoutMode else {
+                return XCTFail("Expected inset safeAreaPadding to wrap content in a stack layout")
+            }
+
+            XCTAssertEqual(defaultPaddingLayout, .vertical(padding: .all(16), alignment: .stretch))
+            XCTAssertEqual(
+                edgePaddingLayout,
+                .vertical(
+                    padding: EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(
+                optionalPaddingLayout,
+                .vertical(
+                    padding: EdgeInsets(top: 16, leading: 0, bottom: 16, trailing: 0),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(
+                insetPaddingLayout,
+                .vertical(
+                    padding: EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4),
+                    alignment: .stretch
+                )
+            )
         }
     }
 

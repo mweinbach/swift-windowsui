@@ -283,19 +283,38 @@ public enum ScenePainter {
             }
         }
 
-        // Border (full rect drawn under the fill area)
+        // Border (full rect drawn under the fill area, segmented for dashed square strokes)
         if node.borderColor.alpha > 0, node.borderWidth > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: absoluteFrame)
         {
-            scene.addQuad(solidQuad(
-                rect: absoluteFrame,
+            if let borderSegments = BorderSegments.dashedRects(
+                frame: absoluteFrame,
+                width: node.borderWidth,
                 cornerRadius: node.cornerRadius,
-                color: node.borderColor,
-                opacity: opacity,
-                clip: effectiveClip,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale
-            ), toLayer: layerIndex)
+                strokeStyle: node.borderStrokeStyle
+            ) {
+                for rect in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: rect) {
+                    scene.addQuad(solidQuad(
+                        rect: rect,
+                        cornerRadius: 0,
+                        color: node.borderColor,
+                        opacity: opacity,
+                        clip: effectiveClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale
+                    ), toLayer: layerIndex)
+                }
+            } else {
+                scene.addQuad(solidQuad(
+                    rect: absoluteFrame,
+                    cornerRadius: node.cornerRadius,
+                    color: node.borderColor,
+                    opacity: opacity,
+                    clip: effectiveClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale
+                ), toLayer: layerIndex)
+            }
         }
 
         // Background fill (inset by border width)

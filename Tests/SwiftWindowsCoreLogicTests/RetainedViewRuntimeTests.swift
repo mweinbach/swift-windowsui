@@ -160,6 +160,26 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDashedSquareBorderEmitsSegmentedFillCommands() async {
+        await MainActor.run {
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 10),
+                backgroundColor: .white,
+                borderColor: .black,
+                borderWidth: 2,
+                borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [4, 2])
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertGreaterThan(fills.count, 2)
+            XCTAssertEqual(fills.first?.rect, Rect(x: 0, y: 0, width: 4, height: 2))
+            XCTAssertFalse(fills.contains { $0.rect == Rect(x: 0, y: 0, width: 20, height: 10) })
+            XCTAssertEqual(fills.last?.rect, Rect(x: 2, y: 2, width: 16, height: 6))
+        }
+    }
+
     func testClippingPreventsPointerHitsOutsideParentBounds() async {
         await MainActor.run {
             var activations = 0

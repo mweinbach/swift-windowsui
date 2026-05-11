@@ -1863,16 +1863,36 @@ public final class ViewNode {
 
         let effectiveBorderColor = borderColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
-            commands.append(
-                .fillRect(
-                    FillRectCommand(
-                        rect: absoluteFrame,
-                        color: effectiveBorderColor,
-                        cornerRadius: cornerRadius,
-                        clipRect: effectiveClip
+            if let borderSegments = BorderSegments.dashedRects(
+                frame: absoluteFrame,
+                width: borderWidth,
+                cornerRadius: cornerRadius,
+                strokeStyle: borderStrokeStyle
+            ) {
+                for rect in borderSegments where baseClipAllowsDrawing(baseClip: effectiveClip, rect: rect) {
+                    commands.append(
+                        .fillRect(
+                            FillRectCommand(
+                                rect: rect,
+                                color: effectiveBorderColor,
+                                cornerRadius: 0,
+                                clipRect: effectiveClip
+                            )
+                        )
+                    )
+                }
+            } else {
+                commands.append(
+                    .fillRect(
+                        FillRectCommand(
+                            rect: absoluteFrame,
+                            color: effectiveBorderColor,
+                            cornerRadius: cornerRadius,
+                            clipRect: effectiveClip
+                        )
                     )
                 )
-            )
+            }
         }
 
         let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame

@@ -269,6 +269,34 @@ struct ScenePainterTests {
         #expect(fillQuad.height == 96)
     }
 
+    @Test("Dashed square border emits segmented quads on the scene path")
+    func dashedSquareBorderEmitsSegmentedQuads() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 10),
+            backgroundColor: .white,
+            borderColor: .black,
+            borderWidth: 2,
+            borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [4, 2])
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let quads = scene.layers[0].quads
+
+        #expect(quads.count > 2)
+        #expect(quads[0].x == 0)
+        #expect(quads[0].y == 0)
+        #expect(quads[0].width == 4)
+        #expect(quads[0].height == 2)
+        #expect(!quads.contains { $0.x == 0 && $0.y == 0 && $0.width == 20 && $0.height == 10 })
+
+        #expect(quads.contains { quad in
+            quad.x == 2 &&
+                quad.y == 2 &&
+                quad.width == 16 &&
+                quad.height == 6
+        })
+    }
+
     // MARK: - Opacity multiplied into alpha
 
     @Test("Opacity is multiplied into quad alpha")

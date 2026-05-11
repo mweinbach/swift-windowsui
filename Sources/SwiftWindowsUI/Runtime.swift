@@ -62,6 +62,11 @@ public enum RetainedImageResizingMode: Sendable, Equatable {
     case tile
 }
 
+public enum RetainedImageRenderingMode: Sendable, Equatable {
+    case original
+    case template
+}
+
 public enum RetainedSymbolRenderingMode: Sendable, Equatable {
     case monochrome
     case hierarchical
@@ -703,6 +708,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var imageRenderingMode: RetainedImageRenderingMode? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var keyboardShortcuts: [KeyboardShortcutBinding] {
         didSet { invalidateRuntime(.paint) }
     }
@@ -881,6 +890,7 @@ public final class ViewNode {
         symbolVariants: RetainedSymbolVariants = .none,
         imageResizingMode: RetainedImageResizingMode? = nil,
         imageCapInsets: EdgeInsets? = nil,
+        imageRenderingMode: RetainedImageRenderingMode? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
@@ -946,6 +956,7 @@ public final class ViewNode {
         self.symbolVariants = symbolVariants
         self.imageResizingMode = imageResizingMode
         self.imageCapInsets = imageCapInsets
+        self.imageRenderingMode = imageRenderingMode
         self.keyboardShortcuts = keyboardShortcuts
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)

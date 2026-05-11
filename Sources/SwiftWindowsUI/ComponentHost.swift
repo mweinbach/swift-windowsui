@@ -166,6 +166,7 @@ public final class ComponentHost {
         if target.symbolVariants != source.symbolVariants { target.symbolVariants = source.symbolVariants }
         if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
         if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
+        if target.imageRenderingMode != source.imageRenderingMode { target.imageRenderingMode = source.imageRenderingMode }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
         if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }

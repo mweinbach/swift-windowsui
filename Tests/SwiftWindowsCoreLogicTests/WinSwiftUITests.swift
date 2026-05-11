@@ -2244,6 +2244,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageRenderingModeModifierStoresRetainedImageMetadata() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-rendering-mode-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let defaultNode = makeNode(Image(systemName: "gear"))
+            let templateNode = makeNode(Image(systemName: "gear").renderingMode(.template))
+            let originalBitmapNode = makeNode(Image(url.path).renderingMode(.original))
+            let resetNode = makeNode(
+                Image(systemName: "gear")
+                    .renderingMode(.template)
+                    .renderingMode(nil)
+            )
+
+            XCTAssertNil(defaultNode.imageRenderingMode)
+            XCTAssertEqual(templateNode.imageRenderingMode, .template)
+            XCTAssertEqual(originalBitmapNode.imageRenderingMode, .original)
+            XCTAssertNil(resetNode.imageRenderingMode)
+        }
+    }
+
     func testImageLabelAndDecorativeInitializersSetAccessibilityMetadata() async {
         await MainActor.run {
             let url = FileManager.default.temporaryDirectory

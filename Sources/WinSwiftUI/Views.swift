@@ -1993,6 +1993,11 @@ public struct Image: View {
         case stretch
     }
 
+    public enum TemplateRenderingMode: Sendable, Equatable {
+        case template
+        case original
+    }
+
     private enum Storage {
         case systemName(String)
         case bitmap(BitmapSurface?)
@@ -2007,6 +2012,7 @@ public struct Image: View {
     private var capInsets: EdgeInsets
     private var aspectRatioValue: Double?
     private var contentMode: ContentMode?
+    private var renderingMode: TemplateRenderingMode?
     private var accessibilityLabel: String?
     private var isAccessibilityHidden: Bool
     private var symbolVariableValue: Double?
@@ -2044,6 +2050,7 @@ public struct Image: View {
         self.capInsets = .zero
         self.aspectRatioValue = nil
         self.contentMode = nil
+        self.renderingMode = nil
         self.accessibilityLabel = nil
         self.isAccessibilityHidden = false
         self.symbolVariableValue = nil
@@ -2137,6 +2144,12 @@ public struct Image: View {
         aspectRatio(contentMode: .fill)
     }
 
+    public func renderingMode(_ renderingMode: TemplateRenderingMode?) -> Image {
+        var copy = self
+        copy.renderingMode = renderingMode
+        return copy
+    }
+
     private func resolvedPreferredSize(baseSize: Size?, requiresExplicitOptIn: Bool) -> Size? {
         guard let baseSize else {
             return nil
@@ -2213,6 +2226,7 @@ public struct Image: View {
         node.symbolVariants = context.symbolVariants.retainedSymbolVariants
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
         node.imageCapInsets = isResizable ? capInsets : nil
+        node.imageRenderingMode = renderingMode?.retainedImageRenderingMode
     }
 }
 
@@ -2223,6 +2237,17 @@ extension Image.ResizingMode {
             return .stretch
         case .tile:
             return .tile
+        }
+    }
+}
+
+extension Image.TemplateRenderingMode {
+    var retainedImageRenderingMode: RetainedImageRenderingMode {
+        switch self {
+        case .original:
+            return .original
+        case .template:
+            return .template
         }
     }
 }

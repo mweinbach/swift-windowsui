@@ -80,6 +80,22 @@ final class WinSwiftUITextTests: XCTestCase {
         }
     }
 
+    func testBaselineOffsetModifierMapsToRetainedTextTransform() async {
+        await MainActor.run {
+            let raisedNode = makeNode(Text("RAISED").baselineOffset(6))
+            let loweredNode = makeNode(Text("LOWER").baselineOffset(-4))
+            let resetNode = makeNode(Text("RESET").baselineOffset(6).baselineOffset(0))
+            let combinedNode = makeNode(
+                Text("A").baselineOffset(3) + Text("B").baselineOffset(9)
+            )
+
+            XCTAssertEqual(raisedNode.transform, Transform2D.translation(x: 0, y: -6))
+            XCTAssertEqual(loweredNode.transform, Transform2D.translation(x: 0, y: 4))
+            XCTAssertEqual(resetNode.transform, .identity)
+            XCTAssertEqual(combinedNode.transform, Transform2D.translation(x: 0, y: -3))
+        }
+    }
+
     func testLineStyleDecorationModifiersMapToRetainedTextStyle() async {
         await MainActor.run {
             let directNode = makeNode(

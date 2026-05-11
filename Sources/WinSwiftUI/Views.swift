@@ -1708,6 +1708,7 @@ public struct Text: View {
     private var minimumScaleFactor: CGFloat?
     private var allowsTightening: Bool?
     private var textCase: Case??
+    private var baselineOffset: CGFloat?
     private var underline: Bool?
     private var underlinePattern: LineStyle.Pattern
     private var underlineColor: Color?
@@ -1731,6 +1732,7 @@ public struct Text: View {
         self.minimumScaleFactor = nil
         self.allowsTightening = nil
         self.textCase = nil
+        self.baselineOffset = nil
         self.underline = nil
         self.underlinePattern = .solid
         self.underlineColor = nil
@@ -1755,6 +1757,7 @@ public struct Text: View {
         minimumScaleFactor: CGFloat?,
         allowsTightening: Bool?,
         textCase: Case??,
+        baselineOffset: CGFloat?,
         underline: Bool?,
         underlinePattern: LineStyle.Pattern,
         underlineColor: Color?,
@@ -1777,6 +1780,7 @@ public struct Text: View {
         self.minimumScaleFactor = minimumScaleFactor
         self.allowsTightening = allowsTightening
         self.textCase = textCase
+        self.baselineOffset = baselineOffset
         self.underline = underline
         self.underlinePattern = underline == true ? underlinePattern : .solid
         self.underlineColor = underline == true ? underlineColor : nil
@@ -1948,6 +1952,7 @@ public struct Text: View {
             minimumScaleFactor: lhs.minimumScaleFactor ?? rhs.minimumScaleFactor,
             allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
             textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
+            baselineOffset: lhs.baselineOffset ?? rhs.baselineOffset,
             underline: lhs.underline != nil ? lhs.underline : rhs.underline,
             underlinePattern: lhs.underline != nil ? lhs.underlinePattern : rhs.underlinePattern,
             underlineColor: lhs.underline != nil ? lhs.underlineColor : rhs.underlineColor,
@@ -2021,6 +2026,9 @@ public struct Text: View {
             )
             node.redactionReasons = redactionReasons
             node.isPrivacySensitive = isPrivacySensitive
+            if let baselineOffset, baselineOffset != 0 {
+                node.transform = node.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
+            }
             return node
         }
     }
@@ -2165,6 +2173,12 @@ public struct Text: View {
     public func textCase(_ textCase: Case?) -> Text {
         var copy = self
         copy.textCase = .some(textCase)
+        return copy
+    }
+
+    public func baselineOffset(_ baselineOffset: CGFloat) -> Text {
+        var copy = self
+        copy.baselineOffset = baselineOffset
         return copy
     }
 

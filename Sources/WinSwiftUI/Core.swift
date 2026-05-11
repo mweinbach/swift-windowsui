@@ -7326,6 +7326,52 @@ public extension View {
         }
     }
 
+    func presentationBackground(_ color: Color) -> some View {
+        _ = color
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationBackground(_ color: Color?) -> some View {
+        _ = color
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationBackground(_ style: ForegroundStyle) -> some View {
+        _ = style
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationBackground(_ gradient: LinearGradient) -> some View {
+        _ = gradient
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationBackground(
+        alignment: Alignment = .center,
+        @ViewBuilder content background: () -> [AnyView]
+    ) -> some View {
+        _ = alignment
+        _ = background()
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationCornerRadius(_ cornerRadius: Double?) -> some View {
+        _ = cornerRadius
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
     func alert(isPresented: Binding<Bool>, content alertContent: @escaping () -> Alert) -> some View {
         ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)

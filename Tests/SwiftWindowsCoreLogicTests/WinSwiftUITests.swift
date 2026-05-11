@@ -6880,6 +6880,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationBackgroundAndCornerRadiusModifiersPreserveRetainedSheetContent() async {
+        await MainActor.run {
+            struct SheetContent: View {
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    let gradient = LinearGradient(
+                        colors: [.red, .blue],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
+                    return VStack {
+                        Text("STYLED SHEET")
+                        Button("DONE") {
+                            dismiss()
+                        }
+                    }
+                    .presentationBackground(Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1))
+                    .presentationBackground(ForegroundStyle.color(.secondary))
+                    .presentationBackground(gradient)
+                    .presentationBackground(alignment: .top) {
+                        Text("PRESENTATION BACKGROUND")
+                    }
+                    .presentationCornerRadius(22)
+                    .presentationCornerRadius(nil)
+                }
+            }
+
+            var isPresented = true
+            let view = Text("ROOT")
+                .sheet(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    )
+                ) {
+                    SheetContent()
+                        .presentationBackground(nil as Color?)
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("STYLED SHEET"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+        }
+    }
+
     func testFullScreenCoverIsPresentedComposesRetainedCoverAndDismisses() async {
         await MainActor.run {
             struct FullScreenCoverContent: View {

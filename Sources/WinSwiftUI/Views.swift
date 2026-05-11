@@ -2257,6 +2257,107 @@ public struct Label: View {
 }
 
 @MainActor
+public struct ContentUnavailableView: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let description: [AnyView]
+    private let actions: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder description: () -> [AnyView] = { [] },
+        @ViewBuilder actions: () -> [AnyView] = { [] }
+    ) {
+        self.label = label()
+        self.description = description()
+        self.actions = actions()
+    }
+
+    public init(_ title: String, systemImage: String, description: Text? = nil) {
+        self.label = [
+            AnyView(
+                Label(title, systemImage: systemImage)
+                    .font(.headline)
+            )
+        ]
+        self.description = description.map { [AnyView($0)] } ?? []
+        self.actions = []
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, description: Text? = nil) {
+        self.init(String(title), systemImage: systemImage, description: description)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, systemImage: String, description: Text? = nil) {
+        self.init(titleKey.resolvedString, systemImage: systemImage, description: description)
+    }
+
+    public static var search: ContentUnavailableView {
+        ContentUnavailableView("No Results", systemImage: "magnifyingglass")
+    }
+
+    public static func search(text: String) -> ContentUnavailableView {
+        ContentUnavailableView(
+            "No Results",
+            systemImage: "magnifyingglass",
+            description: Text("No results for \(text)")
+        )
+    }
+
+    public var body: Never {
+        fatalError("ContentUnavailableView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context
+                .withTextAlignment(.center)
+                .withLineLimit(2),
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center, mainAlignment: .center)),
+            isHitTestVisible: false
+        )
+        let descriptionComponent = composeComponent(
+            from: description,
+            context: context
+                .withForegroundColor(.secondary)
+                .withFont(.caption)
+                .withTextAlignment(.center),
+            fallbackLayout: .stack(.vertical(spacing: 4, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let actionsComponent = composeComponent(
+            from: actions,
+            context: context.withButtonStyle(.bordered),
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center, mainAlignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            var children = [labelComponent.makeNode(runtime: runtime)]
+            if !description.isEmpty {
+                children.append(descriptionComponent.makeNode(runtime: runtime))
+            }
+            if !actions.isEmpty {
+                children.append(actionsComponent.makeNode(runtime: runtime))
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(
+                    spacing: 10,
+                    padding: EdgeInsets(top: 20, leading: 20, bottom: 20, trailing: 20),
+                    alignment: .center,
+                    mainAlignment: .center
+                ),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Spacer: View {
     public typealias Body = Never
 

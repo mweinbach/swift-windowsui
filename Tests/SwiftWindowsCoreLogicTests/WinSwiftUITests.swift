@@ -5136,6 +5136,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentUnavailableViewMapsToRetainedPlaceholderSurface() async {
+        await MainActor.run {
+            var retryCount = 0
+            let builderNode = makeNode(
+                ContentUnavailableView {
+                    Label("OFFLINE", systemImage: "wifi.slash")
+                } description: {
+                    Text("CHECK CONNECTION")
+                } actions: {
+                    Button("RETRY") {
+                        retryCount += 1
+                    }
+                }
+            )
+            let titledNode = makeNode(
+                ContentUnavailableView(
+                    "NO RESULTS",
+                    systemImage: "magnifyingglass",
+                    description: Text("TRY ANOTHER TERM")
+                )
+            )
+            let searchNode = makeNode(ContentUnavailableView.search(text: "widgets"))
+
+            let builderTexts = allTexts(in: builderNode)
+            XCTAssertTrue(builderTexts.contains("OFFLINE"))
+            XCTAssertTrue(builderTexts.contains("CHECK CONNECTION"))
+            XCTAssertTrue(builderTexts.contains("RETRY"))
+            XCTAssertEqual(builderNode.children.count, 3)
+            XCTAssertEqual(firstText(in: builderNode.children[1]), "CHECK CONNECTION")
+            XCTAssertEqual(builderNode.children[1].textStyle.color, .secondary)
+
+            builderNode.children[2].onActivate?()
+
+            XCTAssertEqual(retryCount, 1)
+            XCTAssertTrue(allTexts(in: titledNode).contains("NO RESULTS"))
+            XCTAssertTrue(allTexts(in: titledNode).contains("TRY ANOTHER TERM"))
+            XCTAssertTrue(allTexts(in: searchNode).contains("No Results"))
+            XCTAssertTrue(allTexts(in: searchNode).contains("No results for widgets"))
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

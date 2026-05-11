@@ -217,6 +217,7 @@ public final class ComponentHost {
 
         target.onPointerEnter = source.onPointerEnter
         target.onPointerExit = source.onPointerExit
+        target.onPointerMove = source.onPointerMove
         target.onPointerDown = source.onPointerDown
         target.onPointerUpInside = source.onPointerUpInside
         target.onPointerUpInsideAt = source.onPointerUpInsideAt

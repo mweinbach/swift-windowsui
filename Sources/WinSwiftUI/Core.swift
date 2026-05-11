@@ -1454,6 +1454,11 @@ public struct HoverEffect: Sendable, Equatable, Hashable {
     }
 }
 
+public enum HoverPhase: Sendable, Equatable {
+    case active(CGPoint)
+    case ended
+}
+
 public struct RedactionReasons: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: Int
 
@@ -13231,6 +13236,34 @@ public extension View {
                 childNode.onPointerExit = {
                     existingOnPointerExit?()
                     action(false)
+                }
+
+                return childNode
+            }
+        }
+    }
+
+    func onContinuousHover(
+        coordinateSpace: CoordinateSpace = .local,
+        perform action: @escaping (HoverPhase) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let _ = coordinateSpace
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHitTestVisible = true
+
+                let existingOnPointerMove = childNode.onPointerMove
+                childNode.onPointerMove = { point in
+                    existingOnPointerMove?(point)
+                    action(.active(point))
+                }
+
+                let existingOnPointerExit = childNode.onPointerExit
+                childNode.onPointerExit = {
+                    existingOnPointerExit?()
+                    action(.ended)
                 }
 
                 return childNode

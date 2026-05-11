@@ -515,6 +515,29 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testPointerMovedCallsMoveHandlerForHitNode() async {
+        await MainActor.run {
+            var moveLocations: [Point] = []
+            let target = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 40, height: 30),
+                isHitTestVisible: true
+            )
+            target.onPointerMove = { moveLocations.append($0) }
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100),
+                isHitTestVisible: false,
+                children: [target]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            runtime.pointerMoved(to: Point(x: 12, y: 14))
+            runtime.pointerMoved(to: Point(x: 20, y: 24))
+            runtime.pointerMoved(to: Point(x: 90, y: 90))
+
+            XCTAssertEqual(moveLocations, [Point(x: 12, y: 14), Point(x: 20, y: 24)])
+        }
+    }
+
     func testHoverEffectHighlightRendersOnScenePath() async {
         await MainActor.run {
             let node = ViewNode(

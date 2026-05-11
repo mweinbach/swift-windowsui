@@ -12,6 +12,7 @@ private struct PointerHandlerProbe: View {
 
     var onEnter: (() -> Void)? = nil
     var onExit: (() -> Void)? = nil
+    var onMove: ((Point) -> Void)? = nil
     var onDown: (() -> Void)? = nil
     var onUpInside: (() -> Void)? = nil
     var onUpOutside: (() -> Void)? = nil
@@ -26,6 +27,7 @@ private struct PointerHandlerProbe: View {
             let node = Controls.panel(preferredSize: Size(width: 80, height: 24))
             node.onPointerEnter = onEnter
             node.onPointerExit = onExit
+            node.onPointerMove = onMove
             node.onPointerDown = onDown
             node.onPointerUpInside = onUpInside
             node.onPointerUpOutside = onUpOutside
@@ -14097,6 +14099,73 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(enterCount, 1)
             XCTAssertEqual(exitCount, 1)
             XCTAssertEqual(hoverStates, [true, false])
+        }
+    }
+
+    func testOnContinuousHoverModifierReportsActiveLocationsAndEndedPhase() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var phases: [HoverPhase] = []
+
+            let node = Text("HOVER")
+                .frame(width: 80, height: 24)
+                .onContinuousHover(coordinateSpace: .global) { phase in
+                    phases.append(phase)
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            runtime.pointerMoved(to: Point(x: 10, y: 10))
+            runtime.pointerMoved(to: Point(x: 12, y: 12))
+            runtime.pointerMoved(to: Point(x: 120, y: 50))
+
+            XCTAssertEqual(
+                phases,
+                [
+                    .active(Point(x: 10, y: 10)),
+                    .active(Point(x: 12, y: 12)),
+                    .ended
+                ]
+            )
+        }
+    }
+
+    func testOnContinuousHoverModifierPreservesExistingPointerHandlers() async {
+        await MainActor.run {
+            var phases: [HoverPhase] = []
+            var moveLocations: [Point] = []
+            var exitCount = 0
+
+            let node = makeNode(
+                PointerHandlerProbe(
+                    onExit: {
+                        exitCount += 1
+                    },
+                    onMove: { point in
+                        moveLocations.append(point)
+                    }
+                )
+                    .onContinuousHover { phase in
+                        phases.append(phase)
+                    }
+            )
+
+            node.onPointerMove?(Point(x: 4, y: 5))
+            node.onPointerExit?()
+
+            XCTAssertEqual(moveLocations, [Point(x: 4, y: 5)])
+            XCTAssertEqual(exitCount, 1)
+            XCTAssertEqual(phases, [.active(Point(x: 4, y: 5)), .ended])
         }
     }
 

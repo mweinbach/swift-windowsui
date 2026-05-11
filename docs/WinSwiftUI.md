@@ -407,6 +407,7 @@ Modifiers:
 - `submitScope`
 - `submitLabel`
 - `onHover`
+- `onContinuousHover`
 - `onTapGesture`
 - `onLongPressGesture`
 - `gesture`
@@ -467,6 +468,7 @@ Compatibility helpers:
 - `Angle`
 - `Axis`
 - `HoverEffect`
+- `HoverPhase`
 - `RedactionReasons`
 - `ColorSchemeContrast`
 - `LegibilityWeight`
@@ -604,6 +606,7 @@ Surface direction:
 - `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs. `submitScope(_:)` marks a retained subtree boundary that blocks outer submit handlers while allowing handlers inside the scope to run; platform keyboard return-key labels are not modeled yet.
 - `submitLabel(_:)` propagates `EnvironmentValues.submitLabel` and stores the requested return-key label on retained `TextField`, `SecureField`, and `TextEditor` nodes as renderer-neutral text-input metadata. It does not alter hardware keyboard behavior on the retained Windows input path today.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
+- `onContinuousHover(coordinateSpace:perform:)` opts the retained node into hit testing and forwards retained pointer movement as `HoverPhase.active(location)` plus `HoverPhase.ended` on pointer exit. `.local`, `.global`, and `.named(...)` coordinate-space call sites are accepted, but locations currently use retained logical coordinates.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. The `count:coordinateSpace:perform:` overload reports retained pointer-up locations to SwiftUI-shaped call sites. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `onLongPressGesture` accepts the current `perform:onPressingChanged:` overloads and deprecated `pressing:perform:` overloads, opts the retained node into hit testing, and forwards retained pointer down/up/exit state. The current compatibility path treats release-inside as recognition and does not yet enforce the requested minimum duration or maximum movement threshold.
 - `TapGesture`, `SpatialTapGesture`, `LongPressGesture`, `DragGesture`, `GestureMask`, `CoordinateSpace`, `gesture(_:including:)`, `highPriorityGesture(_:including:)`, and `simultaneousGesture(_:including:)` are source-compatibility shims that route tap, long-press, and drag gesture objects through retained pointer/drag paths. `SpatialTapGesture.Value` reports the retained pointer-up location for the recognized tap. `DragGesture.Value` exposes retained start location, location, translation, and matching predicted-end fallbacks, while `minimumDistance` gates change/end callbacks. `SpatialTapGesture(count:coordinateSpace:)` and `DragGesture(minimumDistance:coordinateSpace:)` accept `.local`, `.global`, and `.named(...)` call sites, but all values currently resolve through retained logical coordinates. Priority and simultaneous gesture composition currently share the same single retained callback slot, and advanced SwiftUI gesture arbitration is not modeled yet.

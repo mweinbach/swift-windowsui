@@ -1152,6 +1152,7 @@ public final class ViewNode {
 
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
+    public var onPointerMove: ((Point) -> Void)?
     public var onPointerDown: (() -> Void)?
     public var onPointerUpInside: (() -> Void)?
     public var onPointerUpInsideAt: ((Point) -> Void)?
@@ -1389,6 +1390,7 @@ public final class ViewNode {
         self.sectionFooterChildCount = max(0, sectionFooterChildCount)
         self.onPointerEnter = nil
         self.onPointerExit = nil
+        self.onPointerMove = nil
         self.onPointerDown = nil
         self.onPointerUpInside = nil
         self.onPointerUpInsideAt = nil
@@ -3567,7 +3569,9 @@ public final class RetainedViewRuntime {
             return
         }
 
-        updateHoverTarget(to: hitTest(at: point))
+        let hitNode = hitTest(at: point)
+        updateHoverTarget(to: hitNode)
+        hitNode?.onPointerMove?(point)
         updateScrollIndicatorHover(to: scrollIndicatorHit(at: point))
     }
 

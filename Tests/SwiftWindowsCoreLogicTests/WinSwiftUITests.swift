@@ -3867,6 +3867,105 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDismissEnvironmentActionDismissesPresentedNavigationDestination() async {
+        await MainActor.run {
+            struct DismissButtonView: View {
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    Button("CLOSE") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var isPresented = true
+            var didInvalidate = false
+            let stack = NavigationStack {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { isPresented },
+                    set: { isPresented = $0 }
+                )
+            ) {
+                DismissButtonView()
+                    .navigationTitle("PRESENTED TITLE")
+            }
+
+            let presentedNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: presentedNode.children[0]).contains("PRESENTED TITLE"))
+            XCTAssertTrue(allTexts(in: presentedNode.children[1]).contains("CLOSE"))
+
+            firstFocusable(in: presentedNode.children[1])?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: rootNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertEqual(rootNode.children[1].text, "ROOT")
+        }
+    }
+
+    func testDismissEnvironmentActionPopsNavigationLinkDestination() async {
+        await MainActor.run {
+            struct DismissDetailView: View {
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    Button("DONE") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var didInvalidate = false
+            let stack = NavigationStack {
+                NavigationLink("OPEN", destination: DismissDetailView().navigationTitle("DETAIL TITLE"))
+                    .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            firstFocusable(in: rootNode.children[1])?.onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            didInvalidate = false
+            let detailNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertTrue(allTexts(in: detailNode.children[1]).contains("DONE"))
+
+            firstFocusable(in: detailNode.children[1])?.onActivate?()
+
+            XCTAssertTrue(didInvalidate)
+
+            let poppedNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: poppedNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertTrue(allTexts(in: poppedNode.children[1]).contains("OPEN"))
+        }
+    }
+
     func testNavigationDestinationItemShowsAndClearsRetainedDestination() async {
         await MainActor.run {
             var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "selected")

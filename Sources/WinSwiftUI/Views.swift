@@ -942,7 +942,31 @@ private func navigationContainerComponent(
         setDestinationStack(updatedStack)
         context.invalidate()
     }
+
+    func dismissVisibleDestination() {
+        var didDismiss = false
+        if let activePresentation {
+            activePresentation.dismiss()
+            didDismiss = true
+        } else if !destinationStack.isEmpty {
+            var updatedStack = destinationStack
+            _ = updatedStack.popLast()
+            setDestinationStack(updatedStack)
+            didDismiss = true
+        } else if let pathBinding, !pathBinding.values().isEmpty {
+            pathBinding.removeLast()
+            didDismiss = true
+        }
+
+        if didDismiss {
+            context.invalidate()
+        }
+    }
+
     let navigationContext = context
+        .withEnvironmentValue(\.dismiss, DismissAction {
+            dismissVisibleDestination()
+        })
         .withNavigationDestinationHandler { destination in
             pushDestination(destination)
         }
@@ -1013,16 +1037,7 @@ private func navigationContainerComponent(
                 )),
                 isEnabled: context.isEnabled,
                 action: {
-                    if let activePresentation {
-                        activePresentation.dismiss()
-                    } else if !destinationStack.isEmpty {
-                        var updatedStack = destinationStack
-                        _ = updatedStack.popLast()
-                        setDestinationStack(updatedStack)
-                    } else {
-                        pathBinding?.removeLast()
-                    }
-                    context.invalidate()
+                    dismissVisibleDestination()
                 },
                 children: [backLabel]
             )
@@ -5593,7 +5608,9 @@ public struct Button: View {
                 isEnabled: context.isEnabled,
                 animation: surfaceStyle.animation,
                 action: {
-                    action()
+                    ViewBuildContextScope.withCurrent(context) {
+                        action()
+                    }
                     context.invalidate()
                 },
                 children: [labelNode]

@@ -529,6 +529,21 @@ public struct OpenURLAction: @unchecked Sendable {
     }
 }
 
+public struct DismissAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = DismissAction {}
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
@@ -578,6 +593,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var openURL: OpenURLAction
+    public var dismiss: DismissAction
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -624,7 +640,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         badgeProminence: BadgeProminence = .standard,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
-        openURL: OpenURLAction = .system
+        openURL: OpenURLAction = .system,
+        dismiss: DismissAction = .noop
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -676,6 +693,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.openURL = openURL
+        self.dismiss = dismiss
         self.customValues = [:]
     }
 

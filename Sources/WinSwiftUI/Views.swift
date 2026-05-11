@@ -9885,11 +9885,19 @@ public struct ProgressView: View {
     private let label: [AnyView]
     private let currentValueLabel: [AnyView]
 
+    public init<Value: BinaryFloatingPoint>(value: Value?, total: Value = 1.0) {
+        self.init(value: value.map(Double.init), total: Double(total))
+    }
+
     public init(value: Double? = nil, total: Double = 1.0) {
         self.value = value
         self.total = total
         self.label = []
         self.currentValueLabel = []
+    }
+
+    public init<Value: BinaryFloatingPoint>(_ title: String, value: Value?, total: Value = 1.0) {
+        self.init(title, value: value.map(Double.init), total: Double(total))
     }
 
     public init(_ title: String, value: Double? = nil, total: Double = 1.0) {
@@ -9906,12 +9914,28 @@ public struct ProgressView: View {
         self.currentValueLabel = []
     }
 
+    public init<S: StringProtocol, Value: BinaryFloatingPoint>(_ title: S, value: Value?, total: Value = 1.0) {
+        self.init(String(title), value: value, total: total)
+    }
+
     public init<S: StringProtocol>(_ title: S, value: Double? = nil, total: Double = 1.0) {
         self.init(String(title), value: value, total: total)
     }
 
+    public init<Value: BinaryFloatingPoint>(_ titleKey: LocalizedStringKey, value: Value?, total: Value = 1.0) {
+        self.init(titleKey.resolvedString, value: value, total: total)
+    }
+
     public init(_ titleKey: LocalizedStringKey, value: Double? = nil, total: Double = 1.0) {
         self.init(titleKey.resolvedString, value: value, total: total)
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Value?,
+        total: Value = 1.0,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.init(value: value.map(Double.init), total: Double(total), label: label)
     }
 
     public init(value: Double? = nil, total: Double = 1.0, @ViewBuilder label: () -> [AnyView]) {
@@ -9919,6 +9943,20 @@ public struct ProgressView: View {
         self.total = total
         self.label = label()
         self.currentValueLabel = []
+    }
+
+    public init<Value: BinaryFloatingPoint>(
+        value: Value?,
+        total: Value = 1.0,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.init(
+            value: value.map(Double.init),
+            total: Double(total),
+            label: label,
+            currentValueLabel: currentValueLabel
+        )
     }
 
     public init(

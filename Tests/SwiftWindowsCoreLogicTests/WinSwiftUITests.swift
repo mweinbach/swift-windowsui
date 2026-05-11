@@ -11212,6 +11212,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewBinaryFloatingPointInitializersMapToProgressBarNode() async {
+        await MainActor.run {
+            let value: Float? = 0.5
+            let plainNode = makeNode(ProgressView(value: value, total: Float(2.0)))
+            let titleNode = makeNode(ProgressView(LocalizedStringKey("UPLOAD"), value: Float(1.5), total: Float(3.0)))
+            let currentValueNode = makeNode(
+                ProgressView(value: Float(0.25), total: Float(1.0)) {
+                    Text("SYNC")
+                } currentValueLabel: {
+                    Text("25%")
+                }
+            )
+            let indeterminateNode = makeNode(ProgressView(value: Optional<Float>.none, total: Float(1.0)))
+
+            XCTAssertEqual(plainNode.children[1].frame.size.width, 50)
+            XCTAssertEqual(firstText(in: titleNode.children[0]), "UPLOAD")
+            XCTAssertEqual(titleNode.children[1].children[1].frame.size.width, 100)
+            XCTAssertEqual(firstText(in: currentValueNode.children[0].children[0]), "SYNC")
+            XCTAssertEqual(firstText(in: currentValueNode.children[0].children[1]), "25%")
+            XCTAssertEqual(currentValueNode.children[1].children[1].frame.size.width, 50)
+            XCTAssertEqual(indeterminateNode.children[1].frame.size.width, 0)
+        }
+    }
+
     func testProgressViewTimerIntervalInitializerMapsElapsedProgress() async {
         await MainActor.run {
             let pastInterval = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)

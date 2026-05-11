@@ -10703,6 +10703,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentUnavailableViewNamedImageInitializersComposeBitmapLabel() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-unavailable-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let stringNode = makeNode(
+                ContentUnavailableView("OFFLINE", image: url.path, description: Text("Try again later"))
+            )
+            let protocolTitle: Substring = "EMPTY"[...]
+            let protocolNode = makeNode(
+                ContentUnavailableView(protocolTitle, image: url.path)
+            )
+            let keyNode = makeNode(
+                ContentUnavailableView(LocalizedStringKey("MISSING"), image: url.path)
+            )
+
+            XCTAssertTrue(allTexts(in: stringNode).contains("OFFLINE"))
+            XCTAssertTrue(allTexts(in: stringNode).contains("Try again later"))
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.height, 1)
+            XCTAssertTrue(allTexts(in: protocolNode).contains("EMPTY"))
+            XCTAssertTrue(allTexts(in: keyNode).contains("MISSING"))
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

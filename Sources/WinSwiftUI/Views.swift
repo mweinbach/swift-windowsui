@@ -2671,6 +2671,25 @@ public struct ContentUnavailableView: View {
         self.actions = actions()
     }
 
+    public init(_ title: String, image name: String, description: Text? = nil) {
+        self.label = [
+            AnyView(
+                Label(title, image: name)
+                    .font(.headline)
+            )
+        ]
+        self.description = description.map { [AnyView($0)] } ?? []
+        self.actions = []
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, description: Text? = nil) {
+        self.init(String(title), image: name, description: description)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, description: Text? = nil) {
+        self.init(titleKey.resolvedString, image: name, description: description)
+    }
+
     public init(_ title: String, systemImage: String, description: Text? = nil) {
         self.label = [
             AnyView(

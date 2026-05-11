@@ -304,9 +304,25 @@ public enum ScenePainter {
             ), toLayer: layerIndex)
         }
 
-        if let bitmapSurface = node.bitmapSurface,
-           fillRect.size.width > 0, fillRect.size.height > 0,
-           clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+        let drawsRedactionPlaceholder = node.redactionReasons.contains(.placeholder)
+            && (node.bitmapSurface != nil || (node.text?.isEmpty == false))
+            && fillRect.size.width > 0
+            && fillRect.size.height > 0
+            && clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+
+        if drawsRedactionPlaceholder {
+            scene.addQuad(solidQuad(
+                rect: fillRect,
+                cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
+                color: retainedRedactionPlaceholderBaseColor,
+                opacity: opacity,
+                clip: effectiveClip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            ), toLayer: layerIndex)
+        } else if let bitmapSurface = node.bitmapSurface,
+                  fillRect.size.width > 0, fillRect.size.height > 0,
+                  clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
             let scaledFillRect = scaleRect(fillRect, by: displayScale)
             let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
@@ -325,7 +341,8 @@ public enum ScenePainter {
             ), toLayer: layerIndex)
         }
 
-        if let text = node.text, !text.isEmpty,
+        if !drawsRedactionPlaceholder,
+           let text = node.text, !text.isEmpty,
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {

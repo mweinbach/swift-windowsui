@@ -69,6 +69,12 @@ public struct RetainedRedactionReasons: OptionSet, Sendable {
     public static let placeholder = RetainedRedactionReasons(rawValue: 1 << 0)
 }
 
+let retainedRedactionPlaceholderBaseColor = Color(red: 0.70, green: 0.74, blue: 0.78, alpha: 0.32)
+
+func retainedRedactionPlaceholderCornerRadius(for rect: Rect) -> Double {
+    min(6, max(0, rect.size.height / 2))
+}
+
 struct ViewLayoutCacheKey: Equatable, Sendable {
     var frame: Rect
     var displayScale: Double
@@ -1522,7 +1528,24 @@ public final class ViewNode {
             }
         }
 
-        if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        let drawsRedactionPlaceholder = redactionReasons.contains(.placeholder)
+            && (bitmapSurface != nil || (text?.isEmpty == false))
+            && fillRect.size.width > 0
+            && fillRect.size.height > 0
+            && baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+
+        if drawsRedactionPlaceholder {
+            commands.append(
+                .fillRect(
+                    FillRectCommand(
+                        rect: fillRect,
+                        color: retainedRedactionPlaceholderBaseColor.multipliedAlpha(by: effectiveOpacity),
+                        cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
+                        clipRect: effectiveClip
+                    )
+                )
+            )
+        } else if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             commands.append(
                 .drawBitmap(
                     DrawBitmapCommand(
@@ -1535,7 +1558,7 @@ public final class ViewNode {
             )
         }
 
-        if let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        if !drawsRedactionPlaceholder, let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
             let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
             if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
                 PixelFont.appendCommands(

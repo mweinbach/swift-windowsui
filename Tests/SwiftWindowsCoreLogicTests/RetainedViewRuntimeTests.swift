@@ -633,6 +633,36 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testRedactedTextDrawsPlaceholderInsteadOfGlyphs() async {
+        await MainActor.run {
+            let label = Controls.label("SECRET", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
+            label.redactionReasons = [.placeholder]
+            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let runtime = RetainedViewRuntime(root: root)
+
+            let frame = runtime.renderFrame()
+            let hasBitmapCommand = frame.commands.contains { command in
+                if case .drawBitmap = command {
+                    return true
+                }
+                return false
+            }
+            let fills = fillRectCommands(in: frame)
+
+            XCTAssertFalse(hasBitmapCommand)
+            XCTAssertEqual(fills.count, 1)
+            XCTAssertEqual(fills[0].rect, Rect(x: 10, y: 10, width: 80, height: 24))
+            XCTAssertEqual(fills[0].color, retainedRedactionPlaceholderBaseColor)
+            XCTAssertEqual(fills[0].cornerRadius, 6)
+
+            let scene = runtime.renderScene()
+            XCTAssertEqual(scene.layers.flatMap(\.glyphs).count, 0)
+            XCTAssertEqual(scene.layers.flatMap(\.pixelGlyphs).count, 0)
+            XCTAssertEqual(scene.layers.flatMap(\.quads).count, 1)
+            XCTAssertEqual(scene.layers[0].quads[0].startA, Float(retainedRedactionPlaceholderBaseColor.alpha))
+        }
+    }
+
     func testDisplayScaleIncreasesRenderedBitmapResolution() async {
         await MainActor.run {
             let label = Controls.label("HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)

@@ -12566,10 +12566,19 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(roles.count, 4)
             XCTAssertEqual(titleModes.count, 4)
             XCTAssertEqual(placements.count, 4)
-            XCTAssertTrue(allTexts(in: node.children[0]).contains("SAVE"))
-            XCTAssertNil(node.children[0].backgroundColor)
-            XCTAssertEqual(node.children[0].backgroundGradient?.startColor, .red)
-            XCTAssertEqual(node.children[0].backgroundGradient?.endColor, .blue)
+            let toolbarNode = node.children[0]
+            XCTAssertTrue(allTexts(in: toolbarNode).contains("SAVE"))
+            XCTAssertNil(toolbarNode.backgroundColor)
+            XCTAssertEqual(toolbarNode.backgroundGradient?.startColor, .red)
+            XCTAssertEqual(toolbarNode.backgroundGradient?.endColor, .blue)
+            XCTAssertEqual(toolbarNode.cornerRadius, 6)
+            XCTAssertEqual(toolbarNode.borderColor, Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30))
+            XCTAssertEqual(toolbarNode.shadowSpread, 6)
+            XCTAssertEqual(firstTextNode(in: toolbarNode)?.textStyle.color, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+            guard case .stack(let toolbarLayout) = toolbarNode.layoutMode else {
+                return XCTFail("Expected retained toolbar row to keep stack layout")
+            }
+            XCTAssertEqual(toolbarLayout.padding, EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10))
             XCTAssertEqual(node.children[1].text, "DETAIL")
         }
     }

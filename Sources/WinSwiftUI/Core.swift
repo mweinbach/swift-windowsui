@@ -6497,6 +6497,97 @@ private func applyToolbarBackgroundStyle(to node: ViewNode, color: Color?, gradi
     }
 }
 
+@MainActor
+private func applyToolbarColorScheme(to node: ViewNode, colorScheme: ColorScheme?) {
+    guard let colorScheme else {
+        return
+    }
+
+    if node.isToolbarContainer {
+        if colorScheme == .light {
+            if node.backgroundGradient == nil {
+                node.backgroundColor = Color(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.95)
+            }
+            node.borderColor = Color(red: 0.12, green: 0.16, blue: 0.24, alpha: 0.16)
+            applyToolbarForegroundColor(to: node, color: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+        } else {
+            if node.backgroundGradient == nil {
+                node.backgroundColor = Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92)
+            }
+            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
+            applyToolbarForegroundColor(to: node, color: Color(red: 0.94, green: 0.97, blue: 1.0, alpha: 1))
+        }
+        return
+    }
+
+    for child in node.children {
+        applyToolbarColorScheme(to: child, colorScheme: colorScheme)
+    }
+}
+
+@MainActor
+private func applyToolbarForegroundColor(to node: ViewNode, color: Color) {
+    if node.text != nil {
+        var style = node.textStyle
+        style.color = color
+        node.textStyle = style
+    }
+
+    for child in node.children {
+        applyToolbarForegroundColor(to: child, color: color)
+    }
+}
+
+@MainActor
+private func applyToolbarRoleChrome(to node: ViewNode, role: ToolbarRole) {
+    if node.isToolbarContainer {
+        if role == .editor {
+            node.cornerRadius = 6
+            node.borderWidth = 1
+            node.borderColor = Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30)
+            node.shadowColor = Color(red: 0.04, green: 0.06, blue: 0.10, alpha: 0.18)
+            node.shadowOffset = Point(x: 0, y: 1)
+            node.shadowSpread = 6
+        } else if role == .browser {
+            node.cornerRadius = 10
+            node.borderWidth = 1
+            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12)
+            node.shadowColor = Color(red: 0.02, green: 0.03, blue: 0.06, alpha: 0.24)
+            node.shadowOffset = Point(x: 0, y: 2)
+            node.shadowSpread = 10
+        } else if role == .navigationStack {
+            node.cornerRadius = 0
+            node.borderWidth = 1
+            node.borderColor = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10)
+            node.shadowColor = .clear
+            node.shadowOffset = .zero
+            node.shadowSpread = 0
+        }
+    }
+
+    for child in node.children {
+        applyToolbarRoleChrome(to: child, role: role)
+    }
+}
+
+@MainActor
+private func applyToolbarTitleDisplayMode(to node: ViewNode, mode: ToolbarTitleDisplayMode) {
+    if node.isToolbarContainer, case .stack(var layout) = node.layoutMode {
+        if mode == .large {
+            layout.padding = EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+        } else if mode == .inlineLarge {
+            layout.padding = EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+        } else {
+            layout.padding = EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8)
+        }
+        node.layoutMode = .stack(layout)
+    }
+
+    for child in node.children {
+        applyToolbarTitleDisplayMode(to: child, mode: mode)
+    }
+}
+
 extension Alignment {
     func frameOrigin(
         for childSize: Size,
@@ -7721,24 +7812,36 @@ public extension View {
     }
 
     func toolbarColorScheme(_ colorScheme: ColorScheme?, for bars: ToolbarItemPlacement...) -> some View {
-        _ = colorScheme
         _ = bars
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarColorScheme(to: node, colorScheme: colorScheme)
+                return node
+            }
         }
     }
 
     func toolbarRole(_ role: ToolbarRole) -> some View {
-        _ = role
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarRoleChrome(to: node, role: role)
+                return node
+            }
         }
     }
 
     func toolbarTitleDisplayMode(_ mode: ToolbarTitleDisplayMode) -> some View {
-        _ = mode
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarTitleDisplayMode(to: node, mode: mode)
+                return node
+            }
         }
     }
 

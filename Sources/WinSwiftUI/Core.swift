@@ -5446,6 +5446,37 @@ public struct AnyGesture<Value>: Gesture {
     }
 }
 
+public struct SimultaneousGesture<First: Gesture, Second: Gesture>: Gesture {
+    public struct Value {
+        public var first: First.Value?
+        public var second: Second.Value?
+
+        public init(first: First.Value?, second: Second.Value?) {
+            self.first = first
+            self.second = second
+        }
+    }
+
+    public var first: First
+    public var second: Second
+
+    public init(_ first: First, _ second: Second) {
+        self.first = first
+        self.second = second
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let firstApplied = first._applying(to: view, including: mask)
+        return second._applying(to: firstApplied, including: mask)
+    }
+}
+
+public extension Gesture {
+    func simultaneously<Other: Gesture>(with other: Other) -> SimultaneousGesture<Self, Other> {
+        SimultaneousGesture(self, other)
+    }
+}
+
 public struct TapGesture: Gesture {
     public typealias Value = Void
 

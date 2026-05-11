@@ -14607,6 +14607,60 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSimultaneousGestureAppliesBothRetainedGestures() async {
+        await MainActor.run {
+            var tapCount = 0
+            var spatialLocations: [Point] = []
+            let combinedGesture = TapGesture().onEnded { _ in
+                tapCount += 1
+            }
+            .simultaneously(
+                with: SpatialTapGesture().onEnded { value in
+                    spatialLocations.append(value.location)
+                }
+            )
+            let node = makeNode(
+                Text("TAP")
+                    .gesture(combinedGesture)
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInside?()
+            node.onPointerUpInsideAt?(Point(x: 9, y: 10))
+
+            XCTAssertEqual(tapCount, 1)
+            XCTAssertEqual(spatialLocations, [Point(x: 9, y: 10)])
+        }
+    }
+
+    func testSimultaneousGesturePreservesMaskForBothRetainedGestures() async {
+        await MainActor.run {
+            var tapCount = 0
+            var dragChanges: [DragGesture.Value] = []
+            let combinedGesture = SimultaneousGesture(
+                TapGesture().onEnded { _ in
+                    tapCount += 1
+                },
+                DragGesture(minimumDistance: 0).onChanged { value in
+                    dragChanges.append(value)
+                }
+            )
+            let node = makeNode(
+                Text("INPUT")
+                    .gesture(combinedGesture, including: .none)
+            )
+
+            node.onPointerUpInside?()
+            node.onDragStart?(Point(x: 1, y: 2))
+
+            XCTAssertEqual(tapCount, 0)
+            XCTAssertEqual(dragChanges, [])
+            XCTAssertNil(node.onPointerUpInside)
+            XCTAssertNil(node.onDragStart)
+        }
+    }
+
     func testLongPressGestureObjectMapsThroughPriorityGestureModifiers() async {
         await MainActor.run {
             var endings: [Bool] = []

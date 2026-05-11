@@ -2030,9 +2030,19 @@ public struct Image: View {
         self.init(storage: .systemName(systemName))
     }
 
+    public init(systemName: String, label: Text) {
+        self.init(systemName: systemName)
+        self.accessibilityLabel = label.plainContent
+    }
+
     public init(systemName: String, variableValue: Double?) {
         self.init(systemName: systemName)
         self.symbolVariableValue = variableValue
+    }
+
+    public init(systemName: String, variableValue: Double?, label: Text) {
+        self.init(systemName: systemName, variableValue: variableValue)
+        self.accessibilityLabel = label.plainContent
     }
 
     public init(_ name: String, bundle: Bundle? = nil) {

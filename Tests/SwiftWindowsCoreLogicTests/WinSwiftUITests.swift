@@ -2233,6 +2233,10 @@ final class WinSwiftUITests: XCTestCase {
                 Image(systemName: "gearshape", variableValue: 0.42)
                     .foregroundColor(.red)
             )
+            let labeledSymbolNode = makeNode(Image(systemName: "gearshape", label: Text("SETTINGS")))
+            let labeledVariableSymbolNode = makeNode(
+                Image(systemName: "gearshape", variableValue: 0.84, label: Text("VARIABLE SETTINGS"))
+            )
 
             XCTAssertEqual(labeledNode.bitmapSurface?.width, 2)
             XCTAssertEqual(labeledNode.bitmapSurface?.height, 1)
@@ -2241,6 +2245,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(variableSymbolNode.text, "\u{E713}")
             XCTAssertEqual(variableSymbolNode.textStyle.color, .red)
             XCTAssertEqual(variableSymbolNode.symbolVariableValue, 0.42)
+            XCTAssertEqual(labeledSymbolNode.text, "\u{E713}")
+            XCTAssertEqual(labeledSymbolNode.accessibilityLabel, "SETTINGS")
+            XCTAssertEqual(labeledVariableSymbolNode.symbolVariableValue, 0.84)
+            XCTAssertEqual(labeledVariableSymbolNode.accessibilityLabel, "VARIABLE SETTINGS")
         }
     }
 

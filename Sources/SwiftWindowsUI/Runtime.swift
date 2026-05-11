@@ -536,6 +536,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var borderGradient: LinearGradient? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var borderWidth: Double {
         didSet { invalidateRuntime(.layout) }
     }
@@ -862,6 +866,7 @@ public final class ViewNode {
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
+        borderGradient: LinearGradient? = nil,
         borderWidth: Double = 0,
         borderStrokeStyle: StrokeStyle? = nil,
         outlineColor: Color = .clear,
@@ -930,6 +935,7 @@ public final class ViewNode {
         self.text = text
         self.textStyle = textStyle
         self.borderColor = borderColor
+        self.borderGradient = borderGradient
         self.borderWidth = borderWidth
         self.borderStrokeStyle = borderStrokeStyle
         self.outlineColor = outlineColor
@@ -1861,7 +1867,15 @@ public final class ViewNode {
             }
         }
 
-        let effectiveBorderColor = borderColor.multipliedAlpha(by: effectiveOpacity)
+        var effectiveBorderGradient = borderGradient
+        if var gradient = effectiveBorderGradient {
+            gradient.stops = gradient.stops.map { stop in
+                GradientStop(color: stop.color.multipliedAlpha(by: effectiveOpacity), position: stop.position)
+            }
+            effectiveBorderGradient = gradient
+        }
+        let effectiveBorderColor = effectiveBorderGradient?.startColor
+            ?? borderColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             if let borderSegments = BorderSegments.dashedSegments(
                 frame: absoluteFrame,
@@ -1876,7 +1890,8 @@ public final class ViewNode {
                                 rect: segment.rect,
                                 color: effectiveBorderColor,
                                 cornerRadius: segment.cornerRadius,
-                                clipRect: effectiveClip
+                                clipRect: effectiveClip,
+                                gradient: effectiveBorderGradient
                             )
                         )
                     )
@@ -1888,7 +1903,8 @@ public final class ViewNode {
                             rect: absoluteFrame,
                             color: effectiveBorderColor,
                             cornerRadius: cornerRadius,
-                            clipRect: effectiveClip
+                            clipRect: effectiveClip,
+                            gradient: effectiveBorderGradient
                         )
                     )
                 )

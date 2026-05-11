@@ -317,6 +317,32 @@ struct ScenePainterTests {
         #expect(firstSegment.cornerRadius == 1)
     }
 
+    @Test("Gradient border maps to scene quad gradient fields")
+    func gradientBorderMapsToSceneQuadGradientFields() {
+        let gradient = LinearGradient(
+            startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+            endColor: Color(red: 0, green: 0, blue: 1, alpha: 0.5),
+            axis: .horizontal
+        )
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 20),
+            backgroundColor: .white,
+            borderColor: gradient.startColor,
+            borderGradient: gradient,
+            borderWidth: 4
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let borderQuad = scene.layers[0].quads[0]
+
+        #expect(borderQuad.startR == 1)
+        #expect(borderQuad.startB == 0)
+        #expect(borderQuad.endR == 0)
+        #expect(borderQuad.endB == 1)
+        #expect(borderQuad.endA == 0.5)
+        #expect(borderQuad.gradientAxis == 1)
+    }
+
     // MARK: - Opacity multiplied into alpha
 
     @Test("Opacity is multiplied into quad alpha")

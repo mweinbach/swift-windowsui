@@ -960,6 +960,30 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testBorderGradientFlowsIntoFillRectCommand() async {
+        await MainActor.run {
+            let gradient = LinearGradient(
+                startColor: Color(red: 0.9, green: 0.2, blue: 0.1, alpha: 1),
+                endColor: Color(red: 0.1, green: 0.3, blue: 0.9, alpha: 0.7),
+                axis: .vertical
+            )
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .white,
+                borderColor: gradient.startColor,
+                borderGradient: gradient,
+                borderWidth: 4
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            let fills = fillRectCommands(in: runtime.renderFrame())
+
+            XCTAssertEqual(fills.count, 2)
+            XCTAssertEqual(fills[0].gradient, .linear(gradient))
+            XCTAssertNil(fills[1].gradient)
+        }
+    }
+
     func testBlurRadiusDoesNotEmitUnsupportedBlurCommand() async {
         await MainActor.run {
             let node = ViewNode(

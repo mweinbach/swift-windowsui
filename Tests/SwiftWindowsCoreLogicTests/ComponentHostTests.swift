@@ -76,6 +76,13 @@ final class ComponentHostTests: XCTestCase {
                     let borderStrokeStyle = useSecondState
                         ? StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4)
                         : StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8)
+                    let borderGradient = useSecondState
+                        ? LinearGradient(
+                            startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                            endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                            axis: .horizontal
+                        )
+                        : LinearGradient(startColor: .white, endColor: .black, axis: .vertical)
                     let clipFillStyle = RetainedClipFillStyle(
                         eoFill: useSecondState,
                         antialiased: !useSecondState
@@ -114,6 +121,7 @@ final class ComponentHostTests: XCTestCase {
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
                     node.transform = transform
+                    node.borderGradient = borderGradient
                     node.borderStrokeStyle = borderStrokeStyle
                     node.clipFillStyle = clipFillStyle
                     node.scrollOffset = scrollOffset
@@ -154,6 +162,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
             XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
+            XCTAssertEqual(firstNode?.borderGradient, LinearGradient(startColor: .white, endColor: .black, axis: .vertical))
             XCTAssertEqual(firstNode?.borderStrokeStyle, StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8))
             XCTAssertEqual(firstNode?.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: true))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
@@ -190,6 +199,14 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
+            XCTAssertEqual(
+                reusedNode?.borderGradient,
+                LinearGradient(
+                    startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                    endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                    axis: .horizontal
+                )
+            )
             XCTAssertEqual(reusedNode?.borderStrokeStyle, StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4))
             XCTAssertEqual(reusedNode?.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
             XCTAssertEqual(reusedNode?.scrollOffset, 48)

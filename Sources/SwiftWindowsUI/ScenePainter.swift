@@ -284,7 +284,8 @@ public enum ScenePainter {
         }
 
         // Border (full rect drawn under the fill area, segmented for dashed square strokes)
-        if node.borderColor.alpha > 0, node.borderWidth > 0,
+        let borderColor = node.borderGradient?.startColor ?? node.borderColor
+        if borderColor.alpha > 0, node.borderWidth > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: absoluteFrame)
         {
             if let borderSegments = BorderSegments.dashedSegments(
@@ -294,10 +295,11 @@ public enum ScenePainter {
                 strokeStyle: node.borderStrokeStyle
             ) {
                 for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
-                    scene.addQuad(solidQuad(
+                    scene.addQuad(fillQuad(
                         rect: segment.rect,
                         cornerRadius: segment.cornerRadius,
-                        color: node.borderColor,
+                        color: borderColor,
+                        gradient: node.borderGradient,
                         opacity: opacity,
                         clip: effectiveClip,
                         surfaceSize: surfaceSize,
@@ -305,10 +307,11 @@ public enum ScenePainter {
                     ), toLayer: layerIndex)
                 }
             } else {
-                scene.addQuad(solidQuad(
+                scene.addQuad(fillQuad(
                     rect: absoluteFrame,
                     cornerRadius: node.cornerRadius,
-                    color: node.borderColor,
+                    color: borderColor,
+                    gradient: node.borderGradient,
                     opacity: opacity,
                     clip: effectiveClip,
                     surfaceSize: surfaceSize,
@@ -326,28 +329,19 @@ public enum ScenePainter {
            fillRect.size.width > 0, fillRect.size.height > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
-            let scaledFillRect = scaleRect(fillRect, by: displayScale)
-            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
-            let endColor = node.backgroundGradient?.endColor ?? bg
-            let axis: Float = {
-                guard let grad = node.backgroundGradient else { return 0 }
-                return grad.axis == .horizontal ? 1 : 0
-            }()
-
-            scene.addQuad(QuadPrimitive(
-                x: Float(scaledFillRect.origin.x),
-                y: Float(scaledFillRect.origin.y),
-                width: Float(scaledFillRect.size.width),
-                height: Float(scaledFillRect.size.height),
-                cornerRadius: Float(fillCornerRadius * displayScale),
-                startR: bg.red, startG: bg.green, startB: bg.blue,
-                startA: bg.alpha * opacity,
-                endR: endColor.red, endG: endColor.green, endB: endColor.blue,
-                endA: endColor.alpha * opacity,
-                gradientAxis: axis,
-                clipX: clipR.0, clipY: clipR.1,
-                clipWidth: clipR.2, clipHeight: clipR.3
-            ), toLayer: layerIndex)
+            scene.addQuad(
+                fillQuad(
+                    rect: fillRect,
+                    cornerRadius: fillCornerRadius,
+                    color: bg,
+                    gradient: node.backgroundGradient,
+                    opacity: opacity,
+                    clip: effectiveClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale
+                ),
+                toLayer: layerIndex
+            )
         }
 
         if let hoverOverlay = node.hoverEffectOverlayCommand(
@@ -505,6 +499,48 @@ public enum ScenePainter {
             cornerRadius: Float(cornerRadius * displayScale),
             startR: color.red, startG: color.green, startB: color.blue, startA: a,
             endR: color.red, endG: color.green, endB: color.blue, endA: a,
+            clipX: clipR.0, clipY: clipR.1,
+            clipWidth: clipR.2, clipHeight: clipR.3
+        )
+    }
+
+    private static func fillQuad(
+        rect: Rect,
+        cornerRadius: Double,
+        color: Color,
+        gradient: LinearGradient?,
+        opacity: Float,
+        clip: Rect?,
+        surfaceSize: Size,
+        displayScale: Double
+    ) -> QuadPrimitive {
+        guard let gradient else {
+            return solidQuad(
+                rect: rect,
+                cornerRadius: cornerRadius,
+                color: color,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            )
+        }
+
+        let scaledRect = scaleRect(rect, by: displayScale)
+        let clipR = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
+        let endColor = gradient.endColor
+        let axis: Float = gradient.axis == .horizontal ? 1 : 0
+        return QuadPrimitive(
+            x: Float(scaledRect.origin.x),
+            y: Float(scaledRect.origin.y),
+            width: Float(scaledRect.size.width),
+            height: Float(scaledRect.size.height),
+            cornerRadius: Float(cornerRadius * displayScale),
+            startR: color.red, startG: color.green, startB: color.blue,
+            startA: color.alpha * opacity,
+            endR: endColor.red, endG: endColor.green, endB: endColor.blue,
+            endA: endColor.alpha * opacity,
+            gradientAxis: axis,
             clipX: clipR.0, clipY: clipR.1,
             clipWidth: clipR.2, clipHeight: clipR.3
         )

@@ -124,6 +124,7 @@ public final class ComponentHost {
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }
+        if target.borderGradient != source.borderGradient { target.borderGradient = source.borderGradient }
         if target.borderWidth != source.borderWidth { target.borderWidth = source.borderWidth }
         if target.borderStrokeStyle != source.borderStrokeStyle { target.borderStrokeStyle = source.borderStrokeStyle }
         if target.outlineColor != source.outlineColor { target.outlineColor = source.outlineColor }

@@ -755,11 +755,12 @@ private func shapeComponent(
 ) -> Component {
     Component { _ in
         let fill = resolvedFill(from: fillStyle)
-        let stroke = resolvedStrokeColor(from: strokeStyle)
+        let stroke = resolvedFill(from: strokeStyle)
         let node = Controls.panel(
             backgroundColor: fill.color,
             backgroundGradient: fill.gradient,
-            borderColor: stroke,
+            borderColor: stroke.color,
+            borderGradient: stroke.gradient,
             borderWidth: lineWidth,
             cornerRadius: cornerRadius,
             isHitTestVisible: false
@@ -778,11 +779,12 @@ private func capsuleComponent(
 ) -> Component {
     Component { _ in
         let fill = resolvedFill(from: fillStyle)
-        let stroke = resolvedStrokeColor(from: strokeStyle)
+        let stroke = resolvedFill(from: strokeStyle)
         let node = Controls.panel(
             backgroundColor: fill.color,
             backgroundGradient: fill.gradient,
-            borderColor: stroke,
+            borderColor: stroke.color,
+            borderGradient: stroke.gradient,
             borderWidth: lineWidth,
             isHitTestVisible: false
         )
@@ -802,15 +804,6 @@ private extension StrokeStyle {
         var copy = self
         copy.lineWidth = max(0, lineWidth)
         return copy
-    }
-}
-
-private func resolvedStrokeColor(from style: ForegroundStyle) -> Color {
-    switch style {
-    case .color(let color):
-        return color
-    case .linearGradient(let gradient):
-        return gradient.startColor
     }
 }
 

@@ -5820,6 +5820,15 @@ private func resolvedStyleColor(from style: ForegroundStyle) -> Color {
     }
 }
 
+private func resolvedBorderFill(from style: ForegroundStyle) -> (color: Color, gradient: LinearGradient?) {
+    switch style {
+    case .color(let color):
+        return (color, nil)
+    case .linearGradient(let gradient):
+        return (gradient.startColor, gradient)
+    }
+}
+
 public extension SwiftWindowsGraphics.LinearGradient {
     init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
         self.init(
@@ -8698,12 +8707,22 @@ public extension View {
     }
 
     func border(_ color: Color, width: Double = 1, cornerRadius: Double = 0) -> some View {
+        borderStyle(color: color, gradient: nil, width: width, cornerRadius: cornerRadius)
+    }
+
+    private func borderStyle(
+        color: Color,
+        gradient: LinearGradient?,
+        width: Double,
+        cornerRadius: Double
+    ) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
                     borderColor: color,
+                    borderGradient: gradient,
                     borderWidth: width,
                     cornerRadius: cornerRadius,
                     stackLayout: .vertical(alignment: .stretch),
@@ -8715,7 +8734,8 @@ public extension View {
     }
 
     func border(_ style: ForegroundStyle, width: Double = 1, cornerRadius: Double = 0) -> some View {
-        border(resolvedStyleColor(from: style), width: width, cornerRadius: cornerRadius)
+        let fill = resolvedBorderFill(from: style)
+        return borderStyle(color: fill.color, gradient: fill.gradient, width: width, cornerRadius: cornerRadius)
     }
 
     func border(_ gradient: LinearGradient, width: Double = 1, cornerRadius: Double = 0) -> some View {

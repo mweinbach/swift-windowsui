@@ -6140,6 +6140,39 @@ public struct TextField: View {
         )
     }
 
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value>,
+        formatter: Formatter,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void,
+        onCommit: @escaping @MainActor () -> Void = {}
+    ) {
+        self.title = String(title)
+        self.text = formatterBackedTextBinding(value: value, formatter: formatter)
+        self.prompt = nil
+        self.axis = .horizontal
+        self.label = nil
+        self.selection = nil
+        self.onEditingChanged = onEditingChanged
+        self.onCommit = onCommit
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value>,
+        formatter: Formatter,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void,
+        onCommit: @escaping @MainActor () -> Void = {}
+    ) {
+        self.init(
+            titleKey.resolvedString,
+            value: value,
+            formatter: formatter,
+            onEditingChanged: onEditingChanged,
+            onCommit: onCommit
+        )
+    }
+
     public init<S: StringProtocol>(
         _ title: S,
         text: Binding<String>,
@@ -6161,6 +6194,31 @@ public struct TextField: View {
         onCommit: @escaping @MainActor () -> Void
     ) {
         self.init(titleKey.resolvedString, text: text, onCommit: onCommit)
+    }
+
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value>,
+        formatter: Formatter,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.title = String(title)
+        self.text = formatterBackedTextBinding(value: value, formatter: formatter)
+        self.prompt = nil
+        self.axis = .horizontal
+        self.label = nil
+        self.selection = nil
+        self.onEditingChanged = nil
+        self.onCommit = onCommit
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value>,
+        formatter: Formatter,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.init(titleKey.resolvedString, value: value, formatter: formatter, onCommit: onCommit)
     }
 
     public var body: Never {

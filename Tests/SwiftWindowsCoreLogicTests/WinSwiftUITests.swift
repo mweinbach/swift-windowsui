@@ -4963,6 +4963,67 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSceneStoragePersistsValuesAcrossViewInstancesAndProvidesBinding() async {
+        await MainActor.run {
+            struct SceneStorageReaderView: View {
+                @SceneStorage private var title: String
+
+                init(key: String) {
+                    _title = SceneStorage(wrappedValue: "", key)
+                }
+
+                var body: some View {
+                    TextField("TITLE", text: $title)
+                }
+            }
+
+            let key = "WinSwiftUITests.SceneStorage.\(UUID().uuidString)"
+            let firstNode = makeNode(SceneStorageReaderView(key: key))
+            XCTAssertTrue(allTexts(in: firstNode).contains("TITLE"))
+
+            firstNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+
+            let secondNode = makeNode(SceneStorageReaderView(key: key))
+            XCTAssertTrue(allTexts(in: secondNode).contains("a"))
+        }
+    }
+
+    func testSceneStorageWriteTriggersInvalidation() async {
+        await MainActor.run {
+            struct SceneStorageWriterView: View {
+                @SceneStorage private var count: Int
+
+                init(key: String) {
+                    _count = SceneStorage(wrappedValue: 0, key)
+                }
+
+                var body: some View {
+                    Text("\(count)")
+                }
+
+                func increment() {
+                    count += 1
+                }
+            }
+
+            var invalidationCount = 0
+            let key = "WinSwiftUITests.SceneStorageInvalidation.\(UUID().uuidString)"
+            let view = SceneStorageWriterView(key: key)
+            let node = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node), "0")
+            view.increment()
+
+            XCTAssertEqual(firstText(in: makeNode(SceneStorageWriterView(key: key))), "1")
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testPickerTaggedContentWritesSelectionAndInvalidates() async {
         await MainActor.run {
             var selection = "compact"

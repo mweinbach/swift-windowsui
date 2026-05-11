@@ -1519,6 +1519,94 @@ public struct AppStorage<Value> {
 }
 
 @MainActor
+private final class SceneStorageCenter {
+    static let shared = SceneStorageCenter()
+
+    private var values: [String: Any] = [:]
+
+    func value<Value>(for key: String, default defaultValue: Value) -> Value {
+        values[key] as? Value ?? defaultValue
+    }
+
+    func setValue<Value>(_ value: Value, for key: String) {
+        values[key] = value
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct SceneStorage<Value> {
+    @MainActor
+    private final class Storage {
+        let key: String
+        let defaultValue: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(key: String, defaultValue: Value) {
+            self.key = key
+            self.defaultValue = defaultValue
+        }
+
+        var value: Value {
+            get {
+                SceneStorageCenter.shared.value(for: key, default: defaultValue)
+            }
+            set {
+                SceneStorageCenter.shared.setValue(newValue, for: key)
+                invalidate?()
+            }
+        }
+    }
+
+    private let storage: Storage
+
+    public init(wrappedValue: Value, _ key: String) {
+        self.storage = Storage(key: key, defaultValue: wrappedValue)
+    }
+
+    public init(_ key: String) where Value == Bool {
+        self.init(wrappedValue: false, key)
+    }
+
+    public init(_ key: String) where Value == Int {
+        self.init(wrappedValue: 0, key)
+    }
+
+    public init(_ key: String) where Value == Double {
+        self.init(wrappedValue: 0, key)
+    }
+
+    public init(_ key: String) where Value == String {
+        self.init(wrappedValue: "", key)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        Binding(
+            get: {
+                wrappedValue
+            },
+            set: { newValue in
+                wrappedValue = newValue
+            }
+        )
+    }
+}
+
+@MainActor
 @propertyWrapper
 public struct ScaledMetric<Value: BinaryFloatingPoint> {
     private let baseValue: Value

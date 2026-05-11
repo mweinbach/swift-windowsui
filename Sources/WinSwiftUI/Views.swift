@@ -8280,12 +8280,24 @@ public struct Gauge: View {
 
         return Component { runtime in
             let rangeTotal = max(0, bounds.upperBound - bounds.lowerBound)
-            let gaugeNode = Controls.progressBar(
-                value: value - bounds.lowerBound,
-                total: rangeTotal,
-                preferredSize: context.controlSize.progressPreferredSize,
-                filledColor: context.tint
-            )
+            let gaugeValue = value - bounds.lowerBound
+            let gaugeNode: ViewNode
+            switch context.gaugeStyle.kind {
+            case .circular, .accessoryCircular, .accessoryCircularCapacity:
+                gaugeNode = Controls.circularProgress(
+                    value: gaugeValue,
+                    total: rangeTotal,
+                    preferredSize: context.controlSize.circularProgressPreferredSize,
+                    filledColor: context.tint
+                )
+            case .automatic, .linear, .linearCapacity, .accessoryLinear, .accessoryLinearCapacity:
+                gaugeNode = Controls.progressBar(
+                    value: gaugeValue,
+                    total: rangeTotal,
+                    preferredSize: context.controlSize.progressPreferredSize,
+                    filledColor: context.tint
+                )
+            }
             guard !context.labelsHidden else {
                 return gaugeNode
             }

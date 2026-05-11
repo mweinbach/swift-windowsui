@@ -9637,9 +9637,42 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(linearCapacityReaderNode.text, "LINEARCAP")
             XCTAssertEqual(accessoryReaderNode.text, "ACCESSORY")
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
-            XCTAssertEqual(circularTintNode.children[1].children[1].backgroundColor, tint)
+            XCTAssertEqual(circularTintNode.children[1].children.count, 12)
+            XCTAssertEqual(circularTintNode.children[1].children[0].backgroundColor, tint)
+            XCTAssertEqual(circularTintNode.children[1].children[5].backgroundColor, tint)
+            XCTAssertEqual(circularTintNode.children[1].children[6].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
             XCTAssertEqual(inheritedNode.children[0].children[1].children[1].frame.size.width, 50)
             XCTAssertEqual(inheritedNode.children[1].children[1].children[1].frame.size.width, 150)
+        }
+    }
+
+    func testAccessoryCircularGaugeStylesUseRetainedCircularSegments() async {
+        await MainActor.run {
+            let tint = Color(red: 0.35, green: 0.55, blue: 0.95, alpha: 1)
+            let node = makeNode(
+                VStack {
+                    Gauge(value: 0.25, in: 0...1) {
+                        Text("CPU")
+                    }
+                    .gaugeStyle(AccessoryCircularGaugeStyle())
+
+                    Gauge(value: Float(0.75), in: Float(0)...Float(1)) {
+                        Text("MEMORY")
+                    }
+                    .gaugeStyle(AccessoryCircularCapacityGaugeStyle())
+                }
+                .tint(tint)
+            )
+
+            let firstGauge = node.children[0].children[1]
+            let secondGauge = node.children[1].children[1]
+            XCTAssertEqual(firstGauge.children.count, 12)
+            XCTAssertEqual(secondGauge.children.count, 12)
+            XCTAssertEqual(firstGauge.children[0].backgroundColor, tint)
+            XCTAssertEqual(firstGauge.children[2].backgroundColor, tint)
+            XCTAssertEqual(firstGauge.children[3].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
+            XCTAssertEqual(secondGauge.children[8].backgroundColor, tint)
+            XCTAssertEqual(secondGauge.children[9].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
         }
     }
 

@@ -1689,6 +1689,10 @@ final class WinSwiftUITests: XCTestCase {
                 Text("RELATIVE")
                     .font(.custom("Georgia", size: 12, relativeTo: .caption))
             )
+            let relativeHeadlineNode = makeNode(
+                Text("RELATIVE HEADLINE")
+                    .font(.custom("Aptos", size: 15, relativeTo: .headline))
+            )
             let inheritedNode = makeNode(
                 VStack {
                     Text("INHERITED")
@@ -1703,6 +1707,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(fixedNode.textStyle.nativeFontSize, 18)
             XCTAssertEqual(relativeNode.textStyle.fontFamily, "Georgia")
             XCTAssertEqual(relativeNode.textStyle.nativeFontSize, 12)
+            XCTAssertEqual(relativeHeadlineNode.textStyle.fontFamily, "Aptos")
+            XCTAssertEqual(relativeHeadlineNode.textStyle.nativeFontSize, 15)
+            XCTAssertEqual(relativeHeadlineNode.textStyle.weight, .semibold)
+            XCTAssertEqual(relativeHeadlineNode.textStyle.lineSpacing, Font.headline.resolvedLineSpacing)
             XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Code")
             XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 16)
         }

@@ -4367,8 +4367,15 @@ public struct Font: Sendable, Equatable {
     }
 
     public static func custom(_ name: String, size: CGFloat, relativeTo textStyle: TextStyle) -> Font {
-        _ = textStyle
-        return custom(name, size: size)
+        let font = defaultFont(for: textStyle)
+        return Font(
+            size: size,
+            weight: font.weight,
+            design: font.design,
+            family: name,
+            leading: font.leading,
+            scalesWithDynamicType: font.scalesWithDynamicType
+        )
     }
 
     public static let largeTitle = Font(size: 34)

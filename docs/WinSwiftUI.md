@@ -403,6 +403,7 @@ Modifiers:
 - `submitLabel`
 - `onHover`
 - `onTapGesture`
+- `onLongPressGesture`
 - `accessibilityLabel`
 - `accessibilityValue`
 - `accessibilityHint`
@@ -588,6 +589,7 @@ Surface direction:
 - `submitLabel(_:)` propagates `EnvironmentValues.submitLabel` and stores the requested return-key label on retained `TextField`, `SecureField`, and `TextEditor` nodes as renderer-neutral text-input metadata. It does not alter hardware keyboard behavior on the retained Windows input path today.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
+- `onLongPressGesture` accepts the current `perform:onPressingChanged:` overloads and deprecated `pressing:perform:` overloads, opts the retained node into hit testing, and forwards retained pointer down/up/exit state. The current compatibility path treats release-inside as recognition and does not yet enforce the requested minimum duration or maximum movement threshold.
 - `contentShape` and `ContentShapeKinds` are accepted for source compatibility. `.interaction` content shapes now constrain retained pointer hit testing for `Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, and `Ellipse`; `.hoverEffect` and `.focusEffect` shapes now provide retained visual corner geometry for hover and focus fills on both frame and GPUI scene paths. Other shape inputs fall back to rectangular interaction or rounded-rect visual geometry until renderer-neutral path clipping exists. Drag-preview, context-menu-preview, and accessibility content shapes remain retained metadata.
 - `focusable(_:)` maps to the retained node focus flag and enables hit testing when focusability is turned on. Focused retained nodes now draw a renderer-neutral focus ring on both frame and GPUI scene paths unless focus effects are disabled, and `.contentShape(.focusEffect, ...)` can shape the retained ring. `@FocusState` supports Boolean and optional value bindings through `.focused(...)`; retained focus enter/exit writes the binding, and a rebuilt node with a matching binding value requests focus. `EnvironmentValues.isFocused` is readable and overrideable, but retained focus does not yet dynamically flow back into SwiftUI-shaped environment reads during a focus transition.
 - `hoverEffect(_:)`, `defaultHoverEffect(_:)`, `hoverEffectDisabled(_:)`, and `focusEffectDisabled(_:)` store retained interaction-effect metadata for source-compatible call sites. `hoverEffect(_:)` also opts the node into hit testing so the runtime can identify hoverable content, and retained hover state now draws renderer-neutral highlight/lift fills on both frame and GPUI scene paths while honoring `.contentShape(.hoverEffect, ...)` visual corner geometry. `focusEffectDisabled(_:)` propagates `EnvironmentValues.isFocusEffectEnabled` to descendants and suppresses retained focus-ring rendering.

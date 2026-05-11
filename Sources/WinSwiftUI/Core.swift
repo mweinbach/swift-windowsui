@@ -12827,6 +12827,121 @@ public extension View {
         }
     }
 
+    func onLongPressGesture(
+        minimumDuration: Double = 0.5,
+        maximumDistance: CGFloat = 10,
+        perform action: @escaping () -> Void,
+        onPressingChanged: ((Bool) -> Void)? = nil
+    ) -> some View {
+        onLongPressGestureModifier(
+            minimumDuration: minimumDuration,
+            maximumDistance: maximumDistance,
+            action: action,
+            pressingChanged: onPressingChanged
+        )
+    }
+
+    func onLongPressGesture(
+        minimumDuration: Double = 0.5,
+        maximumDistance: CGFloat = 10,
+        pressing: ((Bool) -> Void)? = nil,
+        perform action: @escaping () -> Void
+    ) -> some View {
+        onLongPressGestureModifier(
+            minimumDuration: minimumDuration,
+            maximumDistance: maximumDistance,
+            action: action,
+            pressingChanged: pressing
+        )
+    }
+
+    func onLongPressGesture(
+        minimumDuration: Double = 0.5,
+        perform action: @escaping () -> Void,
+        onPressingChanged: ((Bool) -> Void)? = nil
+    ) -> some View {
+        onLongPressGestureModifier(
+            minimumDuration: minimumDuration,
+            maximumDistance: 10,
+            action: action,
+            pressingChanged: onPressingChanged
+        )
+    }
+
+    func onLongPressGesture(
+        minimumDuration: Double = 0.5,
+        pressing: ((Bool) -> Void)? = nil,
+        perform action: @escaping () -> Void
+    ) -> some View {
+        onLongPressGestureModifier(
+            minimumDuration: minimumDuration,
+            maximumDistance: 10,
+            action: action,
+            pressingChanged: pressing
+        )
+    }
+
+    private func onLongPressGestureModifier(
+        minimumDuration: Double,
+        maximumDistance: CGFloat,
+        action: @escaping () -> Void,
+        pressingChanged: ((Bool) -> Void)?
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let _ = minimumDuration
+            let _ = maximumDistance
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHitTestVisible = true
+                var isPressing = false
+
+                let existingOnPointerDown = childNode.onPointerDown
+                childNode.onPointerDown = {
+                    existingOnPointerDown?()
+                    guard !isPressing else {
+                        return
+                    }
+                    isPressing = true
+                    pressingChanged?(true)
+                }
+
+                let existingOnPointerUpInside = childNode.onPointerUpInside
+                childNode.onPointerUpInside = {
+                    existingOnPointerUpInside?()
+                    guard isPressing else {
+                        return
+                    }
+                    action()
+                    isPressing = false
+                    pressingChanged?(false)
+                }
+
+                let existingOnPointerUpOutside = childNode.onPointerUpOutside
+                childNode.onPointerUpOutside = {
+                    existingOnPointerUpOutside?()
+                    guard isPressing else {
+                        return
+                    }
+                    isPressing = false
+                    pressingChanged?(false)
+                }
+
+                let existingOnPointerExit = childNode.onPointerExit
+                childNode.onPointerExit = {
+                    existingOnPointerExit?()
+                    guard isPressing else {
+                        return
+                    }
+                    isPressing = false
+                    pressingChanged?(false)
+                }
+
+                return childNode
+            }
+        }
+    }
+
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
     func id(_ identifier: String) -> some View {

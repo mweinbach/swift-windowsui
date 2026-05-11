@@ -12,6 +12,7 @@ private struct PointerHandlerProbe: View {
 
     var onEnter: (() -> Void)? = nil
     var onExit: (() -> Void)? = nil
+    var onDown: (() -> Void)? = nil
     var onUpInside: (() -> Void)? = nil
     var onUpOutside: (() -> Void)? = nil
 
@@ -24,6 +25,7 @@ private struct PointerHandlerProbe: View {
             let node = Controls.panel(preferredSize: Size(width: 80, height: 24))
             node.onPointerEnter = onEnter
             node.onPointerExit = onExit
+            node.onPointerDown = onDown
             node.onPointerUpInside = onUpInside
             node.onPointerUpOutside = onUpOutside
             return node
@@ -14066,6 +14068,109 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(insideCount, 4)
             XCTAssertEqual(outsideCount, 1)
             XCTAssertEqual(tapCount, 1)
+        }
+    }
+
+    func testOnLongPressGestureEnablesHitTestingAndRunsActionOnReleaseInside() async {
+        await MainActor.run {
+            var longPressCount = 0
+            var pressingStates: [Bool] = []
+            let node = makeNode(
+                Text("HOLD")
+                    .onLongPressGesture(
+                        minimumDuration: 0.25,
+                        maximumDistance: 12,
+                        perform: {
+                            longPressCount += 1
+                        },
+                        onPressingChanged: { isPressing in
+                            pressingStates.append(isPressing)
+                        }
+                    )
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerDown?()
+            XCTAssertEqual(longPressCount, 0)
+            XCTAssertEqual(pressingStates, [true])
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(longPressCount, 1)
+            XCTAssertEqual(pressingStates, [true, false])
+        }
+    }
+
+    func testOnLongPressGestureCancelsPressingOnReleaseOutsideAndExit() async {
+        await MainActor.run {
+            var longPressCount = 0
+            var pressingStates: [Bool] = []
+            let node = makeNode(
+                Text("HOLD")
+                    .onLongPressGesture(minimumDuration: 0.25, pressing: { isPressing in
+                        pressingStates.append(isPressing)
+                    }) {
+                        longPressCount += 1
+                    }
+            )
+
+            node.onPointerDown?()
+            node.onPointerUpOutside?()
+            node.onPointerDown?()
+            node.onPointerExit?()
+
+            XCTAssertEqual(longPressCount, 0)
+            XCTAssertEqual(pressingStates, [true, false, true, false])
+        }
+    }
+
+    func testOnLongPressGesturePreservesExistingPointerHandlers() async {
+        await MainActor.run {
+            var downCount = 0
+            var insideCount = 0
+            var outsideCount = 0
+            var exitCount = 0
+            var longPressCount = 0
+            var pressingStates: [Bool] = []
+            let node = makeNode(
+                PointerHandlerProbe(
+                    onExit: {
+                        exitCount += 1
+                    },
+                    onDown: {
+                        downCount += 1
+                    },
+                    onUpInside: {
+                        insideCount += 1
+                    },
+                    onUpOutside: {
+                        outsideCount += 1
+                    }
+                )
+                .onLongPressGesture(
+                    minimumDuration: 0.2,
+                    maximumDistance: 8,
+                    perform: {
+                        longPressCount += 1
+                    },
+                    onPressingChanged: { isPressing in
+                        pressingStates.append(isPressing)
+                    }
+                )
+            )
+
+            node.onPointerDown?()
+            node.onPointerUpInside?()
+            node.onPointerDown?()
+            node.onPointerUpOutside?()
+            node.onPointerExit?()
+
+            XCTAssertEqual(downCount, 2)
+            XCTAssertEqual(insideCount, 1)
+            XCTAssertEqual(outsideCount, 1)
+            XCTAssertEqual(exitCount, 1)
+            XCTAssertEqual(longPressCount, 1)
+            XCTAssertEqual(pressingStates, [true, false, true, false])
         }
     }
 

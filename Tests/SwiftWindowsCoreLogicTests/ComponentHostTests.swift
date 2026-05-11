@@ -94,6 +94,7 @@ final class ComponentHostTests: XCTestCase {
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
                     let isFindDisabled = useSecondState
                     let isReplaceDisabled = !useSecondState
+                    let isFindNavigatorPresented = useSecondState
                     let symbolVariableValue = useSecondState ? 0.75 : 0.25
                     let imageResizingMode: RetainedImageResizingMode = useSecondState ? .tile : .stretch
                     let imageCapInsets = useSecondState
@@ -183,6 +184,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textSelectability = textSelectability
                     node.isFindDisabled = isFindDisabled
                     node.isReplaceDisabled = isReplaceDisabled
+                    node.isFindNavigatorPresented = isFindNavigatorPresented
                     node.symbolVariableValue = symbolVariableValue
                     node.imageResizingMode = imageResizingMode
                     node.imageCapInsets = imageCapInsets
@@ -240,6 +242,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
             XCTAssertFalse(firstNode?.isFindDisabled ?? true)
             XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
+            XCTAssertFalse(firstNode?.isFindNavigatorPresented ?? true)
             XCTAssertEqual(firstNode?.symbolVariableValue, 0.25)
             XCTAssertEqual(firstNode?.imageResizingMode, .stretch)
             XCTAssertEqual(firstNode?.imageCapInsets, EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
@@ -322,6 +325,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
             XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
             XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)
+            XCTAssertTrue(reusedNode?.isFindNavigatorPresented ?? false)
             XCTAssertEqual(reusedNode?.symbolVariableValue, 0.75)
             XCTAssertEqual(reusedNode?.imageResizingMode, .tile)
             XCTAssertEqual(reusedNode?.imageCapInsets, EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8))

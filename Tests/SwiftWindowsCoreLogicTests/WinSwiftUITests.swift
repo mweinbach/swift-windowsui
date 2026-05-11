@@ -809,6 +809,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextEditorFindNavigatorModifierRetainsPresentationState() async {
+        await MainActor.run {
+            var value = "Find me"
+            var isPresented = true
+            var isResetPresented = false
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let presentedBinding = Binding(
+                get: { isPresented },
+                set: { isPresented = $0 }
+            )
+            let resetBinding = Binding(
+                get: { isResetPresented },
+                set: { isResetPresented = $0 }
+            )
+            let presentedNode = makeNode(
+                TextEditor(text: binding)
+                    .findNavigator(isPresented: presentedBinding)
+            )
+            let resetNode = makeNode(
+                TextEditor(text: binding)
+                    .findNavigator(isPresented: resetBinding)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    TextEditor(text: binding)
+                    TextEditor(text: binding)
+                        .findNavigator(isPresented: resetBinding)
+                }
+                .findNavigator(isPresented: presentedBinding)
+            )
+
+            XCTAssertTrue(presentedNode.isFindNavigatorPresented)
+            XCTAssertFalse(resetNode.isFindNavigatorPresented)
+            XCTAssertTrue(inheritedNode.children[0].isFindNavigatorPresented)
+            XCTAssertFalse(inheritedNode.children[1].isFindNavigatorPresented)
+        }
+    }
+
     func testDisabledTextFieldDoesNotAcceptKeyboardInput() async {
         await MainActor.run {
             var value = "LOCKED"

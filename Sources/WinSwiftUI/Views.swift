@@ -6486,6 +6486,7 @@ private func textInputComponent(
         node.textInputCaretOffset = currentText.count
         node.isFindDisabled = context.isFindDisabled
         node.isReplaceDisabled = context.isReplaceDisabled
+        node.isFindNavigatorPresented = context.isFindNavigatorPresented
 
         guard context.isEnabled else {
             return node

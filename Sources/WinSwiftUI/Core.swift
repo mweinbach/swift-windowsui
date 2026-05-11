@@ -1658,6 +1658,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isAutocorrectionDisabled: Bool
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
+    var isFindNavigatorPresented: Bool
     public var isScrollEnabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
@@ -1892,6 +1893,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isFindDisabled = false
         self.isReplaceDisabled = false
+        self.isFindNavigatorPresented = false
         self.isScrollEnabled = isScrollEnabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
@@ -2692,6 +2694,10 @@ public struct ViewBuildContext {
 
     var isReplaceDisabled: Bool {
         environmentValuesProvider().isReplaceDisabled
+    }
+
+    var isFindNavigatorPresented: Bool {
+        environmentValuesProvider().isFindNavigatorPresented
     }
 
     public var isScrollEnabled: Bool {
@@ -10104,6 +10110,12 @@ public extension View {
     func replaceDisabled(_ isDisabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.isReplaceDisabled, isDisabled))
+        }
+    }
+
+    func findNavigator(isPresented: Binding<Bool>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isFindNavigatorPresented, isPresented.wrappedValue))
         }
     }
 

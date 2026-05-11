@@ -12447,6 +12447,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContentTransitionCompatibilityPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct ContentTransitionReaderView: View {
+                @Environment(\.contentTransition) var contentTransition
+                @Environment(\.contentTransitionAddsDrawingGroup) var addsDrawingGroup
+
+                var body: some View {
+                    Text(
+                        contentTransition == .numericText(countsDown: true) && addsDrawingGroup ? "COUNTDOWN"
+                            : contentTransition == .interpolate ? "INTERPOLATE"
+                            : contentTransition == .symbolEffect ? "SYMBOL"
+                            : contentTransition == .identity ? "IDENTITY"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ContentTransitionReaderView())
+            let countdownNode = makeNode(
+                ContentTransitionReaderView()
+                    .contentTransition(.numericText(countsDown: true))
+                    .contentTransitionAddsDrawingGroup(true)
+            )
+            let interpolateNode = makeNode(ContentTransitionReaderView().contentTransition(.interpolate))
+            let symbolNode = makeNode(ContentTransitionReaderView().contentTransition(.symbolEffect))
+            let valueNode = makeNode(Text("42").contentTransition(.numericText(value: 42)))
+            let opacityNode = makeNode(Text("FADE").contentTransition(.opacity))
+
+            XCTAssertEqual(defaultNode.text, "IDENTITY")
+            XCTAssertEqual(countdownNode.text, "COUNTDOWN")
+            XCTAssertEqual(interpolateNode.text, "INTERPOLATE")
+            XCTAssertEqual(symbolNode.text, "SYMBOL")
+            XCTAssertEqual(valueNode.text, "42")
+            XCTAssertEqual(opacityNode.text, "FADE")
+        }
+    }
+
     func testTransactionCompatibilityShimsExecuteBodiesAndTransforms() async {
         await MainActor.run {
             var value = 0

@@ -1975,6 +1975,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     public var submitLabel: SubmitLabel
+    public var contentTransition: ContentTransition
+    public var contentTransitionAddsDrawingGroup: Bool
     public var listStyle: ListStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
@@ -2103,6 +2105,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         submitLabel: SubmitLabel = .return,
+        contentTransition: ContentTransition = .identity,
+        contentTransitionAddsDrawingGroup: Bool = false,
         listStyle: ListStyle = .automatic,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
@@ -2219,6 +2223,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.submitLabel = submitLabel
+        self.contentTransition = contentTransition
+        self.contentTransitionAddsDrawingGroup = contentTransitionAddsDrawingGroup
         self.listStyle = listStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
@@ -3012,6 +3018,14 @@ public struct ViewBuildContext {
 
     public var submitLabel: SubmitLabel {
         environmentValuesProvider().submitLabel
+    }
+
+    public var contentTransition: ContentTransition {
+        environmentValuesProvider().contentTransition
+    }
+
+    public var contentTransitionAddsDrawingGroup: Bool {
+        environmentValuesProvider().contentTransitionAddsDrawingGroup
     }
 
     public var listStyle: ListStyle {
@@ -4520,6 +4534,36 @@ public struct AnyTransition: Sendable, Equatable {
 
     public func combined(with other: AnyTransition) -> AnyTransition {
         AnyTransition(kind: .combined(self, other))
+    }
+}
+
+public struct ContentTransition: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case identity
+        case interpolate
+        case numericTextCountsDown(Bool)
+        case numericTextValue(Double)
+        case opacity
+        case symbolEffect
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let identity = ContentTransition(kind: .identity)
+    public static let interpolate = ContentTransition(kind: .interpolate)
+    public static let opacity = ContentTransition(kind: .opacity)
+    public static let symbolEffect = ContentTransition(kind: .symbolEffect)
+
+    public static func numericText(countsDown: Bool = false) -> ContentTransition {
+        ContentTransition(kind: .numericTextCountsDown(countsDown))
+    }
+
+    public static func numericText(value: Double) -> ContentTransition {
+        ContentTransition(kind: .numericTextValue(value))
     }
 }
 
@@ -12230,6 +12274,23 @@ public extension View {
         ModifiedView(content: self) { content, context in
             _ = transition
             return content.makeComponent(context: context)
+        }
+    }
+
+    func contentTransition(_ transition: ContentTransition) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.contentTransition, transition))
+        }
+    }
+
+    func contentTransitionAddsDrawingGroup(_ addsDrawingGroup: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.contentTransitionAddsDrawingGroup,
+                    addsDrawingGroup
+                )
+            )
         }
     }
 

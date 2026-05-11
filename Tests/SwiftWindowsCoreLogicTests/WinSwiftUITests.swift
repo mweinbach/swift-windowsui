@@ -8563,12 +8563,88 @@ final class WinSwiftUITests: XCTestCase {
             let navigationNode = makeNode(VStack { picker().pickerStyle(NavigationLinkPickerStyle()) })
             let menuNode = makeNode(VStack { picker().pickerStyle(MenuPickerStyle()) })
 
-            XCTAssertEqual(allTexts(in: inlineNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(allTexts(in: inlineNode.children[0].children[1]), [SymbolIcon.checkmark.rawValue, "COMPACT", "EXPANDED"])
+            XCTAssertEqual(inlineNode.children[0].children[1].cornerRadius, 10)
             XCTAssertEqual(allTexts(in: wheelNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
             XCTAssertEqual(allTexts(in: paletteNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
             XCTAssertEqual(allTexts(in: radioNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
-            XCTAssertEqual(allTexts(in: navigationNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(firstText(in: navigationNode.children[0].children[1].children[0]), "COMPACT")
+            XCTAssertEqual(navigationNode.children[0].children[1].cornerRadius, 10)
             XCTAssertEqual(firstText(in: menuNode.children[0].children[1].children[0]), "COMPACT")
+        }
+    }
+
+    func testPickerStyleInlineUsesRetainedInlineRowsAndWritesSelection() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.inline),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let inlineNode = node.children[1]
+            XCTAssertEqual(inlineNode.children.count, 2)
+            XCTAssertEqual(inlineNode.borderWidth, 1)
+            XCTAssertEqual(inlineNode.cornerRadius, 10)
+            XCTAssertEqual(allTexts(in: inlineNode), [SymbolIcon.checkmark.rawValue, "COMPACT", "EXPANDED"])
+            XCTAssertEqual(inlineNode.children[0].borderWidth, 1)
+            XCTAssertEqual(inlineNode.children[1].borderWidth, 0)
+
+            inlineNode.children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testPickerStyleNavigationLinkUsesRetainedDisclosureRowAndWritesSelection() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.navigationLink),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let navigationNode = node.children[1]
+            XCTAssertEqual(navigationNode.children.count, 2)
+            XCTAssertEqual(navigationNode.borderWidth, 1)
+            XCTAssertEqual(navigationNode.cornerRadius, 10)
+            XCTAssertEqual(navigationNode.preferredSize, Size(width: 224, height: 40))
+            XCTAssertEqual(firstText(in: navigationNode.children[0]), "COMPACT")
+            XCTAssertTrue(navigationNode.children[1].isHidden)
+
+            navigationNode.onActivate?()
+            XCTAssertFalse(navigationNode.children[1].isHidden)
+            navigationNode.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
         }
     }
 

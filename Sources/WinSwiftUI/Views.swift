@@ -7151,13 +7151,29 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             let pickerNode: ViewNode
             switch context.pickerStyle.kind {
-            case .automatic, .inline, .segmented, .navigationLink:
+            case .automatic, .segmented:
                 pickerNode = Self.segmentedPickerNode(
                     runtime: runtime,
                     context: context,
                     selection: selection,
                     selectedValue: selectedValue,
                     selectedAnyValue: selectedAnyValue,
+                    options: options
+                )
+            case .inline:
+                pickerNode = Self.inlinePickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
+                    selectedAnyValue: selectedAnyValue,
+                    options: options
+                )
+            case .navigationLink:
+                pickerNode = Self.navigationLinkPickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
+                    selectedValue: selectedValue,
                     options: options
                 )
             case .palette:
@@ -7290,6 +7306,136 @@ public struct Picker<SelectionValue: Hashable>: View {
             ),
             isHitTestVisible: false,
             children: optionNodes
+        )
+    }
+
+    private static func inlinePickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedAnyValue: AnyHashable,
+        options: [Option]
+    ) -> ViewNode {
+        let optionNodes: [ViewNode] = options.map { option in
+            let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
+            let indicatorNode = isSelected
+                ? Controls.icon(
+                    .checkmark,
+                    preferredSize: Size(width: 18, height: 18),
+                    color: context.isEnabled ? context.tint : Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.70),
+                    scale: 1.2
+                )
+                : Controls.panel(
+                    preferredSize: Size(width: 18, height: 18),
+                    isHitTestVisible: false
+                )
+            option.node.layoutPriority = max(option.node.layoutPriority, 1)
+
+            return Controls.button(
+                runtime: runtime,
+                layoutPriority: 1,
+                cornerRadius: 6,
+                palette: SurfacePalette(
+                    idle: isSelected
+                        ? context.tint.opacity(0.14)
+                        : Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.34),
+                    hovered: isSelected
+                        ? context.tint.opacity(0.22)
+                        : Color(red: 0.18, green: 0.24, blue: 0.32, alpha: 0.54),
+                    focused: isSelected
+                        ? context.tint.opacity(0.28)
+                        : Color(red: 0.22, green: 0.30, blue: 0.40, alpha: 0.64),
+                    pressed: isSelected
+                        ? context.tint.opacity(0.34)
+                        : Color(red: 0.28, green: 0.38, blue: 0.50, alpha: 0.72)
+                ),
+                chrome: SurfaceChrome(
+                    borderColor: isSelected ? context.tint.opacity(0.36) : .clear,
+                    borderHoveredColor: isSelected ? context.tint.opacity(0.50) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                    borderFocusedColor: context.tint.opacity(0.64),
+                    borderPressedColor: context.tint.opacity(0.72),
+                    borderWidth: isSelected ? 1 : 0,
+                    focusRingColor: context.tint.opacity(0.26),
+                    focusRingWidth: 2
+                ),
+                clipsToBounds: true,
+                layoutMode: .stack(.horizontal(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 10),
+                    alignment: .center
+                )),
+                isEnabled: context.isEnabled && option.value != nil,
+                action: option.value.map { value in
+                    {
+                        selection.wrappedValue = value
+                        context.invalidate()
+                    }
+                },
+                children: [indicatorNode, option.node]
+            )
+        }
+
+        return Controls.stackPanel(
+            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.46),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            borderWidth: 1,
+            cornerRadius: 10,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 2,
+                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: optionNodes
+        )
+    }
+
+    private static func navigationLinkPickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedValue: SelectionValue,
+        options: [Option]
+    ) -> ViewNode {
+        let titles = options.enumerated().map { index, option in
+            firstText(in: option.node) ?? "OPTION \(index + 1)"
+        }
+        let selectedIndex = options.firstIndex { $0.value == selectedValue } ?? 0
+        let hasSelectableOption = options.contains { $0.value != nil }
+
+        return Controls.dropdown(
+            runtime: runtime,
+            options: titles,
+            selectedIndex: selectedIndex,
+            isEnabled: context.isEnabled && hasSelectableOption,
+            preferredSize: Size(
+                width: context.controlSize.pickerMenuPreferredSize.width + 24,
+                height: context.controlSize.pickerMenuPreferredSize.height + 4
+            ),
+            palette: SurfacePalette(
+                idle: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.52),
+                hovered: Color(red: 0.13, green: 0.18, blue: 0.26, alpha: 0.64),
+                focused: Color(red: 0.17, green: 0.24, blue: 0.34, alpha: 0.76),
+                pressed: Color(red: 0.22, green: 0.31, blue: 0.44, alpha: 0.84)
+            ),
+            chrome: SurfaceChrome(
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                borderHoveredColor: context.tint.opacity(0.36),
+                borderFocusedColor: context.tint.opacity(0.54),
+                borderPressedColor: context.tint.opacity(0.66),
+                borderWidth: 1,
+                focusRingColor: context.tint.opacity(0.26),
+                focusRingWidth: 2
+            ),
+            onSelect: { index in
+                guard options.indices.contains(index), let value = options[index].value else {
+                    return
+                }
+
+                selection.wrappedValue = value
+                context.invalidate()
+            }
         )
     }
 

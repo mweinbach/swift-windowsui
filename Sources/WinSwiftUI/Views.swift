@@ -3315,11 +3315,14 @@ public struct Menu: View {
                 lineBreakMode: .truncateTail,
                 maximumNumberOfLines: 1
             )
+            let headerChildren = context.environmentValues.menuIndicatorVisibility == .hidden
+                ? [labelNode]
+                : [labelNode, disclosureNode]
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
                 stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .center),
                 isHitTestVisible: false,
-                children: [labelNode, disclosureNode]
+                children: headerChildren
             )
             let menuButton = Controls.button(
                 runtime: runtime,

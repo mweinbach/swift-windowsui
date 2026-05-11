@@ -3733,6 +3733,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuIndicatorVisibilityControlsRetainedDisclosureGlyph() async {
+        await MainActor.run {
+            let automaticNode = makeNode(
+                Menu("ACTIONS") {
+                    Button("EXPORT") {}
+                }
+            )
+            let hiddenNode = makeNode(
+                Menu("ACTIONS") {
+                    Button("EXPORT") {}
+                }
+                .menuIndicator(.hidden)
+            )
+            let visibleNode = makeNode(
+                Menu("ACTIONS") {
+                    Button("EXPORT") {}
+                }
+                .menuIndicator(.visible)
+            )
+
+            XCTAssertTrue(allTexts(in: automaticNode).contains(">"))
+            XCTAssertFalse(allTexts(in: hiddenNode).contains(">"))
+            XCTAssertTrue(allTexts(in: visibleNode).contains(">"))
+        }
+    }
+
     func testControlGroupComposesCompactControlsAndPreservesActions() async {
         await MainActor.run {
             var activationCount = 0

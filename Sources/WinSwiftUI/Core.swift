@@ -10079,6 +10079,10 @@ public extension View {
         }
     }
 
+    func disableAutocorrection(_ disable: Bool?) -> some View {
+        autocorrectionDisabled(disable ?? false)
+    }
+
     func navigationTitle<S: StringProtocol>(_ title: S) -> some View {
         navigationTitle(Text(String(title)))
     }

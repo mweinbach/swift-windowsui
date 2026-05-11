@@ -756,12 +756,17 @@ final class WinSwiftUITests: XCTestCase {
             let readerNode = makeNode(
                 TextInputEnvironmentReader()
                     .textInputAutocapitalization(.characters)
-                    .autocorrectionDisabled()
+                    .disableAutocorrection(true)
+            )
+            let resetNode = makeNode(
+                TextInputEnvironmentReader()
+                    .disableAutocorrection(nil)
             )
 
             XCTAssertEqual(wordsValue, "Ab C")
             XCTAssertEqual(sentenceValue, "hi. D")
             XCTAssertEqual(readerNode.text, "CHARACTERS DISABLED")
+            XCTAssertEqual(resetNode.text, "OTHER ENABLED")
         }
     }
 

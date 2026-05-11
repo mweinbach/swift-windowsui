@@ -186,6 +186,12 @@ public enum RetainedTextSelectability: Sendable, Equatable {
     case disabled
 }
 
+public enum RetainedTextSelectionAffinity: Sendable, Equatable, Hashable {
+    case automatic
+    case upstream
+    case downstream
+}
+
 public struct RetainedTextContentType: Sendable, Equatable, Hashable {
     public var rawValue: String
 
@@ -991,6 +997,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textSelectionAffinity: RetainedTextSelectionAffinity {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var textContentType: RetainedTextContentType? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1235,6 +1245,7 @@ public final class ViewNode {
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
+        textSelectionAffinity: RetainedTextSelectionAffinity = .automatic,
         textContentType: RetainedTextContentType? = nil,
         textInputKeyboardType: RetainedKeyboardType = .default,
         textInputCompletion: String? = nil,
@@ -1327,6 +1338,7 @@ public final class ViewNode {
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
+        self.textSelectionAffinity = textSelectionAffinity
         self.textContentType = textContentType
         self.textInputKeyboardType = textInputKeyboardType
         self.textInputCompletion = textInputCompletion

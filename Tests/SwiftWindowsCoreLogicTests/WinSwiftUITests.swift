@@ -806,6 +806,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextSelectionAffinityModifierRetainsTextAndInputMetadata() async {
+        await MainActor.run {
+            struct TextSelectionAffinityReader: View {
+                @Environment(\.textSelectionAffinity) var textSelectionAffinity
+
+                var body: some View {
+                    Text(textSelectionAffinity == .upstream ? "UPSTREAM" : textSelectionAffinity == .downstream ? "DOWNSTREAM" : "AUTO")
+                }
+            }
+
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let textNode = makeNode(
+                Text("LABEL")
+                    .textSelectionAffinity(.upstream)
+            )
+            let fieldNode = makeNode(
+                TextField("QUERY", text: binding)
+                    .textSelectionAffinity(.downstream)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("TITLE")
+                    SecureField("SECRET", text: binding)
+                    TextEditor(text: binding)
+                        .textSelectionAffinity(.automatic)
+                    TextSelectionAffinityReader()
+                }
+                .textSelectionAffinity(.upstream)
+            )
+
+            XCTAssertEqual(textNode.textSelectionAffinity, .upstream)
+            XCTAssertEqual(fieldNode.textSelectionAffinity, .downstream)
+            XCTAssertEqual(inheritedNode.children[0].textSelectionAffinity, .upstream)
+            XCTAssertEqual(inheritedNode.children[1].textSelectionAffinity, .upstream)
+            XCTAssertEqual(inheritedNode.children[2].textSelectionAffinity, .automatic)
+            XCTAssertEqual(inheritedNode.children[3].text, "UPSTREAM")
+        }
+    }
+
     func testKeyboardTypeModifierRetainsTextInputMetadata() async {
         await MainActor.run {
             var value = ""

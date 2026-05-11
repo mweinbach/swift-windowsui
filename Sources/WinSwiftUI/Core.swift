@@ -792,6 +792,23 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case characters
 }
 
+public enum TextSelectionAffinity: Sendable, Equatable, Hashable {
+    case automatic
+    case upstream
+    case downstream
+
+    var retainedAffinity: RetainedTextSelectionAffinity {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .upstream:
+            return .upstream
+        case .downstream:
+            return .downstream
+        }
+    }
+}
+
 public struct UIKeyboardType: RawRepresentable, Sendable, Equatable, Hashable {
     public var rawValue: Int
 
@@ -1838,6 +1855,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var allowsTightening: Bool
     public var textCase: Text.Case?
     public var textSelectability: TextSelectability?
+    public var textSelectionAffinity: TextSelectionAffinity
     public var imageScale: Image.Scale
     public var symbolRenderingMode: SymbolRenderingMode?
     public var symbolVariants: SymbolVariants
@@ -1965,6 +1983,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
         textSelectability: TextSelectability? = nil,
+        textSelectionAffinity: TextSelectionAffinity = .automatic,
         imageScale: Image.Scale = .medium,
         symbolRenderingMode: SymbolRenderingMode? = nil,
         symbolVariants: SymbolVariants = .none,
@@ -2080,6 +2099,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.textSelectability = textSelectability
+        self.textSelectionAffinity = textSelectionAffinity
         self.imageScale = imageScale
         self.symbolRenderingMode = symbolRenderingMode
         self.symbolVariants = symbolVariants
@@ -2900,6 +2920,10 @@ public struct ViewBuildContext {
 
     public var textInputAutocapitalization: TextInputAutocapitalization? {
         environmentValuesProvider().textInputAutocapitalization
+    }
+
+    public var textSelectionAffinity: TextSelectionAffinity {
+        environmentValuesProvider().textSelectionAffinity
     }
 
     public var isAutocorrectionDisabled: Bool {
@@ -10334,6 +10358,12 @@ public extension View {
     func textInputAutocapitalization(_ textInputAutocapitalization: TextInputAutocapitalization?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textInputAutocapitalization, textInputAutocapitalization))
+        }
+    }
+
+    func textSelectionAffinity(_ affinity: TextSelectionAffinity) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textSelectionAffinity, affinity))
         }
     }
 

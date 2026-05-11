@@ -1144,6 +1144,46 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
+    func testHostDerivesSizeClassesFromLogicalWindowSize() async {
+        await MainActor.run {
+            let frameRenderer = FakeRenderBackend()
+            let recorder = HostEnvironmentRecorder()
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 960, height: 700),
+                scaleFactor: 1.0
+            )
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: expectedSurface.pixelSize,
+                clearColor: .black,
+                content: [AnyView(HostEnvironmentProbeView(recorder: recorder))]
+            )
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: nil,
+                surfaceDescriptorProvider: { _ in expectedSurface }
+            )
+            let window = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+
+            host.windowDidCreate(window)
+
+            XCTAssertEqual(recorder.snapshots.last?.horizontalSizeClass, .regular)
+            XCTAssertEqual(recorder.snapshots.last?.verticalSizeClass, .regular)
+
+            host.window(window, didResizeTo: IntSize(width: 480, height: 800))
+
+            XCTAssertEqual(recorder.snapshots.last?.horizontalSizeClass, .compact)
+            XCTAssertEqual(recorder.snapshots.last?.verticalSizeClass, .regular)
+
+            host.window(window, didResizeTo: IntSize(width: 900, height: 360))
+
+            XCTAssertEqual(recorder.snapshots.last?.horizontalSizeClass, .regular)
+            XCTAssertEqual(recorder.snapshots.last?.verticalSizeClass, .compact)
+        }
+    }
+
     // MARK: - VAL-CROSS-009: Host Refresh-Rate Pacing and Timer Behavior Tests
 
     /// VAL-CROSS-009: Host refresh-rate updates control runtime pacing and timer behavior.

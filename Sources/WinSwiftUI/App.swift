@@ -405,6 +405,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     appearsActive: self?.resolvedAppearsActive ?? true,
                     displayScale: displayScale,
                     pixelLength: Self.pixelLength(for: displayScale),
+                    horizontalSizeClass: self?.resolvedHorizontalSizeClass ?? .regular,
+                    verticalSizeClass: self?.resolvedVerticalSizeClass ?? .regular,
                     undoManager: self?.undoManager
                 )
             }
@@ -433,6 +435,18 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private var resolvedAppearsActive: Bool {
         isWindowVisible && isWindowActive
+    }
+
+    private var resolvedHorizontalSizeClass: UserInterfaceSizeClass {
+        Self.sizeClass(for: runtime.root.frame.size.width)
+    }
+
+    private var resolvedVerticalSizeClass: UserInterfaceSizeClass {
+        Self.sizeClass(for: runtime.root.frame.size.height)
+    }
+
+    private static func sizeClass(for logicalLength: Double) -> UserInterfaceSizeClass {
+        logicalLength < 600 ? .compact : .regular
     }
 
     private func buildRootComponent() -> Component {

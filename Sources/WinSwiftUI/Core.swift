@@ -5176,6 +5176,105 @@ private func retainedAlertBuilderPresentation(
     )
 }
 
+@MainActor
+private func retainedConfirmationDialogPresentation(
+    base: Component,
+    title: Text,
+    titleVisibility: Visibility,
+    messageViews: [AnyView],
+    actionViews: [AnyView],
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
+) -> Component {
+    let dialogContext = context
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        .withEnvironmentValue(\.isPresented, true)
+    var dialogChildren: [Component] = []
+    if titleVisibility != .hidden {
+        dialogChildren.append(
+            title
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .makeComponent(context: dialogContext)
+        )
+    }
+    if !messageViews.isEmpty {
+        dialogChildren.append(
+            composeComponent(
+                from: messageViews,
+                context: dialogContext.withEnvironmentValue(\.foregroundStyle, .color(.secondary)),
+                fallbackLayout: .stack(.vertical(spacing: 4, alignment: .center))
+            )
+        )
+    }
+
+    let actions = actionViews.isEmpty
+        ? [AnyView(Button("Cancel", role: .cancel) { dismiss() }.buttonStyle(.borderedProminent))]
+        : actionViews
+    dialogChildren.append(
+        composeComponent(
+            from: actions,
+            context: dialogContext,
+            fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+        )
+    )
+
+    return Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let scrimNode = Controls.panel(
+            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.44),
+            isHitTestVisible: false
+        )
+        let dialogNode = Controls.stackPanel(
+            preferredSize: Size(width: 340, height: 0),
+            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.99),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.30),
+            shadowOffset: Point(x: 0, y: 10),
+            shadowSpread: 16,
+            cornerRadius: 14,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 12,
+                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: dialogChildren.map { $0.makeNode(runtime: runtime) }
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, scrimNode, dialogNode]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+            if scrimNode.frame != boundsFrame {
+                scrimNode.frame = boundsFrame
+            }
+
+            let dialogSize = dialogNode.intrinsicContentSize()
+            let dialogOrigin = Alignment.bottom.frameOrigin(
+                for: dialogSize,
+                in: bounds.size,
+                layoutDirection: context.layoutDirection
+            )
+            let dialogFrame = Rect(origin: dialogOrigin, size: dialogSize)
+            if dialogNode.frame != dialogFrame {
+                dialogNode.frame = dialogFrame
+            }
+        }
+
+        return root
+    }
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5708,6 +5807,109 @@ public extension View {
             LocalizedStringKey(String(title)),
             isPresented: isPresented,
             presenting: data,
+            actions: actions,
+            message: message
+        )
+    }
+
+    func confirmationDialog(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: @escaping () -> [AnyView],
+        @ViewBuilder message: @escaping () -> [AnyView] = { [] }
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedConfirmationDialogPresentation(
+                base: base,
+                title: Text(titleKey),
+                titleVisibility: titleVisibility,
+                messageViews: message(),
+                actionViews: actions(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func confirmationDialog<S: StringProtocol>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: @escaping () -> [AnyView],
+        @ViewBuilder message: @escaping () -> [AnyView] = { [] }
+    ) -> some View {
+        confirmationDialog(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            titleVisibility: titleVisibility,
+            actions: actions,
+            message: message
+        )
+    }
+
+    func confirmationDialog<Data>(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView],
+        @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue, let presentedData = data else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedConfirmationDialogPresentation(
+                base: base,
+                title: Text(titleKey),
+                titleVisibility: titleVisibility,
+                messageViews: message(presentedData),
+                actionViews: actions(presentedData),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func confirmationDialog<S: StringProtocol, Data>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        titleVisibility: Visibility = .automatic,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView],
+        @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
+    ) -> some View {
+        confirmationDialog(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            presenting: data,
+            titleVisibility: titleVisibility,
             actions: actions,
             message: message
         )

@@ -5035,6 +5035,111 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testConfirmationDialogComposesRetainedDialogAndDefaultCancelDismisses() async {
+        await MainActor.run {
+            struct DialogMessage: View {
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    Text(isPresented ? "DIALOG PRESENTED" : "DIALOG HIDDEN")
+                }
+            }
+
+            var isPresented = true
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 260, height: 140)
+                .confirmationDialog(
+                    "DISCARD CHANGES",
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    actions: {},
+                    message: {
+                        DialogMessage()
+                    }
+                )
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected confirmation dialog to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DISCARD CHANGES"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DIALOG PRESENTED"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("Cancel"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("DISCARD CHANGES"))
+        }
+    }
+
+    func testConfirmationDialogPresentingRendersDataAndCanHideTitle() async {
+        await MainActor.run {
+            struct DismissDialogButton: View {
+                @Environment(\.dismiss) var dismiss
+                let title: String
+                let action: @MainActor () -> Void
+
+                var body: some View {
+                    Button(title, role: .destructive) {
+                        action()
+                        dismiss()
+                    }
+                }
+            }
+
+            var isPresented = true
+            var didArchive = false
+            let item = NavigationDestinationItem(id: "ALERT DETAIL")
+            let view = Text("ROOT")
+                .confirmationDialog(
+                    "ACTIONS",
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    presenting: item,
+                    titleVisibility: .hidden
+                ) { presentedItem in
+                    DismissDialogButton(title: "ARCHIVE \(presentedItem.id)") {
+                        didArchive = true
+                    }
+                } message: { presentedItem in
+                    Text("MESSAGE \(presentedItem.id)")
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: presentedNode).contains("ACTIONS"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("MESSAGE ALERT DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ARCHIVE ALERT DETAIL"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertTrue(didArchive)
+            XCTAssertFalse(isPresented)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testDismissEnvironmentActionPopsNavigationPathBinding() async {
         await MainActor.run {
             struct DismissValueView: View {

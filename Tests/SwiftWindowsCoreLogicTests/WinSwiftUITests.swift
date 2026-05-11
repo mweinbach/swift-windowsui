@@ -5921,6 +5921,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSupportsMultipleWindowsEnvironmentCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct MultipleWindowsReaderView: View {
+                @Environment(\.supportsMultipleWindows) var supportsMultipleWindows
+
+                var body: some View {
+                    Text(supportsMultipleWindows ? "MULTIWINDOW" : "SINGLEWINDOW")
+                }
+            }
+
+            let defaultNode = makeNode(MultipleWindowsReaderView())
+            let overrideNode = makeNode(
+                MultipleWindowsReaderView()
+                    .environment(\.supportsMultipleWindows, true)
+            )
+
+            XCTAssertEqual(defaultNode.text, "SINGLEWINDOW")
+            XCTAssertEqual(overrideNode.text, "MULTIWINDOW")
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {

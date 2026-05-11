@@ -63,6 +63,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var monospacedDigits: Bool
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
+    public var minimumNumberOfLines: Int?
     public var minimumScaleFactor: Double
     public var reservesLineLimitSpace: Bool
     public var underline: Bool
@@ -89,6 +90,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         monospacedDigits: Bool = false,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
+        minimumNumberOfLines: Int? = nil,
         minimumScaleFactor: Double = 1,
         reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
@@ -114,6 +116,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.monospacedDigits = monospacedDigits
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
+        self.minimumNumberOfLines = minimumNumberOfLines
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)
         self.reservesLineLimitSpace = reservesLineLimitSpace
         self.underline = underline
@@ -793,15 +796,21 @@ enum TextDecorationCommandBuilder {
 }
 
 func reservedTextLineCount(for style: PixelTextStyle) -> Int? {
-    guard
-        style.reservesLineLimitSpace,
-        let maximumNumberOfLines = style.maximumNumberOfLines,
-        maximumNumberOfLines > 0
-    else {
+    let minimumNumberOfLines = style.minimumNumberOfLines.flatMap { $0 > 0 ? $0 : nil }
+    let reservedMaximumNumberOfLines = style.reservesLineLimitSpace
+        ? style.maximumNumberOfLines.flatMap { $0 > 0 ? $0 : nil }
+        : nil
+
+    switch (minimumNumberOfLines, reservedMaximumNumberOfLines) {
+    case (.some(let minimum), .some(let maximum)):
+        return max(minimum, maximum)
+    case (.some(let minimum), .none):
+        return minimum
+    case (.none, .some(let maximum)):
+        return maximum
+    case (.none, .none):
         return nil
     }
-
-    return maximumNumberOfLines
 }
 
 func pixelTextContentHeight(lineCount: Int, style: PixelTextStyle, scale: Double) -> Double {

@@ -1288,6 +1288,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var strikethroughStyle: TextDecorationSetting?
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
+    var minimumLineLimit: Int?
     var lineLimitReservesSpace: Bool
     public var lineSpacing: Double?
     public var truncationMode: Text.TruncationMode?
@@ -1400,6 +1401,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         font: Font? = nil,
         multilineTextAlignment: TextAlignment = .center,
         lineLimit: Int? = nil,
+        minimumLineLimit: Int? = nil,
         lineLimitReservesSpace: Bool = false,
         lineSpacing: Double? = nil,
         truncationMode: Text.TruncationMode? = nil,
@@ -1512,6 +1514,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.strikethroughStyle = nil
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
+        self.minimumLineLimit = minimumLineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
         self.lineSpacing = lineSpacing
         self.truncationMode = truncationMode
@@ -2188,6 +2191,10 @@ public struct ViewBuildContext {
         environmentValuesProvider().lineLimit ?? lineLimitProvider()
     }
 
+    var minimumLineLimit: Int? {
+        environmentValuesProvider().minimumLineLimit
+    }
+
     public var lineLimitReservesSpace: Bool {
         environmentValuesProvider().lineLimitReservesSpace
     }
@@ -2706,7 +2713,11 @@ public struct ViewBuildContext {
         )
     }
 
-    func withLineLimit(_ lineLimit: Int?, reservesSpace: Bool = false) -> ViewBuildContext {
+    func withLineLimit(
+        _ lineLimit: Int?,
+        minimumLineLimit: Int? = nil,
+        reservesSpace: Bool = false
+    ) -> ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
@@ -2730,6 +2741,7 @@ public struct ViewBuildContext {
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values.lineLimit = lineLimit
+                values.minimumLineLimit = minimumLineLimit
                 values.lineLimitReservesSpace = reservesSpace && lineLimit != nil
                 return values
             },
@@ -8540,7 +8552,36 @@ public extension View {
 
     func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withLineLimit(lineLimit, reservesSpace: reservesSpace))
+            content.makeComponent(
+                context: context.withLineLimit(
+                    lineLimit,
+                    minimumLineLimit: reservesSpace ? lineLimit : nil,
+                    reservesSpace: reservesSpace
+                )
+            )
+        }
+    }
+
+    func lineLimit(_ limit: PartialRangeThrough<Int>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLineLimit(limit.upperBound))
+        }
+    }
+
+    func lineLimit(_ limit: PartialRangeFrom<Int>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLineLimit(nil, minimumLineLimit: limit.lowerBound))
+        }
+    }
+
+    func lineLimit(_ limits: ClosedRange<Int>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withLineLimit(
+                    limits.upperBound,
+                    minimumLineLimit: limits.lowerBound
+                )
+            )
         }
     }
 

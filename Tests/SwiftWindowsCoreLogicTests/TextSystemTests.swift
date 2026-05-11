@@ -349,6 +349,9 @@ final class TextSystemTests: XCTestCase {
             var widerStyle = baseStyle
             widerStyle.maximumNumberOfLines = 1
 
+            var minimumLineStyle = baseStyle
+            minimumLineStyle.minimumNumberOfLines = 2
+
             var truncateStyle = baseStyle
             truncateStyle.lineBreakMode = .truncateMiddle
 
@@ -399,6 +402,9 @@ final class TextSystemTests: XCTestCase {
             _ = system.layout(text, style: widerStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
+            _ = system.layout(text, style: minimumLineStyle, maxWidth: 140, scaleFactor: 1.0)
+            counts.append(system.cachedLayoutCount)
+
             _ = system.layout(text, style: familyStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
@@ -429,7 +435,7 @@ final class TextSystemTests: XCTestCase {
             return counts
         }
 
-        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
+        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
     }
 
     func testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity() {
@@ -810,6 +816,25 @@ final class TextSystemTests: XCTestCase {
 
         XCTAssertGreaterThan(reserved.height, unreserved.height)
         XCTAssertEqual(reserved.height, expectedReservedContentHeight, accuracy: 0.0001)
+    }
+
+    func testPixelTextMeasurementReservesMinimumLineLimitSpace() {
+        let baseStyle = PixelTextStyle(
+            color: .white,
+            scale: 2,
+            alignment: .leading,
+            lineBreakMode: .wrap,
+            minimumNumberOfLines: 2
+        )
+
+        let measured = PixelFont.measure("ONE", style: baseStyle, maxWidth: nil)
+        let expectedReservedContentHeight = pixelTextContentHeight(
+            lineCount: 2,
+            style: baseStyle,
+            scale: baseStyle.scale
+        )
+
+        XCTAssertEqual(measured.height, expectedReservedContentHeight, accuracy: 0.0001)
     }
 
     func testDirectWriteMinimumScaleFactorShrinksConstrainedLayoutWhenAvailable() async throws {

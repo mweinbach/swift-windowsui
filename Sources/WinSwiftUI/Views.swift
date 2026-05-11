@@ -1701,6 +1701,7 @@ public struct Text: View {
     private var monospacedDigits: Bool
     private var alignment: TextAlignment?
     private var lineLimit: Int??
+    private var minimumLineLimit: Int??
     private var lineLimitReservesSpace: Bool?
     private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
@@ -1725,6 +1726,7 @@ public struct Text: View {
         self.monospacedDigits = false
         self.alignment = nil
         self.lineLimit = nil
+        self.minimumLineLimit = nil
         self.lineLimitReservesSpace = nil
         self.truncationMode = nil
         self.letterSpacing = nil
@@ -1750,6 +1752,7 @@ public struct Text: View {
         monospacedDigits: Bool,
         alignment: TextAlignment?,
         lineLimit: Int??,
+        minimumLineLimit: Int??,
         lineLimitReservesSpace: Bool?,
         truncationMode: TruncationMode?,
         letterSpacing: Double?,
@@ -1773,6 +1776,7 @@ public struct Text: View {
         self.monospacedDigits = monospacedDigits
         self.alignment = alignment
         self.lineLimit = lineLimit
+        self.minimumLineLimit = minimumLineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
         self.truncationMode = truncationMode
         self.letterSpacing = letterSpacing
@@ -1945,6 +1949,7 @@ public struct Text: View {
             monospacedDigits: lhs.monospacedDigits || rhs.monospacedDigits,
             alignment: lhs.alignment ?? rhs.alignment,
             lineLimit: lhs.lineLimit != nil ? lhs.lineLimit : rhs.lineLimit,
+            minimumLineLimit: lhs.minimumLineLimit != nil ? lhs.minimumLineLimit : rhs.minimumLineLimit,
             lineLimitReservesSpace: lhs.lineLimitReservesSpace ?? rhs.lineLimitReservesSpace,
             truncationMode: lhs.truncationMode ?? rhs.truncationMode,
             letterSpacing: lhs.letterSpacing ?? rhs.letterSpacing,
@@ -1983,6 +1988,12 @@ public struct Text: View {
         } else {
             resolvedLineLimit = context.lineLimit
         }
+        let resolvedMinimumLineLimit: Int?
+        if let minimumLineLimit {
+            resolvedMinimumLineLimit = minimumLineLimit
+        } else {
+            resolvedMinimumLineLimit = context.minimumLineLimit
+        }
 
         let resolvedContent = content.resolvedTextCase(textCase ?? context.textCase)
         let redactionReasons = context.environmentValues.redactionReasons.retainedReasons
@@ -2014,6 +2025,7 @@ public struct Text: View {
                     truncationMode: truncationMode ?? context.truncationMode
                 ),
                 maximumNumberOfLines: resolvedLineLimit,
+                minimumNumberOfLines: resolvedMinimumLineLimit,
                 minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
                 reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace) && resolvedLineLimit != nil,
                 underline: resolvedUnderline,
@@ -2170,6 +2182,7 @@ public struct Text: View {
     public func lineLimit(_ lineLimit: Int?) -> Text {
         var copy = self
         copy.lineLimit = .some(lineLimit)
+        copy.minimumLineLimit = .some(nil)
         copy.lineLimitReservesSpace = false
         return copy
     }
@@ -2177,7 +2190,32 @@ public struct Text: View {
     public func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> Text {
         var copy = self
         copy.lineLimit = .some(lineLimit)
+        copy.minimumLineLimit = .some(reservesSpace ? lineLimit : nil)
         copy.lineLimitReservesSpace = reservesSpace
+        return copy
+    }
+
+    public func lineLimit(_ limit: PartialRangeThrough<Int>) -> Text {
+        var copy = self
+        copy.lineLimit = .some(limit.upperBound)
+        copy.minimumLineLimit = .some(nil)
+        copy.lineLimitReservesSpace = false
+        return copy
+    }
+
+    public func lineLimit(_ limit: PartialRangeFrom<Int>) -> Text {
+        var copy = self
+        copy.lineLimit = .some(nil)
+        copy.minimumLineLimit = .some(limit.lowerBound)
+        copy.lineLimitReservesSpace = false
+        return copy
+    }
+
+    public func lineLimit(_ limits: ClosedRange<Int>) -> Text {
+        var copy = self
+        copy.lineLimit = .some(limits.upperBound)
+        copy.minimumLineLimit = .some(limits.lowerBound)
+        copy.lineLimitReservesSpace = false
         return copy
     }
 

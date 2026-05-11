@@ -16,6 +16,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var letterSpacing: Double
     var lineBreakMode: TextLineBreakMode
     var maximumNumberOfLines: Int?
+    var minimumNumberOfLines: Int?
     var minimumScaleFactor: Double
     var reservesLineLimitSpace: Bool
     var insetsTop: Double
@@ -56,6 +57,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.letterSpacing = style.letterSpacing
         self.lineBreakMode = style.lineBreakMode
         self.maximumNumberOfLines = style.maximumNumberOfLines
+        self.minimumNumberOfLines = style.minimumNumberOfLines
         self.minimumScaleFactor = style.minimumScaleFactor
         self.reservesLineLimitSpace = style.reservesLineLimitSpace
         self.insetsTop = style.insets.top

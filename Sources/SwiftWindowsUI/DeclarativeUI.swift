@@ -343,7 +343,8 @@ public enum UI {
         alignment: TextHorizontalAlignment = .center,
         insets: EdgeInsets = .zero,
         lineBreakMode: TextLineBreakMode = .truncateTail,
-        maximumNumberOfLines: Int? = nil
+        maximumNumberOfLines: Int? = nil,
+        minimumNumberOfLines: Int? = nil
     ) -> Component {
         Component { _ in
             Controls.label(
@@ -358,7 +359,8 @@ public enum UI {
                 alignment: alignment,
                 insets: insets,
                 lineBreakMode: lineBreakMode,
-                maximumNumberOfLines: maximumNumberOfLines
+                maximumNumberOfLines: maximumNumberOfLines,
+                minimumNumberOfLines: minimumNumberOfLines
             )
         }
     }

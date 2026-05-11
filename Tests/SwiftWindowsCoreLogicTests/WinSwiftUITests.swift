@@ -1792,11 +1792,45 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(textNode.textStyle.maximumNumberOfLines, 2)
+            XCTAssertEqual(textNode.textStyle.minimumNumberOfLines, 2)
             XCTAssertTrue(textNode.textStyle.reservesLineLimitSpace)
             XCTAssertEqual(inheritedNode.children[0].textStyle.maximumNumberOfLines, 3)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.minimumNumberOfLines, 3)
             XCTAssertTrue(inheritedNode.children[0].textStyle.reservesLineLimitSpace)
             XCTAssertEqual(inheritedNode.children[1].textStyle.maximumNumberOfLines, 1)
+            XCTAssertNil(inheritedNode.children[1].textStyle.minimumNumberOfLines)
             XCTAssertFalse(inheritedNode.children[1].textStyle.reservesLineLimitSpace)
+        }
+    }
+
+    func testLineLimitRangeOverloadsMapToRetainedMinimumAndMaximumLines() async {
+        await MainActor.run {
+            let maximumNode = makeNode(Text("MAX").lineLimit(...3))
+            let minimumNode = makeNode(Text("MIN").lineLimit(2...))
+            let boundedNode = makeNode(Text("BOUNDED").lineLimit(2...4))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("RESET")
+                        .lineLimit(nil)
+                    Text("MAX")
+                        .lineLimit(...1)
+                }
+                .lineLimit(2...)
+            )
+
+            XCTAssertEqual(maximumNode.textStyle.maximumNumberOfLines, 3)
+            XCTAssertNil(maximumNode.textStyle.minimumNumberOfLines)
+            XCTAssertEqual(minimumNode.textStyle.maximumNumberOfLines, nil)
+            XCTAssertEqual(minimumNode.textStyle.minimumNumberOfLines, 2)
+            XCTAssertEqual(boundedNode.textStyle.maximumNumberOfLines, 4)
+            XCTAssertEqual(boundedNode.textStyle.minimumNumberOfLines, 2)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.maximumNumberOfLines, nil)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.minimumNumberOfLines, 2)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.maximumNumberOfLines, nil)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.minimumNumberOfLines, nil)
+            XCTAssertEqual(inheritedNode.children[2].textStyle.maximumNumberOfLines, 1)
+            XCTAssertEqual(inheritedNode.children[2].textStyle.minimumNumberOfLines, nil)
         }
     }
 

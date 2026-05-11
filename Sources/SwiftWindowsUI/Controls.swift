@@ -745,8 +745,10 @@ public enum Controls {
         minimumScaleFactor: Double = 1,
         reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
+        underlinePattern: TextDecorationPattern = .solid,
         underlineColor: Color? = nil,
         strikethrough: Bool = false,
+        strikethroughPattern: TextDecorationPattern = .solid,
         strikethroughColor: Color? = nil,
         enableKerning: Bool = true
     ) -> ViewNode {
@@ -773,8 +775,10 @@ public enum Controls {
                 minimumScaleFactor: minimumScaleFactor,
                 reservesLineLimitSpace: reservesLineLimitSpace,
                 underline: underline,
+                underlinePattern: underlinePattern,
                 underlineColor: underlineColor,
                 strikethrough: strikethrough,
+                strikethroughPattern: strikethroughPattern,
                 strikethroughColor: strikethroughColor,
                 enableKerning: enableKerning
             ),

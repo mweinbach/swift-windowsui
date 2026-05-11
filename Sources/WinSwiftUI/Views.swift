@@ -1682,6 +1682,24 @@ public struct Text: View {
         public static let timer = DateStyle(kind: .timer)
     }
 
+    public struct LineStyle: Sendable, Equatable {
+        public enum Pattern: Sendable, Equatable, Hashable {
+            case solid
+            case dot
+            case dash
+            case dashDot
+            case dashDotDot
+        }
+
+        public var pattern: Pattern
+        public var color: Color?
+
+        public init(pattern: Pattern = .solid, color: Color? = nil) {
+            self.pattern = pattern
+            self.color = color
+        }
+    }
+
     private let content: String
     private var color: Color?
     private var font: Font??
@@ -1697,9 +1715,11 @@ public struct Text: View {
     private var minimumScaleFactor: CGFloat?
     private var allowsTightening: Bool?
     private var textCase: Case??
-    private var underline: Bool
+    private var underline: Bool?
+    private var underlinePattern: LineStyle.Pattern
     private var underlineColor: Color?
-    private var strikethrough: Bool
+    private var strikethrough: Bool?
+    private var strikethroughPattern: LineStyle.Pattern
     private var strikethroughColor: Color?
 
     public init(_ content: String) {
@@ -1718,9 +1738,11 @@ public struct Text: View {
         self.minimumScaleFactor = nil
         self.allowsTightening = nil
         self.textCase = nil
-        self.underline = false
+        self.underline = nil
+        self.underlinePattern = .solid
         self.underlineColor = nil
-        self.strikethrough = false
+        self.strikethrough = nil
+        self.strikethroughPattern = .solid
         self.strikethroughColor = nil
     }
 
@@ -1740,9 +1762,11 @@ public struct Text: View {
         minimumScaleFactor: CGFloat?,
         allowsTightening: Bool?,
         textCase: Case??,
-        underline: Bool,
+        underline: Bool?,
+        underlinePattern: LineStyle.Pattern,
         underlineColor: Color?,
-        strikethrough: Bool,
+        strikethrough: Bool?,
+        strikethroughPattern: LineStyle.Pattern,
         strikethroughColor: Color?
     ) {
         self.content = content
@@ -1761,9 +1785,11 @@ public struct Text: View {
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.underline = underline
-        self.underlineColor = underline ? underlineColor : nil
+        self.underlinePattern = underline == true ? underlinePattern : .solid
+        self.underlineColor = underline == true ? underlineColor : nil
         self.strikethrough = strikethrough
-        self.strikethroughColor = strikethrough ? strikethroughColor : nil
+        self.strikethroughPattern = strikethrough == true ? strikethroughPattern : .solid
+        self.strikethroughColor = strikethrough == true ? strikethroughColor : nil
     }
 
     public init(
@@ -1929,10 +1955,12 @@ public struct Text: View {
             minimumScaleFactor: lhs.minimumScaleFactor ?? rhs.minimumScaleFactor,
             allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
             textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
-            underline: lhs.underline || rhs.underline,
-            underlineColor: lhs.underline ? lhs.underlineColor : rhs.underlineColor,
-            strikethrough: lhs.strikethrough || rhs.strikethrough,
-            strikethroughColor: lhs.strikethrough ? lhs.strikethroughColor : rhs.strikethroughColor
+            underline: lhs.underline != nil ? lhs.underline : rhs.underline,
+            underlinePattern: lhs.underline != nil ? lhs.underlinePattern : rhs.underlinePattern,
+            underlineColor: lhs.underline != nil ? lhs.underlineColor : rhs.underlineColor,
+            strikethrough: lhs.strikethrough != nil ? lhs.strikethrough : rhs.strikethrough,
+            strikethroughPattern: lhs.strikethrough != nil ? lhs.strikethroughPattern : rhs.strikethroughPattern,
+            strikethroughColor: lhs.strikethrough != nil ? lhs.strikethroughColor : rhs.strikethroughColor
         )
     }
 
@@ -1961,6 +1989,14 @@ public struct Text: View {
         let resolvedContent = content.resolvedTextCase(textCase ?? context.textCase)
         let redactionReasons = context.environmentValues.redactionReasons.retainedReasons
         let isPrivacySensitive = context.environmentValues.isPrivacySensitive
+        let resolvedUnderline = underline ?? context.underlineStyle?.isActive ?? false
+        let resolvedUnderlinePattern = (underline != nil ? underlinePattern : context.underlineStyle?.pattern ?? .solid)
+            .retainedTextDecorationPattern
+        let resolvedUnderlineColor = underline != nil ? underlineColor : context.underlineStyle?.color
+        let resolvedStrikethrough = strikethrough ?? context.strikethroughStyle?.isActive ?? false
+        let resolvedStrikethroughPattern = (strikethrough != nil ? strikethroughPattern : context.strikethroughStyle?.pattern ?? .solid)
+            .retainedTextDecorationPattern
+        let resolvedStrikethroughColor = strikethrough != nil ? strikethroughColor : context.strikethroughStyle?.color
 
         return Component { _ in
             let node = Controls.label(
@@ -1982,10 +2018,12 @@ public struct Text: View {
                 maximumNumberOfLines: resolvedLineLimit,
                 minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
                 reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace) && resolvedLineLimit != nil,
-                underline: underline,
-                underlineColor: underlineColor,
-                strikethrough: strikethrough,
-                strikethroughColor: strikethroughColor,
+                underline: resolvedUnderline,
+                underlinePattern: resolvedUnderlinePattern,
+                underlineColor: resolvedUnderlineColor,
+                strikethrough: resolvedStrikethrough,
+                strikethroughPattern: resolvedStrikethroughPattern,
+                strikethroughColor: resolvedStrikethroughColor,
                 enableKerning: allowsTightening ?? context.allowsTightening
             )
             node.redactionReasons = redactionReasons
@@ -2137,18 +2175,36 @@ public struct Text: View {
         return copy
     }
 
-    public func underline(_ active: Bool = true, color: Color? = nil) -> Text {
+    public func underline(
+        _ active: Bool = true,
+        pattern: LineStyle.Pattern = .solid,
+        color: Color? = nil
+    ) -> Text {
         var copy = self
         copy.underline = active
+        copy.underlinePattern = active ? pattern : .solid
         copy.underlineColor = active ? color : nil
         return copy
     }
 
-    public func strikethrough(_ active: Bool = true, color: Color? = nil) -> Text {
+    public func underline(_ style: LineStyle) -> Text {
+        underline(true, pattern: style.pattern, color: style.color)
+    }
+
+    public func strikethrough(
+        _ active: Bool = true,
+        pattern: LineStyle.Pattern = .solid,
+        color: Color? = nil
+    ) -> Text {
         var copy = self
         copy.strikethrough = active
+        copy.strikethroughPattern = active ? pattern : .solid
         copy.strikethroughColor = active ? color : nil
         return copy
+    }
+
+    public func strikethrough(_ style: LineStyle) -> Text {
+        strikethrough(true, pattern: style.pattern, color: style.color)
     }
 
     private func resolvedLineBreakMode(lineLimit: Int?, truncationMode: TruncationMode?) -> TextLineBreakMode {
@@ -2179,6 +2235,23 @@ private extension String {
             return lowercased()
         case nil:
             return self
+        }
+    }
+}
+
+private extension Text.LineStyle.Pattern {
+    var retainedTextDecorationPattern: TextDecorationPattern {
+        switch self {
+        case .solid:
+            return .solid
+        case .dot:
+            return .dot
+        case .dash:
+            return .dash
+        case .dashDot:
+            return .dashDot
+        case .dashDotDot:
+            return .dashDotDot
         }
     }
 }

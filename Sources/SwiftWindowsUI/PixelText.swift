@@ -28,6 +28,14 @@ public enum TextLineBreakMode: Sendable {
     case wrap
 }
 
+public enum TextDecorationPattern: Sendable, Equatable, Hashable {
+    case solid
+    case dot
+    case dash
+    case dashDot
+    case dashDotDot
+}
+
 public struct TextSpan: Sendable, Equatable {
     public var text: String
     public var style: PixelTextStyle
@@ -58,8 +66,10 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var minimumScaleFactor: Double
     public var reservesLineLimitSpace: Bool
     public var underline: Bool
+    public var underlinePattern: TextDecorationPattern
     public var underlineColor: Color?
     public var strikethrough: Bool
+    public var strikethroughPattern: TextDecorationPattern
     public var strikethroughColor: Color?
     public var enableKerning: Bool
     public var spans: [TextSpan]?
@@ -82,8 +92,10 @@ public struct PixelTextStyle: Sendable, Equatable {
         minimumScaleFactor: Double = 1,
         reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
+        underlinePattern: TextDecorationPattern = .solid,
         underlineColor: Color? = nil,
         strikethrough: Bool = false,
+        strikethroughPattern: TextDecorationPattern = .solid,
         strikethroughColor: Color? = nil,
         enableKerning: Bool = true,
         spans: [TextSpan]? = nil
@@ -105,8 +117,10 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)
         self.reservesLineLimitSpace = reservesLineLimitSpace
         self.underline = underline
+        self.underlinePattern = underline ? underlinePattern : .solid
         self.underlineColor = underline ? underlineColor : nil
         self.strikethrough = strikethrough
+        self.strikethroughPattern = strikethrough ? strikethroughPattern : .solid
         self.strikethroughColor = strikethrough ? strikethroughColor : nil
         self.enableKerning = enableKerning
         self.spans = spans
@@ -121,8 +135,10 @@ extension PixelTextStyle {
     var withoutTextDecorations: PixelTextStyle {
         var copy = self
         copy.underline = false
+        copy.underlinePattern = .solid
         copy.underlineColor = nil
         copy.strikethrough = false
+        copy.strikethroughPattern = .solid
         copy.strikethroughColor = nil
         copy.spans = copy.spans?.map { span in
             var span = span
@@ -673,6 +689,7 @@ enum TextDecorationCommandBuilder {
                 y: min(lineRect.maxY - thickness, lineRect.origin.y + lineRect.size.height * 0.86),
                 thickness: thickness,
                 color: style.underlineColor ?? style.color,
+                pattern: style.underlinePattern,
                 clipRect: clipRect,
                 into: &commands
             )
@@ -684,6 +701,7 @@ enum TextDecorationCommandBuilder {
                 y: lineRect.origin.y + max(0, (lineRect.size.height - thickness) * 0.52),
                 thickness: thickness,
                 color: style.strikethroughColor ?? style.color,
+                pattern: style.strikethroughPattern,
                 clipRect: clipRect,
                 into: &commands
             )
@@ -695,6 +713,7 @@ enum TextDecorationCommandBuilder {
         y: Double,
         thickness: Double,
         color: Color,
+        pattern: TextDecorationPattern,
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) {
@@ -702,21 +721,74 @@ enum TextDecorationCommandBuilder {
             return
         }
 
-        let rect = Rect(x: lineRect.origin.x, y: y, width: lineRect.size.width, height: thickness)
-        if let clipRect, clipRect.intersected(with: rect) == nil {
-            return
-        }
+        for rect in decorationSegments(lineRect: lineRect, y: y, thickness: thickness, pattern: pattern) {
+            if let clipRect, clipRect.intersected(with: rect) == nil {
+                continue
+            }
 
-        commands.append(
-            .fillRect(
-                FillRectCommand(
-                    rect: rect,
-                    color: color,
-                    cornerRadius: 0,
-                    clipRect: clipRect
+            commands.append(
+                .fillRect(
+                    FillRectCommand(
+                        rect: rect,
+                        color: color,
+                        cornerRadius: 0,
+                        clipRect: clipRect
+                    )
                 )
             )
-        )
+        }
+    }
+
+    private static func decorationSegments(
+        lineRect: Rect,
+        y: Double,
+        thickness: Double,
+        pattern: TextDecorationPattern
+    ) -> [Rect] {
+        guard lineRect.size.width > 0 else {
+            return []
+        }
+        guard pattern != .solid else {
+            return [Rect(x: lineRect.origin.x, y: y, width: lineRect.size.width, height: thickness)]
+        }
+
+        let unit = max(thickness, 1)
+        let sequence: [(draw: Bool, length: Double)] = decorationSequence(for: pattern, unit: unit)
+        var segments: [Rect] = []
+        var x = lineRect.origin.x
+        var index = 0
+        while x < lineRect.maxX {
+            let item = sequence[index % sequence.count]
+            let width = min(item.length, lineRect.maxX - x)
+            if item.draw, width > 0 {
+                segments.append(Rect(x: x, y: y, width: width, height: thickness))
+            }
+            x += max(width, 0.01)
+            index += 1
+        }
+        return segments
+    }
+
+    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(draw: Bool, length: Double)] {
+        switch pattern {
+        case .solid:
+            return [(true, Double.greatestFiniteMagnitude)]
+        case .dot:
+            return [(true, unit), (false, unit)]
+        case .dash:
+            return [(true, unit * 4), (false, unit * 2)]
+        case .dashDot:
+            return [(true, unit * 4), (false, unit * 1.5), (true, unit), (false, unit * 1.5)]
+        case .dashDotDot:
+            return [
+                (true, unit * 4),
+                (false, unit * 1.5),
+                (true, unit),
+                (false, unit * 1.5),
+                (true, unit),
+                (false, unit * 1.5)
+            ]
+        }
     }
 }
 

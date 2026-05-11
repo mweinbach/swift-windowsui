@@ -20,7 +20,9 @@ final class WindowTextSystem {
         var insetsBottom: Double
         var insetsTrailing: Double
         var underline: Bool
+        var underlinePattern: TextDecorationPattern
         var strikethrough: Bool
+        var strikethroughPattern: TextDecorationPattern
         var enableKerning: Bool
 
         init(style: PixelTextStyle) {
@@ -40,7 +42,9 @@ final class WindowTextSystem {
             self.insetsBottom = style.insets.bottom
             self.insetsTrailing = style.insets.trailing
             self.underline = style.underline
+            self.underlinePattern = style.underlinePattern
             self.strikethrough = style.strikethrough
+            self.strikethroughPattern = style.strikethroughPattern
             self.enableKerning = style.enableKerning
         }
     }

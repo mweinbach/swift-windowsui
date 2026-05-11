@@ -932,6 +932,7 @@ public enum ScenePainter {
                 y: min(lineRect.maxY - thickness, lineRect.origin.y + lineRect.size.height * 0.86),
                 thickness: thickness,
                 color: style.underlineColor ?? style.color,
+                pattern: style.underlinePattern,
                 opacity: opacity,
                 clip: clip,
                 surfaceSize: surfaceSize,
@@ -946,6 +947,7 @@ public enum ScenePainter {
                 y: lineRect.origin.y + max(0, (lineRect.size.height - thickness) * 0.52),
                 thickness: thickness,
                 color: style.strikethroughColor ?? style.color,
+                pattern: style.strikethroughPattern,
                 opacity: opacity,
                 clip: clip,
                 surfaceSize: surfaceSize,
@@ -960,6 +962,7 @@ public enum ScenePainter {
         y: Double,
         thickness: Double,
         color: Color,
+        pattern: TextDecorationPattern,
         opacity: Float,
         clip: Rect?,
         surfaceSize: Size,
@@ -970,27 +973,75 @@ public enum ScenePainter {
             return
         }
 
-        let rect = Rect(
-            x: lineRect.origin.x,
-            y: y,
-            width: lineRect.size.width,
-            height: thickness
-        )
-        guard clipAllowsDrawing(clip: clip, rect: rect) else {
-            return
+        for rect in decorationSegments(lineRect: lineRect, y: y, thickness: thickness, pattern: pattern) {
+            guard clipAllowsDrawing(clip: clip, rect: rect) else {
+                continue
+            }
+
+            quads.append(
+                solidQuad(
+                    rect: rect,
+                    cornerRadius: 0,
+                    color: color,
+                    opacity: opacity,
+                    clip: clip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale
+                )
+            )
+        }
+    }
+
+    private static func decorationSegments(
+        lineRect: Rect,
+        y: Double,
+        thickness: Double,
+        pattern: TextDecorationPattern
+    ) -> [Rect] {
+        guard lineRect.size.width > 0 else {
+            return []
+        }
+        guard pattern != .solid else {
+            return [Rect(x: lineRect.origin.x, y: y, width: lineRect.size.width, height: thickness)]
         }
 
-        quads.append(
-            solidQuad(
-                rect: rect,
-                cornerRadius: 0,
-                color: color,
-                opacity: opacity,
-                clip: clip,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale
-            )
-        )
+        let unit = max(thickness, 1)
+        let sequence: [(draw: Bool, length: Double)] = decorationSequence(for: pattern, unit: unit)
+        var segments: [Rect] = []
+        var x = lineRect.origin.x
+        var index = 0
+        while x < lineRect.maxX {
+            let item = sequence[index % sequence.count]
+            let width = min(item.length, lineRect.maxX - x)
+            if item.draw, width > 0 {
+                segments.append(Rect(x: x, y: y, width: width, height: thickness))
+            }
+            x += max(width, 0.01)
+            index += 1
+        }
+        return segments
+    }
+
+    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(draw: Bool, length: Double)] {
+        switch pattern {
+        case .solid:
+            return [(true, Double.greatestFiniteMagnitude)]
+        case .dot:
+            return [(true, unit), (false, unit)]
+        case .dash:
+            return [(true, unit * 4), (false, unit * 2)]
+        case .dashDot:
+            return [(true, unit * 4), (false, unit * 1.5), (true, unit), (false, unit * 1.5)]
+        case .dashDotDot:
+            return [
+                (true, unit * 4),
+                (false, unit * 1.5),
+                (true, unit),
+                (false, unit * 1.5),
+                (true, unit),
+                (false, unit * 1.5)
+            ]
+        }
     }
 
     private static func nativeGlyphPreflightRect(

@@ -357,6 +357,35 @@ struct ScenePainterTests {
         #expect(colors == [underlineColor, strikethroughColor])
     }
 
+    @Test("Patterned text decorations emit segmented quads on the scene path")
+    func patternedTextDecorationsEmitSegmentedQuads() {
+        let underlineColor = Color(red: 0.1, green: 0.4, blue: 1, alpha: 0.7)
+        let strikethroughColor = Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 90, height: 32),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                underline: true,
+                underlinePattern: .dash,
+                underlineColor: underlineColor,
+                strikethrough: true,
+                strikethroughPattern: .dot,
+                strikethroughColor: strikethroughColor
+            )
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let colors = sceneQuadColors(in: scene)
+
+        #expect(scene.layers[0].pixelGlyphs.count == 1)
+        #expect(colors.count > 2)
+        #expect(colors.contains(underlineColor))
+        #expect(colors.contains(strikethroughColor))
+    }
+
     @Test("Native text decorations emit colored quads on the scene path")
     func nativeTextDecorationsEmitColoredQuads() {
         defer {

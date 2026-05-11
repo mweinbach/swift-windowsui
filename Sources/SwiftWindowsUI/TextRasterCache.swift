@@ -29,11 +29,13 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var colorBlue: Float
     var colorAlpha: Float
     var underline: Bool
+    var underlinePattern: TextDecorationPattern
     var underlineColorRed: Float?
     var underlineColorGreen: Float?
     var underlineColorBlue: Float?
     var underlineColorAlpha: Float?
     var strikethrough: Bool
+    var strikethroughPattern: TextDecorationPattern
     var strikethroughColorRed: Float?
     var strikethroughColorGreen: Float?
     var strikethroughColorBlue: Float?
@@ -67,11 +69,13 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.colorBlue = style.color.blue
         self.colorAlpha = style.color.alpha
         self.underline = style.underline
+        self.underlinePattern = style.underlinePattern
         self.underlineColorRed = style.underlineColor?.red
         self.underlineColorGreen = style.underlineColor?.green
         self.underlineColorBlue = style.underlineColor?.blue
         self.underlineColorAlpha = style.underlineColor?.alpha
         self.strikethrough = style.strikethrough
+        self.strikethroughPattern = style.strikethroughPattern
         self.strikethroughColorRed = style.strikethroughColor?.red
         self.strikethroughColorGreen = style.strikethroughColor?.green
         self.strikethroughColorBlue = style.strikethroughColor?.blue

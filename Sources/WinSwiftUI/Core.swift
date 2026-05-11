@@ -1234,6 +1234,12 @@ public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
     }
 }
 
+struct TextDecorationSetting: Sendable {
+    var isActive: Bool
+    var pattern: Text.LineStyle.Pattern
+    var color: Color?
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
@@ -1278,6 +1284,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var font: Font?
     var fontItalic: Bool?
     var fontMonospacedDigits: Bool
+    var underlineStyle: TextDecorationSetting?
+    var strikethroughStyle: TextDecorationSetting?
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
     var lineLimitReservesSpace: Bool
@@ -1500,6 +1508,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.font = font
         self.fontItalic = nil
         self.fontMonospacedDigits = false
+        self.underlineStyle = nil
+        self.strikethroughStyle = nil
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
@@ -2160,6 +2170,14 @@ public struct ViewBuildContext {
 
     public var usesMonospacedDigits: Bool {
         environmentValuesProvider().fontMonospacedDigits
+    }
+
+    var underlineStyle: TextDecorationSetting? {
+        environmentValuesProvider().underlineStyle
+    }
+
+    var strikethroughStyle: TextDecorationSetting? {
+        environmentValuesProvider().strikethroughStyle
     }
 
     public var textAlignment: TextAlignment {
@@ -8549,6 +8567,36 @@ public extension View {
     func textCase(_ textCase: Text.Case?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTextCase(textCase))
+        }
+    }
+
+    func underline(
+        _ isActive: Bool = true,
+        pattern: Text.LineStyle.Pattern = .solid,
+        color: Color? = nil
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.underlineStyle,
+                    TextDecorationSetting(isActive: isActive, pattern: pattern, color: color)
+                )
+            )
+        }
+    }
+
+    func strikethrough(
+        _ isActive: Bool = true,
+        pattern: Text.LineStyle.Pattern = .solid,
+        color: Color? = nil
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.strikethroughStyle,
+                    TextDecorationSetting(isActive: isActive, pattern: pattern, color: color)
+                )
+            )
         }
     }
 

@@ -80,6 +80,49 @@ final class WinSwiftUITextTests: XCTestCase {
         }
     }
 
+    func testLineStyleDecorationModifiersMapToRetainedTextStyle() async {
+        await MainActor.run {
+            let directNode = makeNode(
+                Text("DECORATED")
+                    .underline(pattern: .dash, color: .blue)
+                    .strikethrough(Text.LineStyle(pattern: .dashDotDot, color: .red))
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("PLAIN")
+                        .underline(false)
+                        .strikethrough(false)
+                }
+                .underline(pattern: .dot, color: .green)
+                .strikethrough(pattern: .dashDot, color: .yellow)
+            )
+
+            XCTAssertTrue(directNode.textStyle.underline)
+            XCTAssertEqual(directNode.textStyle.underlinePattern, .dash)
+            XCTAssertEqual(directNode.textStyle.underlineColor, .blue)
+            XCTAssertTrue(directNode.textStyle.strikethrough)
+            XCTAssertEqual(directNode.textStyle.strikethroughPattern, .dashDotDot)
+            XCTAssertEqual(directNode.textStyle.strikethroughColor, .red)
+
+            let inheritedText = inheritedNode.children[0]
+            XCTAssertTrue(inheritedText.textStyle.underline)
+            XCTAssertEqual(inheritedText.textStyle.underlinePattern, .dot)
+            XCTAssertEqual(inheritedText.textStyle.underlineColor, .green)
+            XCTAssertTrue(inheritedText.textStyle.strikethrough)
+            XCTAssertEqual(inheritedText.textStyle.strikethroughPattern, .dashDot)
+            XCTAssertEqual(inheritedText.textStyle.strikethroughColor, .yellow)
+
+            let plainText = inheritedNode.children[1]
+            XCTAssertFalse(plainText.textStyle.underline)
+            XCTAssertEqual(plainText.textStyle.underlinePattern, .solid)
+            XCTAssertNil(plainText.textStyle.underlineColor)
+            XCTAssertFalse(plainText.textStyle.strikethrough)
+            XCTAssertEqual(plainText.textStyle.strikethroughPattern, .solid)
+            XCTAssertNil(plainText.textStyle.strikethroughColor)
+        }
+    }
+
     func testAttributedStringInitializerFlattensToRetainedText() async {
         await MainActor.run {
             var attributed = AttributedString("HELLO")

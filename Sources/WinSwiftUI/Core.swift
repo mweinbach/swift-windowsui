@@ -6468,6 +6468,108 @@ private func retainedToolbarPlacementOrder(_ placement: ToolbarItemPlacement?) -
     }
 }
 
+private func retainedToolbarPlacementTags(for views: [AnyView]) -> Set<String> {
+    let tags = Set(views.compactMap { view in
+        view.toolbarItemPlacement.map(retainedToolbarPlacementTag)
+    })
+    return tags.isEmpty ? [retainedToolbarPlacementTag(.automatic)] : tags
+}
+
+private func retainedToolbarMatches(_ tags: Set<String>, bars: [ToolbarItemPlacement]) -> Bool {
+    guard !bars.isEmpty else {
+        return true
+    }
+
+    let resolvedTags = tags.isEmpty ? [retainedToolbarPlacementTag(.automatic)] : tags
+    return bars.contains { bar in
+        retainedToolbarBarTags(for: bar).contains { resolvedTags.contains($0) }
+    }
+}
+
+private func retainedToolbarBarTags(for bar: ToolbarItemPlacement) -> Set<String> {
+    switch bar {
+    case .automatic:
+        return [
+            retainedToolbarPlacementTag(.automatic),
+            retainedToolbarPlacementTag(.principal),
+            retainedToolbarPlacementTag(.navigation),
+            retainedToolbarPlacementTag(.primaryAction),
+            retainedToolbarPlacementTag(.confirmationAction),
+            retainedToolbarPlacementTag(.cancellationAction),
+            retainedToolbarPlacementTag(.destructiveAction),
+            retainedToolbarPlacementTag(.status),
+            retainedToolbarPlacementTag(.bottomBar),
+            retainedToolbarPlacementTag(.keyboard),
+            retainedToolbarPlacementTag(.topBarLeading),
+            retainedToolbarPlacementTag(.topBarTrailing),
+            retainedToolbarPlacementTag(.navigationBarLeading),
+            retainedToolbarPlacementTag(.navigationBarTrailing),
+            retainedToolbarPlacementTag(.navigationBar),
+            retainedToolbarPlacementTag(.tabBar),
+            retainedToolbarPlacementTag(.windowToolbar)
+        ]
+    case .navigationBar:
+        return [
+            retainedToolbarPlacementTag(.automatic),
+            retainedToolbarPlacementTag(.principal),
+            retainedToolbarPlacementTag(.navigation),
+            retainedToolbarPlacementTag(.primaryAction),
+            retainedToolbarPlacementTag(.confirmationAction),
+            retainedToolbarPlacementTag(.cancellationAction),
+            retainedToolbarPlacementTag(.destructiveAction),
+            retainedToolbarPlacementTag(.status),
+            retainedToolbarPlacementTag(.topBarLeading),
+            retainedToolbarPlacementTag(.topBarTrailing),
+            retainedToolbarPlacementTag(.navigationBarLeading),
+            retainedToolbarPlacementTag(.navigationBarTrailing),
+            retainedToolbarPlacementTag(.navigationBar)
+        ]
+    default:
+        return [retainedToolbarPlacementTag(bar)]
+    }
+}
+
+private func retainedToolbarPlacementTag(_ placement: ToolbarItemPlacement) -> String {
+    switch placement {
+    case .automatic:
+        return "automatic"
+    case .principal:
+        return "principal"
+    case .navigation:
+        return "navigation"
+    case .primaryAction:
+        return "primaryAction"
+    case .confirmationAction:
+        return "confirmationAction"
+    case .cancellationAction:
+        return "cancellationAction"
+    case .destructiveAction:
+        return "destructiveAction"
+    case .status:
+        return "status"
+    case .bottomBar:
+        return "bottomBar"
+    case .keyboard:
+        return "keyboard"
+    case .topBarLeading:
+        return "topBarLeading"
+    case .topBarTrailing:
+        return "topBarTrailing"
+    case .navigationBarLeading:
+        return "navigationBarLeading"
+    case .navigationBarTrailing:
+        return "navigationBarTrailing"
+    case .navigationBar:
+        return "navigationBar"
+    case .tabBar:
+        return "tabBar"
+    case .windowToolbar:
+        return "windowToolbar"
+    default:
+        return "automatic"
+    }
+}
+
 private func normalizedHueUnit(_ hue: Double) -> Double {
     guard hue.isFinite else {
         return 0
@@ -6642,20 +6744,25 @@ extension EdgeInsets {
 }
 
 @MainActor
-private func applyToolbarBackgroundStyle(to node: ViewNode, color: Color?, gradient: LinearGradient?) {
-    if node.isToolbarContainer {
+private func applyToolbarBackgroundStyle(
+    to node: ViewNode,
+    color: Color?,
+    gradient: LinearGradient?,
+    bars: [ToolbarItemPlacement] = []
+) {
+    if node.isToolbarContainer, retainedToolbarMatches(node.toolbarPlacementTags, bars: bars) {
         node.backgroundColor = color
         node.backgroundGradient = gradient
     }
 
     for child in node.children {
-        applyToolbarBackgroundStyle(to: child, color: color, gradient: gradient)
+        applyToolbarBackgroundStyle(to: child, color: color, gradient: gradient, bars: bars)
     }
 }
 
 @MainActor
-private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility) {
-    if node.isToolbarContainer {
+private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility, bars: [ToolbarItemPlacement] = []) {
+    if node.isToolbarContainer, retainedToolbarMatches(node.toolbarPlacementTags, bars: bars) {
         switch visibility {
         case .hidden:
             node.isHidden = true
@@ -6667,17 +6774,21 @@ private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility) {
     }
 
     for child in node.children {
-        applyToolbarVisibility(to: child, visibility: visibility)
+        applyToolbarVisibility(to: child, visibility: visibility, bars: bars)
     }
 }
 
 @MainActor
-private func applyToolbarColorScheme(to node: ViewNode, colorScheme: ColorScheme?) {
+private func applyToolbarColorScheme(
+    to node: ViewNode,
+    colorScheme: ColorScheme?,
+    bars: [ToolbarItemPlacement] = []
+) {
     guard let colorScheme else {
         return
     }
 
-    if node.isToolbarContainer {
+    if node.isToolbarContainer, retainedToolbarMatches(node.toolbarPlacementTags, bars: bars) {
         if colorScheme == .light {
             if node.backgroundGradient == nil {
                 node.backgroundColor = Color(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.95)
@@ -6695,7 +6806,7 @@ private func applyToolbarColorScheme(to node: ViewNode, colorScheme: ColorScheme
     }
 
     for child in node.children {
-        applyToolbarColorScheme(to: child, colorScheme: colorScheme)
+        applyToolbarColorScheme(to: child, colorScheme: colorScheme, bars: bars)
     }
 }
 
@@ -8066,6 +8177,7 @@ public extension View {
     private func toolbar(id: String?, @ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
         let toolbarViews = toolbarContent()
         let orderedToolbarViews = orderedRetainedToolbarViews(toolbarViews)
+        let toolbarPlacementTags = retainedToolbarPlacementTags(for: toolbarViews)
         return ModifiedView(content: self) { content, context in
             guard !toolbarViews.isEmpty else {
                 return content.makeComponent(context: context)
@@ -8097,6 +8209,7 @@ public extension View {
                     children: [toolbarContentNode]
                 )
                 toolbarNode.isToolbarContainer = true
+                toolbarNode.toolbarPlacementTags = toolbarPlacementTags
                 toolbarNode.nodeTag = id
 
                 let baseNode = base.makeNode(runtime: runtime)
@@ -8110,26 +8223,26 @@ public extension View {
     }
 
     func toolbar(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
+        let bars = bars
         return ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
-                applyToolbarVisibility(to: node, visibility: visibility)
+                applyToolbarVisibility(to: node, visibility: visibility, bars: bars)
                 return node
             }
         }
     }
 
     func toolbarBackground(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
+        let bars = bars
         let shouldHide = visibility == .hidden
         return ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
                 if shouldHide {
-                    applyToolbarBackgroundStyle(to: node, color: nil, gradient: nil)
+                    applyToolbarBackgroundStyle(to: node, color: nil, gradient: nil, bars: bars)
                 }
                 return node
             }
@@ -8137,44 +8250,44 @@ public extension View {
     }
 
     func toolbarBackground(_ color: Color, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
-        return toolbarBackgroundStyle(color: color, gradient: nil)
+        toolbarBackgroundStyle(color: color, gradient: nil, bars: bars)
     }
 
     func toolbarBackground(_ color: Color?, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
-        return toolbarBackgroundStyle(color: color, gradient: nil)
+        toolbarBackgroundStyle(color: color, gradient: nil, bars: bars)
     }
 
     func toolbarBackground(_ style: ForegroundStyle, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
         let fill = resolvedStyleFill(from: style)
-        return toolbarBackgroundStyle(color: fill.color, gradient: fill.gradient)
+        return toolbarBackgroundStyle(color: fill.color, gradient: fill.gradient, bars: bars)
     }
 
     func toolbarBackground(_ gradient: LinearGradient, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
-        return toolbarBackgroundStyle(color: nil, gradient: gradient)
+        toolbarBackgroundStyle(color: nil, gradient: gradient, bars: bars)
     }
 
-    private func toolbarBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+    private func toolbarBackgroundStyle(
+        color: Color?,
+        gradient: LinearGradient?,
+        bars: [ToolbarItemPlacement] = []
+    ) -> some View {
         ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
-                applyToolbarBackgroundStyle(to: node, color: color, gradient: gradient)
+                applyToolbarBackgroundStyle(to: node, color: color, gradient: gradient, bars: bars)
                 return node
             }
         }
     }
 
     func toolbarColorScheme(_ colorScheme: ColorScheme?, for bars: ToolbarItemPlacement...) -> some View {
-        _ = bars
+        let bars = bars
         return ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
-                applyToolbarColorScheme(to: node, colorScheme: colorScheme)
+                applyToolbarColorScheme(to: node, colorScheme: colorScheme, bars: bars)
                 return node
             }
         }

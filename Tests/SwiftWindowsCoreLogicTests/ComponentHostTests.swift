@@ -99,6 +99,7 @@ final class ComponentHostTests: XCTestCase {
                     let imageInterpolation: RetainedImageInterpolation = useSecondState ? .high : .low
                     let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
+                    let toolbarPlacementTags: Set<String> = useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
                     let matchedGeometryEffect = useSecondState
                         ? RetainedMatchedGeometryEffect(
                             namespaceID: "secondNamespace",
@@ -178,6 +179,7 @@ final class ComponentHostTests: XCTestCase {
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.presentationChrome = presentationChrome
                     node.isToolbarContainer = useSecondState
+                    node.toolbarPlacementTags = toolbarPlacementTags
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -254,6 +256,7 @@ final class ComponentHostTests: XCTestCase {
                 )
             )
             XCTAssertEqual(firstNode?.isToolbarContainer, false)
+            XCTAssertEqual(firstNode?.toolbarPlacementTags, Set(["bottomBar"]))
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -320,6 +323,7 @@ final class ComponentHostTests: XCTestCase {
                 )
             )
             XCTAssertEqual(reusedNode?.isToolbarContainer, true)
+            XCTAssertEqual(reusedNode?.toolbarPlacementTags, Set(["primaryAction", "navigationBar"]))
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

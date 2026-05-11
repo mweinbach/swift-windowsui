@@ -12940,9 +12940,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(placements.count, 4)
             let toolbarNode = node.children[0]
             XCTAssertTrue(allTexts(in: toolbarNode).contains("SAVE"))
-            XCTAssertNil(toolbarNode.backgroundColor)
-            XCTAssertEqual(toolbarNode.backgroundGradient?.startColor, .red)
-            XCTAssertEqual(toolbarNode.backgroundGradient?.endColor, .blue)
+            XCTAssertTrue(toolbarNode.isHidden)
+            XCTAssertEqual(toolbarNode.toolbarPlacementTags, Set(["primaryAction"]))
+            XCTAssertEqual(toolbarNode.backgroundColor, Color(red: 0.93, green: 0.96, blue: 1.0, alpha: 0.95))
+            XCTAssertNil(toolbarNode.backgroundGradient)
             XCTAssertEqual(toolbarNode.cornerRadius, 6)
             XCTAssertEqual(toolbarNode.borderColor, Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30))
             XCTAssertEqual(toolbarNode.shadowSpread, 6)
@@ -12990,6 +12991,39 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(hiddenNode.children[1].text, "DETAIL")
             XCTAssertFalse(visibleNode.children[0].isHidden)
             XCTAssertFalse(automaticNode.children[0].isHidden)
+        }
+    }
+
+    func testToolbarBarArgumentsScopeRetainedToolbarConfiguration() async {
+        await MainActor.run {
+            let bottomOnlyNode = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("BOTTOM") {}
+                        }
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .toolbarBackground(Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), for: .navigationBar)
+                    .toolbarColorScheme(.light, for: .navigationBar)
+            )
+            let bottomHiddenNode = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("BOTTOM") {}
+                        }
+                    }
+                    .toolbar(.hidden, for: .bottomBar)
+                    .toolbarBackground(Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), for: .bottomBar)
+            )
+
+            XCTAssertEqual(bottomOnlyNode.children[0].toolbarPlacementTags, Set(["bottomBar"]))
+            XCTAssertFalse(bottomOnlyNode.children[0].isHidden)
+            XCTAssertEqual(bottomOnlyNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92))
+
+            XCTAssertTrue(bottomHiddenNode.children[0].isHidden)
+            XCTAssertEqual(bottomHiddenNode.children[0].backgroundColor, Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1))
         }
     }
 

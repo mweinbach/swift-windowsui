@@ -917,6 +917,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var toolbarPlacementTags: Set<String> {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -1054,6 +1058,7 @@ public final class ViewNode {
         matchedGeometryEffect: RetainedMatchedGeometryEffect? = nil,
         presentationChrome: RetainedPresentationChrome = .empty,
         isToolbarContainer: Bool = false,
+        toolbarPlacementTags: Set<String> = [],
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -1128,6 +1133,7 @@ public final class ViewNode {
         self.matchedGeometryEffect = matchedGeometryEffect
         self.presentationChrome = presentationChrome
         self.isToolbarContainer = isToolbarContainer
+        self.toolbarPlacementTags = toolbarPlacementTags
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil

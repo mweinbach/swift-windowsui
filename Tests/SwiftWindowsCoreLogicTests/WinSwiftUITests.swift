@@ -5499,16 +5499,22 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             struct AccessibilityPreferenceReaderView: View {
                 @Environment(\.accessibilityDifferentiateWithoutColor) var differentiateWithoutColor
+                @Environment(\.accessibilityInvertColors) var invertColors
                 @Environment(\.accessibilityReduceMotion) var reduceMotion
                 @Environment(\.accessibilityReduceTransparency) var reduceTransparency
                 @Environment(\.accessibilityShowButtonShapes) var showButtonShapes
+                @Environment(\.accessibilitySwitchControlEnabled) var switchControlEnabled
+                @Environment(\.accessibilityVoiceOverEnabled) var voiceOverEnabled
 
                 var body: some View {
                     Text(
                         differentiateWithoutColor
+                            && invertColors
                             && reduceMotion
                             && reduceTransparency
                             && showButtonShapes
+                            && switchControlEnabled
+                            && voiceOverEnabled
                             ? "ACCESS"
                             : "DEFAULT"
                     )
@@ -5519,9 +5525,12 @@ final class WinSwiftUITests: XCTestCase {
             let overriddenNode = makeNode(
                 AccessibilityPreferenceReaderView()
                     .environment(\.accessibilityDifferentiateWithoutColor, true)
+                    .environment(\.accessibilityInvertColors, true)
                     .environment(\.accessibilityReduceMotion, true)
                     .environment(\.accessibilityReduceTransparency, true)
                     .environment(\.accessibilityShowButtonShapes, true)
+                    .environment(\.accessibilitySwitchControlEnabled, true)
+                    .environment(\.accessibilityVoiceOverEnabled, true)
             )
 
             XCTAssertEqual(defaultNode.text, "DEFAULT")

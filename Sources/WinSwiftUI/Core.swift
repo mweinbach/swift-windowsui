@@ -733,9 +733,12 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var displayScale: Double
     public var pixelLength: Double
     public var accessibilityDifferentiateWithoutColor: Bool
+    public var accessibilityInvertColors: Bool
     public var accessibilityReduceMotion: Bool
     public var accessibilityReduceTransparency: Bool
     public var accessibilityShowButtonShapes: Bool
+    public var accessibilitySwitchControlEnabled: Bool
+    public var accessibilityVoiceOverEnabled: Bool
     public var calendar: Calendar
     public var timeZone: TimeZone
     public var locale: Locale
@@ -795,9 +798,12 @@ public struct EnvironmentValues: @unchecked Sendable {
         displayScale: Double = 1,
         pixelLength: Double = 1,
         accessibilityDifferentiateWithoutColor: Bool = false,
+        accessibilityInvertColors: Bool = false,
         accessibilityReduceMotion: Bool = false,
         accessibilityReduceTransparency: Bool = false,
         accessibilityShowButtonShapes: Bool = false,
+        accessibilitySwitchControlEnabled: Bool = false,
+        accessibilityVoiceOverEnabled: Bool = false,
         calendar: Calendar = Calendar(identifier: .gregorian),
         timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
         locale: Locale = .current,
@@ -851,9 +857,12 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.displayScale = displayScale
         self.pixelLength = pixelLength
         self.accessibilityDifferentiateWithoutColor = accessibilityDifferentiateWithoutColor
+        self.accessibilityInvertColors = accessibilityInvertColors
         self.accessibilityReduceMotion = accessibilityReduceMotion
         self.accessibilityReduceTransparency = accessibilityReduceTransparency
         self.accessibilityShowButtonShapes = accessibilityShowButtonShapes
+        self.accessibilitySwitchControlEnabled = accessibilitySwitchControlEnabled
+        self.accessibilityVoiceOverEnabled = accessibilityVoiceOverEnabled
         var resolvedCalendar = calendar
         resolvedCalendar.timeZone = timeZone
         self.calendar = resolvedCalendar

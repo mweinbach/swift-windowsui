@@ -10813,6 +10813,54 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testStepperGenericStrideableValueWritesBinding() async {
+        await MainActor.run {
+            var value: Float = 0.25
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Stepper(
+                    LocalizedStringKey("VOLUME"),
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0.0...1.0,
+                    step: 0.25,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    }
+                )
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0]), "VOLUME")
+
+            node.children[2].onActivate?()
+            XCTAssertEqual(value, 0.5, accuracy: 0.001)
+            node.children[1].onActivate?()
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(value, 0.0, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false, true, false, true, false])
+
+            let clampedNode = makeNode(
+                Stepper(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0.0...1.0,
+                    step: 0.25
+                ) {
+                    Text("FLOAT")
+                }
+            )
+
+            XCTAssertFalse(clampedNode.children[1].isFocusable)
+            XCTAssertTrue(clampedNode.children[2].isFocusable)
+        }
+    }
+
     func testStepperActionInitializersRunHandlersAndDisableMissingDirections() async {
         await MainActor.run {
             var increments = 0

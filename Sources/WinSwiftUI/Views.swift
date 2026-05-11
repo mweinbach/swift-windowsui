@@ -9196,6 +9196,72 @@ public struct Stepper: View {
         }
     }
 
+    public init<Value>(
+        _ title: String,
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(
+            value: value,
+            in: bounds,
+            step: step,
+            onEditingChanged: onEditingChanged
+        ) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(String(title), value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(titleKey.resolvedString, value: value, in: bounds, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init<Value>(
+        value: Binding<Value>,
+        in bounds: ClosedRange<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        @ViewBuilder label: () -> [AnyView]
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.label = label()
+        self.canDecrement = {
+            value.wrappedValue > bounds.lowerBound
+        }
+        self.canIncrement = {
+            value.wrappedValue < bounds.upperBound
+        }
+        self.decrement = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: -step, in: bounds)
+            onEditingChanged(false)
+        }
+        self.increment = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: step, in: bounds)
+            onEditingChanged(false)
+        }
+    }
+
     public init(
         _ title: String,
         value: Binding<Double>,
@@ -9443,6 +9509,16 @@ public struct Stepper: View {
         guard !overflow else {
             return bounds.lowerBound
         }
+        return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private static func steppedStrideable<Value>(
+        _ value: Value,
+        by delta: Value.Stride,
+        in bounds: ClosedRange<Value>
+    ) -> Value where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
+        let candidate = clampedValue.advanced(by: delta)
         return min(max(candidate, bounds.lowerBound), bounds.upperBound)
     }
 }

@@ -4092,7 +4092,8 @@ public struct DatePicker: View {
                 selection.wrappedValue,
                 components: displayedComponents,
                 calendar: environmentValues.calendar,
-                timeZone: environmentValues.timeZone
+                timeZone: environmentValues.timeZone,
+                locale: environmentValues.locale
             ))
                 .monospaced()
                 .lineLimit(1)
@@ -4121,10 +4122,21 @@ public struct DatePicker: View {
         _ date: Date,
         components: DatePickerComponents,
         calendar: Calendar,
-        timeZone: TimeZone
+        timeZone: TimeZone,
+        locale: Locale
     ) -> String {
         var calendar = calendar
         calendar.timeZone = timeZone
+        if locale.identifier != Locale.current.identifier {
+            return localizedFormattedValue(
+                date,
+                components: components,
+                calendar: calendar,
+                timeZone: timeZone,
+                locale: locale
+            )
+        }
+
         let dateComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
         let dateText = String(
             format: "%04d-%02d-%02d",
@@ -4148,6 +4160,35 @@ public struct DatePicker: View {
             return timeText
         }
         return dateText
+    }
+
+    private static func localizedFormattedValue(
+        _ date: Date,
+        components: DatePickerComponents,
+        calendar: Calendar,
+        timeZone: TimeZone,
+        locale: Locale
+    ) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = calendar
+        formatter.timeZone = timeZone
+        formatter.locale = locale
+
+        if components.contains(.date), components.contains(.hourAndMinute) {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+        } else if components.contains(.date) {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+        } else if components.contains(.hourAndMinute) {
+            formatter.dateStyle = .none
+            formatter.timeStyle = .short
+        } else {
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .none
+        }
+
+        return formatter.string(from: date)
     }
 }
 

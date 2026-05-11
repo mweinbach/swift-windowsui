@@ -4787,11 +4787,24 @@ final class WinSwiftUITests: XCTestCase {
                 DatePicker("LOCAL", selection: .constant(date), displayedComponents: .hourAndMinute)
                     .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
             )
+            let localizedNode = makeNode(
+                DatePicker("FR", selection: .constant(date), displayedComponents: .all)
+                    .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
+                    .environment(\.locale, Locale(identifier: "fr_FR"))
+            )
             let environmentReaderNode = makeNode(
                 DateEnvironmentReaderView()
                     .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
                     .environment(\.locale, Locale(identifier: "fr_FR"))
             )
+            var localizedCalendar = Calendar(identifier: .gregorian)
+            localizedCalendar.timeZone = TimeZone(secondsFromGMT: 3_600)!
+            let localizedFormatter = DateFormatter()
+            localizedFormatter.calendar = localizedCalendar
+            localizedFormatter.timeZone = localizedCalendar.timeZone
+            localizedFormatter.locale = Locale(identifier: "fr_FR")
+            localizedFormatter.dateStyle = .medium
+            localizedFormatter.timeStyle = .short
 
             XCTAssertEqual(allTexts(in: dateNode), ["START", "2026-05-10"])
             XCTAssertTrue(allTexts(in: timeNode).contains("WINDOW"))
@@ -4801,6 +4814,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(allTexts(in: throughRangeNode), ["BEFORE", "14:38"])
             XCTAssertEqual(allTexts(in: upToRangeNode), ["UNTIL", "2026-05-10"])
             XCTAssertEqual(allTexts(in: timeZoneNode), ["LOCAL", "15:38"])
+            XCTAssertEqual(allTexts(in: localizedNode), ["FR", localizedFormatter.string(from: date)])
             XCTAssertEqual(environmentReaderNode.text, "DATEENV")
             XCTAssertEqual(dateNode.children[0].layoutPriority, 1)
         }

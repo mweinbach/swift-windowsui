@@ -5016,6 +5016,159 @@ public extension SymbolEffect where Self == WiggleSymbolEffect {
     static var wiggle: WiggleSymbolEffect { WiggleSymbolEffect() }
 }
 
+public struct SensoryFeedback: Sendable, Equatable, Hashable {
+    public struct Flexibility: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case rigid
+            case solid
+            case soft
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let rigid = Flexibility(kind: .rigid)
+        public static let solid = Flexibility(kind: .solid)
+        public static let soft = Flexibility(kind: .soft)
+    }
+
+    public struct Weight: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case light
+            case medium
+            case heavy
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let light = Weight(kind: .light)
+        public static let medium = Weight(kind: .medium)
+        public static let heavy = Weight(kind: .heavy)
+    }
+
+    public struct PressFeedback: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case `default`
+            case depth
+            case start
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let `default` = PressFeedback(kind: .default)
+        public static let depth = PressFeedback(kind: .depth)
+        public static let start = PressFeedback(kind: .start)
+    }
+
+    public struct ReleaseFeedback: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case `default`
+            case stop
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let `default` = ReleaseFeedback(kind: .default)
+        public static let stop = ReleaseFeedback(kind: .stop)
+    }
+
+    public struct SelectionFeedback: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case `default`
+            case maximum
+            case minimum
+            case off
+            case on
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let `default` = SelectionFeedback(kind: .default)
+        public static let maximum = SelectionFeedback(kind: .maximum)
+        public static let minimum = SelectionFeedback(kind: .minimum)
+        public static let off = SelectionFeedback(kind: .off)
+        public static let on = SelectionFeedback(kind: .on)
+    }
+
+    enum Kind: Sendable, Equatable, Hashable {
+        case alignment
+        case decrease
+        case error
+        case impact
+        case impactFlexibility(Flexibility, Double)
+        case impactWeight(Weight, Double)
+        case increase
+        case levelChange
+        case pathComplete
+        case press(PressFeedback)
+        case release(ReleaseFeedback)
+        case selection
+        case selectionFeedback(SelectionFeedback)
+        case start
+        case stop
+        case success
+        case warning
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let alignment = SensoryFeedback(kind: .alignment)
+    public static let decrease = SensoryFeedback(kind: .decrease)
+    public static let error = SensoryFeedback(kind: .error)
+    public static let impact = SensoryFeedback(kind: .impact)
+    public static let increase = SensoryFeedback(kind: .increase)
+    public static let levelChange = SensoryFeedback(kind: .levelChange)
+    public static let pathComplete = SensoryFeedback(kind: .pathComplete)
+    public static let selection = SensoryFeedback(kind: .selection)
+    public static let start = SensoryFeedback(kind: .start)
+    public static let stop = SensoryFeedback(kind: .stop)
+    public static let success = SensoryFeedback(kind: .success)
+    public static let warning = SensoryFeedback(kind: .warning)
+
+    public static func impact(weight: Weight = .medium, intensity: Double = 1.0) -> SensoryFeedback {
+        SensoryFeedback(kind: .impactWeight(weight, intensity))
+    }
+
+    public static func impact(flexibility: Flexibility, intensity: Double = 1.0) -> SensoryFeedback {
+        SensoryFeedback(kind: .impactFlexibility(flexibility, intensity))
+    }
+
+    public static func press(_ feedback: PressFeedback = .default) -> SensoryFeedback {
+        SensoryFeedback(kind: .press(feedback))
+    }
+
+    public static func release(_ feedback: ReleaseFeedback = .default) -> SensoryFeedback {
+        SensoryFeedback(kind: .release(feedback))
+    }
+
+    public static func selection(_ feedback: SelectionFeedback = .default) -> SensoryFeedback {
+        SensoryFeedback(kind: .selectionFeedback(feedback))
+    }
+}
+
 public enum VerticalEdge: Sendable, Equatable {
     case top
     case bottom
@@ -12772,6 +12925,38 @@ public extension View {
     func symbolEffectsRemoved(_ isEnabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             _ = isEnabled
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func sensoryFeedback<T: Equatable>(_ feedback: SensoryFeedback, trigger: T) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = feedback
+            _ = trigger
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func sensoryFeedback<T: Equatable>(
+        _ feedback: SensoryFeedback,
+        trigger: T,
+        condition: @escaping (T, T) -> Bool
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = feedback
+            _ = trigger
+            _ = condition
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func sensoryFeedback<T: Equatable>(
+        trigger: T,
+        _ feedback: @escaping (T, T) -> SensoryFeedback?
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = trigger
+            _ = feedback
             return content.makeComponent(context: context)
         }
     }

@@ -12519,6 +12519,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSensoryFeedbackCompatibilityModifiersPreserveRenderedContent() async {
+        await MainActor.run {
+            let impact = SensoryFeedback.impact(weight: .heavy, intensity: 0.8)
+            let flexibleImpact = SensoryFeedback.impact(flexibility: .soft, intensity: 0.4)
+            let press = SensoryFeedback.press(.depth)
+            let release = SensoryFeedback.release(.stop)
+            let selection = SensoryFeedback.selection(.maximum)
+
+            let node = makeNode(
+                VStack {
+                    Text("SAVE").sensoryFeedback(.success, trigger: 1)
+                    Text("WARN").sensoryFeedback(.warning, trigger: false) { old, new in old != new }
+                    Text("ERROR").sensoryFeedback(trigger: "error") { old, new in
+                        old == new ? nil : .error
+                    }
+                    Text("IMPACT").sensoryFeedback(impact, trigger: 2)
+                    Text("FLEX").sensoryFeedback(flexibleImpact, trigger: 3)
+                    Text("PRESS").sensoryFeedback(press, trigger: 4)
+                    Text("RELEASE").sensoryFeedback(release, trigger: 5)
+                    Text("SELECT").sensoryFeedback(selection, trigger: 6)
+                }
+            )
+
+            XCTAssertEqual(SensoryFeedback.Flexibility.soft, .soft)
+            XCTAssertEqual(SensoryFeedback.Weight.heavy, .heavy)
+            XCTAssertEqual(SensoryFeedback.PressFeedback.depth, .depth)
+            XCTAssertEqual(SensoryFeedback.ReleaseFeedback.stop, .stop)
+            XCTAssertEqual(SensoryFeedback.SelectionFeedback.maximum, .maximum)
+            XCTAssertEqual(
+                allTexts(in: node),
+                ["SAVE", "WARN", "ERROR", "IMPACT", "FLEX", "PRESS", "RELEASE", "SELECT"]
+            )
+        }
+    }
+
     func testTransactionCompatibilityShimsExecuteBodiesAndTransforms() async {
         await MainActor.run {
             var value = 0

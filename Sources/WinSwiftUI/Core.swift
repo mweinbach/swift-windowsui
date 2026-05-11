@@ -5486,9 +5486,11 @@ public struct ListStyle: Sendable, Equatable {
     }
 
     let kind: Kind
+    private let alternatesRowBackgrounds: Bool?
 
-    private init(kind: Kind) {
+    private init(kind: Kind, alternatesRowBackgrounds: Bool? = nil) {
         self.kind = kind
+        self.alternatesRowBackgrounds = alternatesRowBackgrounds
     }
 
     public static let automatic = ListStyle(kind: .automatic)
@@ -5500,6 +5502,14 @@ public struct ListStyle: Sendable, Equatable {
     public static let inset = ListStyle(kind: .inset)
     public static let insetGrouped = ListStyle(kind: .insetGrouped)
     public static let sidebar = ListStyle(kind: .sidebar)
+
+    static func inset(alternatesRowBackgrounds: Bool?) -> ListStyle {
+        ListStyle(kind: .inset, alternatesRowBackgrounds: alternatesRowBackgrounds)
+    }
+
+    public static func == (lhs: ListStyle, rhs: ListStyle) -> Bool {
+        lhs.kind == rhs.kind
+    }
 
     var retainedChrome: RetainedListChrome {
         switch kind {
@@ -5539,7 +5549,9 @@ public struct ListStyle: Sendable, Equatable {
                 backgroundColor: nil,
                 borderColor: .clear,
                 borderWidth: 0,
-                cornerRadius: 0
+                cornerRadius: 0,
+                alternatesRowBackgrounds: alternatesRowBackgrounds == true,
+                alternatingRowBackgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
             )
         case .insetGrouped:
             return RetainedListChrome(
@@ -5614,6 +5626,8 @@ struct RetainedListChrome: Sendable, Equatable {
     var borderColor: Color = .clear
     var borderWidth: Double = 0
     var cornerRadius: Double = 0
+    var alternatesRowBackgrounds: Bool = false
+    var alternatingRowBackgroundColor: Color? = nil
 }
 
 public struct ScrollIndicatorVisibility: Sendable, Equatable {
@@ -9440,7 +9454,7 @@ public extension View {
     }
 
     func listStyle(_ style: InsetListStyle) -> some View {
-        listStyle(.inset)
+        listStyle(.inset(alternatesRowBackgrounds: style.alternatesRowBackgrounds))
     }
 
     func listStyle(_ style: InsetGroupedListStyle) -> some View {

@@ -4506,13 +4506,15 @@ public struct List: View {
                     mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
                 ),
                 isHitTestVisible: false,
-                children: content.map {
-                    let tag = $0.selectionTag
+                children: content.enumerated().map { pair in
+                    let index = pair.offset
+                    let view = pair.element
+                    let tag = view.selectionTag
                     let isSelected = tag.map { selectionMode?.contains($0) == true } == true
                     let rowContext = isSelected
                         ? context.withEnvironmentValue(\.backgroundProminence, .increased)
                         : context
-                    var row = $0.makeComponent(context: rowContext).makeNode(runtime: runtime)
+                    var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
                     if let selectionMode, let tag {
                         row = Self.selectableRow(
                             wrapping: row,
@@ -4523,6 +4525,12 @@ public struct List: View {
                             context: context
                         )
                     }
+                    row = Self.alternatingRowIfNeeded(
+                        row,
+                        index: index,
+                        isSelected: isSelected,
+                        listChrome: listChrome
+                    )
                     if context.defaultMinListRowHeight > 0 {
                         row.applyDefaultMinimumHeight(context.defaultMinListRowHeight)
                     }
@@ -4614,6 +4622,26 @@ public struct List: View {
             }
         }
         return rowNode
+    }
+
+    private static func alternatingRowIfNeeded(
+        _ row: ViewNode,
+        index: Int,
+        isSelected: Bool,
+        listChrome: RetainedListChrome
+    ) -> ViewNode {
+        guard listChrome.alternatesRowBackgrounds,
+              !isSelected,
+              index % 2 == 1,
+              row.backgroundColor == nil,
+              row.backgroundGradient == nil,
+              let backgroundColor = listChrome.alternatingRowBackgroundColor else {
+            return row
+        }
+
+        row.backgroundColor = backgroundColor
+        row.cornerRadius = max(row.cornerRadius, 8)
+        return row
     }
 
     private static func editSelectionIndicator(isSelected: Bool, tint: Color) -> ViewNode {

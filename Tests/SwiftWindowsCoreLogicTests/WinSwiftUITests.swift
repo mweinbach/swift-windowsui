@@ -4481,6 +4481,21 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .listStyle(InsetGroupedListStyle())
             )
+            let alternatingInsetNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                    Text("THREE")
+                }
+                .listStyle(InsetListStyle(alternatesRowBackgrounds: true))
+            )
+            let nonAlternatingInsetNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(InsetListStyle(alternatesRowBackgrounds: false))
+            )
             let overriddenSpacingNode = makeNode(
                 List {
                     Text("ONE")
@@ -4547,6 +4562,15 @@ final class WinSwiftUITests: XCTestCase {
                     alignment: .stretch
                 )
             )
+            XCTAssertNil(alternatingInsetNode.children[0].backgroundColor)
+            XCTAssertEqual(
+                alternatingInsetNode.children[1].backgroundColor,
+                Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08)
+            )
+            XCTAssertEqual(alternatingInsetNode.children[1].cornerRadius, 8)
+            XCTAssertNil(alternatingInsetNode.children[2].backgroundColor)
+            XCTAssertNil(nonAlternatingInsetNode.children[0].backgroundColor)
+            XCTAssertNil(nonAlternatingInsetNode.children[1].backgroundColor)
         }
     }
 

@@ -3012,6 +3012,11 @@ public struct Image: View {
                     contrast: context.colorSchemeContrast,
                     backgroundProminence: context.backgroundProminence
                 )
+            let renderedColor = retainedSymbolColor(
+                base: resolvedColor,
+                mode: context.symbolRenderingMode,
+                tint: context.tint
+            )
             let imageScale = context.imageScale.resolvedMultiplier
             let resolvedScale = font.resolvedScale * imageScale
             let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
@@ -3020,7 +3025,7 @@ public struct Image: View {
                 let node = Controls.icon(
                     symbol,
                     preferredSize: preferredSize,
-                    color: resolvedColor,
+                    color: renderedColor,
                     scale: resolvedScale,
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
@@ -3032,7 +3037,7 @@ public struct Image: View {
                     iconNode: node,
                     iconSize: preferredSize ?? baseSize,
                     variants: symbolVariants,
-                    tint: resolvedColor,
+                    tint: renderedColor,
                     context: context
                 )
             }
@@ -3227,6 +3232,27 @@ public struct Image: View {
 
     private func templateByte(_ value: Float) -> UInt8 {
         UInt8((max(0, min(1, value)) * 255).rounded())
+    }
+
+    private func retainedSymbolColor(
+        base: Color,
+        mode: SymbolRenderingMode?,
+        tint: Color
+    ) -> Color {
+        guard let mode else {
+            return base
+        }
+
+        switch mode.kind {
+        case .monochrome:
+            return base
+        case .hierarchical:
+            return base.opacity(0.72)
+        case .palette:
+            return tint
+        case .multicolor:
+            return Color(red: 0.30, green: 0.74, blue: 0.92, alpha: 1.0)
+        }
     }
 
     private func retainedSymbolVariantNode(

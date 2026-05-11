@@ -2702,6 +2702,7 @@ final class WinSwiftUITests: XCTestCase {
 
             let defaultNode = makeNode(Image(systemName: "gear"))
             let paletteNode = makeNode(Image(systemName: "gear").symbolRenderingMode(.palette))
+            let multicolorNode = makeNode(Image(systemName: "gear").symbolRenderingMode(.multicolor))
             let inheritedNode = makeNode(
                 VStack {
                     Image(systemName: "gear")
@@ -2727,9 +2728,14 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertNil(defaultNode.symbolRenderingMode)
             XCTAssertEqual(paletteNode.symbolRenderingMode, .palette)
+            XCTAssertEqual(paletteNode.textStyle.color, ViewBuildContext.defaultTint)
+            XCTAssertEqual(multicolorNode.textStyle.color, Color(red: 0.30, green: 0.74, blue: 0.92, alpha: 1.0))
             XCTAssertEqual(inheritedNode.children[0].symbolRenderingMode, .hierarchical)
             XCTAssertEqual(inheritedNode.children[1].children[0].symbolRenderingMode, .hierarchical)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.color, Color.white.opacity(0.72))
+            XCTAssertEqual(inheritedNode.children[1].children[0].textStyle.color, Color.white.opacity(0.72))
             XCTAssertNil(resetNode.children[0].symbolRenderingMode)
+            XCTAssertEqual(resetNode.children[0].textStyle.color, .white)
             XCTAssertEqual(readerNode.text, "MONOCHROME")
             XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
         }

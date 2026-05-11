@@ -190,6 +190,14 @@ public final class ComponentHost {
         target.onLayout = source.onLayout
         target.onAppear = source.onAppear
         target.onDisappear = source.onDisappear
+        target.onAppearWithNode = source.onAppearWithNode
+        target.onDisappearWithNode = source.onDisappearWithNode
         target.onSizeChange = source.onSizeChange
+
+        if target.hasAppeared {
+            for launch in source.pendingLifecycleTaskLaunches {
+                target.launchLifecycleTask(launch)
+            }
+        }
     }
 }

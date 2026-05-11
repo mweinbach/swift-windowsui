@@ -5770,16 +5770,27 @@ public extension View {
         priority: TaskPriority = .userInitiated,
         _ action: @escaping @Sendable () async -> Void
     ) -> some View {
-        ModifiedView(content: self) { content, context in
+        let taskKey = UUID().uuidString
+        return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let existingOnAppear = childNode.onAppear
-                childNode.onAppear = {
-                    existingOnAppear?()
-                    Swift.Task(priority: priority) {
-                        await action()
-                    }
+                let launch = ViewLifecycleTaskLaunch(
+                    key: taskKey,
+                    priority: priority,
+                    action: action
+                )
+
+                let existingOnAppearWithNode = childNode.onAppearWithNode
+                childNode.onAppearWithNode = { node in
+                    existingOnAppearWithNode?(node)
+                    node.launchLifecycleTask(launch)
+                }
+
+                let existingOnDisappearWithNode = childNode.onDisappearWithNode
+                childNode.onDisappearWithNode = { node in
+                    existingOnDisappearWithNode?(node)
+                    node.cancelLifecycleTask(key: taskKey)
                 }
                 return childNode
             }
@@ -5800,23 +5811,26 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                guard let launchState else {
-                    return childNode
+                let launch = ViewLifecycleTaskLaunch(
+                    key: key,
+                    priority: priority,
+                    action: action
+                )
+
+                if let launchState, launchState.oldValue != launchState.newValue {
+                    childNode.pendingLifecycleTaskLaunches.append(launch)
                 }
 
-                if launchState.oldValue != launchState.newValue {
-                    Swift.Task(priority: priority) {
-                        await action()
-                    }
-                    return childNode
+                let existingOnAppearWithNode = childNode.onAppearWithNode
+                childNode.onAppearWithNode = { node in
+                    existingOnAppearWithNode?(node)
+                    node.launchLifecycleTask(launch)
                 }
 
-                let existingOnAppear = childNode.onAppear
-                childNode.onAppear = {
-                    existingOnAppear?()
-                    Swift.Task(priority: priority) {
-                        await action()
-                    }
+                let existingOnDisappearWithNode = childNode.onDisappearWithNode
+                childNode.onDisappearWithNode = { node in
+                    existingOnDisappearWithNode?(node)
+                    node.cancelLifecycleTask(key: key)
                 }
                 return childNode
             }

@@ -78,6 +78,31 @@ private actor AsyncTaskCounter {
     }
 }
 
+private actor AsyncTaskLifecycleRecorder {
+    private var starts: [Int] = []
+    private var cancellationCount = 0
+
+    func recordStart(_ id: Int = 0) {
+        starts.append(id)
+    }
+
+    func recordCancellation() {
+        cancellationCount += 1
+    }
+
+    func startCount() -> Int {
+        starts.count
+    }
+
+    func startedIDs() -> [Int] {
+        starts
+    }
+
+    func cancellations() -> Int {
+        cancellationCount
+    }
+}
+
 private struct EmphasisModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -6987,6 +7012,53 @@ final class WinSwiftUITests: XCTestCase {
         XCTAssertEqual(finalCount, 1)
     }
 
+    func testTaskModifierCancelsWhenRenderedSubtreeDisappears() async {
+        let recorder = AsyncTaskLifecycleRecorder()
+        var hideAndReload: (@MainActor () -> Void)?
+
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var isVisible = true
+
+            host.setComponents {
+                guard isVisible else {
+                    return []
+                }
+
+                return [
+                    Text("LOAD")
+                        .task {
+                            await cancellableTask(id: 0, recorder: recorder)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            hideAndReload = {
+                isVisible = false
+                host.reload()
+            }
+        }
+
+        await waitForTaskStart(recorder, toReach: 1)
+
+        await MainActor.run {
+            hideAndReload?()
+        }
+
+        await waitForTaskCancellation(recorder, toReach: 1)
+        let cancellations = await recorder.cancellations()
+        XCTAssertEqual(cancellations, 1)
+    }
+
     func testTaskIDModifierRerunsWhenValueChanges() async {
         let counter = AsyncTaskCounter()
 
@@ -7019,6 +7091,53 @@ final class WinSwiftUITests: XCTestCase {
         await waitForAsyncTaskCounter(counter, toReach: 2)
         let finalCount = await counter.value()
         XCTAssertEqual(finalCount, 2)
+    }
+
+    func testTaskIDModifierCancelsPreviousTaskWhenValueChanges() async {
+        let recorder = AsyncTaskLifecycleRecorder()
+        var changeIDAndReload: (@MainActor () -> Void)?
+
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var taskID = 1
+
+            host.setComponents {
+                let currentID = taskID
+                return [
+                    Text("LOAD")
+                        .task(id: currentID) {
+                            await cancellableTask(id: currentID, recorder: recorder)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            changeIDAndReload = {
+                taskID = 2
+                host.reload()
+            }
+        }
+
+        await waitForTaskStart(recorder, toReach: 1)
+
+        await MainActor.run {
+            changeIDAndReload?()
+        }
+
+        await waitForTaskStart(recorder, toReach: 2)
+        await waitForTaskCancellation(recorder, toReach: 1)
+        let startedIDs = await recorder.startedIDs()
+        let cancellations = await recorder.cancellations()
+        XCTAssertEqual(startedIDs, [1, 2])
+        XCTAssertEqual(cancellations, 1)
     }
 
     func testRefreshableProvidesRefreshEnvironmentAction() async {
@@ -7505,6 +7624,37 @@ private func waitForAsyncTaskCounter(_ counter: AsyncTaskCounter, toReach expect
             return
         }
         try? await Swift.Task.sleep(nanoseconds: 10_000_000)
+    }
+}
+
+private func waitForTaskStart(_ recorder: AsyncTaskLifecycleRecorder, toReach expectedValue: Int) async {
+    for _ in 0..<50 {
+        if await recorder.startCount() >= expectedValue {
+            return
+        }
+        try? await Swift.Task.sleep(nanoseconds: 10_000_000)
+    }
+}
+
+private func waitForTaskCancellation(_ recorder: AsyncTaskLifecycleRecorder, toReach expectedValue: Int) async {
+    for _ in 0..<50 {
+        if await recorder.cancellations() >= expectedValue {
+            return
+        }
+        try? await Swift.Task.sleep(nanoseconds: 10_000_000)
+    }
+}
+
+private func cancellableTask(id: Int, recorder: AsyncTaskLifecycleRecorder) async {
+    await recorder.recordStart(id)
+    await withTaskCancellationHandler {
+        while !Swift.Task.isCancelled {
+            try? await Swift.Task.sleep(nanoseconds: 10_000_000)
+        }
+    } onCancel: {
+        Swift.Task {
+            await recorder.recordCancellation()
+        }
     }
 }
 

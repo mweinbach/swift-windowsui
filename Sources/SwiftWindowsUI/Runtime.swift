@@ -112,6 +112,22 @@ public struct RetainedContentShape: Sendable, Equatable {
     }
 }
 
+public struct ViewLifecycleTaskLaunch {
+    public var key: String
+    public var priority: TaskPriority
+    public var action: @Sendable () async -> Void
+
+    public init(
+        key: String,
+        priority: TaskPriority,
+        action: @escaping @Sendable () async -> Void
+    ) {
+        self.key = key
+        self.priority = priority
+        self.action = action
+    }
+}
+
 private func roundedRectContains(_ point: Point, in rect: Rect, radius: Double) -> Bool {
     let radius = min(radius, rect.size.width * 0.5, rect.size.height * 0.5)
     guard radius > 0 else {
@@ -636,14 +652,18 @@ public final class ViewNode {
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
     public var onLayout: ((Rect) -> Void)?
+    public var onAppearWithNode: ((ViewNode) -> Void)?
+    public var onDisappearWithNode: ((ViewNode) -> Void)?
+    public var pendingLifecycleTaskLaunches: [ViewLifecycleTaskLaunch] = []
 
     // Gap/Fix: Lifecycle hooks — called during appendCommands when node
     // first appears, disappears (removeFromParent), or changes frame size.
     public var onAppear: (() -> Void)?
     public var onDisappear: (() -> Void)?
     public var onSizeChange: ((Rect) -> Void)?
-    private var hasAppeared = false
+    internal private(set) var hasAppeared = false
     private var previousFrame: Rect?
+    private var lifecycleTasks: [String: Swift.Task<Void, Never>] = [:]
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -784,6 +804,8 @@ public final class ViewNode {
         self.onDragChange = nil
         self.onDragEnd = nil
         self.onLayout = nil
+        self.onAppearWithNode = nil
+        self.onDisappearWithNode = nil
         self.children = []
         self.resolvedFrame = frame
         self.resolvedContentSize = frame.size
@@ -870,12 +892,33 @@ public final class ViewNode {
     private func markSubtreeDisappeared() {
         if hasAppeared {
             onDisappear?()
+            onDisappearWithNode?(self)
+            cancelLifecycleTasks()
             hasAppeared = false
         }
 
         for child in children {
             child.markSubtreeDisappeared()
         }
+    }
+
+    public func launchLifecycleTask(_ launch: ViewLifecycleTaskLaunch) {
+        lifecycleTasks[launch.key]?.cancel()
+        lifecycleTasks[launch.key] = Swift.Task(priority: launch.priority) {
+            await launch.action()
+        }
+    }
+
+    public func cancelLifecycleTask(key: String) {
+        lifecycleTasks[key]?.cancel()
+        lifecycleTasks[key] = nil
+    }
+
+    private func cancelLifecycleTasks() {
+        for task in lifecycleTasks.values {
+            task.cancel()
+        }
+        lifecycleTasks.removeAll()
     }
 
     fileprivate func layoutSubtree(displayScale: Double) {
@@ -1482,6 +1525,7 @@ public final class ViewNode {
         if !hasAppeared {
             hasAppeared = true
             onAppear?()
+            onAppearWithNode?(self)
             previousFrame = absoluteFrame
         }
 

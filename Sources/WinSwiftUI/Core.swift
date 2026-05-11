@@ -5151,13 +5151,15 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
+                let root = Controls.stackPanel(
                     cornerRadius: radius,
                     clipsToBounds: true,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.clipFillStyle = RetainedClipFillStyle(antialiased: antialiased)
+                return root
             }
         }
     }
@@ -5167,12 +5169,14 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
+                let root = Controls.stackPanel(
                     clipsToBounds: true,
                     stackLayout: .vertical(alignment: .stretch),
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.clipFillStyle = RetainedClipFillStyle(antialiased: antialiased)
+                return root
             }
         }
     }
@@ -5190,6 +5194,7 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+                root.clipFillStyle = RetainedClipFillStyle(eoFill: style.isEOFilled, antialiased: style.isAntialiased)
 
                 if case .capsule = clipStyle {
                     root.onLayout = { [weak root] bounds in

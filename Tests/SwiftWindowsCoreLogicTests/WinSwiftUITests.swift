@@ -6039,6 +6039,7 @@ final class WinSwiftUITests: XCTestCase {
             let node = makeNode(Text("CLIP").clipped(antialiased: true))
 
             XCTAssertTrue(node.clipsToBounds)
+            XCTAssertEqual(node.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: true))
             XCTAssertEqual(node.children.count, 1)
             XCTAssertEqual(node.children[0].text, "CLIP")
         }
@@ -6056,9 +6057,11 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(rectangleNode.clipsToBounds)
             XCTAssertEqual(rectangleNode.cornerRadius, 0)
+            XCTAssertEqual(rectangleNode.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: true))
             XCTAssertEqual(rectangleNode.children[0].text, "RECT")
             XCTAssertTrue(roundedNode.clipsToBounds)
             XCTAssertEqual(roundedNode.cornerRadius, 6)
+            XCTAssertEqual(roundedNode.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
             XCTAssertEqual(roundedNode.children[0].text, "ROUND")
         }
     }
@@ -6234,6 +6237,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(node.clipsToBounds)
             XCTAssertEqual(node.cornerRadius, 5)
+            XCTAssertEqual(node.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: false))
             XCTAssertEqual(node.children.count, 1)
             XCTAssertEqual(node.children[0].text, "ROUND")
         }

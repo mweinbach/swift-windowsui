@@ -58,6 +58,16 @@ public enum RetainedImageResizingMode: Sendable, Equatable {
     case tile
 }
 
+public struct RetainedClipFillStyle: Sendable, Equatable {
+    public var eoFill: Bool
+    public var antialiased: Bool
+
+    public init(eoFill: Bool = false, antialiased: Bool = true) {
+        self.eoFill = eoFill
+        self.antialiased = antialiased
+    }
+}
+
 public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public let rawValue: Int
 
@@ -491,6 +501,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var clipFillStyle: RetainedClipFillStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var layoutMode: ViewLayoutMode {
         didSet { invalidateRuntime(.layout) }
     }
@@ -745,6 +759,7 @@ public final class ViewNode {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         clipsToBounds: Bool = false,
+        clipFillStyle: RetainedClipFillStyle? = nil,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
         layoutConstraints: LayoutConstraints? = nil,
@@ -806,6 +821,7 @@ public final class ViewNode {
         self.shadowSpread = shadowSpread
         self.cornerRadius = cornerRadius
         self.clipsToBounds = clipsToBounds
+        self.clipFillStyle = clipFillStyle
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
         self.layoutConstraints = layoutConstraints

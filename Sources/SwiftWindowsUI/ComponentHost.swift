@@ -133,6 +133,7 @@ public final class ComponentHost {
         if target.shadowSpread != source.shadowSpread { target.shadowSpread = source.shadowSpread }
         if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
+        if target.clipFillStyle != source.clipFillStyle { target.clipFillStyle = source.clipFillStyle }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }

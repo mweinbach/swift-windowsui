@@ -273,6 +273,14 @@ public enum RetainedPresentationContentInteraction: Sendable, Equatable {
     case scrolls
 }
 
+public enum RetainedPresentationAdaptation: Sendable, Equatable {
+    case automatic
+    case none
+    case popover
+    case sheet
+    case fullScreenCover
+}
+
 public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasBackgroundOverride: Bool
     public var backgroundColor: Color?
@@ -290,6 +298,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var allowsBackgroundInteraction: Bool
     public var hasContentInteractionOverride: Bool
     public var contentInteraction: RetainedPresentationContentInteraction
+    public var hasCompactAdaptationOverride: Bool
+    public var horizontalCompactAdaptation: RetainedPresentationAdaptation
+    public var verticalCompactAdaptation: RetainedPresentationAdaptation
 
     public init(
         hasBackgroundOverride: Bool = false,
@@ -307,7 +318,10 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         hasBackgroundInteractionOverride: Bool = false,
         allowsBackgroundInteraction: Bool = false,
         hasContentInteractionOverride: Bool = false,
-        contentInteraction: RetainedPresentationContentInteraction = .automatic
+        contentInteraction: RetainedPresentationContentInteraction = .automatic,
+        hasCompactAdaptationOverride: Bool = false,
+        horizontalCompactAdaptation: RetainedPresentationAdaptation = .automatic,
+        verticalCompactAdaptation: RetainedPresentationAdaptation = .automatic
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
@@ -325,6 +339,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         self.allowsBackgroundInteraction = allowsBackgroundInteraction
         self.hasContentInteractionOverride = hasContentInteractionOverride
         self.contentInteraction = contentInteraction
+        self.hasCompactAdaptationOverride = hasCompactAdaptationOverride
+        self.horizontalCompactAdaptation = horizontalCompactAdaptation
+        self.verticalCompactAdaptation = verticalCompactAdaptation
     }
 
     public static let empty = RetainedPresentationChrome()

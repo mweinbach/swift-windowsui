@@ -128,7 +128,10 @@ final class ComponentHostTests: XCTestCase {
                             hasBackgroundInteractionOverride: true,
                             allowsBackgroundInteraction: false,
                             hasContentInteractionOverride: true,
-                            contentInteraction: .resizes
+                            contentInteraction: .resizes,
+                            hasCompactAdaptationOverride: true,
+                            horizontalCompactAdaptation: .none,
+                            verticalCompactAdaptation: .fullScreenCover
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
@@ -147,7 +150,10 @@ final class ComponentHostTests: XCTestCase {
                             hasBackgroundInteractionOverride: true,
                             allowsBackgroundInteraction: true,
                             hasContentInteractionOverride: true,
-                            contentInteraction: .scrolls
+                            contentInteraction: .scrolls,
+                            hasCompactAdaptationOverride: true,
+                            horizontalCompactAdaptation: .sheet,
+                            verticalCompactAdaptation: .popover
                         )
 
                     node.text = label
@@ -241,7 +247,10 @@ final class ComponentHostTests: XCTestCase {
                     hasBackgroundInteractionOverride: true,
                     allowsBackgroundInteraction: true,
                     hasContentInteractionOverride: true,
-                    contentInteraction: .scrolls
+                    contentInteraction: .scrolls,
+                    hasCompactAdaptationOverride: true,
+                    horizontalCompactAdaptation: .sheet,
+                    verticalCompactAdaptation: .popover
                 )
             )
             XCTAssertEqual(firstNode?.isToolbarContainer, false)
@@ -304,7 +313,10 @@ final class ComponentHostTests: XCTestCase {
                     hasBackgroundInteractionOverride: true,
                     allowsBackgroundInteraction: false,
                     hasContentInteractionOverride: true,
-                    contentInteraction: .resizes
+                    contentInteraction: .resizes,
+                    hasCompactAdaptationOverride: true,
+                    horizontalCompactAdaptation: .none,
+                    verticalCompactAdaptation: .fullScreenCover
                 )
             )
             XCTAssertEqual(reusedNode?.isToolbarContainer, true)

@@ -7526,6 +7526,66 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationCompactAdaptationAdaptsRetainedCompactPopovers() async {
+        await MainActor.run {
+            var sheetPopoverPresented = true
+            let sheetNode = makeNode(
+                Text("ROOT")
+                    .popover(
+                        isPresented: Binding(
+                            get: { sheetPopoverPresented },
+                            set: { sheetPopoverPresented = $0 }
+                        )
+                    ) {
+                        Text("SHEET POPOVER")
+                            .presentationCompactAdaptation(.sheet)
+                    }
+                    .environment(\.horizontalSizeClass, .compact)
+            )
+
+            XCTAssertEqual(sheetNode.children.count, 3)
+            XCTAssertEqual(sheetNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(allTexts(in: sheetNode.children[2]).contains("SHEET POPOVER"))
+            sheetNode.children[1].onActivate?()
+            XCTAssertFalse(sheetPopoverPresented)
+
+            let fullScreenNode = makeNode(
+                Text("ROOT")
+                    .popover(isPresented: .constant(true)) {
+                        Text("FULL POPOVER")
+                            .presentationCompactAdaptation(
+                                horizontal: .none,
+                                vertical: .fullScreenCover
+                            )
+                    }
+                    .environment(\.horizontalSizeClass, .compact)
+                    .environment(\.verticalSizeClass, .compact),
+                size: Size(width: 320, height: 180)
+            )
+            fullScreenNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
+
+            XCTAssertEqual(fullScreenNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: fullScreenNode.children[1]).contains("FULL POPOVER"))
+            XCTAssertEqual(fullScreenNode.children[1].frame, Rect(x: 0, y: 0, width: 320, height: 180))
+
+            let noneNode = makeNode(
+                Text("ROOT")
+                    .frame(width: 200, height: 100)
+                    .popover(isPresented: .constant(true), arrowEdge: .bottom) {
+                        Text("PLAIN POPOVER")
+                            .presentationCompactAdaptation(.none)
+                    }
+                    .environment(\.horizontalSizeClass, .compact),
+                size: Size(width: 320, height: 180)
+            )
+            noneNode.onLayout?(Rect(x: 0, y: 0, width: 320, height: 180))
+
+            XCTAssertEqual(noneNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: noneNode.children[1]).contains("PLAIN POPOVER"))
+            XCTAssertNotEqual(noneNode.children[1].frame, Rect(x: 0, y: 0, width: 320, height: 180))
+        }
+    }
+
     func testPresentationDetentAndDismissModifiersPreserveRetainedSheetContent() async {
         await MainActor.run {
             struct SheetContent: View {

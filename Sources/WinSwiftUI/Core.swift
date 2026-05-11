@@ -1024,6 +1024,23 @@ public struct PresentationAdaptation: Sendable, Equatable, Hashable {
     public static let fullScreenCover = PresentationAdaptation(kind: .fullScreenCover)
 }
 
+private extension PresentationAdaptation {
+    var retainedAdaptation: RetainedPresentationAdaptation {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .none:
+            return .none
+        case .popover:
+            return .popover
+        case .sheet:
+            return .sheet
+        case .fullScreenCover:
+            return .fullScreenCover
+        }
+    }
+}
+
 public struct PresentationContentInteraction: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -6782,6 +6799,11 @@ private func mergedPresentationChrome(
         result.hasContentInteractionOverride = true
         result.contentInteraction = override.contentInteraction
     }
+    if override.hasCompactAdaptationOverride {
+        result.hasCompactAdaptationOverride = true
+        result.horizontalCompactAdaptation = override.horizontalCompactAdaptation
+        result.verticalCompactAdaptation = override.verticalCompactAdaptation
+    }
     return result
 }
 
@@ -7147,6 +7169,65 @@ private func popoverAlignment(for arrowEdge: Edge, layoutDirection: LayoutDirect
         return layoutDirection == .rightToLeft ? .trailing : .leading
     case .trailing:
         return layoutDirection == .rightToLeft ? .leading : .trailing
+    }
+}
+
+@MainActor
+private func retainedCompactPopoverAdaptation(
+    chrome: RetainedPresentationChrome,
+    context: ViewBuildContext
+) -> RetainedPresentationAdaptation {
+    guard chrome.hasCompactAdaptationOverride else {
+        return .popover
+    }
+
+    var adaptation: RetainedPresentationAdaptation?
+    let environment = context.environmentValues
+    if environment.horizontalSizeClass == .compact {
+        adaptation = chrome.horizontalCompactAdaptation
+    }
+    if environment.verticalSizeClass == .compact {
+        adaptation = chrome.verticalCompactAdaptation
+    }
+    return adaptation ?? .popover
+}
+
+@MainActor
+private func retainedCompactAdaptivePopoverPresentation(
+    base: Component,
+    popover: Component,
+    context: ViewBuildContext,
+    arrowEdge: Edge,
+    onInteractiveDismiss: @escaping @MainActor @Sendable () -> Void
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let popoverContentNode = popover.makeNode(runtime: runtime)
+        let presentationChrome = retainedPresentationChrome(in: popoverContentNode)
+        let baseComponent = Component { _ in baseNode }
+        let popoverComponent = Component { _ in popoverContentNode }
+
+        switch retainedCompactPopoverAdaptation(chrome: presentationChrome, context: context) {
+        case .sheet:
+            return retainedSheetPresentation(
+                base: baseComponent,
+                sheet: popoverComponent,
+                context: context,
+                onInteractiveDismiss: onInteractiveDismiss
+            )
+            .makeNode(runtime: runtime)
+        case .fullScreenCover:
+            return retainedFullScreenCoverPresentation(base: baseComponent, cover: popoverComponent)
+                .makeNode(runtime: runtime)
+        case .automatic, .none, .popover:
+            return retainedPopoverPresentation(
+                base: baseComponent,
+                popover: popoverComponent,
+                context: context,
+                arrowEdge: arrowEdge
+            )
+            .makeNode(runtime: runtime)
+        }
     }
 }
 
@@ -8161,11 +8242,21 @@ public extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedPopoverPresentation(
+            let dismiss: @MainActor @Sendable () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedCompactAdaptivePopoverPresentation(
                 base: base,
                 popover: popover,
                 context: context,
-                arrowEdge: arrowEdge
+                arrowEdge: arrowEdge,
+                onInteractiveDismiss: dismiss
             )
         }
     }
@@ -8199,11 +8290,21 @@ public extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedPopoverPresentation(
+            let dismiss: @MainActor @Sendable () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
+
+                item.wrappedValue = nil
+                context.invalidate()
+            }
+
+            return retainedCompactAdaptivePopoverPresentation(
                 base: base,
                 popover: popover,
                 context: context,
-                arrowEdge: arrowEdge
+                arrowEdge: arrowEdge,
+                onInteractiveDismiss: dismiss
             )
         }
     }
@@ -8378,9 +8479,16 @@ public extension View {
     }
 
     func presentationCompactAdaptation(_ adaptation: PresentationAdaptation) -> some View {
-        _ = adaptation
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            let retainedAdaptation = adaptation.retainedAdaptation
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasCompactAdaptationOverride = true
+                node.presentationChrome.horizontalCompactAdaptation = retainedAdaptation
+                node.presentationChrome.verticalCompactAdaptation = retainedAdaptation
+                return node
+            }
         }
     }
 
@@ -8388,10 +8496,17 @@ public extension View {
         horizontal: PresentationAdaptation,
         vertical: PresentationAdaptation
     ) -> some View {
-        _ = horizontal
-        _ = vertical
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            let horizontalAdaptation = horizontal.retainedAdaptation
+            let verticalAdaptation = vertical.retainedAdaptation
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasCompactAdaptationOverride = true
+                node.presentationChrome.horizontalCompactAdaptation = horizontalAdaptation
+                node.presentationChrome.verticalCompactAdaptation = verticalAdaptation
+                return node
+            }
         }
     }
 

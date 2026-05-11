@@ -5796,6 +5796,69 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testUndoManagerEnvironmentCanBeReadAndPerformUndoRedo() async {
+        await MainActor.run {
+            final class UndoTarget {
+                var value = 1
+            }
+
+            struct UndoManagerReaderView: View {
+                @Environment(\.undoManager) var undoManager
+
+                var body: some View {
+                    Text(
+                        undoManager == nil
+                            ? "NO UNDO"
+                            : undoManager?.canUndo == true
+                                ? "CAN UNDO"
+                                : "UNDO READY"
+                    )
+                }
+            }
+
+            let undoManager = UndoManager()
+            let target = UndoTarget()
+            undoManager.registerUndo(withTarget: target) { target in
+                target.value = 0
+                undoManager.registerUndo(withTarget: target) { target in
+                    target.value = 1
+                }
+                undoManager.setActionName("Restore")
+            }
+            undoManager.setActionName("Clear")
+
+            let defaultNode = makeNode(UndoManagerReaderView())
+            let overrideNode = makeNode(UndoManagerReaderView().environment(\.undoManager, undoManager))
+
+            XCTAssertEqual(defaultNode.text, "NO UNDO")
+            XCTAssertEqual(overrideNode.text, "CAN UNDO")
+            XCTAssertTrue(undoManager.canUndo)
+            XCTAssertFalse(undoManager.canRedo)
+            XCTAssertEqual(undoManager.undoActionName, "Clear")
+
+            undoManager.undo()
+
+            XCTAssertEqual(target.value, 0)
+            XCTAssertFalse(undoManager.canUndo)
+            XCTAssertTrue(undoManager.canRedo)
+            XCTAssertEqual(undoManager.redoActionName, "Restore")
+
+            undoManager.redo()
+
+            XCTAssertEqual(target.value, 1)
+            XCTAssertFalse(undoManager.canRedo)
+
+            undoManager.registerUndo(withTarget: target) { target in
+                target.value = 2
+            }
+            XCTAssertTrue(undoManager.canUndo)
+
+            undoManager.removeAllActions()
+            XCTAssertFalse(undoManager.canUndo)
+            XCTAssertFalse(undoManager.canRedo)
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {

@@ -526,6 +526,96 @@ public protocol EnvironmentKey {
     static var defaultValue: Value { get }
 }
 
+@MainActor
+public final class UndoManager: @unchecked Sendable {
+    private struct UndoAction {
+        var name: String
+        let handler: @MainActor () -> Void
+    }
+
+    private var undoStack: [UndoAction] = []
+    private var redoStack: [UndoAction] = []
+    private var pendingActionName = ""
+
+    public private(set) var isUndoing = false
+    public private(set) var isRedoing = false
+
+    public init() {}
+
+    public var canUndo: Bool {
+        !undoStack.isEmpty
+    }
+
+    public var canRedo: Bool {
+        !redoStack.isEmpty
+    }
+
+    public var undoActionName: String {
+        undoStack.last?.name ?? ""
+    }
+
+    public var redoActionName: String {
+        redoStack.last?.name ?? ""
+    }
+
+    public func registerUndo<TargetType: AnyObject>(
+        withTarget target: TargetType,
+        handler: @escaping @MainActor (TargetType) -> Void
+    ) {
+        let action = UndoAction(name: pendingActionName) { [target] in
+            handler(target)
+        }
+        pendingActionName = ""
+
+        if isUndoing {
+            redoStack.append(action)
+        } else {
+            undoStack.append(action)
+            if !isRedoing {
+                redoStack.removeAll()
+            }
+        }
+    }
+
+    public func setActionName(_ actionName: String) {
+        if isUndoing, !redoStack.isEmpty {
+            redoStack[redoStack.count - 1].name = actionName
+        } else if isRedoing, !undoStack.isEmpty {
+            undoStack[undoStack.count - 1].name = actionName
+        } else if !undoStack.isEmpty {
+            undoStack[undoStack.count - 1].name = actionName
+        } else {
+            pendingActionName = actionName
+        }
+    }
+
+    public func undo() {
+        guard let action = undoStack.popLast() else {
+            return
+        }
+
+        isUndoing = true
+        action.handler()
+        isUndoing = false
+    }
+
+    public func redo() {
+        guard let action = redoStack.popLast() else {
+            return
+        }
+
+        isRedoing = true
+        action.handler()
+        isRedoing = false
+    }
+
+    public func removeAllActions() {
+        undoStack.removeAll()
+        redoStack.removeAll()
+        pendingActionName = ""
+    }
+}
+
 public struct OpenURLAction: @unchecked Sendable {
     public enum Result: Sendable, Equatable {
         case handled
@@ -634,6 +724,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
     public var refresh: RefreshAction?
+    public var undoManager: UndoManager?
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -688,7 +779,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
-        refresh: RefreshAction? = nil
+        refresh: RefreshAction? = nil,
+        undoManager: UndoManager? = nil
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -748,6 +840,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.openURL = openURL
         self.dismiss = dismiss
         self.refresh = refresh
+        self.undoManager = undoManager
         self.customValues = [:]
     }
 

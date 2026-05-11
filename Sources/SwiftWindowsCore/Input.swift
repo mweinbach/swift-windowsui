@@ -44,6 +44,7 @@ public enum KeyboardKey: UInt32, Sendable {
     case upArrow = 0x26
     case rightArrow = 0x27
     case downArrow = 0x28
+    case deleteForward = 0x2E
     case space = 0x20
 }
 

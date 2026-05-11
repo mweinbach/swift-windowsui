@@ -161,6 +161,7 @@ public final class ComponentHost {
         if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
         if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
+        if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }
         if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }
         if target.isFocusEffectDisabled != source.isFocusEffectDisabled { target.isFocusEffectDisabled = source.isFocusEffectDisabled }

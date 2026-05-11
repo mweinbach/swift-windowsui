@@ -3867,6 +3867,7 @@ private func textInputComponent(
             children: [labelNode]
         )
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
+        node.textInputCaretOffset = currentText.count
 
         guard context.isEnabled else {
             return node
@@ -3884,26 +3885,69 @@ private func textInputComponent(
             node?.outlineWidth = 0
         }
         node.onKeyDown = { event in
+            let clampedCaret = clampedTextOffset(node.textInputCaretOffset, in: binding.wrappedValue)
+
             if event.key == .backspace {
-                guard !binding.wrappedValue.isEmpty else {
+                guard clampedCaret > 0 else {
                     return
                 }
 
-                binding.wrappedValue.removeLast()
+                let updatedText = binding.wrappedValue.removingText(
+                    in: (clampedCaret - 1)..<clampedCaret
+                )
+                binding.wrappedValue = updatedText
+                node.textInputCaretOffset = clampedCaret - 1
                 context.invalidate()
                 return
+            }
+
+            if event.key == .deleteForward {
+                guard clampedCaret < binding.wrappedValue.count else {
+                    return
+                }
+
+                binding.wrappedValue = binding.wrappedValue.removingText(
+                    in: clampedCaret..<(clampedCaret + 1)
+                )
+                node.textInputCaretOffset = clampedCaret
+                context.invalidate()
+                return
+            }
+
+            switch event.key {
+            case .leftArrow:
+                node.textInputCaretOffset = max(0, clampedCaret - 1)
+                context.invalidate()
+                return
+            case .rightArrow:
+                node.textInputCaretOffset = min(binding.wrappedValue.count, clampedCaret + 1)
+                context.invalidate()
+                return
+            case .home:
+                node.textInputCaretOffset = 0
+                context.invalidate()
+                return
+            case .end:
+                node.textInputCaretOffset = binding.wrappedValue.count
+                context.invalidate()
+                return
+            case .backspace, .deleteForward:
+                return
+            case nil, .tab, .enter, .shift, .control, .alt, .escape, .pageUp, .pageDown, .upArrow, .downArrow, .space:
+                break
             }
 
             guard let character = textFieldInsertedCharacter(
                 for: event,
                 allowsNewlines: allowsNewlines,
-                currentText: binding.wrappedValue,
+                currentText: binding.wrappedValue.textPrefix(upTo: clampedCaret),
                 textInputAutocapitalization: context.textInputAutocapitalization
             ) else {
                 return
             }
 
-            binding.wrappedValue.append(contentsOf: character)
+            binding.wrappedValue = binding.wrappedValue.insertingText(character, at: clampedCaret)
+            node.textInputCaretOffset = clampedCaret + character.count
             context.invalidate()
         }
 
@@ -6245,6 +6289,39 @@ private func textFieldInsertedCharacter(
         currentText: currentText,
         textInputAutocapitalization: textInputAutocapitalization
     )
+}
+
+private func clampedTextOffset(_ offset: Int, in text: String) -> Int {
+    min(max(0, offset), text.count)
+}
+
+private extension String {
+    func textPrefix(upTo offset: Int) -> String {
+        let clampedOffset = clampedTextOffset(offset, in: self)
+        return String(prefix(clampedOffset))
+    }
+
+    func insertingText(_ insertedText: String, at offset: Int) -> String {
+        let clampedOffset = clampedTextOffset(offset, in: self)
+        let insertionIndex = index(startIndex, offsetBy: clampedOffset)
+        var copy = self
+        copy.insert(contentsOf: insertedText, at: insertionIndex)
+        return copy
+    }
+
+    func removingText(in offsets: Range<Int>) -> String {
+        let lowerBound = clampedTextOffset(offsets.lowerBound, in: self)
+        let upperBound = clampedTextOffset(offsets.upperBound, in: self)
+        guard lowerBound < upperBound else {
+            return self
+        }
+
+        let lowerIndex = index(startIndex, offsetBy: lowerBound)
+        let upperIndex = index(startIndex, offsetBy: upperBound)
+        var copy = self
+        copy.removeSubrange(lowerIndex..<upperIndex)
+        return copy
+    }
 }
 
 private func autocapitalizedInsertedCharacter(

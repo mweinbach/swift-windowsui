@@ -392,6 +392,51 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextInputSupportsBasicCaretNavigationAndDeletion() async {
+        await MainActor.run {
+            var value = "abc"
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let node = makeNode(
+                TextField("NAME", text: binding),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.textInputCaretOffset, 3)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x58))
+            XCTAssertEqual(value, "abxc")
+            XCTAssertEqual(node.textInputCaretOffset, 3)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.home.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x51))
+            XCTAssertEqual(value, "qabxc")
+            XCTAssertEqual(node.textInputCaretOffset, 1)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.deleteForward.rawValue))
+            XCTAssertEqual(value, "qbxc")
+            XCTAssertEqual(node.textInputCaretOffset, 1)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.end.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            XCTAssertEqual(value, "qbc")
+            XCTAssertEqual(node.textInputCaretOffset, 2)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+            XCTAssertEqual(value, "qbcz")
+            XCTAssertEqual(node.textInputCaretOffset, 4)
+            XCTAssertEqual(invalidationCount, 10)
+        }
+    }
+
     func testTextFieldAndSecureFieldPromptOverloadsMapToPlaceholder() async {
         await MainActor.run {
             let source = "FIELD-NAME"

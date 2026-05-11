@@ -5183,6 +5183,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testIndexViewStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct IndexViewStyleReader: View {
+                @Environment(\.indexViewStyle) var indexViewStyle
+
+                var body: some View {
+                    Text(
+                        indexViewStyle == .page(backgroundDisplayMode: .never) ? "NEVER"
+                            : indexViewStyle == .page(backgroundDisplayMode: .always) ? "ALWAYS"
+                            : indexViewStyle == .page(backgroundDisplayMode: .interactive) ? "INTERACTIVE"
+                            : indexViewStyle == .page ? "PAGE"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(IndexViewStyleReader())
+            let neverNode = makeNode(
+                IndexViewStyleReader()
+                    .indexViewStyle(PageIndexViewStyle(backgroundDisplayMode: .never))
+            )
+            let alwaysNode = makeNode(
+                IndexViewStyleReader()
+                    .indexViewStyle(.page(backgroundDisplayMode: .always))
+            )
+            let interactiveNode = makeNode(
+                IndexViewStyleReader()
+                    .indexViewStyle(PageIndexViewStyle(backgroundDisplayMode: .interactive))
+            )
+            let styledTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(.page)
+                .indexViewStyle(PageIndexViewStyle(backgroundDisplayMode: .never))
+            )
+
+            XCTAssertEqual(defaultNode.text, "PAGE")
+            XCTAssertEqual(neverNode.text, "NEVER")
+            XCTAssertEqual(alwaysNode.text, "ALWAYS")
+            XCTAssertEqual(interactiveNode.text, "INTERACTIVE")
+            XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
+            XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
+        }
+    }
+
     func testNavigationLinkRendersLabelContent() async {
         await MainActor.run {
             let node = makeNode(

@@ -1217,6 +1217,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var gaugeStyle: GaugeStyle
     public var datePickerStyle: DatePickerStyle
     public var tabViewStyle: TabViewStyle
+    public var indexViewStyle: IndexViewStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     public var submitLabel: SubmitLabel
@@ -1326,6 +1327,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         gaugeStyle: GaugeStyle = .automatic,
         datePickerStyle: DatePickerStyle = .automatic,
         tabViewStyle: TabViewStyle = .automatic,
+        indexViewStyle: IndexViewStyle = .page,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         submitLabel: SubmitLabel = .return,
@@ -1431,6 +1433,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.gaugeStyle = gaugeStyle
         self.datePickerStyle = datePickerStyle
         self.tabViewStyle = tabViewStyle
+        self.indexViewStyle = indexViewStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.submitLabel = submitLabel
@@ -2147,6 +2150,14 @@ public struct ViewBuildContext {
 
     public var datePickerStyle: DatePickerStyle {
         environmentValuesProvider().datePickerStyle
+    }
+
+    public var tabViewStyle: TabViewStyle {
+        environmentValuesProvider().tabViewStyle
+    }
+
+    public var indexViewStyle: IndexViewStyle {
+        environmentValuesProvider().indexViewStyle
     }
 
     public var toggleStyle: ToggleStyle {
@@ -4496,6 +4507,51 @@ public struct VerticalPageTabViewStyle: Sendable, Equatable {
 
 public struct CarouselTabViewStyle: Sendable, Equatable {
     public init() {}
+}
+
+public struct IndexViewStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case page(backgroundDisplayMode: PageIndexViewStyle.BackgroundDisplayMode)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let page = IndexViewStyle(kind: .page(backgroundDisplayMode: .automatic))
+    public static func page(backgroundDisplayMode: PageIndexViewStyle.BackgroundDisplayMode) -> IndexViewStyle {
+        IndexViewStyle(kind: .page(backgroundDisplayMode: backgroundDisplayMode))
+    }
+}
+
+public struct PageIndexViewStyle: Sendable, Equatable {
+    public struct BackgroundDisplayMode: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case automatic
+            case always
+            case interactive
+            case never
+        }
+
+        let kind: Kind
+
+        private init(_ kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let automatic = BackgroundDisplayMode(.automatic)
+        public static let always = BackgroundDisplayMode(.always)
+        public static let interactive = BackgroundDisplayMode(.interactive)
+        public static let never = BackgroundDisplayMode(.never)
+    }
+
+    public var backgroundDisplayMode: BackgroundDisplayMode
+
+    public init(backgroundDisplayMode: BackgroundDisplayMode = .automatic) {
+        self.backgroundDisplayMode = backgroundDisplayMode
+    }
 }
 
 public struct GroupBoxStyle: Sendable, Equatable {
@@ -7832,6 +7888,16 @@ public extension View {
 
     func tabViewStyle(_ style: CarouselTabViewStyle) -> some View {
         tabViewStyle(.carousel)
+    }
+
+    func indexViewStyle(_ style: IndexViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.indexViewStyle, style))
+        }
+    }
+
+    func indexViewStyle(_ style: PageIndexViewStyle) -> some View {
+        indexViewStyle(.page(backgroundDisplayMode: style.backgroundDisplayMode))
     }
 
     func toggleStyle(_ style: ToggleStyle) -> some View {

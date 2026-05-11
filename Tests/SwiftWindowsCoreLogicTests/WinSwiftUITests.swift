@@ -2565,6 +2565,57 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBadgeModifierMapsToRetainedTrailingBadgeChrome() async {
+        await MainActor.run {
+            let numericNode = makeNode(Text("ROW").badge(3))
+            let hiddenCountNode = makeNode(Text("ROW").badge(0))
+            let hiddenStringNode = makeNode(Text("ROW").badge(nil as String?))
+            let stringNode = makeNode(Text("ROW").badge("NEW"))
+
+            guard case .stack(let numericLayout) = numericNode.layoutMode else {
+                return XCTFail("Expected badge to wrap content in a retained horizontal stack")
+            }
+
+            XCTAssertEqual(numericLayout, .horizontal(spacing: 8, padding: .zero, alignment: .center))
+            XCTAssertEqual(numericNode.children.count, 3)
+            XCTAssertEqual(numericNode.children[0].text, "ROW")
+            XCTAssertEqual(numericNode.children[1].layoutPriority, 1)
+            XCTAssertEqual(numericNode.children[2].children[0].text, "3")
+            XCTAssertEqual(numericNode.children[2].cornerRadius, 9)
+            XCTAssertEqual(numericNode.children[2].layoutConstraints?.minWidth, 18)
+            XCTAssertEqual(numericNode.children[2].layoutConstraints?.minHeight, 18)
+            XCTAssertEqual(hiddenCountNode.text, "ROW")
+            XCTAssertEqual(hiddenStringNode.text, "ROW")
+            XCTAssertEqual(stringNode.children[2].children[0].text, "NEW")
+        }
+    }
+
+    func testBadgeProminenceMapsToRetainedBadgeColorsAndEnvironment() async {
+        await MainActor.run {
+            struct BadgeProminenceReader: View {
+                @Environment(\.badgeProminence) var badgeProminence
+
+                var body: some View {
+                    Text(badgeProminence == .increased ? "INCREASED" : "STANDARD")
+                }
+            }
+
+            let standardNode = makeNode(Text("ROW").badge(1))
+            let increasedNode = makeNode(Text("ROW").badge(1).badgeProminence(.increased))
+            let environmentNode = makeNode(BadgeProminenceReader().badgeProminence(.increased))
+
+            XCTAssertEqual(
+                standardNode.children[2].backgroundColor,
+                Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+            )
+            XCTAssertEqual(
+                increasedNode.children[2].backgroundColor,
+                Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96)
+            )
+            XCTAssertEqual(environmentNode.text, "INCREASED")
+        }
+    }
+
     func testListDataInitializerRendersRowsWithStableIDs() async {
         await MainActor.run {
             let node = makeNode(

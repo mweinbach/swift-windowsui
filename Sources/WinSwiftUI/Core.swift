@@ -352,6 +352,24 @@ public enum Prominence: Sendable, Equatable, Hashable {
     case increased
 }
 
+public struct BadgeProminence: Sendable, Equatable, Hashable {
+    private enum Level: Sendable, Equatable, Hashable {
+        case decreased
+        case standard
+        case increased
+    }
+
+    private let level: Level
+
+    private init(_ level: Level) {
+        self.level = level
+    }
+
+    public static let decreased = BadgeProminence(.decreased)
+    public static let standard = BadgeProminence(.standard)
+    public static let increased = BadgeProminence(.increased)
+}
+
 public protocol EnvironmentKey {
     associatedtype Value
 
@@ -384,6 +402,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultMinListRowHeight: Double
     public var defaultMinListHeaderHeight: CGFloat?
     public var headerProminence: Prominence
+    public var badgeProminence: BadgeProminence
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -411,6 +430,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
         headerProminence: Prominence = .standard,
+        badgeProminence: BadgeProminence = .standard,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic
     ) {
@@ -439,6 +459,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultMinListRowHeight = defaultMinListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
         self.headerProminence = headerProminence
+        self.badgeProminence = badgeProminence
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -736,6 +757,10 @@ public struct ViewBuildContext {
 
     public var headerProminence: Prominence {
         environmentValuesProvider().headerProminence
+    }
+
+    public var badgeProminence: BadgeProminence {
+        environmentValuesProvider().badgeProminence
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
@@ -2655,6 +2680,36 @@ private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, g
     }
 }
 
+extension BadgeProminence {
+    var retainedBadgeBackgroundColor: Color {
+        switch level {
+        case .decreased:
+            return Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12)
+        case .standard:
+            return Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+        case .increased:
+            return Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96)
+        }
+    }
+
+    var retainedBadgeTextColor: Color {
+        switch level {
+        case .decreased:
+            return Color(red: 0.86, green: 0.92, blue: 0.98, alpha: 0.78)
+        case .standard, .increased:
+            return .white
+        }
+    }
+}
+
+extension ViewBuildContext {
+    var badgeContext: ViewBuildContext {
+        withForegroundColor(badgeProminence.retainedBadgeTextColor)
+            .withFont(.caption)
+            .withLineLimit(1)
+    }
+}
+
 private func resolvedStyleColor(from style: ForegroundStyle) -> Color {
     switch style {
     case .color(let color):
@@ -3432,6 +3487,62 @@ public extension View {
     func headerProminence(_ prominence: Prominence) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.headerProminence, prominence))
+        }
+    }
+
+    func badge(_ count: Int) -> some View {
+        badge(count == 0 ? nil : Text(String(count)))
+    }
+
+    func badge<S: StringProtocol>(_ label: S?) -> some View {
+        badge(label.map { Text(String($0)) })
+    }
+
+    func badge(_ key: LocalizedStringKey?) -> some View {
+        badge(key.map { Text($0) })
+    }
+
+    func badge(_ label: Text?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            guard let label else {
+                return component
+            }
+
+            let badgeComponent = label.makeComponent(context: context.badgeContext)
+            return Component { runtime in
+                let contentNode = component.makeNode(runtime: runtime)
+                let badgeTextNode = badgeComponent.makeNode(runtime: runtime)
+                let badgeNode = Controls.stackPanel(
+                    backgroundColor: context.badgeProminence.retainedBadgeBackgroundColor,
+                    cornerRadius: 9,
+                    stackLayout: .horizontal(
+                        spacing: 0,
+                        padding: EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6),
+                        alignment: .center,
+                        mainAlignment: .center
+                    ),
+                    isHitTestVisible: false,
+                    children: [badgeTextNode]
+                )
+                badgeNode.layoutConstraints = LayoutConstraints(minWidth: 18, minHeight: 18)
+
+                return Controls.stackPanel(
+                    stackLayout: .horizontal(spacing: 8, padding: .zero, alignment: .center),
+                    isHitTestVisible: contentNode.isHitTestVisible,
+                    children: [
+                        contentNode,
+                        Controls.panel(layoutPriority: 1, isHitTestVisible: false),
+                        badgeNode,
+                    ]
+                )
+            }
+        }
+    }
+
+    func badgeProminence(_ prominence: BadgeProminence) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.badgeProminence, prominence))
         }
     }
 

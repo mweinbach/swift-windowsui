@@ -3017,13 +3017,103 @@ public struct ScrollView: View {
 }
 
 @MainActor
+private enum ListSelectionMode {
+    case single(get: () -> AnyHashable?, set: (AnyHashable?) -> Void)
+    case multiple(get: () -> Set<AnyHashable>, set: (Set<AnyHashable>) -> Void)
+
+    static func single<Value: Hashable>(_ selection: Binding<Value?>) -> ListSelectionMode {
+        .single(
+            get: {
+                selection.wrappedValue.map { AnyHashable($0) }
+            },
+            set: { value in
+                selection.wrappedValue = value?.base as? Value
+            }
+        )
+    }
+
+    static func requiredSingle<Value: Hashable>(_ selection: Binding<Value>) -> ListSelectionMode {
+        .single(
+            get: {
+                AnyHashable(selection.wrappedValue)
+            },
+            set: { value in
+                guard let value = value?.base as? Value else {
+                    return
+                }
+                selection.wrappedValue = value
+            }
+        )
+    }
+
+    static func multiple<Value: Hashable>(_ selection: Binding<Set<Value>>) -> ListSelectionMode {
+        .multiple(
+            get: {
+                Set(selection.wrappedValue.map { AnyHashable($0) })
+            },
+            set: { values in
+                selection.wrappedValue = Set(values.compactMap { $0.base as? Value })
+            }
+        )
+    }
+
+    func contains(_ value: AnyHashable) -> Bool {
+        switch self {
+        case .single(let get, _):
+            return get() == value
+        case .multiple(let get, _):
+            return get().contains(value)
+        }
+    }
+
+    @discardableResult
+    func activate(_ value: AnyHashable) -> Bool {
+        switch self {
+        case .single(let get, let set):
+            guard get() != value else {
+                return false
+            }
+            set(value)
+            return true
+        case .multiple(let get, let set):
+            var values = get()
+            if values.contains(value) {
+                values.remove(value)
+            } else {
+                values.insert(value)
+            }
+            set(values)
+            return true
+        }
+    }
+}
+
+@MainActor
 public struct List: View {
     public typealias Body = Never
 
     private let content: [AnyView]
+    private let selectionMode: ListSelectionMode?
 
     public init(@ViewBuilder content: () -> [AnyView]) {
         self.content = content()
+        self.selectionMode = nil
+    }
+
+    public init<SelectionValue: Hashable>(
+        selection: Binding<SelectionValue?>?,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.content = content()
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<SelectionValue: Hashable>(
+        selection: Binding<Set<SelectionValue>>?,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.content = content()
+        self.selectionMode = selection.map { .multiple($0) }
     }
 
     public init<Data: RandomAccessCollection, ID: Hashable>(
@@ -3032,6 +3122,36 @@ public struct List: View {
         @ViewBuilder rowContent: (Data.Element) -> [AnyView]
     ) {
         self.content = ForEach(data, id: id, content: rowContent).contentViews
+        self.selectionMode = nil
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        selection: Binding<ID?>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) {
+        self.content = Self.taggedRows(data, id: id, rowContent: rowContent)
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        selection: Binding<Set<ID>>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) {
+        self.content = Self.taggedRows(data, id: id, rowContent: rowContent)
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
+    public init(
+        _ data: Range<Int>,
+        selection: Binding<Int>,
+        @ViewBuilder rowContent: (Int) -> [AnyView]
+    ) {
+        self.content = Self.taggedRows(data, id: \.self, rowContent: rowContent)
+        self.selectionMode = .requiredSingle(selection)
     }
 
     public var body: Never {
@@ -3054,7 +3174,15 @@ public struct List: View {
                 ),
                 isHitTestVisible: false,
                 children: content.map {
-                    let row = $0.makeComponent(context: context).makeNode(runtime: runtime)
+                    var row = $0.makeComponent(context: context).makeNode(runtime: runtime)
+                    if let selectionMode, let tag = $0.selectionTag {
+                        row = Self.selectableRow(
+                            wrapping: row,
+                            tag: tag,
+                            selectionMode: selectionMode,
+                            context: context
+                        )
+                    }
                     if context.defaultMinListRowHeight > 0 {
                         row.applyDefaultMinimumHeight(context.defaultMinListRowHeight)
                     }
@@ -3073,6 +3201,59 @@ public struct List: View {
             return node
         }
     }
+
+    private static func taggedRows<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        rowContent: (Data.Element) -> [AnyView]
+    ) -> [AnyView] {
+        var views: [AnyView] = []
+        for element in data {
+            let elementID = element[keyPath: id]
+            let elementIDDescription = String(describing: elementID)
+            let elementViews = rowContent(element)
+            for (index, view) in elementViews.enumerated() {
+                views.append(AnyView(view.id("\(elementIDDescription)#\(index)").tag(elementID)))
+            }
+        }
+        return views
+    }
+
+    private static func selectableRow(
+        wrapping row: ViewNode,
+        tag: AnyHashable,
+        selectionMode: ListSelectionMode,
+        context: ViewBuildContext
+    ) -> ViewNode {
+        let isSelected = selectionMode.contains(tag)
+        let selectionTint = context.tint
+        let rowNode = Controls.stackPanel(
+            backgroundColor: isSelected ? selectionTint.opacity(0.16) : nil,
+            borderColor: isSelected ? selectionTint.opacity(0.52) : .clear,
+            borderWidth: isSelected ? 1 : 0,
+            cornerRadius: 10,
+            stackLayout: .vertical(
+                spacing: 0,
+                padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                alignment: .stretch
+            ),
+            isHitTestVisible: true,
+            children: [row]
+        )
+        rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
+
+        guard context.isEnabled else {
+            return rowNode
+        }
+
+        rowNode.isFocusable = true
+        rowNode.onActivate = {
+            if selectionMode.activate(tag) {
+                context.invalidate()
+            }
+        }
+        return rowNode
+    }
 }
 
 public extension List {
@@ -3081,6 +3262,22 @@ public extension List {
         @ViewBuilder rowContent: (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
         self.init(data, id: \.id, rowContent: rowContent)
+    }
+
+    init<Data: RandomAccessCollection>(
+        _ data: Data,
+        selection: Binding<Data.Element.ID?>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.init(data, id: \.id, selection: selection, rowContent: rowContent)
+    }
+
+    init<Data: RandomAccessCollection>(
+        _ data: Data,
+        selection: Binding<Set<Data.Element.ID>>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.init(data, id: \.id, selection: selection, rowContent: rowContent)
     }
 }
 

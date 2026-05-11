@@ -114,6 +114,7 @@ Views and containers:
 - `List`
   - `List(data, id:content:)`
   - `List(data, content:) where Element: Identifiable`
+  - single and multiple `selection:` overloads for tagged/static rows and data-backed rows
 - `Form`
 - `Section`
   - `StringProtocol` title inputs
@@ -491,7 +492,7 @@ Surface direction:
 - `scrollDismissesKeyboard(_:)` propagates `EnvironmentValues.scrollDismissesKeyboardMode` with `.automatic`, `.immediately`, `.interactively`, and `.never` for source-compatible scroll/input code. It is metadata today because the Windows retained text input path does not host a software keyboard.
 - `defaultWheelPickerItemHeight(_:)` propagates `EnvironmentValues.defaultWheelPickerItemHeight`, defaulting to `32`. WinSwiftUI does not yet implement wheel-style picker chrome, so this value is readable/overrideable compatibility metadata.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime.
-- `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Row styling remains intentionally minimal.
+- `List` maps to a retained vertical scroll panel, while `Form` maps to a retained vertical stack with form-like spacing and padding. Tagged static rows and data-backed rows support single and multiple `selection:` bindings, render lightweight retained selected-row chrome, and write bindings from row activation. Row styling remains intentionally minimal, and platform edit-mode selection rules are not modeled yet.
 - `headerProminence(_:)` propagates `EnvironmentValues.headerProminence`; `.increased` maps direct `Section` headers to a bolder retained header font unless the header text sets an explicit font.
 - `EnvironmentValues.backgroundProminence` accepts `.standard` and `.increased` for shared-source foreground styling decisions above custom or selected backgrounds. It is readable and overrideable compatibility metadata today; retained lists do not yet derive it from selected-row state.
 - `EnvironmentValues.defaultMinListHeaderHeight` maps to retained minimum-height constraints on direct `Section` header nodes, preserving stronger header constraints.

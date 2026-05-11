@@ -3641,6 +3641,122 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListSelectionContentInitializerSelectsTaggedRows() async {
+        await MainActor.run {
+            var selected: String? = "one"
+            var didInvalidate = false
+            let binding = Binding<String?>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+
+            let node = makeNode(
+                List(selection: binding) {
+                    Text("ONE").tag("one")
+                    Text("TWO").tag("two")
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].children[0].text, "ONE")
+            XCTAssertEqual(node.children[1].children[0].text, "TWO")
+            XCTAssertNotNil(node.children[0].backgroundColor)
+            XCTAssertNil(node.children[1].backgroundColor)
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(selected, "two")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testListDataSelectionInitializerTagsRowsByElementID() async {
+        await MainActor.run {
+            struct Row: Identifiable {
+                let id: Int
+                let title: String
+            }
+
+            var selected: Int? = 7
+            let binding = Binding<Int?>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+            let rows = [
+                Row(id: 7, title: "SEVEN"),
+                Row(id: 9, title: "NINE"),
+            ]
+            let node = makeNode(
+                List(rows, selection: binding) { row in
+                    Text(row.title)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].nodeTag, "7#0")
+            XCTAssertEqual(node.children[1].nodeTag, "9#0")
+            XCTAssertEqual(node.children[0].children[0].text, "SEVEN")
+            XCTAssertEqual(node.children[1].children[0].text, "NINE")
+            XCTAssertNotNil(node.children[0].backgroundColor)
+            XCTAssertNil(node.children[1].backgroundColor)
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(selected, 9)
+        }
+    }
+
+    func testListMultipleSelectionTogglesTaggedRows() async {
+        await MainActor.run {
+            var selected: Set<String> = ["one"]
+            let binding = Binding<Set<String>>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+
+            let node = makeNode(
+                List(selection: binding) {
+                    Text("ONE").tag("one")
+                    Text("TWO").tag("two")
+                }
+            )
+
+            XCTAssertNotNil(node.children[0].backgroundColor)
+            XCTAssertNil(node.children[1].backgroundColor)
+
+            node.children[1].onActivate?()
+            XCTAssertEqual(selected, ["one", "two"])
+
+            node.children[0].onActivate?()
+            XCTAssertEqual(selected, ["two"])
+        }
+    }
+
+    func testListRequiredRangeSelectionWritesIntegerIndex() async {
+        await MainActor.run {
+            var selected = 1
+            let binding = Binding<Int>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+
+            let node = makeNode(
+                List(0..<3, selection: binding) { index in
+                    Text("ROW \(index)")
+                }
+            )
+
+            XCTAssertEqual(node.children[1].nodeTag, "1#0")
+            XCTAssertNotNil(node.children[1].backgroundColor)
+
+            node.children[2].onActivate?()
+
+            XCTAssertEqual(selected, 2)
+        }
+    }
+
     func testFormMapsToVerticalRetainedStackPanel() async {
         await MainActor.run {
             let node = makeNode(

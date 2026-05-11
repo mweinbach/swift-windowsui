@@ -129,6 +129,8 @@ Views and containers:
 - `Menu`
   - `StringProtocol` title inputs
   - `Menu(_:systemImage:content:)`
+  - `Menu(_:content:primaryAction:)`
+  - `Menu(_:systemImage:content:primaryAction:)`
 - `Button`
   - `StringProtocol` title inputs
   - `Button(_:systemImage:...)`
@@ -494,7 +496,7 @@ Surface direction:
 - `listRowSpacing(_:)` maps optional row spacing to the retained `List` stack layout. Passing `nil` restores the retained default spacing of `0`.
 - `EnvironmentValues.defaultMinListRowHeight` maps to retained minimum-height constraints on direct `List` rows, preserving stronger row constraints.
 - `DisclosureGroup` maps optional binding-backed expansion state into a retained disclosure header button plus an indented retained content stack; toggling writes through `Binding<Bool>` when supplied, otherwise uses local retained expansion state, and invalidates the host for rebuild.
-- `Menu` maps to a retained menu button and custom retained popup overlay anchored below the button. Menu content gets `EnvironmentValues.isPresented` and `dismiss`, and retained menu item activation automatically closes the overlay after running the action. Native Win32 menu chrome, keyboard menu navigation, and platform menu roles are not modeled yet.
+- `Menu` maps to a retained menu button and custom retained popup overlay anchored below the button. Menu content gets `EnvironmentValues.isPresented` and `dismiss`, and retained menu item activation automatically closes the overlay after running the action. Primary-action initializers run the primary closure on retained button activation instead of opening the overlay; secondary menu presentation gesture/chrome is not modeled yet. Native Win32 menu chrome, keyboard menu navigation, and platform menu roles are not modeled yet.
 - `ControlGroup` maps to compact retained horizontal group chrome, accepts title and builder-label forms, and preserves nested control actions while applying borderless button style to grouped buttons.
 - `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion, backspace, forward delete, and caret movement with left/right/home/end. `TextField` and `SecureField` provide placeholder rendering from the title or SwiftUI-style `prompt: Text?` overloads, `TextField(axis: .vertical)` maps to the retained multiline input path, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. `textInputAutocapitalization(_:)` propagates through `EnvironmentValues` and transforms inserted retained keyboard text for `.characters`, `.words`, and `.sentences`; `autocorrectionDisabled(_:)` propagates for source compatibility but has no spelling engine behind it yet. These controls do not yet provide selection, IME composition, or full text-editing commands.
 - `DatePicker` accepts SwiftUI-shaped date, time, closed-range, and partial-range initializer labels and maps the selected `Date` into retained label/value text. It reads `EnvironmentValues.calendar` and `EnvironmentValues.timeZone` before formatting its deterministic retained value text, and non-current `EnvironmentValues.locale` overrides use `DateFormatter` for locale-specific date/time text. Retained date pickers are focusable and write the selection binding from arrow-key increments while respecting the supplied range. Calendar popovers and direct text entry are not implemented yet.

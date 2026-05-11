@@ -3975,6 +3975,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuPrimaryActionRunsWithoutOpeningPopup() async {
+        await MainActor.run {
+            var primaryCount = 0
+            var itemCount = 0
+            let titleMenu = Menu("ACTIONS", content: {
+                Button("EXPORT") {
+                    itemCount += 1
+                }
+            }, primaryAction: {
+                primaryCount += 1
+            })
+
+            let titleNode = makeNode(titleMenu)
+
+            XCTAssertTrue(allTexts(in: titleNode).contains("ACTIONS"))
+            XCTAssertFalse(allTexts(in: titleNode).contains("EXPORT"))
+
+            titleNode.children[0].onActivate?()
+
+            XCTAssertEqual(primaryCount, 1)
+            XCTAssertEqual(itemCount, 0)
+
+            let afterPrimaryNode = makeNode(titleMenu)
+            XCTAssertTrue(allTexts(in: afterPrimaryNode).contains("ACTIONS"))
+            XCTAssertFalse(allTexts(in: afterPrimaryNode).contains("EXPORT"))
+
+            var imagePrimaryCount = 0
+            let imageMenu = Menu("MORE", systemImage: "ellipsis.circle", content: {
+                Button("DELETE") {}
+            }, primaryAction: {
+                imagePrimaryCount += 1
+            })
+
+            makeNode(imageMenu).children[0].onActivate?()
+
+            XCTAssertEqual(imagePrimaryCount, 1)
+            XCTAssertFalse(allTexts(in: makeNode(imageMenu)).contains("DELETE"))
+        }
+    }
+
     func testMenuIndicatorVisibilityControlsRetainedDisclosureGlyph() async {
         await MainActor.run {
             let automaticNode = makeNode(

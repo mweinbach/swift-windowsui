@@ -3466,44 +3466,105 @@ public struct Menu: View {
     private let state = MenuState()
     private let label: [AnyView]
     private let content: [AnyView]
+    private let primaryAction: (@MainActor () -> Void)?
 
     public init(
         @ViewBuilder content: () -> [AnyView],
         @ViewBuilder label: () -> [AnyView]
     ) {
+        self.init(content: content, label: label, primaryAction: nil)
+    }
+
+    public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
         self.label = label()
         self.content = content()
+        self.primaryAction = primaryAction
     }
 
     public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
-        self.init(content: content) {
+        self.init(title, content: content, primaryAction: nil)
+    }
+
+    public init(
+        _ title: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(content: content, label: {
             Text(title)
                 .font(.system(size: 1.6, weight: .semibold))
                 .multilineTextAlignment(.leading)
                 .lineLimit(1)
-        }
+        }, primaryAction: primaryAction)
     }
 
     public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
         self.init(String(title), content: content)
     }
 
+    public init<S: StringProtocol>(
+        _ title: S,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(String(title), content: content, primaryAction: primaryAction)
+    }
+
     public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, content: content)
     }
 
+    public init(
+        _ titleKey: LocalizedStringKey,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(titleKey.resolvedString, content: content, primaryAction: primaryAction)
+    }
+
     public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
-        self.init(content: content) {
+        self.init(title, systemImage: systemImage, content: content, primaryAction: nil)
+    }
+
+    public init(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(content: content, label: {
             Label(title, systemImage: systemImage)
-        }
+        }, primaryAction: primaryAction)
     }
 
     public init<S: StringProtocol>(_ title: S, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(String(title), systemImage: systemImage, content: content)
     }
 
+    public init<S: StringProtocol>(
+        _ title: S,
+        systemImage: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(String(title), systemImage: systemImage, content: content, primaryAction: primaryAction)
+    }
+
     public init(_ titleKey: LocalizedStringKey, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, systemImage: systemImage, content: content)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        systemImage: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(titleKey.resolvedString, systemImage: systemImage, content: content, primaryAction: primaryAction)
     }
 
     public var body: Never {
@@ -3526,6 +3587,7 @@ public struct Menu: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let menuState = state
         let menuItems = content
+        let primaryAction = primaryAction
         let labelComponent = composeComponent(
             from: label,
             context: context,
@@ -3562,7 +3624,11 @@ public struct Menu: View {
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
                 isEnabled: context.isEnabled,
                 action: {
-                    menuState.isOpen.toggle()
+                    if let primaryAction {
+                        primaryAction()
+                    } else {
+                        menuState.isOpen.toggle()
+                    }
                     context.invalidate()
                 },
                 children: [headerContent]

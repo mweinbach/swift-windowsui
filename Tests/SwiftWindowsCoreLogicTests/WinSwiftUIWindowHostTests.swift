@@ -181,6 +181,33 @@ struct ObservedObjectValueView: View {
     }
 }
 
+@MainActor
+final class HostEnvironmentRecorder {
+    private(set) var snapshots: [EnvironmentValues] = []
+
+    func record(_ values: EnvironmentValues) {
+        snapshots.append(values)
+    }
+}
+
+@MainActor
+struct HostEnvironmentProbeView: View {
+    typealias Body = Never
+
+    let recorder: HostEnvironmentRecorder
+
+    var body: Never {
+        fatalError("HostEnvironmentProbeView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        recorder.record(context.environmentValues)
+        return Component { _ in
+            Controls.panel(frame: Rect(x: 0, y: 0, width: 1, height: 1), isHitTestVisible: false)
+        }
+    }
+}
+
 // MARK: - Refresh Rate Testing Helpers
 
 /// Captures the effective refresh rate behavior by examining timer configuration.
@@ -1003,6 +1030,79 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             guard case .keyboardFocusDidLeaveWindow = recorder.events[0] else {
                 return XCTFail("Expected a keyboardFocusDidLeaveWindow event from WinSwiftUIWindowHost")
             }
+        }
+    }
+
+    func testHostActiveAndVisibilityStateDriveEnvironmentValues() async {
+        await MainActor.run {
+            let frameRenderer = FakeRenderBackend()
+            let recorder = HostEnvironmentRecorder()
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: [AnyView(HostEnvironmentProbeView(recorder: recorder))]
+            )
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: nil,
+                surfaceDescriptorProvider: { _ in expectedSurface }
+            )
+            let window = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+
+            host.windowDidCreate(window)
+            let startupSnapshotCount = recorder.snapshots.count
+
+            XCTAssertGreaterThanOrEqual(startupSnapshotCount, 1)
+            XCTAssertEqual(recorder.snapshots.last?.scenePhase, .active)
+            XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .key)
+            XCTAssertEqual(recorder.snapshots.last?.appearsActive, true)
+
+            host.windowDidChangeActiveState(window, isActive: false)
+
+            XCTAssertEqual(recorder.snapshots.count, startupSnapshotCount + 1)
+            XCTAssertEqual(recorder.snapshots.last?.scenePhase, .inactive)
+            XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
+            XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
+            XCTAssertEqual(host.executedReloadCount, 1)
+
+            host.windowDidChangeActiveState(window, isActive: false)
+
+            XCTAssertEqual(
+                recorder.snapshots.count,
+                startupSnapshotCount + 1,
+                "Duplicate active-state notifications should not rebuild content"
+            )
+            XCTAssertEqual(host.executedReloadCount, 1)
+
+            host.windowDidChangeVisibility(window, isVisible: false)
+
+            XCTAssertEqual(recorder.snapshots.count, startupSnapshotCount + 2)
+            XCTAssertEqual(recorder.snapshots.last?.scenePhase, .background)
+            XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
+            XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
+            XCTAssertEqual(host.executedReloadCount, 2)
+
+            host.windowDidChangeActiveState(window, isActive: true)
+
+            XCTAssertEqual(recorder.snapshots.count, startupSnapshotCount + 3)
+            XCTAssertEqual(recorder.snapshots.last?.scenePhase, .background)
+            XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .inactive)
+            XCTAssertEqual(recorder.snapshots.last?.appearsActive, false)
+
+            host.windowDidChangeVisibility(window, isVisible: true)
+
+            XCTAssertEqual(recorder.snapshots.count, startupSnapshotCount + 4)
+            XCTAssertEqual(recorder.snapshots.last?.scenePhase, .active)
+            XCTAssertEqual(recorder.snapshots.last?.controlActiveState, .key)
+            XCTAssertEqual(recorder.snapshots.last?.appearsActive, true)
+            XCTAssertEqual(host.executedReloadCount, 4)
         }
     }
 

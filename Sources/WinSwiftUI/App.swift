@@ -125,6 +125,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var surfaceDescriptor: SurfaceDescriptor?
     private var pendingPresentation = false
     private var startupProbeCompleted = false
+    private var isWindowActive = true
+    private var isWindowVisible = true
     private(set) var currentPresentationSelection: PresentationSelection?
 
     /// Batching flag: when true, a reload has already been scheduled for the
@@ -356,6 +358,28 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         syncAnimationDriver(for: window)
     }
 
+    func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {
+        guard isWindowActive != isActive else {
+            return
+        }
+
+        isWindowActive = isActive
+        if isRendererReady {
+            reloadContent()
+        }
+    }
+
+    func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {
+        guard isWindowVisible != isVisible else {
+            return
+        }
+
+        isWindowVisible = isVisible
+        if isRendererReady {
+            reloadContent()
+        }
+    }
+
     func windowWillClose(_ window: Win32Window) {}
 
     private var buildContext: ViewBuildContext {
@@ -375,6 +399,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             environmentValuesProvider: { [weak self] in
                 let displayScale = self?.runtime.displayScale ?? 1
                 return EnvironmentValues(
+                    scenePhase: self?.resolvedScenePhase ?? .active,
+                    controlActiveState: self?.resolvedControlActiveState ?? .active,
+                    appearsActive: self?.resolvedAppearsActive ?? true,
                     displayScale: displayScale,
                     pixelLength: Self.pixelLength(for: displayScale)
                 )
@@ -384,6 +411,26 @@ final class WinSwiftUIWindowHost: WindowDelegate {
 
     private static func pixelLength(for displayScale: Double) -> Double {
         displayScale > 0 ? 1 / displayScale : 1
+    }
+
+    private var resolvedScenePhase: ScenePhase {
+        guard isWindowVisible else {
+            return .background
+        }
+
+        return isWindowActive ? .active : .inactive
+    }
+
+    private var resolvedControlActiveState: ControlActiveState {
+        guard isWindowVisible else {
+            return .inactive
+        }
+
+        return isWindowActive ? .key : .inactive
+    }
+
+    private var resolvedAppearsActive: Bool {
+        isWindowVisible && isWindowActive
     }
 
     private func buildRootComponent() -> Component {

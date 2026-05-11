@@ -836,8 +836,14 @@ public struct Group: View {
 }
 
 @MainActor
+private struct NavigationStackEntry {
+    var destination: [AnyView]
+    var onDismiss: (@MainActor () -> Void)?
+}
+
+@MainActor
 private final class NavigationContainerState {
-    var destinationStack: [[AnyView]] = []
+    var destinationStack: [NavigationStackEntry] = []
 }
 
 @MainActor
@@ -977,8 +983,8 @@ private func navigationContainerComponent(
 @MainActor
 private func navigationContainerComponent(
     from content: [AnyView],
-    destinationStack: [[AnyView]],
-    setDestinationStack: @escaping ([[AnyView]]) -> Void,
+    destinationStack: [NavigationStackEntry],
+    setDestinationStack: @escaping ([NavigationStackEntry]) -> Void,
     pathBinding: NavigationPathBinding?,
     context: ViewBuildContext,
     fallbackLayout: ViewLayoutMode
@@ -993,18 +999,19 @@ private func navigationContainerComponent(
     )
     let activePresentation = activeNavigationPresentation(in: rootPresentedDestinations)
     let presentedDestination = activePresentation?.destination
-    let combinedDestinationStack = pathDestinationStack + destinationStack + [presentedDestination].compactMap { $0 }
+    let pushedDestinationStack = destinationStack.map(\.destination)
+    let combinedDestinationStack = pathDestinationStack + pushedDestinationStack + [presentedDestination].compactMap { $0 }
     let visibleContent = combinedDestinationStack.last ?? content
     let destinationRegistrations = rootDestinationRegistrations
         + navigationDestinations(in: visibleContent)
 
-    func pushDestination(_ destination: [AnyView]) {
+    func pushDestination(_ destination: [AnyView], onDismiss: (@MainActor () -> Void)? = nil) {
         guard !destination.isEmpty else {
             return
         }
 
         var updatedStack = destinationStack
-        updatedStack.append(destination)
+        updatedStack.append(NavigationStackEntry(destination: destination, onDismiss: onDismiss))
         setDestinationStack(updatedStack)
         context.invalidate()
     }
@@ -1016,8 +1023,9 @@ private func navigationContainerComponent(
             didDismiss = true
         } else if !destinationStack.isEmpty {
             var updatedStack = destinationStack
-            _ = updatedStack.popLast()
+            let dismissed = updatedStack.popLast()
             setDestinationStack(updatedStack)
+            dismissed?.onDismiss?()
             didDismiss = true
         } else if let pathBinding, !pathBinding.values().isEmpty {
             pathBinding.removeLast()
@@ -1034,8 +1042,8 @@ private func navigationContainerComponent(
             dismissVisibleDestination()
         })
         .withEnvironmentValue(\.isPresented, !combinedDestinationStack.isEmpty)
-        .withNavigationDestinationHandler { destination in
-            pushDestination(destination)
+        .withNavigationDestinationHandler { destination, onDismiss in
+            pushDestination(destination, onDismiss: onDismiss)
         }
         .withNavigationValueHandler { value in
             guard let destination = resolveNavigationDestination(
@@ -1293,6 +1301,7 @@ public struct NavigationLink: View {
     private let label: [AnyView]
     private let destination: [AnyView]
     private let value: AnyHashable?
+    private let isActive: Binding<Bool>?
 
     public init<Destination: View>(
         destination: Destination,
@@ -1301,6 +1310,7 @@ public struct NavigationLink: View {
         self.label = label()
         self.destination = [AnyView(destination)]
         self.value = nil
+        self.isActive = nil
     }
 
     public init(
@@ -1310,6 +1320,29 @@ public struct NavigationLink: View {
         self.label = label()
         self.destination = destination()
         self.value = nil
+        self.isActive = nil
+    }
+
+    public init<Destination: View>(
+        destination: Destination,
+        isActive: Binding<Bool>,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = [AnyView(destination)]
+        self.value = nil
+        self.isActive = isActive
+    }
+
+    public init(
+        isActive: Binding<Bool>,
+        @ViewBuilder destination: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = destination()
+        self.value = nil
+        self.isActive = isActive
     }
 
     public init<Destination: View>(
@@ -1319,6 +1352,7 @@ public struct NavigationLink: View {
         self.label = [AnyView(Text(title))]
         self.destination = [AnyView(destination)]
         self.value = nil
+        self.isActive = nil
     }
 
     public init<S: StringProtocol, Destination: View>(
@@ -1335,6 +1369,33 @@ public struct NavigationLink: View {
         self.init(titleKey.resolvedString, destination: destination)
     }
 
+    public init<Destination: View>(
+        _ title: String,
+        destination: Destination,
+        isActive: Binding<Bool>
+    ) {
+        self.label = [AnyView(Text(title))]
+        self.destination = [AnyView(destination)]
+        self.value = nil
+        self.isActive = isActive
+    }
+
+    public init<S: StringProtocol, Destination: View>(
+        _ title: S,
+        destination: Destination,
+        isActive: Binding<Bool>
+    ) {
+        self.init(String(title), destination: destination, isActive: isActive)
+    }
+
+    public init<Destination: View>(
+        _ titleKey: LocalizedStringKey,
+        destination: Destination,
+        isActive: Binding<Bool>
+    ) {
+        self.init(titleKey.resolvedString, destination: destination, isActive: isActive)
+    }
+
     public init<Value: Hashable>(
         value: Value,
         @ViewBuilder label: () -> [AnyView]
@@ -1342,6 +1403,7 @@ public struct NavigationLink: View {
         self.label = label()
         self.destination = []
         self.value = AnyHashable(value)
+        self.isActive = nil
     }
 
     public init<Value: Hashable>(
@@ -1351,6 +1413,7 @@ public struct NavigationLink: View {
         self.label = [AnyView(Text(title))]
         self.destination = []
         self.value = AnyHashable(value)
+        self.isActive = nil
     }
 
     public init<S: StringProtocol, Value: Hashable>(
@@ -1384,6 +1447,7 @@ public struct NavigationLink: View {
 
         let destinationViews = destination
         let navigationValue = value
+        let activeBinding = isActive
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
             return Controls.button(
@@ -1400,6 +1464,11 @@ public struct NavigationLink: View {
                 action: {
                     if let navigationValue {
                         _ = context.pushNavigationValue(navigationValue)
+                    } else if let activeBinding {
+                        activeBinding.wrappedValue = true
+                        _ = context.pushNavigationDestination(destinationViews) {
+                            activeBinding.wrappedValue = false
+                        }
                     } else {
                         _ = context.pushNavigationDestination(destinationViews)
                     }

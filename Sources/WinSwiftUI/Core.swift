@@ -2086,6 +2086,9 @@ public struct FocusState<Value>: DynamicProperty {
 
 @MainActor
 public struct ViewBuildContext {
+    typealias NavigationDestinationDismissHandler = @MainActor () -> Void
+    typealias NavigationDestinationPushHandler = @MainActor ([AnyView], NavigationDestinationDismissHandler?) -> Void
+
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
     private let observedObjectHandler: (any ObservableObject) -> Void
@@ -2106,7 +2109,7 @@ public struct ViewBuildContext {
     private let buttonStyleProvider: () -> ButtonStyle
     private let pickerStyleProvider: () -> PickerStyle
     private let environmentValuesProvider: () -> EnvironmentValues
-    private let navigationDestinationHandlerProvider: () -> (([AnyView]) -> Void)?
+    private let navigationDestinationHandlerProvider: () -> NavigationDestinationPushHandler?
     private let navigationValueHandlerProvider: () -> ((AnyHashable) -> Bool)?
     private let navigationDestinationRegistrationsProvider: () -> [NavigationDestinationRegistration]
     private let navigationPresentedDestinationsProvider: () -> [NavigationPresentedDestination]
@@ -2434,7 +2437,7 @@ public struct ViewBuildContext {
         buttonStyleProvider: @escaping () -> ButtonStyle = { .automatic },
         pickerStyleProvider: @escaping () -> PickerStyle = { .automatic },
         environmentValuesProvider: @escaping () -> EnvironmentValues = { EnvironmentValues() },
-        navigationDestinationHandlerProvider: @escaping () -> (([AnyView]) -> Void)? = { nil },
+        navigationDestinationHandlerProvider: @escaping () -> NavigationDestinationPushHandler? = { nil },
         navigationValueHandlerProvider: @escaping () -> ((AnyHashable) -> Bool)? = { nil },
         navigationDestinationRegistrationsProvider: @escaping () -> [NavigationDestinationRegistration] = { [] },
         navigationPresentedDestinationsProvider: @escaping () -> [NavigationPresentedDestination] = { [] }
@@ -2475,12 +2478,15 @@ public struct ViewBuildContext {
         observedObjectHandler(object)
     }
 
-    func pushNavigationDestination(_ destination: [AnyView]) -> Bool {
+    func pushNavigationDestination(
+        _ destination: [AnyView],
+        onDismiss: NavigationDestinationDismissHandler? = nil
+    ) -> Bool {
         guard let handler = navigationDestinationHandlerProvider() else {
             return false
         }
 
-        handler(destination)
+        handler(destination, onDismiss)
         return true
     }
 
@@ -3069,7 +3075,7 @@ public struct ViewBuildContext {
         )
     }
 
-    func withNavigationDestinationHandler(_ handler: @escaping ([AnyView]) -> Void) -> ViewBuildContext {
+    func withNavigationDestinationHandler(_ handler: @escaping NavigationDestinationPushHandler) -> ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,

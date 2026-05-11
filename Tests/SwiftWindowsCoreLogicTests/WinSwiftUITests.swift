@@ -6011,6 +6011,90 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationLinkIsActiveBindingPushesAndClearsOnBack() async {
+        await MainActor.run {
+            var isActive = false
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink(
+                        destination: Text("DETAIL").navigationTitle("DETAIL TITLE"),
+                        isActive: Binding(
+                            get: { isActive },
+                            set: { isActive = $0 }
+                        )
+                    ) {
+                        Text("OPEN")
+                    }
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+
+            XCTAssertFalse(isActive)
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN"))
+
+            rootNode.children[1].children[0].onActivate?()
+
+            XCTAssertTrue(isActive)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+
+            detailNode.children[0].children[0].onActivate?()
+
+            XCTAssertFalse(isActive)
+
+            let poppedNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: poppedNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertTrue(allTexts(in: poppedNode.children[1]).contains("OPEN"))
+        }
+    }
+
+    func testNavigationLinkIsActiveTitleOverloadsRenderLabelsAndPush() async {
+        await MainActor.run {
+            var firstActive = false
+            var secondActive = false
+            let title: Substring = "OPEN TWO"[...]
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink(
+                        LocalizedStringKey("OPEN ONE"),
+                        destination: Text("DETAIL ONE").navigationTitle("ONE"),
+                        isActive: Binding(
+                            get: { firstActive },
+                            set: { firstActive = $0 }
+                        )
+                    )
+                    NavigationLink(
+                        title,
+                        destination: Text("DETAIL TWO").navigationTitle("TWO"),
+                        isActive: Binding(
+                            get: { secondActive },
+                            set: { secondActive = $0 }
+                        )
+                    )
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN ONE"))
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN TWO"))
+
+            rootNode.children[1].children[1].onActivate?()
+
+            XCTAssertFalse(firstActive)
+            XCTAssertTrue(secondActive)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("TWO"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL TWO")
+        }
+    }
+
     func testNavigationLinkValueResolvesNavigationDestination() async {
         await MainActor.run {
             var didInvalidate = false

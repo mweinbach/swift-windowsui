@@ -4016,11 +4016,14 @@ final class WinSwiftUITests: XCTestCase {
             }
 
             var didInvalidate = false
+            var copyCount = 0
             var closeCount = 0
             let view = Text("ROOT")
                 .frame(width: 220, height: 120)
                 .contextMenu {
-                    Button("COPY") {}
+                    Button("COPY") {
+                        copyCount += 1
+                    }
                     DismissContextMenuButton {
                         closeCount += 1
                     }
@@ -4047,14 +4050,23 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: openedNode).contains("COPY"))
             XCTAssertTrue(allTexts(in: openedNode).contains("CLOSE"))
 
-            let closeButton = focusableNodes(in: openedNode).first { allTexts(in: $0).contains("CLOSE") }
-            closeButton?.onActivate?()
+            let copyButton = focusableNodes(in: openedNode).first { allTexts(in: $0).contains("COPY") }
+            copyButton?.onActivate?()
 
-            XCTAssertEqual(closeCount, 1)
+            XCTAssertEqual(copyCount, 1)
 
             let dismissedNode = makeNode(view, size: Size(width: 320, height: 240))
             XCTAssertTrue(allTexts(in: dismissedNode).contains("ROOT"))
             XCTAssertFalse(allTexts(in: dismissedNode).contains("COPY"))
+
+            runtime.contextClick(at: Point(x: 24, y: 32))
+            let reopenedNode = makeNode(view, size: Size(width: 320, height: 240))
+            let closeButton = focusableNodes(in: reopenedNode).first { allTexts(in: $0).contains("CLOSE") }
+            closeButton?.onActivate?()
+
+            XCTAssertEqual(closeCount, 1)
+            let explicitlyDismissedNode = makeNode(view, size: Size(width: 320, height: 240))
+            XCTAssertFalse(allTexts(in: explicitlyDismissedNode).contains("COPY"))
         }
     }
 

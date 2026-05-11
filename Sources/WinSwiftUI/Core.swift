@@ -5424,6 +5424,20 @@ private func installRetainedContextMenuHandler(
 }
 
 @MainActor
+private func attachRetainedActivationDismiss(to node: ViewNode, dismiss: @escaping @MainActor () -> Void) {
+    if let activate = node.onActivate {
+        node.onActivate = {
+            activate()
+            dismiss()
+        }
+    }
+
+    for child in node.children {
+        attachRetainedActivationDismiss(to: child, dismiss: dismiss)
+    }
+}
+
+@MainActor
 private func retainedContextMenuPresentation(
     base: Component,
     menuItems: [AnyView],
@@ -5468,7 +5482,9 @@ private func retainedContextMenuPresentation(
         if let previewComponent {
             panelChildren.append(previewComponent.makeNode(runtime: runtime))
         }
-        panelChildren.append(itemComponent.makeNode(runtime: runtime))
+        let itemNode = itemComponent.makeNode(runtime: runtime)
+        attachRetainedActivationDismiss(to: itemNode, dismiss: dismiss)
+        panelChildren.append(itemNode)
 
         let menuPanel = Controls.stackPanel(
             preferredSize: Size(width: 220, height: 0),

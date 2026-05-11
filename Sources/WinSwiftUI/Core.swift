@@ -12501,12 +12501,63 @@ public extension View {
         gesture._applying(to: self, including: mask)
     }
 
+    func gesture<G: Gesture>(_ gesture: G, isEnabled: Bool) -> some View {
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
+    }
+
+    func gesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
+        let _ = name
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
+    }
+
     func highPriorityGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
         gesture._applying(to: self, including: mask)
     }
 
+    func highPriorityGesture<G: Gesture>(_ gesture: G, isEnabled: Bool) -> some View {
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
+    }
+
+    func highPriorityGesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
+        let _ = name
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
+    }
+
     func simultaneousGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
         gesture._applying(to: self, including: mask)
+    }
+
+    func simultaneousGesture<G: Gesture>(_ gesture: G, isEnabled: Bool) -> some View {
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
+    }
+
+    func simultaneousGesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
+        let _ = name
+        guard isEnabled else {
+            return AnyView(self)
+        }
+
+        return AnyView(gesture._applying(to: self, including: .all))
     }
 
     private func keyCommandModifier(

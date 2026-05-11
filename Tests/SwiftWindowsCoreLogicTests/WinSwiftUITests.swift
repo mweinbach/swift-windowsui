@@ -14448,6 +14448,110 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGestureModifierIsEnabledOverloadsGateGestureApplication() async {
+        await MainActor.run {
+            var enabledTapCount = 0
+            var disabledTapCount = 0
+            var namedTapCount = 0
+            let enabledNode = makeNode(
+                Text("TAP")
+                    .gesture(
+                        TapGesture().onEnded { _ in
+                            enabledTapCount += 1
+                        },
+                        isEnabled: true
+                    )
+            )
+            let disabledNode = makeNode(
+                Text("TAP")
+                    .gesture(
+                        TapGesture().onEnded { _ in
+                            disabledTapCount += 1
+                        },
+                        isEnabled: false
+                    )
+            )
+            let namedNode = makeNode(
+                Text("TAP")
+                    .gesture(
+                        TapGesture().onEnded { _ in
+                            namedTapCount += 1
+                        },
+                        name: "primary-tap",
+                        isEnabled: true
+                    )
+            )
+
+            enabledNode.onPointerUpInside?()
+            disabledNode.onPointerUpInside?()
+            namedNode.onPointerUpInside?()
+
+            XCTAssertEqual(enabledTapCount, 1)
+            XCTAssertEqual(disabledTapCount, 0)
+            XCTAssertEqual(namedTapCount, 1)
+            XCTAssertNil(disabledNode.onPointerUpInside)
+        }
+    }
+
+    func testPriorityAndSimultaneousGestureIsEnabledOverloadsGateGestureApplication() async {
+        await MainActor.run {
+            var highPriorityTapCount = 0
+            var disabledHighPriorityTapCount = 0
+            var simultaneousTapCount = 0
+            var disabledSimultaneousTapCount = 0
+            let highPriorityNode = makeNode(
+                Text("TAP")
+                    .highPriorityGesture(
+                        TapGesture().onEnded { _ in
+                            highPriorityTapCount += 1
+                        },
+                        isEnabled: true
+                    )
+            )
+            let disabledHighPriorityNode = makeNode(
+                Text("TAP")
+                    .highPriorityGesture(
+                        TapGesture().onEnded { _ in
+                            disabledHighPriorityTapCount += 1
+                        },
+                        name: "disabled-high-priority",
+                        isEnabled: false
+                    )
+            )
+            let simultaneousNode = makeNode(
+                Text("TAP")
+                    .simultaneousGesture(
+                        TapGesture().onEnded { _ in
+                            simultaneousTapCount += 1
+                        },
+                        name: "secondary-tap",
+                        isEnabled: true
+                    )
+            )
+            let disabledSimultaneousNode = makeNode(
+                Text("TAP")
+                    .simultaneousGesture(
+                        TapGesture().onEnded { _ in
+                            disabledSimultaneousTapCount += 1
+                        },
+                        isEnabled: false
+                    )
+            )
+
+            highPriorityNode.onPointerUpInside?()
+            disabledHighPriorityNode.onPointerUpInside?()
+            simultaneousNode.onPointerUpInside?()
+            disabledSimultaneousNode.onPointerUpInside?()
+
+            XCTAssertEqual(highPriorityTapCount, 1)
+            XCTAssertEqual(disabledHighPriorityTapCount, 0)
+            XCTAssertEqual(simultaneousTapCount, 1)
+            XCTAssertEqual(disabledSimultaneousTapCount, 0)
+            XCTAssertNil(disabledHighPriorityNode.onPointerUpInside)
+            XCTAssertNil(disabledSimultaneousNode.onPointerUpInside)
+        }
+    }
+
     func testLongPressGestureObjectMapsThroughPriorityGestureModifiers() async {
         await MainActor.run {
             var endings: [Bool] = []

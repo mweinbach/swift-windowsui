@@ -1765,11 +1765,14 @@ public struct Text: View {
     }
 
     public func fontWeight(_ weight: Font.Weight?) -> Text {
+        var copy = self
         guard let weight else {
-            return self
+            if let font = copy.font, let resolvedFont = font {
+                copy.font = .some(resolvedFont.weight(.regular))
+            }
+            return copy
         }
 
-        var copy = self
         let baseFont: Font
         if let font = copy.font {
             baseFont = font ?? .system(size: 2)

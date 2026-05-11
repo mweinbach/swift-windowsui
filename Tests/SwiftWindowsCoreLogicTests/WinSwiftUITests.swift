@@ -1256,9 +1256,23 @@ final class WinSwiftUITests: XCTestCase {
                 .fontWeight(.semibold)
             )
             let heavyNode = makeNode(Text("HEAVY").fontWeight(.heavy))
+            let resetExplicitNode = makeNode(
+                Text("RESET")
+                    .fontWeight(.bold)
+                    .fontWeight(nil)
+            )
+            let inheritedResetNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                        .fontWeight(nil)
+                }
+                .fontWeight(.semibold)
+            )
 
             XCTAssertEqual(boldNode.textStyle.weight, .bold)
             XCTAssertEqual(heavyNode.textStyle.weight, .bold)
+            XCTAssertEqual(resetExplicitNode.textStyle.weight, .regular)
+            XCTAssertEqual(inheritedResetNode.children[0].textStyle.weight, .semibold)
             for child in inheritedNode.children {
                 XCTAssertEqual(child.textStyle.weight, .semibold)
                 XCTAssertEqual(child.textStyle.nativeFontSize, 14)

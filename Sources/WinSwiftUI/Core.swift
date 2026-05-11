@@ -4545,6 +4545,7 @@ public struct ContentTransition: Sendable, Equatable {
         case numericTextValue(Double)
         case opacity
         case symbolEffect
+        case symbolEffectConfiguration(SymbolEffectConfiguration, SymbolEffectOptions)
     }
 
     let kind: Kind
@@ -4565,6 +4566,454 @@ public struct ContentTransition: Sendable, Equatable {
     public static func numericText(value: Double) -> ContentTransition {
         ContentTransition(kind: .numericTextValue(value))
     }
+
+    public static func symbolEffect<T: SymbolEffect>(
+        _ effect: T,
+        options: SymbolEffectOptions = .default
+    ) -> ContentTransition where T: ContentTransitionSymbolEffect {
+        ContentTransition(kind: .symbolEffectConfiguration(effect.configuration, options))
+    }
+}
+
+public struct SymbolEffectConfiguration: Sendable, Equatable, Hashable {
+    enum Effect: Sendable, Equatable, Hashable {
+        case appear
+        case automatic
+        case bounce
+        case breathe
+        case disappear
+        case drawOff
+        case drawOn
+        case pulse
+        case replace
+        case rotate
+        case scale
+        case variableColor
+        case wiggle
+    }
+
+    enum Scope: Sendable, Equatable, Hashable {
+        case automatic
+        case byLayer
+        case wholeSymbol
+    }
+
+    enum Direction: Sendable, Equatable, Hashable {
+        case automatic
+        case up
+        case down
+    }
+
+    var effect: Effect
+    var scope: Scope
+    var direction: Direction
+    var reverses: Bool
+
+    init(
+        effect: Effect,
+        scope: Scope = .automatic,
+        direction: Direction = .automatic,
+        reverses: Bool = false
+    ) {
+        self.effect = effect
+        self.scope = scope
+        self.direction = direction
+        self.reverses = reverses
+    }
+
+    func withScope(_ scope: Scope) -> SymbolEffectConfiguration {
+        SymbolEffectConfiguration(effect: effect, scope: scope, direction: direction, reverses: reverses)
+    }
+
+    func withDirection(_ direction: Direction) -> SymbolEffectConfiguration {
+        SymbolEffectConfiguration(effect: effect, scope: scope, direction: direction, reverses: reverses)
+    }
+
+    func withReversing() -> SymbolEffectConfiguration {
+        SymbolEffectConfiguration(effect: effect, scope: scope, direction: direction, reverses: true)
+    }
+}
+
+public protocol SymbolEffect: Hashable, Sendable {
+    var configuration: SymbolEffectConfiguration { get }
+}
+
+public protocol DiscreteSymbolEffect {}
+public protocol IndefiniteSymbolEffect {}
+public protocol ContentTransitionSymbolEffect {}
+public protocol TransitionSymbolEffect {}
+
+public struct SymbolEffectOptions: Sendable, Equatable, Hashable {
+    public struct RepeatBehavior: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case periodic
+            case continuous
+        }
+
+        let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let periodic = RepeatBehavior(kind: .periodic)
+        public static let continuous = RepeatBehavior(kind: .continuous)
+    }
+
+    enum RepeatPreference: Sendable, Equatable, Hashable {
+        case automatic
+        case count(Int?)
+        case repeating
+        case nonRepeating
+        case behavior(RepeatBehavior)
+    }
+
+    var repeatPreference: RepeatPreference
+    var speedMultiplier: Double
+
+    public init() {
+        self.repeatPreference = .automatic
+        self.speedMultiplier = 1
+    }
+
+    private init(repeatPreference: RepeatPreference, speedMultiplier: Double = 1) {
+        self.repeatPreference = repeatPreference
+        self.speedMultiplier = speedMultiplier
+    }
+
+    public static let `default` = SymbolEffectOptions()
+    public static let repeating = SymbolEffectOptions(repeatPreference: .repeating)
+    public static let nonRepeating = SymbolEffectOptions(repeatPreference: .nonRepeating)
+
+    public var repeating: SymbolEffectOptions {
+        var copy = self
+        copy.repeatPreference = .repeating
+        return copy
+    }
+
+    public var nonRepeating: SymbolEffectOptions {
+        var copy = self
+        copy.repeatPreference = .nonRepeating
+        return copy
+    }
+
+    public static func `repeat`(_ count: Int?) -> SymbolEffectOptions {
+        SymbolEffectOptions(repeatPreference: .count(count))
+    }
+
+    public func `repeat`(_ count: Int?) -> SymbolEffectOptions {
+        var copy = self
+        copy.repeatPreference = .count(count)
+        return copy
+    }
+
+    public static func `repeat`(_ behavior: RepeatBehavior) -> SymbolEffectOptions {
+        SymbolEffectOptions(repeatPreference: .behavior(behavior))
+    }
+
+    public func `repeat`(_ behavior: RepeatBehavior) -> SymbolEffectOptions {
+        var copy = self
+        copy.repeatPreference = .behavior(behavior)
+        return copy
+    }
+
+    public static func speed(_ speed: Double) -> SymbolEffectOptions {
+        SymbolEffectOptions(repeatPreference: .automatic, speedMultiplier: speed)
+    }
+
+    public func speed(_ speed: Double) -> SymbolEffectOptions {
+        var copy = self
+        copy.speedMultiplier = speed
+        return copy
+    }
+}
+
+protocol ConfigurableSymbolEffect {
+    init(configuration: SymbolEffectConfiguration)
+}
+
+private extension ConfigurableSymbolEffect where Self: SymbolEffect {
+    func withScope(_ scope: SymbolEffectConfiguration.Scope) -> Self {
+        Self(configuration: configuration.withScope(scope))
+    }
+
+    func withDirection(_ direction: SymbolEffectConfiguration.Direction) -> Self {
+        Self(configuration: configuration.withDirection(direction))
+    }
+
+    func withReversing() -> Self {
+        Self(configuration: configuration.withReversing())
+    }
+}
+
+public struct AppearSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, TransitionSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .appear))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var up: AppearSymbolEffect { withDirection(.up) }
+    public var down: AppearSymbolEffect { withDirection(.down) }
+    public var byLayer: AppearSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: AppearSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct AutomaticSymbolEffect: SymbolEffect, ContentTransitionSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .automatic))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+}
+
+public struct BounceSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .bounce))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var up: BounceSymbolEffect { withDirection(.up) }
+    public var down: BounceSymbolEffect { withDirection(.down) }
+    public var byLayer: BounceSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: BounceSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct BreatheSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .breathe))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var byLayer: BreatheSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: BreatheSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct DisappearSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, TransitionSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .disappear))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var up: DisappearSymbolEffect { withDirection(.up) }
+    public var down: DisappearSymbolEffect { withDirection(.down) }
+    public var byLayer: DisappearSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: DisappearSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct DrawOffSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, TransitionSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .drawOff))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+}
+
+public struct DrawOnSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, TransitionSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .drawOn))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+}
+
+public struct PulseSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .pulse))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var byLayer: PulseSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: PulseSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct ReplaceSymbolEffect: SymbolEffect, ContentTransitionSymbolEffect, ConfigurableSymbolEffect {
+    public struct MagicReplace: SymbolEffect, ContentTransitionSymbolEffect, ConfigurableSymbolEffect {
+        public var configuration: SymbolEffectConfiguration
+
+        public init() {
+            self.init(configuration: SymbolEffectConfiguration(effect: .replace))
+        }
+
+        init(configuration: SymbolEffectConfiguration) {
+            self.configuration = configuration
+        }
+    }
+
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .replace))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public static let downUp = ReplaceSymbolEffect()
+    public static let offUp = ReplaceSymbolEffect()
+    public static let upUp = ReplaceSymbolEffect()
+    public var downUp: ReplaceSymbolEffect { self }
+    public var offUp: ReplaceSymbolEffect { self }
+    public var upUp: ReplaceSymbolEffect { self }
+    public var byLayer: ReplaceSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: ReplaceSymbolEffect { withScope(.wholeSymbol) }
+
+    public func magic(fallback: ReplaceSymbolEffect) -> MagicReplace {
+        _ = fallback
+        return MagicReplace(configuration: configuration)
+    }
+}
+
+public struct RotateSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .rotate))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var byLayer: RotateSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: RotateSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct ScaleSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .scale))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var up: ScaleSymbolEffect { withDirection(.up) }
+    public var down: ScaleSymbolEffect { withDirection(.down) }
+    public var byLayer: ScaleSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: ScaleSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct VariableColorSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .variableColor))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var reversing: VariableColorSymbolEffect { withReversing() }
+    public var byLayer: VariableColorSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: VariableColorSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public struct WiggleSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .wiggle))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+
+    public var byLayer: WiggleSymbolEffect { withScope(.byLayer) }
+    public var wholeSymbol: WiggleSymbolEffect { withScope(.wholeSymbol) }
+}
+
+public extension SymbolEffect where Self == AppearSymbolEffect {
+    static var appear: AppearSymbolEffect { AppearSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == AutomaticSymbolEffect {
+    static var automatic: AutomaticSymbolEffect { AutomaticSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == BounceSymbolEffect {
+    static var bounce: BounceSymbolEffect { BounceSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == BreatheSymbolEffect {
+    static var breathe: BreatheSymbolEffect { BreatheSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == DisappearSymbolEffect {
+    static var disappear: DisappearSymbolEffect { DisappearSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == DrawOffSymbolEffect {
+    static var drawOff: DrawOffSymbolEffect { DrawOffSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == DrawOnSymbolEffect {
+    static var drawOn: DrawOnSymbolEffect { DrawOnSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == PulseSymbolEffect {
+    static var pulse: PulseSymbolEffect { PulseSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == ReplaceSymbolEffect {
+    static var replace: ReplaceSymbolEffect { ReplaceSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == RotateSymbolEffect {
+    static var rotate: RotateSymbolEffect { RotateSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == ScaleSymbolEffect {
+    static var scale: ScaleSymbolEffect { ScaleSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == VariableColorSymbolEffect {
+    static var variableColor: VariableColorSymbolEffect { VariableColorSymbolEffect() }
+}
+
+public extension SymbolEffect where Self == WiggleSymbolEffect {
+    static var wiggle: WiggleSymbolEffect { WiggleSymbolEffect() }
 }
 
 public enum VerticalEdge: Sendable, Equatable {
@@ -12291,6 +12740,39 @@ public extension View {
                     addsDrawingGroup
                 )
             )
+        }
+    }
+
+    func symbolEffect<T: SymbolEffect>(
+        _ effect: T,
+        options: SymbolEffectOptions = .default,
+        isActive: Bool = true
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = effect
+            _ = options
+            _ = isActive
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func symbolEffect<T: SymbolEffect, Value: Equatable>(
+        _ effect: T,
+        options: SymbolEffectOptions = .default,
+        value: Value
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = effect
+            _ = options
+            _ = value
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func symbolEffectsRemoved(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = isEnabled
+            return content.makeComponent(context: context)
         }
     }
 

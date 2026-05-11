@@ -371,6 +371,8 @@ Modifiers:
 - `transition`
 - `contentTransition`
 - `contentTransitionAddsDrawingGroup`
+- `symbolEffect`
+- `symbolEffectsRemoved`
 - `animation`
 - `disabled`
 - `scrollDisabled`
@@ -422,6 +424,8 @@ Compatibility helpers:
 - `ModifiedContent`
 - `AnyTransition`
 - `ContentTransition`
+- `SymbolEffect`
+- `SymbolEffectOptions`
 - `ListStyle`
 - `LocalizedStringResource` text inputs
 - `String(localized: LocalizedStringResource)`
@@ -627,6 +631,7 @@ Surface direction:
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
 - `transition(_:)` accepts common `AnyTransition` values such as `.identity`, `.opacity`, `.move(edge:)`, `.offset(...)`, `.push(from:)`, `.scale`, `.slide`, `.asymmetric(...)`, and `.combined(with:)` for source compatibility. Retained insertion/removal animation semantics are not modeled yet, so the modifier currently preserves the rendered subtree unchanged.
 - `contentTransition(_:)`, `EnvironmentValues.contentTransition`, and `EnvironmentValues.contentTransitionAddsDrawingGroup` accept SwiftUI-shaped content transition metadata including `.identity`, `.interpolate`, `.opacity`, `.numericText(...)`, and `.symbolEffect`. Retained content-change interpolation is not modeled yet, so this currently propagates source-compatible environment metadata without changing rendered nodes.
+- `SymbolEffect`, `SymbolEffectOptions`, `symbolEffect(...)`, `symbolEffectsRemoved(_:)`, and `ContentTransition.symbolEffect(...)` accept common SF Symbols effect call sites such as `.pulse`, `.bounce`, `.variableColor.reversing`, `.replace`, `.repeat(...)`, `.repeating`, and `.speed(...)`. WinSwiftUI currently preserves source compatibility and rendered symbol/text content; it does not yet animate SF Symbol layers on the retained renderer.
 - `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation`, `Transaction`, `withTransaction`, and `transaction(_:)` accept SwiftUI-shaped call sites and execute their body/transform closures, but transaction propagation is not yet modeled by the retained runtime.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
 - `scrollDisabled(_:)` propagates `EnvironmentValues.isScrollEnabled`; retained `ScrollView`, `List`, and scrolling `Section` nodes keep their layout and clipping but remove their scroll axis and indicators when disabled.

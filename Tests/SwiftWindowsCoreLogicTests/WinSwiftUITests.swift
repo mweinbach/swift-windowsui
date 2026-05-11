@@ -12484,6 +12484,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSymbolEffectCompatibilityModifiersPreserveRenderedContent() async {
+        await MainActor.run {
+            let pulse = PulseSymbolEffect().wholeSymbol
+            let variableColor = VariableColorSymbolEffect().reversing
+            let options = SymbolEffectOptions
+                .repeat(3)
+                .speed(1.4)
+            let contentTransition = ContentTransition.symbolEffect(.replace, options: .nonRepeating)
+
+            let node = makeNode(
+                VStack {
+                    Label("WIFI", systemImage: "wifi")
+                        .symbolEffect(variableColor, options: .repeating, isActive: true)
+                    Image(systemName: "bell")
+                        .symbolEffect(pulse, options: options, value: 2)
+                    Label("QUIET", systemImage: "bell.slash")
+                        .symbolEffect(.bounce.up.byLayer, options: .repeat(.periodic), value: true)
+                        .symbolEffectsRemoved(false)
+                    Text("REPLACE")
+                        .contentTransition(contentTransition)
+                }
+            )
+
+            XCTAssertEqual(pulse.configuration.effect, .pulse)
+            XCTAssertEqual(pulse.configuration.scope, .wholeSymbol)
+            XCTAssertEqual(variableColor.configuration.effect, .variableColor)
+            XCTAssertTrue(variableColor.configuration.reverses)
+            XCTAssertEqual(options.repeatPreference, .count(3))
+            XCTAssertEqual(options.speedMultiplier, 1.4)
+            XCTAssertTrue(allTexts(in: node).contains("WIFI"))
+            XCTAssertTrue(allTexts(in: node).contains("QUIET"))
+            XCTAssertTrue(allTexts(in: node).contains("REPLACE"))
+        }
+    }
+
     func testTransactionCompatibilityShimsExecuteBodiesAndTransforms() async {
         await MainActor.run {
             var value = 0

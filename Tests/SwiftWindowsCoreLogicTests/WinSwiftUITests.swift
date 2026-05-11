@@ -417,6 +417,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextDateStyleInitializersMapToDeterministicRetainedText() async {
+        await MainActor.run {
+            let date = Date(timeIntervalSince1970: 90_061)
+
+            XCTAssertEqual(makeNode(Text(date, style: .date)).text, "1970-01-02")
+            XCTAssertEqual(makeNode(Text(date, style: .time)).text, "01:01")
+            XCTAssertEqual(makeNode(Text(date, style: .relative)).text, "1970-01-02 01:01")
+            XCTAssertEqual(makeNode(Text(date, style: .offset)).text, "1970-01-02 01:01")
+            XCTAssertEqual(makeNode(Text(date, style: .timer)).text, "1970-01-02 01:01")
+            XCTAssertTrue(Set([Text.DateStyle.date]).contains(.date))
+        }
+    }
+
+    func testTextDateIntervalInitializerMapsToDeterministicRetainedText() async {
+        await MainActor.run {
+            let start = Date(timeIntervalSince1970: 0)
+            let end = Date(timeIntervalSince1970: 5_400)
+            let node = makeNode(Text(DateInterval(start: start, end: end)))
+
+            XCTAssertEqual(node.text, "1970-01-01 00:00 - 1970-01-01 01:30")
+        }
+    }
+
     func testTextFieldDisplaysPlaceholderAndWritesBindingFromKeyboard() async {
         await MainActor.run {
             var value = ""

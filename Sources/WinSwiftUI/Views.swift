@@ -1643,6 +1643,45 @@ public struct Text: View {
         case lowercase
     }
 
+    public struct DateStyle: Sendable, Equatable, Hashable, Codable {
+        fileprivate enum Kind: String, Sendable, Equatable, Hashable, Codable {
+            case date
+            case time
+            case relative
+            case offset
+            case timer
+        }
+
+        fileprivate let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawKind = try container.decode(String.self)
+            guard let kind = Kind(rawValue: rawKind) else {
+                throw DecodingError.dataCorruptedError(
+                    in: container,
+                    debugDescription: "Unknown Text.DateStyle value: \(rawKind)"
+                )
+            }
+            self.kind = kind
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            try container.encode(kind.rawValue)
+        }
+
+        public static let date = DateStyle(kind: .date)
+        public static let time = DateStyle(kind: .time)
+        public static let relative = DateStyle(kind: .relative)
+        public static let offset = DateStyle(kind: .offset)
+        public static let timer = DateStyle(kind: .timer)
+    }
+
     private let content: String
     private var color: Color?
     private var font: Font??
@@ -1735,6 +1774,16 @@ public struct Text: View {
         self.init(resource.resolvedString)
     }
 
+    public init(_ date: Date, style: DateStyle) {
+        self.init(Self.formattedDateText(date, style: style))
+    }
+
+    public init(_ interval: DateInterval) {
+        let startText = Self.formattedDateTimeText(interval.start)
+        let endText = Self.formattedDateTimeText(interval.end)
+        self.init("\(startText) - \(endText)")
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }
@@ -1745,6 +1794,46 @@ public struct Text: View {
 
     public var body: Never {
         fatalError("Text has no body")
+    }
+
+    private static func formattedDateText(_ date: Date, style: DateStyle) -> String {
+        switch style.kind {
+        case .date:
+            return formattedDateOnlyText(date)
+        case .time:
+            return formattedTimeOnlyText(date)
+        case .relative, .offset, .timer:
+            return formattedDateTimeText(date)
+        }
+    }
+
+    private static func formattedDateOnlyText(_ date: Date) -> String {
+        let components = retainedUTCDateComponents(for: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 1,
+            components.day ?? 1
+        )
+    }
+
+    private static func formattedTimeOnlyText(_ date: Date) -> String {
+        let components = retainedUTCDateComponents(for: date)
+        return String(
+            format: "%02d:%02d",
+            components.hour ?? 0,
+            components.minute ?? 0
+        )
+    }
+
+    private static func formattedDateTimeText(_ date: Date) -> String {
+        "\(formattedDateOnlyText(date)) \(formattedTimeOnlyText(date))"
+    }
+
+    private static func retainedUTCDateComponents(for date: Date) -> DateComponents {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        return calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
     }
 
     public static func + (lhs: Text, rhs: Text) -> Text {

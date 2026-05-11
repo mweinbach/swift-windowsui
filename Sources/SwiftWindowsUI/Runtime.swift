@@ -173,6 +173,30 @@ public enum RetainedAccessibilityChildBehavior: Sendable, Equatable {
     case contain
 }
 
+public enum RetainedAccessibilityActionKind: Sendable, Equatable {
+    case `default`
+    case escape
+    case magicTap
+    case increment
+    case decrement
+}
+
+public struct RetainedAccessibilityAction {
+    public var name: String?
+    public var kind: RetainedAccessibilityActionKind?
+    public var handler: () -> Void
+
+    public init(
+        name: String? = nil,
+        kind: RetainedAccessibilityActionKind? = nil,
+        handler: @escaping () -> Void
+    ) {
+        self.name = name
+        self.kind = kind
+        self.handler = handler
+    }
+}
+
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
@@ -849,6 +873,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var accessibilityActions: [RetainedAccessibilityAction] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isAccessibilityHidden: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1087,6 +1115,7 @@ public final class ViewNode {
         accessibilityTraits: RetainedAccessibilityTraits = [],
         accessibilityChildBehavior: RetainedAccessibilityChildBehavior? = nil,
         accessibilitySortPriority: Double = 0,
+        accessibilityActions: [RetainedAccessibilityAction] = [],
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
         symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
@@ -1167,6 +1196,7 @@ public final class ViewNode {
         self.accessibilityTraits = accessibilityTraits
         self.accessibilityChildBehavior = accessibilityChildBehavior
         self.accessibilitySortPriority = accessibilitySortPriority
+        self.accessibilityActions = accessibilityActions
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
         self.symbolRenderingMode = symbolRenderingMode

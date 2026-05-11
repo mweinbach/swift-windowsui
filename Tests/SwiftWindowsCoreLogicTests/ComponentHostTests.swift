@@ -56,6 +56,7 @@ final class ComponentHostTests: XCTestCase {
             var useSecondState = false
             var pointerDownEvents: [String] = []
             var contextMenuEvents: [String] = []
+            var accessibilityActionEvents: [String] = []
 
             host.setContent {
                 Component { _ in
@@ -186,6 +187,11 @@ final class ComponentHostTests: XCTestCase {
                     node.accessibilityTraits = accessibilityTraits
                     node.accessibilityChildBehavior = accessibilityChildBehavior
                     node.accessibilitySortPriority = accessibilitySortPriority
+                    node.accessibilityActions = [
+                        RetainedAccessibilityAction(name: eventLabel, kind: .default) {
+                            accessibilityActionEvents.append(eventLabel)
+                        }
+                    ]
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.presentationChrome = presentationChrome
                     node.isToolbarContainer = useSecondState
@@ -235,6 +241,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.accessibilityTraits, [.isButton, .isHeader])
             XCTAssertEqual(firstNode?.accessibilityChildBehavior, .combine)
             XCTAssertEqual(firstNode?.accessibilitySortPriority, 1.25)
+            XCTAssertEqual(firstNode?.accessibilityActions.count, 1)
+            XCTAssertEqual(firstNode?.accessibilityActions.first?.name, "first")
+            XCTAssertEqual(firstNode?.accessibilityActions.first?.kind, .default)
             XCTAssertEqual(
                 firstNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(
@@ -311,6 +320,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.accessibilityTraits, [.isSelected, .isImage])
             XCTAssertEqual(reusedNode?.accessibilityChildBehavior, .contain)
             XCTAssertEqual(reusedNode?.accessibilitySortPriority, 9.5)
+            XCTAssertEqual(reusedNode?.accessibilityActions.count, 1)
+            XCTAssertEqual(reusedNode?.accessibilityActions.first?.name, "second")
+            XCTAssertEqual(reusedNode?.accessibilityActions.first?.kind, .default)
             XCTAssertEqual(
                 reusedNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(
@@ -353,6 +365,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(pointerDownEvents, ["second"])
             reusedNode?.onContextMenu?(Point(x: 4, y: 8))
             XCTAssertEqual(contextMenuEvents, ["second"])
+            reusedNode?.accessibilityActions.first?.handler()
+            XCTAssertEqual(accessibilityActionEvents, ["second"])
         }
     }
 }

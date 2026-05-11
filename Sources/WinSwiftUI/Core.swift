@@ -4169,6 +4169,29 @@ public enum AccessibilityChildBehavior: Sendable, Equatable, Hashable {
     }
 }
 
+public enum AccessibilityActionKind: Sendable, Equatable, Hashable {
+    case `default`
+    case escape
+    case magicTap
+    case increment
+    case decrement
+
+    var retainedKind: RetainedAccessibilityActionKind {
+        switch self {
+        case .default:
+            return .default
+        case .escape:
+            return .escape
+        case .magicTap:
+            return .magicTap
+        case .increment:
+            return .increment
+        case .decrement:
+            return .decrement
+        }
+    }
+}
+
 public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: Int
 
@@ -11029,6 +11052,47 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilitySortPriority = priority
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityAction(_ action: @escaping () -> Void) -> some View {
+        accessibilityAction(.default, action)
+    }
+
+    func accessibilityAction(_ kind: AccessibilityActionKind, _ action: @escaping () -> Void) -> some View {
+        accessibilityAction(kind: kind.retainedKind, name: nil, action)
+    }
+
+    func accessibilityAction<S: StringProtocol>(named name: S, _ action: @escaping () -> Void) -> some View {
+        accessibilityAction(kind: nil, name: String(name), action)
+    }
+
+    func accessibilityAction(named nameKey: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
+        accessibilityAction(kind: nil, name: nameKey.resolvedString, action)
+    }
+
+    func accessibilityAction(named name: Text, _ action: @escaping () -> Void) -> some View {
+        accessibilityAction(kind: nil, name: name.plainContent, action)
+    }
+
+    private func accessibilityAction(
+        kind: RetainedAccessibilityActionKind?,
+        name: String?,
+        _ action: @escaping () -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(
+                        name: name,
+                        kind: kind,
+                        handler: action
+                    )
+                )
                 return childNode
             }
         }

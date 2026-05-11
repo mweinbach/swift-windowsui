@@ -10869,6 +10869,7 @@ final class WinSwiftUITests: XCTestCase {
 
     func testAccessibilityModifiersMapToRetainedMetadata() async {
         await MainActor.run {
+            var actions: [String] = []
             let node = makeNode(
                 Text("SAVE")
                     .accessibilityLabel(Text("Save changes"))
@@ -10879,6 +10880,9 @@ final class WinSwiftUITests: XCTestCase {
                     .accessibilityRemoveTraits(.isHeader)
                     .accessibilityElement(children: .combine)
                     .accessibilitySortPriority(4.5)
+                    .accessibilityAction(.magicTap) { actions.append("magic") }
+                    .accessibilityAction(named: Text("Archive")) { actions.append("archive") }
+                    .accessibilityAction(named: LocalizedStringKey("Flag")) { actions.append("flag") }
                     .accessibilityHidden(true)
             )
 
@@ -10889,10 +10893,32 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.accessibilityTraits, [.isButton, .isSelected])
             XCTAssertEqual(node.accessibilityChildBehavior, .combine)
             XCTAssertEqual(node.accessibilitySortPriority, 4.5)
+            XCTAssertEqual(node.accessibilityActions.count, 3)
+            XCTAssertEqual(node.accessibilityActions[0].kind, .magicTap)
+            XCTAssertNil(node.accessibilityActions[0].name)
+            XCTAssertEqual(node.accessibilityActions[1].name, "Archive")
+            XCTAssertNil(node.accessibilityActions[1].kind)
+            XCTAssertEqual(node.accessibilityActions[2].name, "Flag")
             XCTAssertTrue(node.isAccessibilityHidden)
+
+            for action in node.accessibilityActions {
+                action.handler()
+            }
+            XCTAssertEqual(actions, ["magic", "archive", "flag"])
 
             let defaultElementNode = makeNode(Text("ROW").accessibilityElement())
             XCTAssertEqual(defaultElementNode.accessibilityChildBehavior, .ignore)
+
+            var defaultActionCount = 0
+            let defaultActionNode = makeNode(
+                Text("GO")
+                    .accessibilityAction {
+                        defaultActionCount += 1
+                    }
+            )
+            XCTAssertEqual(defaultActionNode.accessibilityActions.first?.kind, .default)
+            defaultActionNode.accessibilityActions.first?.handler()
+            XCTAssertEqual(defaultActionCount, 1)
         }
     }
 

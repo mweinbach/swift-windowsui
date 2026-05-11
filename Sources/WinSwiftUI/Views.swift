@@ -2019,7 +2019,7 @@ public struct Text: View {
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? 1,
-                lineSpacing: lineSpacing ?? context.lineSpacing ?? 2,
+                lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: resolvedLineBreakMode(
                     lineLimit: resolvedLineLimit,
                     truncationMode: truncationMode ?? context.truncationMode
@@ -5367,6 +5367,7 @@ private func textInputComponent(
             nativeFontSize: resolvedFont.resolvedNativeTextSize,
             alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+            lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
             lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
             maximumNumberOfLines: allowsNewlines ? nil : 1
         )

@@ -1699,6 +1699,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontLeadingMapsToRetainedLineSpacing() async {
+        await MainActor.run {
+            let tightNode = makeNode(
+                Text("TIGHT")
+                    .font(.system(size: 18).leading(.tight))
+            )
+            let looseNode = makeNode(
+                Text("LOOSE")
+                    .font(.custom("Aptos", size: 18).leading(.loose))
+            )
+            let weightedNode = makeNode(
+                Text("BOLD")
+                    .font(Font.custom("Aptos", size: 18).leading(.loose).weight(.bold))
+            )
+            let explicitLineSpacingNode = makeNode(
+                Text("EXPLICIT")
+                    .font(.system(size: 18).leading(.loose))
+                    .lineSpacing(3)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("RESET")
+                        .font(.system(size: 18).leading(.standard))
+                }
+                .font(.system(size: 18).leading(.tight))
+            )
+
+            XCTAssertEqual(tightNode.textStyle.lineSpacing, 0)
+            XCTAssertEqual(looseNode.textStyle.lineSpacing, 6)
+            XCTAssertEqual(weightedNode.textStyle.lineSpacing, 6)
+            XCTAssertEqual(weightedNode.textStyle.weight, .bold)
+            XCTAssertEqual(explicitLineSpacingNode.textStyle.lineSpacing, 3)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.lineSpacing, 0)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.lineSpacing, 2)
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

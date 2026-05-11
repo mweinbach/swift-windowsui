@@ -3910,10 +3910,17 @@ public struct Font: Sendable, Equatable {
         case caption2
     }
 
+    public enum Leading: Sendable, Equatable {
+        case standard
+        case tight
+        case loose
+    }
+
     public var size: Double
     public var weight: Weight
     public var design: Design
     public var family: String?
+    public var leading: Leading
     public var scalesWithDynamicType: Bool
 
     public init(
@@ -3921,12 +3928,14 @@ public struct Font: Sendable, Equatable {
         weight: Weight = .regular,
         design: Design = .default,
         family: String? = nil,
+        leading: Leading = .standard,
         scalesWithDynamicType: Bool = true
     ) {
         self.size = size
         self.weight = weight
         self.design = design
         self.family = family
+        self.leading = leading
         self.scalesWithDynamicType = scalesWithDynamicType
     }
 
@@ -3941,6 +3950,7 @@ public struct Font: Sendable, Equatable {
             weight: weight ?? font.weight,
             design: design ?? font.design,
             family: font.family,
+            leading: font.leading,
             scalesWithDynamicType: font.scalesWithDynamicType
         )
     }
@@ -3976,6 +3986,7 @@ public struct Font: Sendable, Equatable {
             weight: weight,
             design: design,
             family: family,
+            leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
         )
     }
@@ -3986,6 +3997,17 @@ public struct Font: Sendable, Equatable {
 
     public func monospaced(_ isActive: Bool) -> Font {
         withDesign(isActive ? .monospaced : .default)
+    }
+
+    public func leading(_ leading: Leading) -> Font {
+        Font(
+            size: size,
+            weight: weight,
+            design: design,
+            family: family,
+            leading: leading,
+            scalesWithDynamicType: scalesWithDynamicType
+        )
     }
 
     private static func defaultFont(for style: TextStyle) -> Font {
@@ -5615,6 +5637,7 @@ extension Font {
             weight: weight,
             design: design,
             family: family,
+            leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
         )
     }
@@ -5625,6 +5648,7 @@ extension Font {
             weight: weight,
             design: design,
             family: family,
+            leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
         )
     }
@@ -5649,6 +5673,17 @@ extension Font {
             return "Georgia"
         case .monospaced:
             return "Cascadia Mono"
+        }
+    }
+
+    var resolvedLineSpacing: Double {
+        switch leading {
+        case .standard:
+            return 2
+        case .tight:
+            return 0
+        case .loose:
+            return 6
         }
     }
 }

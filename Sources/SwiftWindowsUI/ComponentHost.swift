@@ -182,6 +182,7 @@ public final class ComponentHost {
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }
         if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
         if target.textSelectionAffinity != source.textSelectionAffinity { target.textSelectionAffinity = source.textSelectionAffinity }
+        if target.textInputSelection != source.textInputSelection { target.textInputSelection = source.textInputSelection }
         if target.textContentType != source.textContentType { target.textContentType = source.textContentType }
         if target.textInputKeyboardType != source.textInputKeyboardType { target.textInputKeyboardType = source.textInputKeyboardType }
         if target.textInputCompletion != source.textInputCompletion { target.textInputCompletion = source.textInputCompletion }

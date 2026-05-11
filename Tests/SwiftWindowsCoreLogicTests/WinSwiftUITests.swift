@@ -849,6 +849,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextInputSelectionBindingRetainsAndUpdatesMetadata() async {
+        await MainActor.run {
+            var fieldValue = "abcd"
+            var fieldSelection: TextSelection? = TextSelection(
+                insertionPoint: fieldValue.index(fieldValue.startIndex, offsetBy: 2)
+            )
+            let fieldBinding = Binding(
+                get: { fieldValue },
+                set: { fieldValue = $0 }
+            )
+            let fieldSelectionBinding = Binding<TextSelection?>(
+                get: { fieldSelection },
+                set: { fieldSelection = $0 }
+            )
+            let fieldNode = makeNode(
+                TextField("VALUE", text: fieldBinding, selection: fieldSelectionBinding)
+                    .textSelectionAffinity(.downstream)
+            )
+
+            XCTAssertEqual(fieldNode.textInputCaretOffset, 2)
+            XCTAssertEqual(
+                fieldNode.textInputSelection,
+                RetainedTextSelection(indices: .insertionPoint(2), affinity: .automatic)
+            )
+
+            fieldNode.onKeyDown?(KeyboardEvent(keyCode: 0x58))
+
+            XCTAssertEqual(fieldValue, "abxcd")
+            XCTAssertEqual(fieldNode.textInputCaretOffset, 3)
+            XCTAssertEqual(
+                fieldNode.textInputSelection,
+                RetainedTextSelection(indices: .insertionPoint(3), affinity: .downstream)
+            )
+            XCTAssertEqual(fieldSelection?.affinity, .downstream)
+            if case .insertionPoint(let index) = fieldSelection?.indices {
+                XCTAssertEqual(fieldValue.distance(from: fieldValue.startIndex, to: index), 3)
+            } else {
+                XCTFail("Expected insertion-point selection after retained editing")
+            }
+
+            var editorValue = "hello"
+            var editorSelection: TextSelection? = TextSelection(
+                range: editorValue.index(editorValue.startIndex, offsetBy: 1)..<editorValue.index(editorValue.startIndex, offsetBy: 4)
+            )
+            let editorBinding = Binding(
+                get: { editorValue },
+                set: { editorValue = $0 }
+            )
+            let editorSelectionBinding = Binding<TextSelection?>(
+                get: { editorSelection },
+                set: { editorSelection = $0 }
+            )
+            let editorNode = makeNode(
+                TextEditor(text: editorBinding, selection: editorSelectionBinding)
+            )
+
+            XCTAssertEqual(editorNode.textInputCaretOffset, 4)
+            XCTAssertEqual(
+                editorNode.textInputSelection,
+                RetainedTextSelection(indices: .range(1..<4), affinity: .automatic)
+            )
+        }
+    }
+
     func testKeyboardTypeModifierRetainsTextInputMetadata() async {
         await MainActor.run {
             var value = ""

@@ -93,6 +93,10 @@ final class ComponentHostTests: XCTestCase {
                     let caretOffset = useSecondState ? 4 : 1
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
                     let textSelectionAffinity: RetainedTextSelectionAffinity = useSecondState ? .downstream : .upstream
+                    let textInputSelection = RetainedTextSelection(
+                        indices: useSecondState ? .range(1..<3) : .insertionPoint(1),
+                        affinity: textSelectionAffinity
+                    )
                     let textContentType = RetainedTextContentType(rawValue: useSecondState ? "password" : "username")
                     let keyboardType: RetainedKeyboardType = useSecondState ? .emailAddress : .numberPad
                     let textInputCompletion = useSecondState ? "second completion" : "first completion"
@@ -200,6 +204,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputCaretOffset = caretOffset
                     node.textSelectability = textSelectability
                     node.textSelectionAffinity = textSelectionAffinity
+                    node.textInputSelection = textInputSelection
                     node.textContentType = textContentType
                     node.textInputKeyboardType = keyboardType
                     node.textInputCompletion = textInputCompletion
@@ -266,6 +271,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
             XCTAssertEqual(firstNode?.textSelectionAffinity, .upstream)
+            XCTAssertEqual(
+                firstNode?.textInputSelection,
+                RetainedTextSelection(indices: .insertionPoint(1), affinity: .upstream)
+            )
             XCTAssertEqual(firstNode?.textContentType, RetainedTextContentType(rawValue: "username"))
             XCTAssertEqual(firstNode?.textInputKeyboardType, .numberPad)
             XCTAssertEqual(firstNode?.textInputCompletion, "first completion")
@@ -360,6 +369,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
             XCTAssertEqual(reusedNode?.textSelectionAffinity, .downstream)
+            XCTAssertEqual(
+                reusedNode?.textInputSelection,
+                RetainedTextSelection(indices: .range(1..<3), affinity: .downstream)
+            )
             XCTAssertEqual(reusedNode?.textContentType, RetainedTextContentType(rawValue: "password"))
             XCTAssertEqual(reusedNode?.textInputKeyboardType, .emailAddress)
             XCTAssertEqual(reusedNode?.textInputCompletion, "second completion")

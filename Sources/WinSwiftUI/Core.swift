@@ -809,6 +809,87 @@ public enum TextSelectionAffinity: Sendable, Equatable, Hashable {
     }
 }
 
+public struct TextSelection: Sendable, Equatable, Hashable {
+    public enum Indices: Sendable, Equatable, Hashable {
+        case insertionPoint(String.Index)
+        case range(Range<String.Index>)
+        case ranges([Range<String.Index>])
+    }
+
+    public var indices: Indices
+    public var affinity: TextSelectionAffinity
+
+    public init(insertionPoint: String.Index) {
+        self.indices = .insertionPoint(insertionPoint)
+        self.affinity = .automatic
+    }
+
+    public init(range: Range<String.Index>) {
+        self.indices = .range(range)
+        self.affinity = .automatic
+    }
+
+    init(indices: Indices, affinity: TextSelectionAffinity) {
+        self.indices = indices
+        self.affinity = affinity
+    }
+
+    public var isInsertion: Bool {
+        if case .insertionPoint = indices {
+            return true
+        }
+        return false
+    }
+
+    func retainedSelection(in text: String) -> RetainedTextSelection {
+        RetainedTextSelection(
+            indices: retainedIndices(in: text),
+            affinity: affinity.retainedAffinity
+        )
+    }
+
+    func caretOffset(in text: String) -> Int {
+        switch indices {
+        case .insertionPoint(let index):
+            return clampedTextSelectionOffset(for: index, in: text)
+        case .range(let range):
+            return clampedTextSelectionOffset(for: range.upperBound, in: text)
+        case .ranges(let ranges):
+            return ranges.last.map { clampedTextSelectionOffset(for: $0.upperBound, in: text) } ?? text.count
+        }
+    }
+
+    private func retainedIndices(in text: String) -> RetainedTextSelection.Indices {
+        switch indices {
+        case .insertionPoint(let index):
+            return .insertionPoint(clampedTextSelectionOffset(for: index, in: text))
+        case .range(let range):
+            return .range(
+                clampedTextSelectionOffset(for: range.lowerBound, in: text)..<clampedTextSelectionOffset(for: range.upperBound, in: text)
+            )
+        case .ranges(let ranges):
+            return .ranges(
+                ranges.map {
+                    clampedTextSelectionOffset(for: $0.lowerBound, in: text)..<clampedTextSelectionOffset(for: $0.upperBound, in: text)
+                }
+            )
+        }
+    }
+
+    static func insertion(at offset: Int, in text: String, affinity: TextSelectionAffinity) -> TextSelection {
+        TextSelection(indices: .insertionPoint(textIndex(at: offset, in: text)), affinity: affinity)
+    }
+}
+
+private func clampedTextSelectionOffset(for index: String.Index, in text: String) -> Int {
+    let offset = text.distance(from: text.startIndex, to: index)
+    return min(max(0, offset), text.count)
+}
+
+private func textIndex(at offset: Int, in text: String) -> String.Index {
+    text.index(text.startIndex, offsetBy: min(max(0, offset), text.count))
+}
+
 public struct UIKeyboardType: RawRepresentable, Sendable, Equatable, Hashable {
     public var rawValue: Int
 

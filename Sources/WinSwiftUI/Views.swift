@@ -5834,6 +5834,7 @@ public struct TextField: View {
     private let prompt: String?
     private let axis: Axis
     private let label: [AnyView]?
+    private let selection: Binding<TextSelection?>?
     private let onEditingChanged: (@MainActor (Bool) -> Void)?
     private let onCommit: (@MainActor () -> Void)?
 
@@ -5843,6 +5844,7 @@ public struct TextField: View {
         self.prompt = prompt?.plainContent
         self.axis = axis
         self.label = nil
+        self.selection = nil
         self.onEditingChanged = nil
         self.onCommit = nil
     }
@@ -5856,6 +5858,59 @@ public struct TextField: View {
     }
 
     public init(
+        _ title: String,
+        text: Binding<String>,
+        selection: Binding<TextSelection?>,
+        prompt: Text? = nil,
+        axis: Axis = .horizontal
+    ) {
+        self.title = title
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.axis = axis
+        self.label = nil
+        self.selection = selection
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        text: Binding<String>,
+        selection: Binding<TextSelection?>,
+        prompt: Text? = nil,
+        axis: Axis = .horizontal
+    ) {
+        self.init(String(title), text: text, selection: selection, prompt: prompt, axis: axis)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        text: Binding<String>,
+        selection: Binding<TextSelection?>,
+        prompt: Text? = nil,
+        axis: Axis = .horizontal
+    ) {
+        self.init(titleKey.resolvedString, text: text, selection: selection, prompt: prompt, axis: axis)
+    }
+
+    public init(
+        text: Binding<String>,
+        selection: Binding<TextSelection?>,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.selection = selection
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init(
         text: Binding<String>,
         prompt: Text? = nil,
         @ViewBuilder label: () -> [AnyView]
@@ -5865,6 +5920,24 @@ public struct TextField: View {
         self.prompt = prompt?.plainContent
         self.axis = .horizontal
         self.label = label()
+        self.selection = nil
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init(
+        text: Binding<String>,
+        selection: Binding<TextSelection?>,
+        prompt: Text? = nil,
+        axis: Axis,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.axis = axis
+        self.label = label()
+        self.selection = selection
         self.onEditingChanged = nil
         self.onCommit = nil
     }
@@ -5880,6 +5953,7 @@ public struct TextField: View {
         self.prompt = prompt?.plainContent
         self.axis = axis
         self.label = label()
+        self.selection = nil
         self.onEditingChanged = nil
         self.onCommit = nil
     }
@@ -5895,6 +5969,7 @@ public struct TextField: View {
         self.prompt = nil
         self.axis = .horizontal
         self.label = nil
+        self.selection = nil
         self.onEditingChanged = onEditingChanged
         self.onCommit = onCommit
     }
@@ -5923,6 +5998,7 @@ public struct TextField: View {
         self.prompt = nil
         self.axis = .horizontal
         self.label = nil
+        self.selection = nil
         self.onEditingChanged = nil
         self.onCommit = onCommit
     }
@@ -5954,6 +6030,7 @@ public struct TextField: View {
             allowsNewlines: allowsNewlines,
             preferredSize: allowsNewlines ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
             label: label,
+            selection: selection,
             onEditingChanged: onEditingChanged,
             onCommit: onCommit,
             context: context
@@ -6031,6 +6108,7 @@ public struct SecureField: View {
             allowsNewlines: false,
             preferredSize: context.controlSize.singleLineTextInputSize,
             label: label,
+            selection: nil,
             onEditingChanged: nil,
             onCommit: onCommit,
             context: context
@@ -6043,9 +6121,11 @@ public struct TextEditor: View {
     public typealias Body = Never
 
     private let text: Binding<String>
+    private let selection: Binding<TextSelection?>?
 
-    public init(text: Binding<String>) {
+    public init(text: Binding<String>, selection: Binding<TextSelection?>? = nil) {
         self.text = text
+        self.selection = selection
     }
 
     public var body: Never {
@@ -6060,6 +6140,7 @@ public struct TextEditor: View {
             allowsNewlines: true,
             preferredSize: context.controlSize.multilineTextInputSize,
             label: nil,
+            selection: selection,
             onEditingChanged: nil,
             onCommit: nil,
             context: context
@@ -6436,6 +6517,7 @@ private func textInputComponent(
     allowsNewlines: Bool,
     preferredSize: Size,
     label: [AnyView]?,
+    selection: Binding<TextSelection?>?,
     onEditingChanged: (@MainActor (Bool) -> Void)?,
     onCommit: (@MainActor () -> Void)?,
     context: ViewBuildContext
@@ -6486,8 +6568,10 @@ private func textInputComponent(
             children: [labelNode]
         )
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
-        node.textInputCaretOffset = currentText.count
+        let selectionValue = selection?.wrappedValue
+        node.textInputCaretOffset = selectionValue?.caretOffset(in: currentText) ?? currentText.count
         node.textSelectionAffinity = context.textSelectionAffinity.retainedAffinity
+        node.textInputSelection = selectionValue?.retainedSelection(in: currentText)
         node.textContentType = context.textContentType?.retainedContentType
         node.textInputKeyboardType = context.keyboardType.retainedKeyboardType
         node.textInputSuggestions = retainedTextInputSuggestions(
@@ -6520,6 +6604,21 @@ private func textInputComponent(
         }
         node.onKeyDown = { event in
             let clampedCaret = clampedTextOffset(node.textInputCaretOffset, in: binding.wrappedValue)
+            @MainActor func setCaretOffset(_ offset: Int) {
+                let clampedOffset = clampedTextOffset(offset, in: binding.wrappedValue)
+                node.textInputCaretOffset = clampedOffset
+                if let selection {
+                    let nextSelection = TextSelection.insertion(
+                        at: clampedOffset,
+                        in: binding.wrappedValue,
+                        affinity: context.textSelectionAffinity
+                    )
+                    selection.wrappedValue = nextSelection
+                    node.textInputSelection = nextSelection.retainedSelection(in: binding.wrappedValue)
+                } else {
+                    node.textInputSelection = nil
+                }
+            }
 
             if event.key == .enter, !allowsNewlines {
                 if let onCommit {
@@ -6538,7 +6637,7 @@ private func textInputComponent(
                     in: (clampedCaret - 1)..<clampedCaret
                 )
                 binding.wrappedValue = updatedText
-                node.textInputCaretOffset = clampedCaret - 1
+                setCaretOffset(clampedCaret - 1)
                 context.invalidate()
                 return
             }
@@ -6551,26 +6650,26 @@ private func textInputComponent(
                 binding.wrappedValue = binding.wrappedValue.removingText(
                     in: clampedCaret..<(clampedCaret + 1)
                 )
-                node.textInputCaretOffset = clampedCaret
+                setCaretOffset(clampedCaret)
                 context.invalidate()
                 return
             }
 
             switch event.key {
             case .leftArrow:
-                node.textInputCaretOffset = max(0, clampedCaret - 1)
+                setCaretOffset(max(0, clampedCaret - 1))
                 context.invalidate()
                 return
             case .rightArrow:
-                node.textInputCaretOffset = min(binding.wrappedValue.count, clampedCaret + 1)
+                setCaretOffset(min(binding.wrappedValue.count, clampedCaret + 1))
                 context.invalidate()
                 return
             case .home:
-                node.textInputCaretOffset = 0
+                setCaretOffset(0)
                 context.invalidate()
                 return
             case .end:
-                node.textInputCaretOffset = binding.wrappedValue.count
+                setCaretOffset(binding.wrappedValue.count)
                 context.invalidate()
                 return
             case .backspace, .deleteForward:
@@ -6589,7 +6688,7 @@ private func textInputComponent(
             }
 
             binding.wrappedValue = binding.wrappedValue.insertingText(character, at: clampedCaret)
-            node.textInputCaretOffset = clampedCaret + character.count
+            setCaretOffset(clampedCaret + character.count)
             context.invalidate()
         }
 

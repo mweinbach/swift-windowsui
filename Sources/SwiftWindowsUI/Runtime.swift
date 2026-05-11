@@ -192,6 +192,22 @@ public enum RetainedTextSelectionAffinity: Sendable, Equatable, Hashable {
     case downstream
 }
 
+public struct RetainedTextSelection: Sendable, Equatable, Hashable {
+    public enum Indices: Sendable, Equatable, Hashable {
+        case insertionPoint(Int)
+        case range(Range<Int>)
+        case ranges([Range<Int>])
+    }
+
+    public var indices: Indices
+    public var affinity: RetainedTextSelectionAffinity
+
+    public init(indices: Indices, affinity: RetainedTextSelectionAffinity = .automatic) {
+        self.indices = indices
+        self.affinity = affinity
+    }
+}
+
 public struct RetainedTextContentType: Sendable, Equatable, Hashable {
     public var rawValue: String
 
@@ -1001,6 +1017,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textInputSelection: RetainedTextSelection? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var textContentType: RetainedTextContentType? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1246,6 +1266,7 @@ public final class ViewNode {
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
         textSelectionAffinity: RetainedTextSelectionAffinity = .automatic,
+        textInputSelection: RetainedTextSelection? = nil,
         textContentType: RetainedTextContentType? = nil,
         textInputKeyboardType: RetainedKeyboardType = .default,
         textInputCompletion: String? = nil,
@@ -1339,6 +1360,7 @@ public final class ViewNode {
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
         self.textSelectionAffinity = textSelectionAffinity
+        self.textInputSelection = textInputSelection
         self.textContentType = textContentType
         self.textInputKeyboardType = textInputKeyboardType
         self.textInputCompletion = textInputCompletion

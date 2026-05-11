@@ -1042,6 +1042,19 @@ public struct PresentationContentInteraction: Sendable, Equatable, Hashable {
     public static let scrolls = PresentationContentInteraction(kind: .scrolls)
 }
 
+private extension PresentationContentInteraction {
+    var retainedContentInteraction: RetainedPresentationContentInteraction {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .resizes:
+            return .resizes
+        case .scrolls:
+            return .scrolls
+        }
+    }
+}
+
 public struct PresentationBackgroundInteraction: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -6765,6 +6778,10 @@ private func mergedPresentationChrome(
         result.hasBackgroundInteractionOverride = true
         result.allowsBackgroundInteraction = override.allowsBackgroundInteraction
     }
+    if override.hasContentInteractionOverride {
+        result.hasContentInteractionOverride = true
+        result.contentInteraction = override.contentInteraction
+    }
     return result
 }
 
@@ -6870,11 +6887,38 @@ private func retainedPresentationDragIndicatorNode() -> ViewNode {
 @MainActor
 private func retainedPresentationChildren(
     contentNode: ViewNode,
-    chrome: RetainedPresentationChrome
+    chrome: RetainedPresentationChrome,
+    wrapsScrollingContent: Bool = false
 ) -> [ViewNode] {
-    chrome.showsDragIndicator
-        ? [retainedPresentationDragIndicatorNode(), contentNode]
-        : [contentNode]
+    let presentedContentNode = wrapsScrollingContent && chrome.contentInteraction == .scrolls
+        ? retainedPresentationScrollContentNode(contentNode)
+        : contentNode
+    return chrome.showsDragIndicator
+        ? [retainedPresentationDragIndicatorNode(), presentedContentNode]
+        : [presentedContentNode]
+}
+
+@MainActor
+private func retainedPresentationScrollContentNode(_ contentNode: ViewNode) -> ViewNode {
+    let scrollNode = Controls.scrollPanel(
+        axis: .vertical,
+        layoutPriority: 1,
+        stackLayout: .vertical(
+            spacing: 0,
+            padding: .zero,
+            alignment: .stretch,
+            mainAlignment: .start
+        ),
+        scrollStep: 64,
+        scrollIndicatorColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+        scrollIndicatorHoverColor: Color(red: 0.97, green: 0.99, blue: 1.0, alpha: 0.34),
+        scrollIndicatorActiveColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.56),
+        scrollIndicatorThickness: 5,
+        isHitTestVisible: true,
+        children: [contentNode]
+    )
+    scrollNode.nodeTag = "presentation-content-scrolls"
+    return scrollNode
 }
 
 @MainActor
@@ -6929,7 +6973,11 @@ private func retainedSheetPresentation(
                 alignment: .stretch
             ),
             isHitTestVisible: false,
-            children: retainedPresentationChildren(contentNode: sheetContentNode, chrome: presentationChrome)
+            children: retainedPresentationChildren(
+                contentNode: sheetContentNode,
+                chrome: presentationChrome,
+                wrapsScrollingContent: true
+            )
         )
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
@@ -8318,9 +8366,14 @@ public extension View {
     }
 
     func presentationContentInteraction(_ behavior: PresentationContentInteraction) -> some View {
-        _ = behavior
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasContentInteractionOverride = true
+                node.presentationChrome.contentInteraction = behavior.retainedContentInteraction
+                return node
+            }
         }
     }
 

@@ -124,7 +124,11 @@ final class ComponentHostTests: XCTestCase {
                             showsDragIndicator: false,
                             hasDetentsOverride: true,
                             detents: [.fraction(0.5), .large],
-                            selectedDetent: .fraction(0.5)
+                            selectedDetent: .fraction(0.5),
+                            hasBackgroundInteractionOverride: true,
+                            allowsBackgroundInteraction: false,
+                            hasContentInteractionOverride: true,
+                            contentInteraction: .resizes
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
@@ -139,7 +143,11 @@ final class ComponentHostTests: XCTestCase {
                             showsDragIndicator: true,
                             hasDetentsOverride: true,
                             detents: [.height(240), .medium],
-                            selectedDetent: .height(240)
+                            selectedDetent: .height(240),
+                            hasBackgroundInteractionOverride: true,
+                            allowsBackgroundInteraction: true,
+                            hasContentInteractionOverride: true,
+                            contentInteraction: .scrolls
                         )
 
                     node.text = label
@@ -229,7 +237,11 @@ final class ComponentHostTests: XCTestCase {
                     showsDragIndicator: true,
                     hasDetentsOverride: true,
                     detents: [.height(240), .medium],
-                    selectedDetent: .height(240)
+                    selectedDetent: .height(240),
+                    hasBackgroundInteractionOverride: true,
+                    allowsBackgroundInteraction: true,
+                    hasContentInteractionOverride: true,
+                    contentInteraction: .scrolls
                 )
             )
             XCTAssertEqual(firstNode?.isToolbarContainer, false)
@@ -288,7 +300,11 @@ final class ComponentHostTests: XCTestCase {
                     showsDragIndicator: false,
                     hasDetentsOverride: true,
                     detents: [.fraction(0.5), .large],
-                    selectedDetent: .fraction(0.5)
+                    selectedDetent: .fraction(0.5),
+                    hasBackgroundInteractionOverride: true,
+                    allowsBackgroundInteraction: false,
+                    hasContentInteractionOverride: true,
+                    contentInteraction: .resizes
                 )
             )
             XCTAssertEqual(reusedNode?.isToolbarContainer, true)

@@ -267,6 +267,12 @@ public enum RetainedPresentationDetent: Sendable, Equatable, Hashable {
     case fraction(Double)
 }
 
+public enum RetainedPresentationContentInteraction: Sendable, Equatable {
+    case automatic
+    case resizes
+    case scrolls
+}
+
 public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasBackgroundOverride: Bool
     public var backgroundColor: Color?
@@ -282,6 +288,8 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var interactiveDismissDisabled: Bool
     public var hasBackgroundInteractionOverride: Bool
     public var allowsBackgroundInteraction: Bool
+    public var hasContentInteractionOverride: Bool
+    public var contentInteraction: RetainedPresentationContentInteraction
 
     public init(
         hasBackgroundOverride: Bool = false,
@@ -297,7 +305,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         hasInteractiveDismissDisabledOverride: Bool = false,
         interactiveDismissDisabled: Bool = false,
         hasBackgroundInteractionOverride: Bool = false,
-        allowsBackgroundInteraction: Bool = false
+        allowsBackgroundInteraction: Bool = false,
+        hasContentInteractionOverride: Bool = false,
+        contentInteraction: RetainedPresentationContentInteraction = .automatic
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
@@ -313,6 +323,8 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         self.interactiveDismissDisabled = interactiveDismissDisabled
         self.hasBackgroundInteractionOverride = hasBackgroundInteractionOverride
         self.allowsBackgroundInteraction = allowsBackgroundInteraction
+        self.hasContentInteractionOverride = hasContentInteractionOverride
+        self.contentInteraction = contentInteraction
     }
 
     public static let empty = RetainedPresentationChrome()

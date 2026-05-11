@@ -7466,6 +7466,66 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationContentInteractionScrollsWrapsRetainedSheetContent() async {
+        await MainActor.run {
+            let scrollsNode = makeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        VStack {
+                            Text("ONE")
+                            Text("TWO")
+                        }
+                        .presentationContentInteraction(.scrolls)
+                    }
+            )
+
+            guard let sheetPanel = scrollsNode.children.last else {
+                return XCTFail("Expected retained sheet panel")
+            }
+            XCTAssertEqual(sheetPanel.children.count, 1)
+
+            let contentScrollNode = sheetPanel.children[0]
+            XCTAssertEqual(contentScrollNode.nodeTag, "presentation-content-scrolls")
+            XCTAssertEqual(contentScrollNode.scrollAxis, .vertical)
+            XCTAssertTrue(contentScrollNode.showsScrollIndicator)
+            XCTAssertTrue(contentScrollNode.clipsToBounds)
+            XCTAssertTrue(allTexts(in: contentScrollNode).contains("ONE"))
+            XCTAssertTrue(allTexts(in: contentScrollNode).contains("TWO"))
+
+            let dragIndicatorNode = makeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        Text("DRAGGABLE")
+                            .presentationDragIndicator(.visible)
+                            .presentationContentInteraction(.scrolls)
+                    }
+            )
+
+            guard let dragIndicatorSheet = dragIndicatorNode.children.last else {
+                return XCTFail("Expected retained sheet panel with drag indicator")
+            }
+            XCTAssertEqual(dragIndicatorSheet.children.count, 2)
+            XCTAssertEqual(dragIndicatorSheet.children[1].nodeTag, "presentation-content-scrolls")
+
+            let resizesNode = makeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        Text("RESIZES")
+                            .presentationContentInteraction(.scrolls)
+                            .presentationContentInteraction(.resizes)
+                    }
+            )
+
+            guard let resizesSheet = resizesNode.children.last,
+                  let resizesContent = resizesSheet.children.first else {
+                return XCTFail("Expected retained sheet content")
+            }
+            XCTAssertNotEqual(resizesContent.nodeTag, "presentation-content-scrolls")
+            XCTAssertNil(resizesContent.scrollAxis)
+            XCTAssertTrue(allTexts(in: resizesContent).contains("RESIZES"))
+        }
+    }
+
     func testPresentationDetentAndDismissModifiersPreserveRetainedSheetContent() async {
         await MainActor.run {
             struct SheetContent: View {

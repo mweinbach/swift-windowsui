@@ -4367,8 +4367,8 @@ public struct LinkButtonStyle: Sendable, Equatable {
     public init() {}
 }
 
-public struct ToolbarItemPlacement: Sendable, Equatable {
-    private enum Kind: Sendable, Equatable {
+public struct ToolbarItemPlacement: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
         case automatic
         case principal
         case navigation
@@ -4383,6 +4383,9 @@ public struct ToolbarItemPlacement: Sendable, Equatable {
         case topBarTrailing
         case navigationBarLeading
         case navigationBarTrailing
+        case navigationBar
+        case tabBar
+        case windowToolbar
     }
 
     private let kind: Kind
@@ -4405,6 +4408,49 @@ public struct ToolbarItemPlacement: Sendable, Equatable {
     public static let topBarTrailing = ToolbarItemPlacement(.topBarTrailing)
     public static let navigationBarLeading = ToolbarItemPlacement(.navigationBarLeading)
     public static let navigationBarTrailing = ToolbarItemPlacement(.navigationBarTrailing)
+    public static let navigationBar = ToolbarItemPlacement(.navigationBar)
+    public static let tabBar = ToolbarItemPlacement(.tabBar)
+    public static let windowToolbar = ToolbarItemPlacement(.windowToolbar)
+}
+
+public struct ToolbarRole: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case navigationStack
+        case editor
+        case browser
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToolbarRole(.automatic)
+    public static let navigationStack = ToolbarRole(.navigationStack)
+    public static let editor = ToolbarRole(.editor)
+    public static let browser = ToolbarRole(.browser)
+}
+
+public struct ToolbarTitleDisplayMode: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case inline
+        case inlineLarge
+        case large
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToolbarTitleDisplayMode(.automatic)
+    public static let inline = ToolbarTitleDisplayMode(.inline)
+    public static let inlineLarge = ToolbarTitleDisplayMode(.inlineLarge)
+    public static let large = ToolbarTitleDisplayMode(.large)
 }
 
 public struct ButtonRepeatBehavior: Sendable, Equatable, Hashable {
@@ -7120,6 +7166,76 @@ public extension View {
                     children: [toolbarNode, baseNode]
                 )
             }
+        }
+    }
+
+    func toolbar(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
+        _ = visibility
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarBackground(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
+        _ = visibility
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarBackground(_ color: Color, for bars: ToolbarItemPlacement...) -> some View {
+        _ = color
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarBackground(_ color: Color?, for bars: ToolbarItemPlacement...) -> some View {
+        _ = color
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarBackground(_ style: ForegroundStyle, for bars: ToolbarItemPlacement...) -> some View {
+        _ = style
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarBackground(_ gradient: LinearGradient, for bars: ToolbarItemPlacement...) -> some View {
+        _ = gradient
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarColorScheme(_ colorScheme: ColorScheme?, for bars: ToolbarItemPlacement...) -> some View {
+        _ = colorScheme
+        _ = bars
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarRole(_ role: ToolbarRole) -> some View {
+        _ = role
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func toolbarTitleDisplayMode(_ mode: ToolbarTitleDisplayMode) -> some View {
+        _ = mode
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
         }
     }
 

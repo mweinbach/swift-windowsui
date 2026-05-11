@@ -11592,6 +11592,50 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToolbarConfigurationModifiersPreserveRetainedToolbarRow() async {
+        await MainActor.run {
+            let gradient = LinearGradient(
+                colors: [.red, .blue],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let roles: Set<ToolbarRole> = [.automatic, .navigationStack, .editor, .browser]
+            let titleModes: Set<ToolbarTitleDisplayMode> = [.automatic, .inline, .inlineLarge, .large]
+            let placements: Set<ToolbarItemPlacement> = [.automatic, .navigationBar, .tabBar, .windowToolbar]
+
+            let node = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("SAVE") {}
+                        }
+                    }
+                    .toolbar(.hidden, for: .navigationBar, .tabBar)
+                    .toolbar(.visible, for: .windowToolbar)
+                    .toolbarBackground(.visible, for: .navigationBar)
+                    .toolbarBackground(Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), for: .navigationBar)
+                    .toolbarBackground(nil as Color?, for: .tabBar)
+                    .toolbarBackground(ForegroundStyle.color(.secondary), for: .windowToolbar)
+                    .toolbarBackground(gradient, for: .bottomBar)
+                    .toolbarColorScheme(.light, for: .navigationBar, .tabBar)
+                    .toolbarColorScheme(nil, for: .windowToolbar)
+                    .toolbarRole(.editor)
+                    .toolbarTitleDisplayMode(.inlineLarge)
+            )
+
+            guard case .stack(let rootLayout) = node.layoutMode else {
+                return XCTFail("Expected toolbar configuration to preserve retained toolbar row")
+            }
+
+            XCTAssertEqual(rootLayout, .vertical(spacing: 0, alignment: .stretch))
+            XCTAssertEqual(roles.count, 4)
+            XCTAssertEqual(titleModes.count, 4)
+            XCTAssertEqual(placements.count, 4)
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("SAVE"))
+            XCTAssertEqual(node.children[1].text, "DETAIL")
+        }
+    }
+
     func testNavigationBarItemsBridgeToRetainedToolbarRow() async {
         await MainActor.run {
             var leadingActivations = 0

@@ -502,6 +502,22 @@ public enum Prominence: Sendable, Equatable, Hashable {
     case increased
 }
 
+public struct BackgroundProminence: Sendable, Equatable, Hashable {
+    private enum Level: Sendable, Equatable, Hashable {
+        case standard
+        case increased
+    }
+
+    private let level: Level
+
+    private init(_ level: Level) {
+        self.level = level
+    }
+
+    public static let standard = BackgroundProminence(.standard)
+    public static let increased = BackgroundProminence(.increased)
+}
+
 public struct BadgeProminence: Sendable, Equatable, Hashable {
     private enum Level: Sendable, Equatable, Hashable {
         case decreased
@@ -917,6 +933,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
     public var defaultMinListHeaderHeight: CGFloat?
+    public var backgroundProminence: BackgroundProminence
     public var headerProminence: Prominence
     public var badgeProminence: BadgeProminence
     public var defaultWheelPickerItemHeight: CGFloat
@@ -1006,6 +1023,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isPrivacySensitive: Bool = false,
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
+        backgroundProminence: BackgroundProminence = .standard,
         headerProminence: Prominence = .standard,
         badgeProminence: BadgeProminence = .standard,
         defaultWheelPickerItemHeight: CGFloat = 32,
@@ -1099,6 +1117,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
+        self.backgroundProminence = backgroundProminence
         self.headerProminence = headerProminence
         self.badgeProminence = badgeProminence
         self.defaultWheelPickerItemHeight = defaultWheelPickerItemHeight
@@ -1463,6 +1482,10 @@ public struct ViewBuildContext {
 
     public var defaultMinListHeaderHeight: CGFloat? {
         environmentValuesProvider().defaultMinListHeaderHeight
+    }
+
+    public var backgroundProminence: BackgroundProminence {
+        environmentValuesProvider().backgroundProminence
     }
 
     public var headerProminence: Prominence {

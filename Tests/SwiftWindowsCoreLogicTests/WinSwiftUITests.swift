@@ -3375,6 +3375,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBackgroundProminenceEnvironmentCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct BackgroundProminenceReader: View {
+                @Environment(\.backgroundProminence) var backgroundProminence
+
+                var body: some View {
+                    Text(backgroundProminence == .increased ? "INCREASED" : "STANDARD")
+                }
+            }
+
+            let defaultNode = makeNode(BackgroundProminenceReader())
+            let overrideNode = makeNode(
+                BackgroundProminenceReader()
+                    .environment(\.backgroundProminence, .increased)
+            )
+            let transformedNode = makeNode(
+                BackgroundProminenceReader()
+                    .transformEnvironment(\.backgroundProminence) { prominence in
+                        prominence = .increased
+                    }
+            )
+
+            XCTAssertEqual(defaultNode.text, "STANDARD")
+            XCTAssertEqual(overrideNode.text, "INCREASED")
+            XCTAssertEqual(transformedNode.text, "INCREASED")
+        }
+    }
+
     func testDefaultMinListHeaderHeightMapsToRetainedSectionHeaderConstraints() async {
         await MainActor.run {
             let node = makeNode(

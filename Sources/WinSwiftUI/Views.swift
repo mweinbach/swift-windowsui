@@ -1649,7 +1649,8 @@ public struct Text: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let resolvedColor = color ?? context.foregroundColor
+        let resolvedColor = (color ?? context.foregroundColor)
+            .resolvedForContrast(context.colorSchemeContrast)
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
         var resolvedFont: Font
         if let font {
@@ -1927,7 +1928,8 @@ public struct Image: View {
         switch storage {
         case .systemName(let systemName):
             let symbol = resolvedSymbolIcon(for: systemName)
-            let resolvedColor = color ?? context.foregroundColor
+            let resolvedColor = (color ?? context.foregroundColor)
+                .resolvedForContrast(context.colorSchemeContrast)
             let imageScale = context.imageScale.resolvedMultiplier
             let resolvedScale = font.resolvedScale * imageScale
             let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
@@ -2223,7 +2225,8 @@ public struct Label: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let resolvedColor = color ?? context.foregroundColor
+        let resolvedColor = (color ?? context.foregroundColor)
+            .resolvedForContrast(context.colorSchemeContrast)
         let labelContext = context
             .withForegroundColor(resolvedColor)
             .withFont(font)

@@ -330,6 +330,11 @@ public enum ColorScheme: Sendable, Equatable {
     case dark
 }
 
+public enum ColorSchemeContrast: Sendable, Equatable {
+    case standard
+    case increased
+}
+
 public enum LayoutDirection: Sendable, Equatable {
     case leftToRight
     case rightToLeft
@@ -506,6 +511,7 @@ public struct OpenURLAction: @unchecked Sendable {
 
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
+    public var colorSchemeContrast: ColorSchemeContrast
     public var layoutDirection: LayoutDirection
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
@@ -546,6 +552,7 @@ public struct EnvironmentValues: @unchecked Sendable {
 
     public init(
         colorScheme: ColorScheme = .dark,
+        colorSchemeContrast: ColorSchemeContrast = .standard,
         layoutDirection: LayoutDirection = .leftToRight,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
@@ -580,6 +587,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         openURL: OpenURLAction = .system
     ) {
         self.colorScheme = colorScheme
+        self.colorSchemeContrast = colorSchemeContrast
         self.layoutDirection = layoutDirection
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
@@ -785,16 +793,17 @@ public struct ViewBuildContext {
     public var foregroundColor: Color {
         switch environmentValuesProvider().foregroundStyle {
         case .color(let color):
-            return color
+            return color.resolvedForContrast(colorSchemeContrast)
         case .linearGradient(let gradient):
-            return gradient.startColor
+            return gradient.startColor.resolvedForContrast(colorSchemeContrast)
         case nil:
-            return foregroundColorProvider()
+            return foregroundColorProvider().resolvedForContrast(colorSchemeContrast)
         }
     }
 
     var foregroundStyle: ForegroundStyle {
-        environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider())
+        (environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider()))
+            .resolvedForContrast(colorSchemeContrast)
     }
 
     public var tint: Color {
@@ -953,6 +962,10 @@ public struct ViewBuildContext {
 
     public var layoutDirection: LayoutDirection {
         environmentValues.layoutDirection
+    }
+
+    public var colorSchemeContrast: ColorSchemeContrast {
+        environmentValues.colorSchemeContrast
     }
 
     public var dynamicTypeSize: DynamicTypeSize {
@@ -3099,6 +3112,7 @@ public extension SwiftWindowsCore.Color {
     static let gray = SwiftWindowsCore.Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
     static let primary = SwiftWindowsCore.Color.white
     static let secondary = SwiftWindowsCore.Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
+    static let highContrastSecondary = SwiftWindowsCore.Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
     static let accentColor = SwiftWindowsCore.Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
 
     init(red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
@@ -3146,6 +3160,42 @@ public extension SwiftWindowsCore.Color {
     func opacity(_ value: Double) -> SwiftWindowsCore.Color {
         let components = rgba
         return SwiftWindowsCore.Color(red: components.0, green: components.1, blue: components.2, alpha: Float(value))
+    }
+
+    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
+        guard contrast == .increased, self == .secondary else {
+            return self
+        }
+
+        let alpha = rgba.3
+        let highContrastComponents = SwiftWindowsCore.Color.highContrastSecondary.rgba
+        return SwiftWindowsCore.Color(
+            red: highContrastComponents.0,
+            green: highContrastComponents.1,
+            blue: highContrastComponents.2,
+            alpha: alpha
+        )
+    }
+}
+
+extension ForegroundStyle {
+    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> ForegroundStyle {
+        switch self {
+        case .color(let color):
+            return .color(color.resolvedForContrast(contrast))
+        case .linearGradient(let gradient):
+            return .linearGradient(gradient.resolvedForContrast(contrast))
+        }
+    }
+}
+
+extension LinearGradient {
+    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> LinearGradient {
+        LinearGradient(
+            startColor: startColor.resolvedForContrast(contrast),
+            endColor: endColor.resolvedForContrast(contrast),
+            axis: axis
+        )
     }
 }
 

@@ -1425,6 +1425,14 @@ final class WinSwiftUITests: XCTestCase {
 
     func testForegroundStyleValueAndSemanticShorthandPropagateToText() async {
         await MainActor.run {
+            struct ContrastEnvironmentReaderView: View {
+                @Environment(\.colorSchemeContrast) var colorSchemeContrast
+
+                var body: some View {
+                    Text(colorSchemeContrast == .increased ? "INCREASED" : "STANDARD")
+                }
+            }
+
             let storedStyle = ForegroundStyle.color(Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
             let storedNode = makeNode(
                 VStack {
@@ -1435,6 +1443,20 @@ final class WinSwiftUITests: XCTestCase {
             let secondaryNode = makeNode(
                 Text("SECONDARY")
                     .foregroundStyle(.secondary)
+            )
+            let increasedSecondaryNode = makeNode(
+                Text("SECONDARY")
+                    .foregroundStyle(.secondary)
+                    .environment(\.colorSchemeContrast, .increased)
+            )
+            let explicitSecondaryNode = makeNode(
+                Text("EXPLICIT")
+                    .foregroundColor(.secondary)
+                    .environment(\.colorSchemeContrast, .increased)
+            )
+            let readerNode = makeNode(
+                ContrastEnvironmentReaderView()
+                    .environment(\.colorSchemeContrast, .increased)
             )
             let gradient = LinearGradient(
                 colors: [.red, .blue],
@@ -1448,6 +1470,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(storedNode.children[0].textStyle.color, Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
             XCTAssertEqual(secondaryNode.textStyle.color, .secondary)
+            XCTAssertEqual(increasedSecondaryNode.textStyle.color, .highContrastSecondary)
+            XCTAssertEqual(explicitSecondaryNode.textStyle.color, .highContrastSecondary)
+            XCTAssertEqual(readerNode.text, "INCREASED")
             XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
         }
     }

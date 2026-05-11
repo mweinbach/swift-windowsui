@@ -5785,13 +5785,51 @@ final class WinSwiftUITests: XCTestCase {
                 .controlGroupStyle(.palette)
                 .tint(tint)
             )
+            let compactGroupNode = makeNode(
+                ControlGroup {
+                    Button("COPY") {}
+                    Button("PASTE") {}
+                }
+                .controlGroupStyle(CompactMenuControlGroupStyle())
+            )
+            let navigationGroupNode = makeNode(
+                ControlGroup {
+                    Button("BACK") {}
+                    Button("NEXT") {}
+                }
+                .controlGroupStyle(NavigationControlGroupStyle())
+                .tint(tint)
+            )
 
             XCTAssertEqual(readerNode.text, "PALETTE")
             XCTAssertEqual(compactReaderNode.text, "COMPACT")
             XCTAssertEqual(navigationReaderNode.text, "NAVIGATION")
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
-            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 10)
+            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 12)
+            XCTAssertEqual(inheritedNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64))
+            guard case .stack(let menuLayout) = inheritedNode.children[0].layoutMode else {
+                XCTFail("Expected menu control group stack layout")
+                return
+            }
+            XCTAssertEqual(menuLayout, .horizontal(spacing: 5, padding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7), alignment: .center))
+
+            XCTAssertEqual(compactGroupNode.cornerRadius, 7)
+            XCTAssertEqual(compactGroupNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.58))
+            guard case .stack(let compactLayout) = compactGroupNode.layoutMode else {
+                XCTFail("Expected compact menu control group stack layout")
+                return
+            }
+            XCTAssertEqual(compactLayout, .horizontal(spacing: 2, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .center))
+
+            XCTAssertEqual(navigationGroupNode.cornerRadius, 9)
+            XCTAssertEqual(navigationGroupNode.borderColor, tint.opacity(0.24))
+            guard case .stack(let navigationLayout) = navigationGroupNode.layoutMode else {
+                XCTFail("Expected navigation control group stack layout")
+                return
+            }
+            XCTAssertEqual(navigationLayout, .horizontal(spacing: 3, padding: EdgeInsets(top: 4, leading: 5, bottom: 4, trailing: 5), alignment: .center))
+
             XCTAssertEqual(paletteGroupNode.cornerRadius, 8)
             XCTAssertEqual(paletteGroupNode.borderColor, tint.opacity(0.34))
             XCTAssertEqual(paletteGroupNode.children[0].backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)

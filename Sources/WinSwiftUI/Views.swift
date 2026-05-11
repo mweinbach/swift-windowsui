@@ -5198,9 +5198,8 @@ public struct ControlGroup: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelComponents = label.map { $0.makeComponent(context: context) }
-        let isPaletteStyle = context.controlGroupStyle.kind == .palette
-        let controlButtonStyle: ButtonStyle = isPaletteStyle ? .bordered : .borderless
-        let controlComponents = content.map { $0.makeComponent(context: context.withButtonStyle(controlButtonStyle)) }
+        let chrome = Self.retainedChrome(for: context.controlGroupStyle, tint: context.tint)
+        let controlComponents = content.map { $0.makeComponent(context: context.withButtonStyle(chrome.childButtonStyle)) }
 
         return Component { runtime in
             var children = labelComponents.map { component in
@@ -5211,23 +5210,82 @@ public struct ControlGroup: View {
             children += controlComponents.map { $0.makeNode(runtime: runtime) }
 
             return Controls.stackPanel(
-                backgroundColor: isPaletteStyle
-                    ? Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.50)
-                    : Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.72),
-                borderColor: isPaletteStyle
-                    ? context.tint.opacity(0.34)
-                    : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
-                borderWidth: 1,
-                cornerRadius: isPaletteStyle ? 8 : 10,
+                backgroundColor: chrome.backgroundColor,
+                borderColor: chrome.borderColor,
+                borderWidth: chrome.borderWidth,
+                cornerRadius: chrome.cornerRadius,
                 stackLayout: .horizontal(
-                    spacing: isPaletteStyle ? 2 : 4,
-                    padding: isPaletteStyle
-                        ? EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3)
-                        : EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
+                    spacing: chrome.spacing,
+                    padding: chrome.padding,
                     alignment: .center
                 ),
                 isHitTestVisible: false,
                 children: children
+            )
+        }
+    }
+
+    private struct RetainedChrome {
+        var backgroundColor: Color
+        var borderColor: Color
+        var borderWidth: Double
+        var cornerRadius: Double
+        var spacing: Double
+        var padding: EdgeInsets
+        var childButtonStyle: ButtonStyle
+    }
+
+    private static func retainedChrome(for style: ControlGroupStyle, tint: Color) -> RetainedChrome {
+        switch style.kind {
+        case .automatic:
+            return RetainedChrome(
+                backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.72),
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 10,
+                spacing: 4,
+                padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
+                childButtonStyle: .borderless
+            )
+        case .compactMenu:
+            return RetainedChrome(
+                backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.58),
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 7,
+                spacing: 2,
+                padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4),
+                childButtonStyle: .borderless
+            )
+        case .menu:
+            return RetainedChrome(
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64),
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.13),
+                borderWidth: 1,
+                cornerRadius: 12,
+                spacing: 5,
+                padding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7),
+                childButtonStyle: .borderless
+            )
+        case .navigation:
+            return RetainedChrome(
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.62),
+                borderColor: tint.opacity(0.24),
+                borderWidth: 1,
+                cornerRadius: 9,
+                spacing: 3,
+                padding: EdgeInsets(top: 4, leading: 5, bottom: 4, trailing: 5),
+                childButtonStyle: .borderless
+            )
+        case .palette:
+            return RetainedChrome(
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.50),
+                borderColor: tint.opacity(0.34),
+                borderWidth: 1,
+                cornerRadius: 8,
+                spacing: 2,
+                padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
+                childButtonStyle: .bordered
             )
         }
     }

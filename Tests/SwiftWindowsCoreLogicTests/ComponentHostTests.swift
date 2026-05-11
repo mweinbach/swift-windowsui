@@ -74,6 +74,7 @@ final class ComponentHostTests: XCTestCase {
                     let scrollOffset = useSecondState ? 48.0 : 12.0
                     let submitLabel: RetainedSubmitLabel = useSecondState ? .search : .return
                     let caretOffset = useSecondState ? 4 : 1
+                    let symbolVariableValue = useSecondState ? 0.75 : 0.25
                     let isSubmitScopeBoundary = useSecondState
 
                     node.text = label
@@ -85,6 +86,7 @@ final class ComponentHostTests: XCTestCase {
                     node.scrollOffset = scrollOffset
                     node.textInputSubmitLabel = submitLabel
                     node.textInputCaretOffset = caretOffset
+                    node.symbolVariableValue = symbolVariableValue
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.isFocusable = useSecondState
                     node.animationStates = [
@@ -113,6 +115,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.scrollOffset, 12)
             XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
+            XCTAssertEqual(firstNode?.symbolVariableValue, 0.25)
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
@@ -131,6 +134,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.scrollOffset, 48)
             XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
+            XCTAssertEqual(reusedNode?.symbolVariableValue, 0.75)
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)

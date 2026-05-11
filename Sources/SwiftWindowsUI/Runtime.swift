@@ -601,6 +601,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var symbolVariableValue: Double? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var keyboardShortcuts: [KeyboardShortcutBinding] {
         didSet { invalidateRuntime(.paint) }
     }
@@ -751,6 +755,7 @@ public final class ViewNode {
         accessibilityHint: String? = nil,
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
+        symbolVariableValue: Double? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
@@ -808,6 +813,7 @@ public final class ViewNode {
         self.accessibilityHint = accessibilityHint
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
+        self.symbolVariableValue = symbolVariableValue
         self.keyboardShortcuts = keyboardShortcuts
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)

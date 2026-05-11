@@ -1923,14 +1923,15 @@ public struct Image: View {
     private var contentMode: ContentMode?
     private var accessibilityLabel: String?
     private var isAccessibilityHidden: Bool
+    private var symbolVariableValue: Double?
 
     public init(systemName: String) {
         self.init(storage: .systemName(systemName))
     }
 
     public init(systemName: String, variableValue: Double?) {
-        _ = variableValue
         self.init(systemName: systemName)
+        self.symbolVariableValue = variableValue
     }
 
     public init(_ name: String, bundle: Bundle? = nil) {
@@ -1958,6 +1959,7 @@ public struct Image: View {
         self.contentMode = nil
         self.accessibilityLabel = nil
         self.isAccessibilityHidden = false
+        self.symbolVariableValue = nil
     }
 
     public var body: Never {
@@ -1983,6 +1985,7 @@ public struct Image: View {
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
                 applyAccessibility(to: node)
+                node.symbolVariableValue = symbolVariableValue
                 return node
             }
         case .bitmap(let bitmap):

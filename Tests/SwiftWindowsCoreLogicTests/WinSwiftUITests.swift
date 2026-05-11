@@ -2008,6 +2008,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(decorativeNode.bitmapSurface?.height, 1)
             XCTAssertEqual(variableSymbolNode.text, "\u{E713}")
             XCTAssertEqual(variableSymbolNode.textStyle.color, .red)
+            XCTAssertEqual(variableSymbolNode.symbolVariableValue, 0.42)
         }
     }
 

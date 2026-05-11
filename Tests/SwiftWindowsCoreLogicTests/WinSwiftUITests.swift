@@ -395,6 +395,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDeprecatedTextFieldEditingAndCommitInitializerHooksRetainedInput() async {
+        await MainActor.run {
+            var value = ""
+            var editingChanges: [Bool] = []
+            var commitCount = 0
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                TextField(
+                    "NAME",
+                    text: binding,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    },
+                    onCommit: {
+                        commitCount += 1
+                    }
+                ),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            node.onFocusEnter?()
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            node.onFocusExit?()
+
+            XCTAssertEqual(value, "a")
+            XCTAssertEqual(editingChanges, [true, false])
+            XCTAssertEqual(commitCount, 1)
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testDeprecatedTextFieldCommitOnlyInitializerSupportsLocalizedTitle() async {
+        await MainActor.run {
+            var commitCount = 0
+            let node = makeNode(
+                TextField(LocalizedStringKey("SEARCH"), text: .constant("")) {
+                    commitCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "SEARCH")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(commitCount, 1)
+        }
+    }
+
     func testTextInputSupportsBasicCaretNavigationAndDeletion() async {
         await MainActor.run {
             var value = "abc"
@@ -612,6 +668,23 @@ final class WinSwiftUITests: XCTestCase {
             node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
 
             XCTAssertEqual(submitCount, 1)
+        }
+    }
+
+    func testDeprecatedSecureFieldCommitInitializerHooksRetainedEnterKey() async {
+        await MainActor.run {
+            var commitCount = 0
+            let node = makeNode(
+                SecureField("PASSWORD", text: .constant("secret")) {
+                    commitCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "******")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(commitCount, 1)
         }
     }
 

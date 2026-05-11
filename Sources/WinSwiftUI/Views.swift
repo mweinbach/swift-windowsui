@@ -4125,12 +4125,16 @@ public struct TextField: View {
     private let text: Binding<String>
     private let prompt: String?
     private let axis: Axis
+    private let onEditingChanged: (@MainActor (Bool) -> Void)?
+    private let onCommit: (@MainActor () -> Void)?
 
     public init(_ title: String, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
         self.title = title
         self.text = text
         self.prompt = prompt?.plainContent
         self.axis = axis
+        self.onEditingChanged = nil
+        self.onCommit = nil
     }
 
     public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
@@ -4139,6 +4143,55 @@ public struct TextField: View {
 
     public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil, axis: Axis = .horizontal) {
         self.init(titleKey.resolvedString, text: text, prompt: prompt, axis: axis)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        text: Binding<String>,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void,
+        onCommit: @escaping @MainActor () -> Void = {}
+    ) {
+        self.title = String(title)
+        self.text = text
+        self.prompt = nil
+        self.axis = .horizontal
+        self.onEditingChanged = onEditingChanged
+        self.onCommit = onCommit
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        text: Binding<String>,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void,
+        onCommit: @escaping @MainActor () -> Void = {}
+    ) {
+        self.init(
+            titleKey.resolvedString,
+            text: text,
+            onEditingChanged: onEditingChanged,
+            onCommit: onCommit
+        )
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        text: Binding<String>,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.title = String(title)
+        self.text = text
+        self.prompt = nil
+        self.axis = .horizontal
+        self.onEditingChanged = nil
+        self.onCommit = onCommit
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        text: Binding<String>,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.init(titleKey.resolvedString, text: text, onCommit: onCommit)
     }
 
     public var body: Never {
@@ -4159,6 +4212,8 @@ public struct TextField: View {
             isSecure: false,
             allowsNewlines: allowsNewlines,
             preferredSize: allowsNewlines ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
+            onEditingChanged: onEditingChanged,
+            onCommit: onCommit,
             context: context
         )
     }
@@ -4171,11 +4226,13 @@ public struct SecureField: View {
     private let title: String
     private let text: Binding<String>
     private let prompt: String?
+    private let onCommit: (@MainActor () -> Void)?
 
     public init(_ title: String, text: Binding<String>, prompt: Text? = nil) {
         self.title = title
         self.text = text
         self.prompt = prompt?.plainContent
+        self.onCommit = nil
     }
 
     public init<S: StringProtocol>(_ title: S, text: Binding<String>, prompt: Text? = nil) {
@@ -4184,6 +4241,25 @@ public struct SecureField: View {
 
     public init(_ titleKey: LocalizedStringKey, text: Binding<String>, prompt: Text? = nil) {
         self.init(titleKey.resolvedString, text: text, prompt: prompt)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        text: Binding<String>,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.title = String(title)
+        self.text = text
+        self.prompt = nil
+        self.onCommit = onCommit
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        text: Binding<String>,
+        onCommit: @escaping @MainActor () -> Void
+    ) {
+        self.init(titleKey.resolvedString, text: text, onCommit: onCommit)
     }
 
     public var body: Never {
@@ -4197,6 +4273,8 @@ public struct SecureField: View {
             isSecure: true,
             allowsNewlines: false,
             preferredSize: context.controlSize.singleLineTextInputSize,
+            onEditingChanged: nil,
+            onCommit: onCommit,
             context: context
         )
     }
@@ -4223,6 +4301,8 @@ public struct TextEditor: View {
             isSecure: false,
             allowsNewlines: true,
             preferredSize: context.controlSize.multilineTextInputSize,
+            onEditingChanged: nil,
+            onCommit: nil,
             context: context
         )
     }
@@ -4505,6 +4585,8 @@ private func textInputComponent(
     isSecure: Bool,
     allowsNewlines: Bool,
     preferredSize: Size,
+    onEditingChanged: (@MainActor (Bool) -> Void)?,
+    onCommit: (@MainActor () -> Void)?,
     context: ViewBuildContext
 ) -> Component {
     let binding = text
@@ -4560,14 +4642,24 @@ private func textInputComponent(
             node?.borderColor = context.tint
             node?.outlineColor = context.tint.opacity(0.28)
             node?.outlineWidth = 2
+            onEditingChanged?(true)
         }
         node.onFocusExit = { [weak node] in
             node?.borderColor = style.borderColor
             node?.outlineColor = .clear
             node?.outlineWidth = 0
+            onEditingChanged?(false)
         }
         node.onKeyDown = { event in
             let clampedCaret = clampedTextOffset(node.textInputCaretOffset, in: binding.wrappedValue)
+
+            if event.key == .enter, !allowsNewlines {
+                if let onCommit {
+                    onCommit()
+                    context.invalidate()
+                }
+                return
+            }
 
             if event.key == .backspace {
                 guard clampedCaret > 0 else {

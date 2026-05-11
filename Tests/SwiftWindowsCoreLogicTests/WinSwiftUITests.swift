@@ -7066,6 +7066,75 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentObjectPropagatesThroughViewContext() async {
+        await MainActor.run {
+            final class ThemeModel: ObservableObject {
+                @Published var label: String
+
+                init(label: String) {
+                    self.label = label
+                }
+            }
+
+            struct EnvironmentObjectReaderView: View {
+                @EnvironmentObject var model: ThemeModel
+
+                var body: some View {
+                    Text(model.label)
+                }
+            }
+
+            let outerModel = ThemeModel(label: "OUTER")
+            let innerModel = ThemeModel(label: "INNER")
+            let node = makeNode(
+                VStack {
+                    EnvironmentObjectReaderView()
+                    EnvironmentObjectReaderView()
+                        .environmentObject(innerModel)
+                }
+                .environmentObject(outerModel)
+            )
+
+            XCTAssertEqual(node.children[0].text, "OUTER")
+            XCTAssertEqual(node.children[1].text, "INNER")
+        }
+    }
+
+    func testEnvironmentObjectMutationTriggersInvalidation() async {
+        await MainActor.run {
+            final class ThemeModel: ObservableObject {
+                @Published var label = "MODEL"
+            }
+
+            struct EnvironmentObjectReaderView: View {
+                @EnvironmentObject var model: ThemeModel
+
+                var body: some View {
+                    Text(model.label)
+                }
+            }
+
+            let model = ThemeModel()
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = EnvironmentObjectReaderView()
+                .environmentObject(model)
+                .makeComponent(context: context)
+            model.label = "UPDATED"
+
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testFocusedValuesPropagateThroughViewContext() async {
         await MainActor.run {
             struct FocusedValueReaderView: View {

@@ -584,6 +584,29 @@ public struct FocusedValues: @unchecked Sendable {
     }
 }
 
+private struct EnvironmentObjectKey<ObjectType: ObservableObject> {}
+
+public struct EnvironmentObjectValues: @unchecked Sendable {
+    private var values: [ObjectIdentifier: Any]
+
+    public init() {
+        self.values = [:]
+    }
+
+    public func object<ObjectType: ObservableObject>(
+        _ type: ObjectType.Type = ObjectType.self
+    ) -> ObjectType? {
+        values[ObjectIdentifier(EnvironmentObjectKey<ObjectType>.self)] as? ObjectType
+    }
+
+    public mutating func setObject<ObjectType: ObservableObject>(
+        _ object: ObjectType,
+        for type: ObjectType.Type = ObjectType.self
+    ) {
+        values[ObjectIdentifier(EnvironmentObjectKey<ObjectType>.self)] = object
+    }
+}
+
 @MainActor
 public final class UndoManager: @unchecked Sendable {
     private struct UndoAction {
@@ -990,6 +1013,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var openSettings: OpenSettingsAction
     public var requestReview: RequestReviewAction
     public var focusedValues: FocusedValues
+    public var environmentObjects: EnvironmentObjectValues
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -1082,7 +1106,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         dismissWindow: DismissWindowAction = .noop,
         openSettings: OpenSettingsAction = .noop,
         requestReview: RequestReviewAction = .noop,
-        focusedValues: FocusedValues = FocusedValues()
+        focusedValues: FocusedValues = FocusedValues(),
+        environmentObjects: EnvironmentObjectValues = EnvironmentObjectValues()
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -1180,6 +1205,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.openSettings = openSettings
         self.requestReview = requestReview
         self.focusedValues = focusedValues
+        self.environmentObjects = environmentObjects
         self.customValues = [:]
     }
 
@@ -1209,6 +1235,26 @@ public struct Environment<Value> {
     public var wrappedValue: Value {
         let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
         return values[keyPath: keyPath]
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct EnvironmentObject<ObjectType: ObservableObject> {
+    public init() {}
+
+    public var wrappedValue: ObjectType {
+        let object = ViewBuildContextScope.current?.environmentValues.environmentObjects.object(ObjectType.self)
+        guard let object else {
+            fatalError("No EnvironmentObject of type \(ObjectType.self) was found in the current WinSwiftUI environment")
+        }
+
+        ViewBuildContextScope.current?.observe(object)
+        return object
+    }
+
+    public var projectedValue: ObservedObject<ObjectType> {
+        ObservedObject(wrappedValue: wrappedValue)
     }
 }
 
@@ -5062,6 +5108,14 @@ public extension View {
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(keyPath, value))
+        }
+    }
+
+    func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some View {
+        ModifiedView(content: self) { content, context in
+            var environmentObjects = context.environmentValues.environmentObjects
+            environmentObjects.setObject(object, for: ObjectType.self)
+            return content.makeComponent(context: context.withEnvironmentValue(\.environmentObjects, environmentObjects))
         }
     }
 

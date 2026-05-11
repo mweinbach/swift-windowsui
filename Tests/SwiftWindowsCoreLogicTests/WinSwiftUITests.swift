@@ -6386,6 +6386,26 @@ final class WinSwiftUITests: XCTestCase {
                 .tabViewStyle(.page)
                 .indexViewStyle(PageIndexViewStyle(backgroundDisplayMode: .never))
             )
+            let alwaysBackgroundTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(.page)
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+            )
+            let hiddenIndexTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+            )
 
             XCTAssertEqual(defaultNode.text, "PAGE")
             XCTAssertEqual(neverNode.text, "NEVER")
@@ -6393,6 +6413,17 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(interactiveNode.text, "INTERACTIVE")
             XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
             XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
+            XCTAssertEqual(styledTabNode.children.count, 3)
+            XCTAssertEqual(styledTabNode.children[2].nodeTag, "tab-page-index")
+            XCTAssertNil(styledTabNode.children[2].backgroundColor)
+            XCTAssertEqual(styledTabNode.children[2].borderWidth, 0)
+            XCTAssertEqual(styledTabNode.children[2].children[0].nodeTag, "tab-page-index-selected")
+            XCTAssertEqual(styledTabNode.children[2].children[1].nodeTag, "tab-page-index-unselected")
+            XCTAssertEqual(styledTabNode.children[2].children[0].preferredSize, Size(width: 18, height: 6))
+            XCTAssertEqual(styledTabNode.children[2].children[1].preferredSize, Size(width: 6, height: 6))
+            XCTAssertEqual(alwaysBackgroundTabNode.children[2].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72))
+            XCTAssertEqual(alwaysBackgroundTabNode.children[2].cornerRadius, 10)
+            XCTAssertEqual(hiddenIndexTabNode.children.count, 2)
         }
     }
 

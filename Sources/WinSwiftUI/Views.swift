@@ -1786,10 +1786,21 @@ public struct TabView: View {
         return Component { runtime in
             let tabBarNode = tabBar.makeNode(runtime: runtime)
             let pageNode = page.makeNode(runtime: runtime)
+            var children = [tabBarNode, pageNode]
+            if let pageIndexNode = Self.retainedPageIndexNode(
+                selectedIndex: selectedIndex,
+                count: content.count,
+                tabViewStyle: context.tabViewStyle,
+                indexViewStyle: context.indexViewStyle,
+                tint: context.tint
+            ) {
+                children.append(pageIndexNode)
+            }
+
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 10, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [tabBarNode, pageNode]
+                children: children
             )
         }
     }
@@ -1903,6 +1914,103 @@ public struct TabView: View {
         var unselectedBorderColor: Color
         var unselectedBorderWidth: Double
         var hoverBorderAlpha: Double
+    }
+
+    private struct RetainedPageIndexChrome {
+        var backgroundColor: Color?
+        var borderColor: Color
+        var borderWidth: Double
+        var cornerRadius: Double
+    }
+
+    private static func retainedPageIndexNode(
+        selectedIndex: Int,
+        count: Int,
+        tabViewStyle: TabViewStyle,
+        indexViewStyle: IndexViewStyle,
+        tint: Color
+    ) -> ViewNode? {
+        guard count > 1, shouldRenderPageIndex(for: tabViewStyle) else {
+            return nil
+        }
+
+        let chrome = retainedPageIndexChrome(for: indexViewStyle)
+        let dots = (0..<count).map { index in
+            let isSelected = index == selectedIndex
+            let node = Controls.panel(
+                preferredSize: Size(width: isSelected ? 18 : 6, height: 6),
+                backgroundColor: isSelected
+                    ? tint.opacity(0.92)
+                    : Color(red: 0.74, green: 0.80, blue: 0.90, alpha: 0.42),
+                cornerRadius: 3,
+                isHitTestVisible: false
+            )
+            node.nodeTag = isSelected ? "tab-page-index-selected" : "tab-page-index-unselected"
+            return node
+        }
+
+        let node = Controls.stackPanel(
+            backgroundColor: chrome.backgroundColor,
+            borderColor: chrome.borderColor,
+            borderWidth: chrome.borderWidth,
+            cornerRadius: chrome.cornerRadius,
+            stackLayout: .horizontal(
+                spacing: 5,
+                padding: EdgeInsets(top: 5, leading: 8, bottom: 5, trailing: 8),
+                alignment: .center
+            ),
+            isHitTestVisible: false,
+            children: dots
+        )
+        node.nodeTag = "tab-page-index"
+        return node
+    }
+
+    private static func shouldRenderPageIndex(for style: TabViewStyle) -> Bool {
+        switch style.kind {
+        case .page(let indexDisplayMode):
+            return indexDisplayMode != .never
+        case .verticalPage:
+            return true
+        case .automatic, .sidebarAdaptable, .tabBarOnly, .grouped, .carousel:
+            return false
+        }
+    }
+
+    private static func retainedPageIndexChrome(for style: IndexViewStyle) -> RetainedPageIndexChrome {
+        switch style.kind {
+        case .page(let backgroundDisplayMode):
+            switch backgroundDisplayMode.kind {
+            case .automatic:
+                return RetainedPageIndexChrome(
+                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.34),
+                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderWidth: 1,
+                    cornerRadius: 9
+                )
+            case .always:
+                return RetainedPageIndexChrome(
+                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72),
+                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                    borderWidth: 1,
+                    cornerRadius: 10
+                )
+            case .interactive:
+                return RetainedPageIndexChrome(
+                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.52),
+                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                    borderWidth: 1,
+                    cornerRadius: 10
+                )
+            case .never:
+                return RetainedPageIndexChrome(
+                    backgroundColor: nil,
+                    borderColor: .clear,
+                    borderWidth: 0,
+                    cornerRadius: 0
+                )
+            }
+        }
     }
 
     private static func retainedTabChrome(for style: TabViewStyle) -> RetainedTabChrome {

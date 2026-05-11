@@ -4855,6 +4855,92 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAppStorageReadsWritesUserDefaultsAndProvidesBinding() async {
+        await MainActor.run {
+            struct AppStorageReaderView: View {
+                @AppStorage private var flag: Bool
+                @AppStorage private var title: String
+
+                init(store: UserDefaults) {
+                    _flag = AppStorage(wrappedValue: false, "flag", store: store)
+                    _title = AppStorage(wrappedValue: "DEFAULT", "title", store: store)
+                }
+
+                var body: some View {
+                    VStack {
+                        Button(flag ? "ON" : "OFF") {
+                            flag.toggle()
+                        }
+                        TextField("TITLE", text: $title)
+                    }
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorage.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            store.set(true, forKey: "flag")
+            store.set("STORED", forKey: "title")
+
+            let node = makeNode(AppStorageReaderView(store: store))
+
+            XCTAssertTrue(allTexts(in: node).contains("ON"))
+            XCTAssertTrue(allTexts(in: node).contains("STORED"))
+
+            node.children[0].onActivate?()
+
+            XCTAssertFalse(store.bool(forKey: "flag"))
+        }
+    }
+
+    func testAppStorageWriteTriggersInvalidation() async {
+        await MainActor.run {
+            struct AppStorageWriterView: View {
+                @AppStorage private var count: Int
+
+                init(store: UserDefaults) {
+                    _count = AppStorage(wrappedValue: 0, "count", store: store)
+                }
+
+                var body: some View {
+                    Text("\(count)")
+                }
+
+                func increment() {
+                    count += 1
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorageInvalidation.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            var invalidationCount = 0
+            let view = AppStorageWriterView(store: store)
+            let node = makeNode(
+                view,
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node), "0")
+            view.increment()
+
+            XCTAssertEqual(store.integer(forKey: "count"), 1)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testPickerTaggedContentWritesSelectionAndInvalidates() async {
         await MainActor.run {
             var selection = "compact"

@@ -1423,6 +1423,103 @@ public struct State<Value> {
 
 @MainActor
 @propertyWrapper
+public struct AppStorage<Value> {
+    @MainActor
+    private final class Storage {
+        let key: String
+        let defaultValue: Value
+        let store: UserDefaults
+        var invalidate: (@MainActor () -> Void)?
+
+        init(key: String, defaultValue: Value, store: UserDefaults) {
+            self.key = key
+            self.defaultValue = defaultValue
+            self.store = store
+        }
+
+        var value: Value {
+            get {
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+
+                if Value.self == Bool.self {
+                    return store.bool(forKey: key) as! Value
+                } else if Value.self == Int.self {
+                    return store.integer(forKey: key) as! Value
+                } else if Value.self == Double.self {
+                    return store.double(forKey: key) as! Value
+                } else if Value.self == String.self {
+                    return (store.string(forKey: key) ?? defaultValue as! String) as! Value
+                } else if Value.self == Data.self {
+                    return (store.data(forKey: key) ?? defaultValue as! Data) as! Value
+                } else if Value.self == URL.self {
+                    return (store.url(forKey: key) ?? defaultValue as! URL) as! Value
+                }
+
+                return (store.object(forKey: key) as? Value) ?? defaultValue
+            }
+            set {
+                if let url = newValue as? URL {
+                    store.set(url, forKey: key)
+                } else {
+                    store.set(newValue, forKey: key)
+                }
+                invalidate?()
+            }
+        }
+    }
+
+    private let storage: Storage
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
+        self.storage = Storage(key: key, defaultValue: wrappedValue, store: store ?? .standard)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Bool {
+        self.init(wrappedValue: false, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Int {
+        self.init(wrappedValue: 0, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Double {
+        self.init(wrappedValue: 0, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == String {
+        self.init(wrappedValue: "", key, store: store)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        Binding(
+            get: {
+                wrappedValue
+            },
+            set: { newValue in
+                wrappedValue = newValue
+            }
+        )
+    }
+}
+
+@MainActor
+@propertyWrapper
 public struct FocusState<Value> {
     @MainActor
     private final class Storage {

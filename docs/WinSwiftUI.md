@@ -345,12 +345,13 @@ Compatibility helpers:
 - `FocusedBinding`
 - `FocusedObject`
 - `EnvironmentObject`
+- `AppStorage`
 - `UndoManager`
 - `UserInterfaceSizeClass`
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - `EdgeInsets()`
-- minimal `Binding`, `State`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `AppStorage`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -487,6 +488,7 @@ Surface direction:
 
 - `Binding`
 - `@State`
+- `@AppStorage`
 - `@Environment`
 - `@EnvironmentObject`
 - `@FocusedValue`
@@ -501,6 +503,7 @@ Surface direction:
 `@Environment` can read retained-context values such as `isEnabled`, `isFocused`, `isFocusEffectEnabled`, `isLuminanceReduced`, `isSceneCaptured`, `isTabBarShowingSections`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `scrollDismissesKeyboardMode`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `defaultWheelPickerItemHeight`, `backgroundProminence`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `scenePhase`, `controlActiveState`, `appearsActive`, `supportsMultipleWindows`, `isPresented`, `editMode`, `legibilityWeight`, `displayScale`, `pixelLength`, `calendar`, `timeZone`, `locale`, `dismiss`, `dismissSearch`, `isSearching`, `rename`, `refresh`, `openWindow`, `dismissWindow`, `openSettings`, `requestReview`, `undoManager`, `accessibilityAssistiveAccessEnabled`, `accessibilityDimFlashingLights`, `accessibilityDifferentiateWithoutColor`, `accessibilityEnabled`, `accessibilityInvertColors`, `accessibilityLargeContentViewerEnabled`, `accessibilityPlayAnimatedImages`, `accessibilityPrefersHeadAnchorAlternative`, `accessibilityQuickActionsEnabled`, `accessibilityReduceHighlightingEffects`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityShowButtonShapes`, `accessibilityShowBorders`, `accessibilitySwitchControlEnabled`, `accessibilityVoiceOverEnabled`, `layoutDirection`, `horizontalSizeClass`, `verticalSizeClass`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `minimumScaleFactor`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `buttonRepeatBehavior`, `buttonSizing`, `buttonBorderShape`, `menuIndicatorVisibility`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, `textFieldStyle`, and `submitLabel`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)`, `transformEnvironment(_:_:)`, and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
+`@AppStorage` supports common non-optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, exposes `$storage` as a `Binding`, and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.
 
 This is intentionally small. It exists to support shared app source and runtime invalidation, not to reproduce the full SwiftUI observation stack.

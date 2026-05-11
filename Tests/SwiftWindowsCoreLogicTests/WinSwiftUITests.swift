@@ -6259,6 +6259,33 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .tabViewStyle(.page(indexDisplayMode: .always))
             )
+            let groupedTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(GroupedTabViewStyle())
+            )
+            let sidebarTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(SidebarAdaptableTabViewStyle())
+            )
+            let carouselTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(CarouselTabViewStyle())
+            )
 
             XCTAssertEqual(pageReaderNode.text, "PAGE")
             XCTAssertEqual(verticalReaderNode.text, "VERTICAL")
@@ -6269,6 +6296,31 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
             XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
+            XCTAssertEqual(styledTabNode.children[0].cornerRadius, 20)
+            guard case .stack(let pageLayout) = styledTabNode.children[0].layoutMode else {
+                XCTFail("Expected page tab bar stack layout")
+                return
+            }
+            XCTAssertEqual(pageLayout, .horizontal(spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
+
+            XCTAssertEqual(groupedTabNode.children[0].cornerRadius, 16)
+            XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, 10)
+            guard case .stack(let groupedLayout) = groupedTabNode.children[0].layoutMode else {
+                XCTFail("Expected grouped tab bar stack layout")
+                return
+            }
+            XCTAssertEqual(groupedLayout, .horizontal(spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
+
+            XCTAssertEqual(sidebarTabNode.children[0].cornerRadius, 8)
+            XCTAssertEqual(sidebarTabNode.children[0].children[0].borderWidth, 2)
+            XCTAssertEqual(sidebarTabNode.children[0].children[1].borderWidth, 0)
+
+            XCTAssertEqual(carouselTabNode.children[0].cornerRadius, 18)
+            guard case .stack(let carouselLayout) = carouselTabNode.children[0].layoutMode else {
+                XCTFail("Expected carousel tab bar stack layout")
+                return
+            }
+            XCTAssertEqual(carouselLayout, .horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .stretch))
         }
     }
 

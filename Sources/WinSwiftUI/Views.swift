@@ -1734,6 +1734,7 @@ public struct TabView: View {
 
     private func tabBarComponent(selectedIndex: Int, context: ViewBuildContext) -> Component {
         Component { runtime in
+            let chrome = Self.retainedTabChrome(for: context.tabViewStyle)
             let tabNodes = content.enumerated().map { index, view in
                 let labelViews = view.tabItem ?? [AnyView(Text("TAB \(index + 1)"))]
                 let labelNode = composeComponent(
@@ -1763,19 +1764,19 @@ public struct TabView: View {
                 return Controls.button(
                     runtime: runtime,
                     layoutPriority: 1,
-                    cornerRadius: 8,
+                    cornerRadius: chrome.tabCornerRadius,
                     palette: palette,
                     chrome: SurfaceChrome(
-                        borderColor: isSelected ? context.tint.opacity(0.42) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                        borderHoveredColor: context.tint.opacity(isSelected ? 0.62 : 0.24),
+                        borderColor: isSelected ? context.tint.opacity(chrome.selectedBorderAlpha) : chrome.unselectedBorderColor,
+                        borderHoveredColor: context.tint.opacity(isSelected ? 0.62 : chrome.hoverBorderAlpha),
                         borderFocusedColor: context.tint.opacity(0.68),
                         borderPressedColor: context.tint.opacity(0.78),
-                        borderWidth: 1,
+                        borderWidth: isSelected ? chrome.selectedBorderWidth : chrome.unselectedBorderWidth,
                         focusRingColor: context.tint.opacity(0.24),
                         focusRingWidth: 2
                     ),
                     layoutMode: .stack(.vertical(
-                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                        padding: chrome.tabPadding,
                         alignment: .center,
                         mainAlignment: .center
                     )),
@@ -1792,18 +1793,119 @@ public struct TabView: View {
             }
 
             return Controls.stackPanel(
-                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.88),
-                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                borderWidth: 1,
-                cornerRadius: 12,
+                backgroundColor: chrome.backgroundColor,
+                borderColor: chrome.borderColor,
+                borderWidth: chrome.borderWidth,
+                cornerRadius: chrome.cornerRadius,
                 clipsToBounds: true,
                 stackLayout: .horizontal(
-                    spacing: 4,
-                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                    spacing: chrome.spacing,
+                    padding: chrome.padding,
                     alignment: .stretch
                 ),
                 isHitTestVisible: false,
                 children: tabNodes
+            )
+        }
+    }
+
+    private struct RetainedTabChrome {
+        var backgroundColor: Color
+        var borderColor: Color
+        var borderWidth: Double
+        var cornerRadius: Double
+        var spacing: Double
+        var padding: EdgeInsets
+        var tabCornerRadius: Double
+        var tabPadding: EdgeInsets
+        var selectedBorderAlpha: Double
+        var selectedBorderWidth: Double
+        var unselectedBorderColor: Color
+        var unselectedBorderWidth: Double
+        var hoverBorderAlpha: Double
+    }
+
+    private static func retainedTabChrome(for style: TabViewStyle) -> RetainedTabChrome {
+        switch style.kind {
+        case .automatic, .tabBarOnly:
+            return RetainedTabChrome(
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.88),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 12,
+                spacing: 4,
+                padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                tabCornerRadius: 8,
+                tabPadding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                selectedBorderAlpha: 0.42,
+                selectedBorderWidth: 1,
+                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                unselectedBorderWidth: 1,
+                hoverBorderAlpha: 0.24
+            )
+        case .grouped:
+            return RetainedTabChrome(
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.74),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                borderWidth: 1,
+                cornerRadius: 16,
+                spacing: 8,
+                padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                tabCornerRadius: 10,
+                tabPadding: EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14),
+                selectedBorderAlpha: 0.50,
+                selectedBorderWidth: 1,
+                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.06),
+                unselectedBorderWidth: 1,
+                hoverBorderAlpha: 0.28
+            )
+        case .sidebarAdaptable:
+            return RetainedTabChrome(
+                backgroundColor: Color(red: 0.08, green: 0.12, blue: 0.18, alpha: 0.70),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 8,
+                spacing: 3,
+                padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5),
+                tabCornerRadius: 6,
+                tabPadding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10),
+                selectedBorderAlpha: 0.48,
+                selectedBorderWidth: 2,
+                unselectedBorderColor: .clear,
+                unselectedBorderWidth: 0,
+                hoverBorderAlpha: 0.22
+            )
+        case .page, .verticalPage:
+            return RetainedTabChrome(
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 0.48),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.06),
+                borderWidth: 1,
+                cornerRadius: 20,
+                spacing: 6,
+                padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3),
+                tabCornerRadius: 16,
+                tabPadding: EdgeInsets(top: 7, leading: 12, bottom: 7, trailing: 12),
+                selectedBorderAlpha: 0.58,
+                selectedBorderWidth: 1,
+                unselectedBorderColor: .clear,
+                unselectedBorderWidth: 0,
+                hoverBorderAlpha: 0.18
+            )
+        case .carousel:
+            return RetainedTabChrome(
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.58),
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                borderWidth: 1,
+                cornerRadius: 18,
+                spacing: 10,
+                padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10),
+                tabCornerRadius: 14,
+                tabPadding: EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16),
+                selectedBorderAlpha: 0.56,
+                selectedBorderWidth: 1,
+                unselectedBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.05),
+                unselectedBorderWidth: 1,
+                hoverBorderAlpha: 0.20
             )
         }
     }

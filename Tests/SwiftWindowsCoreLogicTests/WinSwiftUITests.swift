@@ -5799,6 +5799,72 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFocusStateBoolBindingSynchronizesRetainedFocus() async {
+        await MainActor.run {
+            let focusState = FocusState<Bool>()
+            let node = makeNode(Text("FOCUS").focused(focusState.projectedValue))
+            let runtime = RetainedViewRuntime(root: ViewNode())
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertFalse(focusState.wrappedValue)
+
+            runtime.requestFocus(node)
+
+            XCTAssertTrue(node.isFocused)
+            XCTAssertTrue(focusState.wrappedValue)
+
+            runtime.keyboardFocusDidLeaveWindow()
+
+            XCTAssertFalse(node.isFocused)
+            XCTAssertFalse(focusState.wrappedValue)
+
+            let initiallyFocused = FocusState<Bool>(wrappedValue: true)
+            let focusedNode = makeNode(Text("AUTO").focused(initiallyFocused.projectedValue))
+
+            XCTAssertTrue(focusedNode.isFocused)
+            XCTAssertTrue(initiallyFocused.wrappedValue)
+        }
+    }
+
+    func testFocusStateOptionalBindingSynchronizesRetainedFocus() async {
+        enum Field: Hashable {
+            case name
+            case email
+        }
+
+        await MainActor.run {
+            let focusState = FocusState<Field?>(wrappedValue: .name)
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 800, height: 600) },
+                invalidateHandler: {}
+            )
+            let nameNode = Text("NAME")
+                .focused(focusState.projectedValue, equals: Field.name)
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+            let emailNode = Text("EMAIL")
+                .focused(focusState.projectedValue, equals: Field.email)
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            XCTAssertTrue(nameNode.isFocused)
+            XCTAssertFalse(emailNode.isFocused)
+            XCTAssertEqual(focusState.wrappedValue, .name)
+
+            runtime.requestFocus(emailNode)
+
+            XCTAssertFalse(nameNode.isFocused)
+            XCTAssertTrue(emailNode.isFocused)
+            XCTAssertEqual(focusState.wrappedValue, .email)
+
+            runtime.keyboardFocusDidLeaveWindow()
+
+            XCTAssertNil(focusState.wrappedValue)
+        }
+    }
+
     func testHoverEffectModifiersMapToRetainedEffectMetadata() async {
         await MainActor.run {
             let liftNode = makeNode(

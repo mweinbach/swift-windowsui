@@ -1345,6 +1345,84 @@ public struct State<Value> {
 }
 
 @MainActor
+@propertyWrapper
+public struct FocusState<Value> {
+    @MainActor
+    private final class Storage {
+        var value: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: Value) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init() where Value == Bool {
+        self.storage = Storage(value: false)
+    }
+
+    public init<Wrapped>() where Value == Wrapped? {
+        self.storage = Storage(value: nil)
+    }
+
+    public init(wrappedValue: Value) {
+        self.storage = Storage(value: wrappedValue)
+    }
+
+    public init(initialValue: Value) {
+        self.storage = Storage(value: initialValue)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding {
+        Binding(
+            get: {
+                wrappedValue
+            },
+            set: { newValue in
+                wrappedValue = newValue
+            }
+        )
+    }
+
+    @MainActor
+    public struct Binding {
+        private let getValue: @MainActor () -> Value
+        private let setValue: @MainActor (Value) -> Void
+
+        public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
+            self.getValue = get
+            self.setValue = set
+        }
+
+        public var wrappedValue: Value {
+            get {
+                getValue()
+            }
+            nonmutating set {
+                setValue(newValue)
+            }
+        }
+    }
+}
+
+@MainActor
 public struct ViewBuildContext {
     private let canvasSizeProvider: () -> Size
     private let invalidateHandler: () -> Void
@@ -5319,6 +5397,61 @@ public extension View {
                 childNode.isFocusable = isFocusable
                 if isFocusable {
                     childNode.isHitTestVisible = true
+                }
+                return childNode
+            }
+        }
+    }
+
+    func focused(_ condition: FocusState<Bool>.Binding) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                childNode.isHitTestVisible = true
+                let previousFocusEnter = childNode.onFocusEnter
+                let previousFocusExit = childNode.onFocusExit
+                childNode.onFocusEnter = {
+                    previousFocusEnter?()
+                    condition.wrappedValue = true
+                }
+                childNode.onFocusExit = {
+                    previousFocusExit?()
+                    condition.wrappedValue = false
+                }
+                if condition.wrappedValue {
+                    runtime.requestFocus(childNode)
+                }
+                return childNode
+            }
+        }
+    }
+
+    func focused<Value>(
+        _ binding: FocusState<Value?>.Binding,
+        equals value: Value
+    ) -> some View where Value: Hashable {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                childNode.isHitTestVisible = true
+                let previousFocusEnter = childNode.onFocusEnter
+                let previousFocusExit = childNode.onFocusExit
+                childNode.onFocusEnter = {
+                    previousFocusEnter?()
+                    binding.wrappedValue = value
+                }
+                childNode.onFocusExit = {
+                    previousFocusExit?()
+                    if binding.wrappedValue == value {
+                        binding.wrappedValue = nil
+                    }
+                }
+                if binding.wrappedValue == value {
+                    runtime.requestFocus(childNode)
                 }
                 return childNode
             }

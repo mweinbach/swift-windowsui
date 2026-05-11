@@ -3121,6 +3121,19 @@ public final class RetainedViewRuntime {
         updateFocusTarget(to: nil)
     }
 
+    public func requestFocus(_ node: ViewNode?) {
+        guard let node else {
+            updateFocusTarget(to: nil)
+            return
+        }
+
+        guard node.isFocusable else {
+            return
+        }
+
+        updateFocusTarget(to: node)
+    }
+
     private func beginButtonRepeatIfNeeded(for node: ViewNode?) {
         guard let node, node.buttonRepeatBehavior == .enabled else {
             buttonRepeatState = nil

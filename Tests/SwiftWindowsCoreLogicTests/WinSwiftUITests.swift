@@ -2035,6 +2035,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGridAndGridRowMapToRetainedStackPanels() async {
+        await MainActor.run {
+            let node = makeNode(
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 9) {
+                    GridRow(alignment: .bottom) {
+                        Text("A1")
+                        Text("A2")
+                    }
+                    GridRow {
+                        Text("B1")
+                        Text("B2")
+                    }
+                }
+            )
+
+            guard case .stack(let gridLayout) = node.layoutMode else {
+                return XCTFail("Expected Grid to use retained vertical stack layout")
+            }
+            guard case .stack(let firstRowLayout) = node.children[0].layoutMode else {
+                return XCTFail("Expected GridRow to use retained horizontal stack layout")
+            }
+            guard case .stack(let secondRowLayout) = node.children[1].layoutMode else {
+                return XCTFail("Expected GridRow to use retained horizontal stack layout")
+            }
+
+            XCTAssertEqual(gridLayout, .vertical(spacing: 9, alignment: .leading))
+            XCTAssertEqual(firstRowLayout, .horizontal(spacing: 0, alignment: .trailing))
+            XCTAssertEqual(secondRowLayout, .horizontal(spacing: 0, alignment: .center))
+            XCTAssertEqual(allTexts(in: node), ["A1", "A2", "B1", "B2"])
+        }
+    }
+
     func testStacksAcceptNilSpacing() async {
         await MainActor.run {
             let vStackNode = makeNode(

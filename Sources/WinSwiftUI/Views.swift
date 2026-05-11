@@ -2544,6 +2544,76 @@ public struct LazyHStack: View {
 }
 
 @MainActor
+public struct Grid: View {
+    public typealias Body = Never
+
+    private let alignment: Alignment
+    private let verticalSpacing: Double
+    private let content: [AnyView]
+
+    public init(
+        alignment: Alignment = .center,
+        horizontalSpacing: Double? = nil,
+        verticalSpacing: Double? = nil,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        _ = horizontalSpacing
+        self.alignment = alignment
+        self.verticalSpacing = verticalSpacing ?? 0
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Grid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let verticalSpacing = verticalSpacing
+        let childContext = context.withStackAxis(.vertical)
+        let content = content
+
+        return Component { runtime in
+            Controls.stackPanel(
+                stackLayout: .vertical(
+                    spacing: verticalSpacing,
+                    alignment: alignment.horizontal.stackAlignment
+                ),
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
+public struct GridRow: View {
+    public typealias Body = Never
+
+    private let alignment: VerticalAlignment
+    private let content: [AnyView]
+
+    public init(alignment: VerticalAlignment = .center, @ViewBuilder content: () -> [AnyView]) {
+        self.alignment = alignment
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("GridRow has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let childContext = context.withStackAxis(.horizontal)
+        return Component { runtime in
+            Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 0, alignment: alignment.stackAlignment),
+                isHitTestVisible: false,
+                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+            )
+        }
+    }
+}
+
+@MainActor
 public struct ZStack: View {
     public typealias Body = Never
 

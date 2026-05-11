@@ -224,6 +224,7 @@ Modifiers:
 - `layoutPriority`
 - `gridCellColumns`
 - `allowsHitTesting`
+- `focusable`
 - `opacity`
 - `hidden`
 - `zIndex`
@@ -329,6 +330,7 @@ Surface direction:
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `contentShape` and `ContentShapeKinds` are accepted for source compatibility. Retained hit testing remains rectangular today, so the shape and kind values do not alter pointer, focus, preview, or accessibility geometry yet.
+- `focusable(_:)` maps to the retained node focus flag and enables hit testing when focusability is turned on. Focus effects and programmatic `FocusState` bindings are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.

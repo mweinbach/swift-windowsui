@@ -4746,6 +4746,24 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFocusableModifierMapsToRetainedFocusState() async {
+        await MainActor.run {
+            let focusableNode = makeNode(
+                Text("FOCUS")
+                    .allowsHitTesting(false)
+                    .focusable()
+            )
+            let disabledNode = makeNode(
+                Button("PRESS") {}
+                    .focusable(false)
+            )
+
+            XCTAssertTrue(focusableNode.isFocusable)
+            XCTAssertTrue(focusableNode.isHitTestVisible)
+            XCTAssertFalse(disabledNode.isFocusable)
+        }
+    }
+
     func testAccessibilityModifiersMapToRetainedMetadata() async {
         await MainActor.run {
             let node = makeNode(

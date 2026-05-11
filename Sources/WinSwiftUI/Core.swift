@@ -4035,6 +4035,20 @@ public extension View {
         }
     }
 
+    func focusable(_ isFocusable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = isFocusable
+                if isFocusable {
+                    childNode.isHitTestVisible = true
+                }
+                return childNode
+            }
+        }
+    }
+
     func opacity(_ opacity: Double) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

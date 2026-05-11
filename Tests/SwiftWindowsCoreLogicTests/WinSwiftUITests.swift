@@ -150,6 +150,21 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testColorResourceInitializersUseDeterministicCompatibilityFallback() async {
+        await MainActor.run {
+            let resource = ColorResource(name: "BrandColor", bundle: .main)
+            let sameResource = ColorResource(name: "BrandColor", bundle: .main)
+            let otherResource = ColorResource(name: "AccentFill", bundle: .main)
+
+            XCTAssertEqual(resource, sameResource)
+            XCTAssertNotEqual(resource, otherResource)
+            XCTAssertTrue(Set([resource]).contains(sameResource))
+            XCTAssertEqual(Color(resource), .accentColor)
+            XCTAssertEqual(Color("BrandColor", bundle: .main), .accentColor)
+            XCTAssertEqual(Color("BrandColor"), .accentColor)
+        }
+    }
+
     func testEdgeInsetsDefaultInitializerMapsToZero() async {
         await MainActor.run {
             XCTAssertEqual(EdgeInsets(), .zero)

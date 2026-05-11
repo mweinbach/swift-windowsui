@@ -75,6 +75,25 @@ public struct ImageResource: Equatable, Hashable, @unchecked Sendable {
     }
 }
 
+public struct ColorResource: Equatable, Hashable, @unchecked Sendable {
+    public var name: String
+    public var bundle: Bundle
+
+    public init(name: String, bundle: Bundle) {
+        self.name = name
+        self.bundle = bundle
+    }
+
+    public static func == (lhs: ColorResource, rhs: ColorResource) -> Bool {
+        lhs.name == rhs.name && lhs.bundle.bundlePath == rhs.bundle.bundlePath
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(bundle.bundlePath)
+    }
+}
+
 public struct Angle: Sendable, Equatable {
     public var radians: Double
 
@@ -5567,6 +5586,15 @@ public extension SwiftWindowsCore.Color {
             blue: Float(components.2 + match),
             alpha: Float(clampedUnitInterval(opacity))
         )
+    }
+
+    init(_ name: String, bundle: Bundle? = nil) {
+        self.init(ColorResource(name: name, bundle: bundle ?? .main))
+    }
+
+    init(_ resource: ColorResource) {
+        _ = resource
+        self = SwiftWindowsCore.Color.accentColor
     }
 
     func opacity(_ value: Double) -> SwiftWindowsCore.Color {

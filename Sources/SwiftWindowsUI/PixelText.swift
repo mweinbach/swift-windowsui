@@ -113,30 +113,77 @@ extension PixelTextStyle {
         }
         return copy
     }
+
+    func scaledForMinimumScaleFactor(_ factor: Double) -> PixelTextStyle {
+        let clampedFactor = min(max(factor, minimumScaleFactor), 1)
+        return scaledTextMetrics(by: clampedFactor)
+    }
+
+    private func scaledTextMetrics(by factor: Double) -> PixelTextStyle {
+        guard factor < 1 else {
+            return self
+        }
+
+        var copy = self
+        copy.scale = max(0.01, scale * factor)
+        copy.nativeFontSize = max(1, nativeFontPixelSize * factor)
+        copy.letterSpacing = letterSpacing * factor
+        copy.lineSpacing = lineSpacing * factor
+        copy.minimumScaleFactor = 1
+        copy.spans = spans?.map { span in
+            var scaledSpan = span
+            scaledSpan.style = span.style.scaledTextMetrics(by: factor)
+            return scaledSpan
+        }
+        return copy
+    }
+
+    func resolvingMinimumScaleFactor(
+        for text: String,
+        maxContentWidth: Double?,
+        measureLine: (String) -> Double
+    ) -> PixelTextStyle {
+        let factor = minimumTextScaleFactor(
+            for: text,
+            style: self,
+            maxContentWidth: maxContentWidth,
+            measureLine: measureLine
+        )
+        return scaledForMinimumScaleFactor(factor)
+    }
 }
 
 enum PixelFont {
+    private static func textScale(for style: PixelTextStyle) -> Double {
+        max(style.scale, 0.01)
+    }
+
     static func measure(_ text: String, style: PixelTextStyle, maxWidth: Double? = nil) -> Size {
-        let scale = max(style.scale, 1)
         let maxContentWidth = resolvedContentWidth(for: maxWidth, style: style)
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: maxContentWidth,
+            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * textScale(for: style) }
+        )
+        let scale = textScale(for: effectiveStyle)
         let layout = resolveTextLayout(
             for: text,
-            style: style,
+            style: effectiveStyle,
             maxContentWidth: maxContentWidth,
-            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * scale }
+            measureLine: { line in rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let contentWidth = measuredContentWidth(
             for: layout.lines,
-            style: style,
+            style: effectiveStyle,
             scale: scale,
             maxContentWidth: maxContentWidth
         )
-        let width = contentWidth + style.insets.leading + style.insets.trailing
+        let width = contentWidth + effectiveStyle.insets.leading + effectiveStyle.insets.trailing
         let lineCount = max(layout.lines.count, 1)
         let height = (
             Double(lineCount * PixelFontAtlas.glyphHeight) +
-            Double(max(lineCount - 1, 0)) * style.lineSpacing
-        ) * scale + style.insets.top + style.insets.bottom
+            Double(max(lineCount - 1, 0)) * effectiveStyle.lineSpacing
+        ) * scale + effectiveStyle.insets.top + effectiveStyle.insets.bottom
 
         return Size(width: width, height: height)
     }
@@ -153,24 +200,29 @@ enum PixelFont {
         }
 
         let contentRect = rect.inset(by: style.insets)
-        let scale = max(style.scale, 1)
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: max(0, contentRect.size.width),
+            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * textScale(for: style) }
+        )
+        let scale = textScale(for: effectiveStyle)
         let layout = resolveTextLayout(
             for: text,
-            style: style,
+            style: effectiveStyle,
             maxContentWidth: max(0, contentRect.size.width),
-            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * scale }
+            measureLine: { line in rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let lines = layout.lines
         let totalTextHeight = (
             Double(max(lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(lines.count - 1, 0)) * style.lineSpacing
+            Double(max(lines.count - 1, 0)) * effectiveStyle.lineSpacing
         ) * scale
         var y = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
 
         for line in lines {
-            let lineWidth = rawLineWidth(String(line), letterSpacing: style.letterSpacing) * scale
+            let lineWidth = rawLineWidth(String(line), letterSpacing: effectiveStyle.letterSpacing) * scale
             let x: Double
-            switch style.alignment {
+            switch effectiveStyle.alignment {
             case .leading:
                 x = contentRect.origin.x
             case .center:
@@ -183,13 +235,13 @@ enum PixelFont {
                 for: String(line),
                 at: Point(x: x, y: y),
                 scale: scale,
-                letterSpacing: style.letterSpacing,
-                color: style.color,
+                letterSpacing: effectiveStyle.letterSpacing,
+                color: effectiveStyle.color,
                 clipRect: clipRect,
                 into: &commands
             )
 
-            y += Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale
+            y += Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale
         }
     }
 
@@ -205,24 +257,29 @@ enum PixelFont {
         }
 
         let contentRect = rect.inset(by: style.insets)
-        let scale = max(style.scale, 1)
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: max(0, contentRect.size.width),
+            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * textScale(for: style) }
+        )
+        let scale = textScale(for: effectiveStyle)
         let layout = resolveTextLayout(
             for: text,
-            style: style,
+            style: effectiveStyle,
             maxContentWidth: max(0, contentRect.size.width),
-            measureLine: { line in rawLineWidth(line, letterSpacing: style.letterSpacing) * scale }
+            measureLine: { line in rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let lines = layout.lines
         let totalTextHeight = (
             Double(max(lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(lines.count - 1, 0)) * style.lineSpacing
+            Double(max(lines.count - 1, 0)) * effectiveStyle.lineSpacing
         ) * scale
         var y = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
 
         for line in lines {
-            let lineWidth = rawLineWidth(String(line), letterSpacing: style.letterSpacing) * scale
+            let lineWidth = rawLineWidth(String(line), letterSpacing: effectiveStyle.letterSpacing) * scale
             let x: Double
-            switch style.alignment {
+            switch effectiveStyle.alignment {
             case .leading:
                 x = contentRect.origin.x
             case .center:
@@ -235,13 +292,13 @@ enum PixelFont {
                 for: String(line),
                 at: Point(x: x, y: y),
                 scale: scale,
-                letterSpacing: style.letterSpacing,
-                color: style.color,
+                letterSpacing: effectiveStyle.letterSpacing,
+                color: effectiveStyle.color,
                 clipRect: clipRect,
                 into: &glyphs
             )
 
-            y += Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale
+            y += Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale
         }
     }
 
@@ -401,6 +458,32 @@ enum PixelFont {
     static func glyphRows(for character: Character) -> [String] {
         PixelFontAtlas.pattern(for: character)
     }
+}
+
+func minimumTextScaleFactor(
+    for text: String,
+    style: PixelTextStyle,
+    maxContentWidth: Double?,
+    measureLine: (String) -> Double
+) -> Double {
+    guard
+        style.minimumScaleFactor < 1,
+        let maxContentWidth,
+        maxContentWidth.isFinite,
+        maxContentWidth > 0
+    else {
+        return 1
+    }
+
+    let widestLine = normalizedTextLines(from: text)
+        .map(measureLine)
+        .filter(\.isFinite)
+        .max() ?? 0
+    guard widestLine > maxContentWidth, widestLine > 0 else {
+        return 1
+    }
+
+    return min(1, max(style.minimumScaleFactor, maxContentWidth / widestLine))
 }
 
 struct ResolvedTextLayout: Equatable, Sendable {

@@ -110,7 +110,7 @@ final class NativeGlyphAtlas {
     }
 
     func prepareGlyph(for glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> PreparedGlyph? {
-        let fontSize = style.nativeFontPixelSize
+        let fontSize = glyph.fontSize.isFinite ? max(glyph.fontSize, 1) : style.nativeFontPixelSize
         let fontFamily = glyph.fontFamily
         let weight = glyph.weight.glyphAtlasWeight
         let key: GlyphKey

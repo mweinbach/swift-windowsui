@@ -93,7 +93,13 @@ enum NativeTextRenderer {
 
 @MainActor
 enum GDIRasterTextRenderer {
-    static func measure(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> Size? {
+    static func measure(
+        _ text: String,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        maxWidth: Double? = nil,
+        resolvesMinimumScaleFactor: Bool = true
+    ) -> Size? {
         guard !text.isEmpty else {
             return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
         }
@@ -110,6 +116,25 @@ enum GDIRasterTextRenderer {
 
         let previousObject = SelectObject(dc, HGDIOBJ(font))
         defer { _ = SelectObject(dc, previousObject) }
+
+        if resolvesMinimumScaleFactor {
+            let effectiveStyle = style.resolvingMinimumScaleFactor(
+                for: text,
+                maxContentWidth: contentWidthLimit(for: maxWidth, style: style),
+                measureLine: { line in
+                    measureSingleLineWidth(line, in: dc, scaleFactor: scaleFactor) ?? 0
+                }
+            )
+            if effectiveStyle != style {
+                return measure(
+                    text,
+                    style: effectiveStyle,
+                    scaleFactor: scaleFactor,
+                    maxWidth: maxWidth,
+                    resolvesMinimumScaleFactor: false
+                )
+            }
+        }
 
         let resolvedLayout = resolveTextLayout(
             for: text,
@@ -187,7 +212,13 @@ enum GDIRasterTextRenderer {
         return rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
     }
 
-    static func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    static func rasterize(
+        _ text: String,
+        in size: Size,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        resolvesMinimumScaleFactor: Bool = true
+    ) -> BitmapSurface? {
         let rasterSize = size.scaled(by: scaleFactor)
         let pixelWidth = max(1, Int32(rasterSize.width.rounded(.up)))
         let pixelHeight = max(1, Int32(rasterSize.height.rounded(.up)))
@@ -223,6 +254,25 @@ enum GDIRasterTextRenderer {
 
         let previousFont = SelectObject(dc, HGDIOBJ(font))
         defer { _ = SelectObject(dc, previousFont) }
+
+        if resolvesMinimumScaleFactor {
+            let effectiveStyle = style.resolvingMinimumScaleFactor(
+                for: text,
+                maxContentWidth: max(0, size.width - style.insets.leading - style.insets.trailing),
+                measureLine: { line in
+                    measureSingleLineWidth(line, in: dc, scaleFactor: scaleFactor) ?? 0
+                }
+            )
+            if effectiveStyle != style {
+                return rasterize(
+                    text,
+                    in: size,
+                    style: effectiveStyle,
+                    scaleFactor: scaleFactor,
+                    resolvesMinimumScaleFactor: false
+                )
+            }
+        }
 
         memset(bits, 0, bufferSize)
         SetBkMode(dc, TRANSPARENT)

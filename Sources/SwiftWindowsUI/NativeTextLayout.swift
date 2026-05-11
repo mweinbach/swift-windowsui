@@ -69,6 +69,7 @@ struct NativeTextLineLayout: Equatable, Sendable {
 
 struct NativeTextLayoutResult: Equatable, Sendable {
     var lines: [NativeTextLineLayout]
+    var lineSpacing: Double = 0
     var contentSize: Size
     var measuredSize: Size
 }

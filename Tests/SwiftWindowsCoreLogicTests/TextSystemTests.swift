@@ -633,6 +633,94 @@ final class TextSystemTests: XCTestCase {
         XCTAssertEqual(first.text, "ALPHA\nBETA\nGAMMA\nDELTA")
         XCTAssertTrue(first.lines.allSatisfy { Double($0.count) <= 5 })
     }
+
+    func testMinimumScaleFactorResolvesEffectivePixelTextStyleBeforeTruncation() {
+        let text = "ABCDEFGHIJ"
+        let style = PixelTextStyle(
+            color: .white,
+            scale: 2,
+            alignment: .leading,
+            lineBreakMode: .truncateTail,
+            minimumScaleFactor: 0.5
+        )
+        let naturalWidth = PixelFont.rawLineWidth(text, letterSpacing: style.letterSpacing) * style.scale
+        let constrainedWidth = naturalWidth * 0.75
+
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: constrainedWidth,
+            measureLine: { line in
+                PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * style.scale
+            }
+        )
+        let scaledLayout = resolveTextLayout(
+            for: text,
+            style: effectiveStyle,
+            maxContentWidth: constrainedWidth,
+            measureLine: { line in
+                PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * effectiveStyle.scale
+            }
+        )
+        let unscaledLayout = resolveTextLayout(
+            for: text,
+            style: style,
+            maxContentWidth: constrainedWidth,
+            measureLine: { line in
+                PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * style.scale
+            }
+        )
+
+        XCTAssertEqual(effectiveStyle.scale, 1.5, accuracy: 0.0001)
+        XCTAssertEqual(effectiveStyle.minimumScaleFactor, 1)
+        XCTAssertEqual(scaledLayout.lines, [text])
+        XCTAssertNotEqual(unscaledLayout.lines, [text])
+    }
+
+    func testDirectWriteMinimumScaleFactorShrinksConstrainedLayoutWhenAvailable() async throws {
+        let capabilities = await MainActor.run {
+            TextSystem.capabilities()
+        }
+
+        guard capabilities.dwriteFactoryCreationSucceeded else {
+            throw XCTSkip("DirectWrite is not available on this environment")
+        }
+
+        let result = await MainActor.run { () -> (NativeTextLayoutResult?, NativeTextLayoutResult?) in
+            let text = "Scale Before Truncate"
+            let baseStyle = PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 24,
+                lineBreakMode: .truncateTail
+            )
+            var scaledStyle = baseStyle
+            scaledStyle.minimumScaleFactor = 0.5
+
+            guard let naturalLayout = NativeTextRenderer.layout(text, style: baseStyle, scaleFactor: 1.0, maxWidth: nil) else {
+                return (nil, nil)
+            }
+
+            let constrainedLayout = NativeTextRenderer.layout(
+                text,
+                style: scaledStyle,
+                scaleFactor: 1.0,
+                maxWidth: naturalLayout.contentSize.width * 0.75
+            )
+            return (naturalLayout, constrainedLayout)
+        }
+
+        guard let naturalLayout = result.0, let constrainedLayout = result.1 else {
+            return XCTFail("Expected native text layouts")
+        }
+
+        XCTAssertEqual(constrainedLayout.lines.map(\.text), naturalLayout.lines.map(\.text))
+        XCTAssertLessThan(constrainedLayout.contentSize.width, naturalLayout.contentSize.width)
+        XCTAssertLessThan(
+            constrainedLayout.lines.first?.glyphs.first?.fontSize ?? 24,
+            naturalLayout.lines.first?.glyphs.first?.fontSize ?? 0
+        )
+    }
 }
 
 private struct MockTextLibraryLoader: TextLibraryLoading {

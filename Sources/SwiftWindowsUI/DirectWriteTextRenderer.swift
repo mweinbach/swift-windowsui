@@ -197,13 +197,19 @@ private final class DirectWriteSystem {
         layout(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)?.measuredSize
     }
 
-    func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
+    func layout(
+        _ text: String,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        maxWidth: Double? = nil,
+        resolvesMinimumScaleFactor: Bool = true
+    ) -> NativeTextLayoutResult? {
         guard !text.isEmpty else {
             let emptySize = snapLogicalTextSize(
                 Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom),
                 scaleFactor: scaleFactor
             )
-            return NativeTextLayoutResult(lines: [], contentSize: .zero, measuredSize: emptySize)
+            return NativeTextLayoutResult(lines: [], lineSpacing: style.lineSpacing, contentSize: .zero, measuredSize: emptySize)
         }
 
         guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
@@ -215,6 +221,25 @@ private final class DirectWriteSystem {
         }
 
         let maxContentWidth = contentWidthLimit(for: maxWidth, style: style)
+        if resolvesMinimumScaleFactor {
+            let effectiveStyle = style.resolvingMinimumScaleFactor(
+                for: text,
+                maxContentWidth: maxContentWidth,
+                measureLine: { [weak self] line in
+                    self?.measureSingleLine(line, format: measurementFormat) ?? 0
+                }
+            )
+            if effectiveStyle != style {
+                return layout(
+                    text,
+                    style: effectiveStyle,
+                    scaleFactor: scaleFactor,
+                    maxWidth: maxWidth,
+                    resolvesMinimumScaleFactor: false
+                )
+            }
+        }
+
         let resolvedLayout = resolveTextLayout(
             for: text,
             style: style,
@@ -252,6 +277,7 @@ private final class DirectWriteSystem {
 
         return NativeTextLayoutResult(
             lines: lines,
+            lineSpacing: style.lineSpacing,
             contentSize: Size(width: contentWidth, height: contentHeight),
             measuredSize: measuredSize
         )
@@ -355,9 +381,9 @@ private final class DirectWriteSystem {
 
     func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
         var normalizedGlyph = glyph
-        normalizedGlyph.fontSize = style.nativeFontPixelSize
+        normalizedGlyph.fontSize = max(glyph.fontSize, 1)
         if let bitmap = rasterizeCapturedGlyph(normalizedGlyph, scaleFactor: scaleFactor),
-           isUsableCapturedGlyphBitmap(bitmap, fontSize: style.nativeFontPixelSize, scaleFactor: scaleFactor) {
+           isUsableCapturedGlyphBitmap(bitmap, fontSize: normalizedGlyph.fontSize, scaleFactor: scaleFactor) {
             return bitmap
         }
 
@@ -368,7 +394,13 @@ private final class DirectWriteSystem {
         return rasterizeGlyph(normalizedGlyph.character, style: glyphStyle, scaleFactor: scaleFactor)
     }
 
-    func rasterize(_ text: String, in size: Size, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
+    func rasterize(
+        _ text: String,
+        in size: Size,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        resolvesMinimumScaleFactor: Bool = true
+    ) -> BitmapSurface? {
         let contentSize = Size(
             width: max(1, size.width - style.insets.leading - style.insets.trailing),
             height: max(1, size.height - style.insets.top - style.insets.bottom)
@@ -380,6 +412,25 @@ private final class DirectWriteSystem {
         defer {
             var releasableFormat: UnsafeMutablePointer<IDWriteTextFormat>? = measurementFormat
             releaseDirectWriteCOM(&releasableFormat)
+        }
+
+        if resolvesMinimumScaleFactor {
+            let effectiveStyle = style.resolvingMinimumScaleFactor(
+                for: text,
+                maxContentWidth: max(0, contentSize.width),
+                measureLine: { [weak self] line in
+                    self?.measureSingleLine(line, format: measurementFormat) ?? 0
+                }
+            )
+            if effectiveStyle != style {
+                return rasterize(
+                    text,
+                    in: size,
+                    style: effectiveStyle,
+                    scaleFactor: scaleFactor,
+                    resolvesMinimumScaleFactor: false
+                )
+            }
         }
 
         let resolvedLayout = resolveTextLayout(

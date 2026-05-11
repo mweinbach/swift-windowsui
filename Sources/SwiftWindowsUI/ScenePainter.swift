@@ -592,20 +592,25 @@ public enum ScenePainter {
             return
         }
 
-        let scale = max(style.scale, 1)
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: max(0, contentRect.size.width),
+            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01) }
+        )
+        let scale = max(effectiveStyle.scale, 0.01)
         let layout = resolveTextLayout(
             for: text,
-            style: style,
+            style: effectiveStyle,
             maxContentWidth: max(0, contentRect.size.width),
-            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * scale }
+            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let totalTextHeight = (
             Double(max(layout.lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(layout.lines.count - 1, 0)) * style.lineSpacing
+            Double(max(layout.lines.count - 1, 0)) * effectiveStyle.lineSpacing
         ) * scale
 
         let startY: Double
-        switch style.verticalAlignment {
+        switch effectiveStyle.verticalAlignment {
         case .top:
             startY = contentRect.origin.y
         case .center:
@@ -618,14 +623,14 @@ public enum ScenePainter {
         let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
         let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale * displayScale
         let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale * displayScale
-        let horizontalAdvance = (Double(PixelFontAtlas.glyphWidth) + style.letterSpacing) * scale * displayScale
-        let verticalAdvance = (Double(PixelFontAtlas.glyphHeight) * scale + style.lineSpacing * scale) * displayScale
+        let horizontalAdvance = (Double(PixelFontAtlas.glyphWidth) + effectiveStyle.letterSpacing) * scale * displayScale
+        let verticalAdvance = (Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale) * displayScale
         var cursorY = startY * displayScale
 
         for line in layout.lines {
-            let lineWidth = PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * scale
+            let lineWidth = PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale
             let startX: Double
-            switch style.alignment {
+            switch effectiveStyle.alignment {
             case .leading:
                 startX = contentRect.origin.x
             case .center:
@@ -667,10 +672,10 @@ public enum ScenePainter {
                         atlasV0: uv.v0,
                         atlasU1: uv.u1,
                         atlasV1: uv.v1,
-                        colorR: style.color.red,
-                        colorG: style.color.green,
-                        colorB: style.color.blue,
-                        colorA: style.color.alpha * opacity,
+                        colorR: effectiveStyle.color.red,
+                        colorG: effectiveStyle.color.green,
+                        colorB: effectiveStyle.color.blue,
+                        colorA: effectiveStyle.color.alpha * opacity,
                         clipX: clipRect.0,
                         clipY: clipRect.1,
                         clipWidth: clipRect.2,
@@ -799,7 +804,7 @@ public enum ScenePainter {
                 )
             }
 
-            lineOriginY += line.height + style.lineSpacing
+            lineOriginY += line.height + layout.lineSpacing
         }
 
         glyphs.append(contentsOf: appendedGlyphs)

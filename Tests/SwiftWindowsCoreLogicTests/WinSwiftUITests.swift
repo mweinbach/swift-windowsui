@@ -3712,6 +3712,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSectionSupportsDeprecatedDirectHeaderFooterSyntax() async {
+        await MainActor.run {
+            let headerNode = makeNode(
+                Section(header: Text("HEADER")) {
+                    Text("ROW")
+                }
+            )
+            let footerNode = makeNode(
+                Section(footer: Text("FOOTER")) {
+                    Text("ROW")
+                }
+            )
+            let headerFooterNode = makeNode(
+                Section(header: Text("HEADER"), footer: Text("FOOTER")) {
+                    Text("ROW")
+                }
+            )
+
+            XCTAssertEqual(allTexts(in: headerNode), ["HEADER", "ROW"])
+            XCTAssertEqual(headerNode.children[0].textStyle.color, SectionStyle.default.headerColor)
+            XCTAssertEqual(allTexts(in: footerNode), ["ROW", "FOOTER"])
+            XCTAssertEqual(footerNode.children[1].textStyle.color, .secondary)
+            XCTAssertEqual(allTexts(in: headerFooterNode), ["HEADER", "ROW", "FOOTER"])
+        }
+    }
+
     func testSectionExpandedBindingControlsRetainedContentAndHeaderActivation() async {
         await MainActor.run {
             var isExpanded = false

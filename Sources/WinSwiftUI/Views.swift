@@ -3199,6 +3199,40 @@ public struct Section: View {
         self.content = content()
     }
 
+    public init<Header: View>(
+        header: Header,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.header = [AnyView(header)]
+        self.footer = []
+        self.style = .default
+        self.isExpanded = nil
+        self.content = content()
+    }
+
+    public init<Footer: View>(
+        footer: Footer,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.header = []
+        self.footer = [AnyView(footer)]
+        self.style = .default
+        self.isExpanded = nil
+        self.content = content()
+    }
+
+    public init<Header: View, Footer: View>(
+        header: Header,
+        footer: Footer,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.header = [AnyView(header)]
+        self.footer = [AnyView(footer)]
+        self.style = .default
+        self.isExpanded = nil
+        self.content = content()
+    }
+
     public init(
         isExpanded: Binding<Bool>,
         @ViewBuilder content: () -> [AnyView],

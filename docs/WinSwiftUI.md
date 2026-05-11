@@ -121,6 +121,7 @@ Views and containers:
   - `Section(isExpanded:content:header:)`
   - `Section { content } footer: { footer }`
   - `Section { content } header: { header } footer: { footer }`
+  - deprecated direct `Section(header:content:)`, `Section(footer:content:)`, and `Section(header:footer:content:)`
 - `GroupBox`
   - `StringProtocol` title inputs
 - `DisclosureGroup`

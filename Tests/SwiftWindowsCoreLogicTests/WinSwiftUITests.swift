@@ -4915,6 +4915,126 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAlertIsPresentedComposesRetainedModalAndDismissesActionButton() async {
+        await MainActor.run {
+            var isPresented = true
+            var didConfirm = false
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 240, height: 120)
+                .alert(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    )
+                ) {
+                    Alert(
+                        title: Text("DELETE ITEM"),
+                        message: Text("THIS CANNOT BE UNDONE"),
+                        primaryButton: .destructive(Text("DELETE")) {
+                            didConfirm = true
+                        },
+                        secondaryButton: .cancel(Text("CANCEL"))
+                    )
+                }
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected alert presentation to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DELETE ITEM"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("THIS CANNOT BE UNDONE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DELETE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CANCEL"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertTrue(didConfirm)
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("DELETE ITEM"))
+        }
+    }
+
+    func testAlertItemRendersSelectedItemAndClearsOnDismiss() async {
+        await MainActor.run {
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "ALERT DETAIL")
+            let view = Text("ROOT")
+                .alert(
+                    item: Binding(
+                        get: { selectedItem },
+                        set: { selectedItem = $0 }
+                    )
+                ) { item in
+                    Alert(
+                        title: Text(item.id),
+                        dismissButton: .default(Text("OK"))
+                    )
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ALERT DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("OK"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertNil(selectedItem)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
+    func testBuilderAlertProvidesPresentationEnvironmentAndDefaultDismissButton() async {
+        await MainActor.run {
+            struct AlertMessage: View {
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    Text(isPresented ? "PRESENTED MESSAGE" : "HIDDEN MESSAGE")
+                }
+            }
+
+            var isPresented = true
+            let view = Text("ROOT")
+                .alert(
+                    "NETWORK ERROR",
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    actions: {}
+                ) {
+                    AlertMessage()
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("NETWORK ERROR"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("PRESENTED MESSAGE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("OK"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testDismissEnvironmentActionPopsNavigationPathBinding() async {
         await MainActor.run {
             struct DismissValueView: View {

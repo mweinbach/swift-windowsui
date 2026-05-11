@@ -173,6 +173,66 @@ public struct PopoverAttachmentAnchor: Sendable, Equatable {
     }
 }
 
+@MainActor
+public struct Alert {
+    @MainActor
+    public struct Button {
+        let label: Text
+        let role: ButtonRole?
+        let action: (@MainActor () -> Void)?
+
+        private init(label: Text, role: ButtonRole?, action: (@MainActor () -> Void)?) {
+            self.label = label
+            self.role = role
+            self.action = action
+        }
+
+        public static func `default`(_ label: Text) -> Button {
+            Button(label: label, role: nil, action: nil)
+        }
+
+        public static func `default`(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: nil, action: action)
+        }
+
+        public static func cancel() -> Button {
+            Button(label: Text("Cancel"), role: .cancel, action: nil)
+        }
+
+        public static func cancel(_ label: Text) -> Button {
+            Button(label: label, role: .cancel, action: nil)
+        }
+
+        public static func cancel(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: .cancel, action: action)
+        }
+
+        public static func destructive(_ label: Text) -> Button {
+            Button(label: label, role: .destructive, action: nil)
+        }
+
+        public static func destructive(_ label: Text, action: @escaping @MainActor () -> Void) -> Button {
+            Button(label: label, role: .destructive, action: action)
+        }
+    }
+
+    let title: Text
+    let message: Text?
+    let buttons: [Button]
+
+    public init(title: Text, message: Text? = nil, dismissButton: Button? = nil) {
+        self.title = title
+        self.message = message
+        self.buttons = [dismissButton ?? .default(Text("OK"))]
+    }
+
+    public init(title: Text, message: Text? = nil, primaryButton: Button, secondaryButton: Button) {
+        self.title = title
+        self.message = message
+        self.buttons = [primaryButton, secondaryButton]
+    }
+}
+
 public struct MatchedGeometryProperties: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -4949,6 +5009,173 @@ private func popoverAlignment(for arrowEdge: Edge, layoutDirection: LayoutDirect
     }
 }
 
+@MainActor
+private func retainedAlertPresentation(
+    base: Component,
+    title: Component,
+    message: Component?,
+    actions: Component,
+    context: ViewBuildContext
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let scrimNode = Controls.panel(
+            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.52),
+            isHitTestVisible: false
+        )
+
+        var alertChildren = [title.makeNode(runtime: runtime)]
+        if let message {
+            alertChildren.append(message.makeNode(runtime: runtime))
+        }
+        alertChildren.append(actions.makeNode(runtime: runtime))
+
+        let alertNode = Controls.stackPanel(
+            preferredSize: Size(width: 300, height: 0),
+            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.32),
+            shadowOffset: Point(x: 0, y: 12),
+            shadowSpread: 18,
+            cornerRadius: 14,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 12,
+                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: alertChildren
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, scrimNode, alertNode]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+            if scrimNode.frame != boundsFrame {
+                scrimNode.frame = boundsFrame
+            }
+
+            let alertSize = alertNode.intrinsicContentSize()
+            let alertOrigin = Alignment.center.frameOrigin(
+                for: alertSize,
+                in: bounds.size,
+                layoutDirection: context.layoutDirection
+            )
+            let alertFrame = Rect(origin: alertOrigin, size: alertSize)
+            if alertNode.frame != alertFrame {
+                alertNode.frame = alertFrame
+            }
+        }
+
+        return root
+    }
+}
+
+@MainActor
+private func retainedAlertPresentation(
+    base: Component,
+    alert: Alert,
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
+) -> Component {
+    let alertContext = context
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        .withEnvironmentValue(\.isPresented, true)
+    let title = alert.title
+        .font(.headline)
+        .multilineTextAlignment(.center)
+        .makeComponent(context: alertContext)
+    let message = alert.message?
+        .font(.body)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .makeComponent(context: alertContext)
+    let actions = retainedAlertActionsComponent(
+        buttons: alert.buttons,
+        context: alertContext,
+        dismiss: dismiss
+    )
+
+    return retainedAlertPresentation(
+        base: base,
+        title: title,
+        message: message,
+        actions: actions,
+        context: context
+    )
+}
+
+@MainActor
+private func retainedAlertActionsComponent(
+    buttons: [Alert.Button],
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
+) -> Component {
+    let actionButtons = (buttons.isEmpty ? [.default(Text("OK"))] : buttons).map { button in
+        AnyView(
+            Button(button.label.plainContent, role: button.role) {
+                button.action?()
+                dismiss()
+            }
+            .buttonStyle(.borderedProminent)
+        )
+    }
+
+    return composeComponent(
+        from: actionButtons,
+        context: context,
+        fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .stretch, mainAlignment: .end))
+    )
+}
+
+@MainActor
+private func retainedAlertBuilderPresentation(
+    base: Component,
+    title: Text,
+    messageViews: [AnyView],
+    actionViews: [AnyView],
+    context: ViewBuildContext,
+    dismiss: @escaping @MainActor () -> Void
+) -> Component {
+    let alertContext = context
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        .withEnvironmentValue(\.isPresented, true)
+    let titleComponent = title
+        .font(.headline)
+        .multilineTextAlignment(.center)
+        .makeComponent(context: alertContext)
+    let messageComponent = messageViews.isEmpty ? nil : composeComponent(
+        from: messageViews,
+        context: alertContext.withEnvironmentValue(\.foregroundStyle, .color(.secondary)),
+        fallbackLayout: .stack(.vertical(spacing: 4, alignment: .center))
+    )
+    let actions = actionViews.isEmpty
+        ? [AnyView(Button("OK", role: .cancel) { dismiss() }.buttonStyle(.borderedProminent))]
+        : actionViews
+    let actionsComponent = composeComponent(
+        from: actions,
+        context: alertContext,
+        fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .stretch, mainAlignment: .end))
+    )
+
+    return retainedAlertPresentation(
+        base: base,
+        title: titleComponent,
+        message: messageComponent,
+        actions: actionsComponent,
+        context: context
+    )
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5336,6 +5563,154 @@ public extension View {
                 arrowEdge: arrowEdge
             )
         }
+    }
+
+    func alert(isPresented: Binding<Bool>, content alertContent: @escaping () -> Alert) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedAlertPresentation(
+                base: base,
+                alert: alertContent(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert<Item>(
+        item: Binding<Item?>,
+        content alertContent: @escaping (Item) -> Alert
+    ) -> some View where Item: Identifiable {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
+
+                item.wrappedValue = nil
+                context.invalidate()
+            }
+
+            return retainedAlertPresentation(
+                base: base,
+                alert: alertContent(selectedItem),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
+        @ViewBuilder message: @escaping () -> [AnyView] = { [] }
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: Text(titleKey),
+                messageViews: message(),
+                actionViews: actions(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert<S: StringProtocol>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
+        @ViewBuilder message: @escaping () -> [AnyView] = { [] }
+    ) -> some View {
+        alert(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            actions: actions,
+            message: message
+        )
+    }
+
+    func alert<Data>(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView],
+        @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue, let presentedData = data else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: Text(titleKey),
+                messageViews: message(presentedData),
+                actionViews: actions(presentedData),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert<S: StringProtocol, Data>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView],
+        @ViewBuilder message: @escaping (Data) -> [AnyView] = { _ in [] }
+    ) -> some View {
+        alert(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            presenting: data,
+            actions: actions,
+            message: message
+        )
     }
 
     func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {

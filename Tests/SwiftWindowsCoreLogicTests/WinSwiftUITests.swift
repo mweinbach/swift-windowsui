@@ -521,6 +521,65 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldBuilderLabelInitializerMapsLabelAndPromptToPlaceholder() async {
+        await MainActor.run {
+            let labelNode = makeNode(
+                TextField(text: .constant("")) {
+                    Label("DISPLAY NAME", systemImage: "person")
+                }
+            )
+            let promptNode = makeNode(
+                TextField(text: .constant(""), prompt: Text("PROMPT")) {
+                    Text("LABEL")
+                }
+            )
+            var value = "hi"
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let multilineNode = makeNode(
+                TextField(text: binding, axis: .vertical) {
+                    Text("NOTES")
+                }
+            )
+
+            XCTAssertEqual(labelNode.children[0].text, "DISPLAY NAME")
+            XCTAssertEqual(promptNode.children[0].text, "PROMPT")
+            XCTAssertEqual(multilineNode.preferredSize, Size(width: 260, height: 120))
+            XCTAssertNil(multilineNode.children[0].textStyle.maximumNumberOfLines)
+
+            multilineNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            multilineNode.onKeyDown?(KeyboardEvent(keyCode: 0x4E))
+
+            XCTAssertEqual(value, "hi\nn")
+        }
+    }
+
+    func testSecureFieldBuilderLabelInitializerMapsLabelAndPromptToPlaceholder() async {
+        await MainActor.run {
+            let labelNode = makeNode(
+                SecureField(text: .constant("")) {
+                    Text("PASSWORD")
+                }
+            )
+            let promptNode = makeNode(
+                SecureField(text: .constant(""), prompt: Text("SECRET")) {
+                    Text("PASSWORD")
+                }
+            )
+            let valueNode = makeNode(
+                SecureField(text: .constant("open")) {
+                    Text("PASSWORD")
+                }
+            )
+
+            XCTAssertEqual(labelNode.children[0].text, "PASSWORD")
+            XCTAssertEqual(promptNode.children[0].text, "SECRET")
+            XCTAssertEqual(valueNode.children[0].text, "****")
+        }
+    }
+
     func testTextFieldVerticalAxisMapsToMultilineInput() async {
         await MainActor.run {
             var value = "hi"

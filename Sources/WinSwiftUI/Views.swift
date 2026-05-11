@@ -4125,6 +4125,7 @@ public struct TextField: View {
     private let text: Binding<String>
     private let prompt: String?
     private let axis: Axis
+    private let label: [AnyView]?
     private let onEditingChanged: (@MainActor (Bool) -> Void)?
     private let onCommit: (@MainActor () -> Void)?
 
@@ -4133,6 +4134,7 @@ public struct TextField: View {
         self.text = text
         self.prompt = prompt?.plainContent
         self.axis = axis
+        self.label = nil
         self.onEditingChanged = nil
         self.onCommit = nil
     }
@@ -4145,6 +4147,35 @@ public struct TextField: View {
         self.init(titleKey.resolvedString, text: text, prompt: prompt, axis: axis)
     }
 
+    public init(
+        text: Binding<String>,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init(
+        text: Binding<String>,
+        prompt: Text? = nil,
+        axis: Axis,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.axis = axis
+        self.label = label()
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
     public init<S: StringProtocol>(
         _ title: S,
         text: Binding<String>,
@@ -4155,6 +4186,7 @@ public struct TextField: View {
         self.text = text
         self.prompt = nil
         self.axis = .horizontal
+        self.label = nil
         self.onEditingChanged = onEditingChanged
         self.onCommit = onCommit
     }
@@ -4182,6 +4214,7 @@ public struct TextField: View {
         self.text = text
         self.prompt = nil
         self.axis = .horizontal
+        self.label = nil
         self.onEditingChanged = nil
         self.onCommit = onCommit
     }
@@ -4207,11 +4240,12 @@ public struct TextField: View {
             allowsNewlines = true
         }
         return textInputComponent(
-            title: prompt ?? title,
+            title: label == nil ? (prompt ?? title) : prompt,
             text: text,
             isSecure: false,
             allowsNewlines: allowsNewlines,
             preferredSize: allowsNewlines ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
+            label: label,
             onEditingChanged: onEditingChanged,
             onCommit: onCommit,
             context: context
@@ -4226,12 +4260,14 @@ public struct SecureField: View {
     private let title: String
     private let text: Binding<String>
     private let prompt: String?
+    private let label: [AnyView]?
     private let onCommit: (@MainActor () -> Void)?
 
     public init(_ title: String, text: Binding<String>, prompt: Text? = nil) {
         self.title = title
         self.text = text
         self.prompt = prompt?.plainContent
+        self.label = nil
         self.onCommit = nil
     }
 
@@ -4243,6 +4279,18 @@ public struct SecureField: View {
         self.init(titleKey.resolvedString, text: text, prompt: prompt)
     }
 
+    public init(
+        text: Binding<String>,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = text
+        self.prompt = prompt?.plainContent
+        self.label = label()
+        self.onCommit = nil
+    }
+
     public init<S: StringProtocol>(
         _ title: S,
         text: Binding<String>,
@@ -4251,6 +4299,7 @@ public struct SecureField: View {
         self.title = String(title)
         self.text = text
         self.prompt = nil
+        self.label = nil
         self.onCommit = onCommit
     }
 
@@ -4268,11 +4317,12 @@ public struct SecureField: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         textInputComponent(
-            title: prompt ?? title,
+            title: label == nil ? (prompt ?? title) : prompt,
             text: text,
             isSecure: true,
             allowsNewlines: false,
             preferredSize: context.controlSize.singleLineTextInputSize,
+            label: label,
             onEditingChanged: nil,
             onCommit: onCommit,
             context: context
@@ -4301,6 +4351,7 @@ public struct TextEditor: View {
             isSecure: false,
             allowsNewlines: true,
             preferredSize: context.controlSize.multilineTextInputSize,
+            label: nil,
             onEditingChanged: nil,
             onCommit: nil,
             context: context
@@ -4585,15 +4636,19 @@ private func textInputComponent(
     isSecure: Bool,
     allowsNewlines: Bool,
     preferredSize: Size,
+    label: [AnyView]?,
     onEditingChanged: (@MainActor (Bool) -> Void)?,
     onCommit: (@MainActor () -> Void)?,
     context: ViewBuildContext
 ) -> Component {
     let binding = text
     let placeholder = title
+    let labelViews = label
     return Component { runtime in
         let currentText = binding.wrappedValue
         let isShowingPlaceholder = currentText.isEmpty
+        let resolvedPlaceholder = placeholder
+            ?? labelViews.flatMap { retainedPlainText(from: $0, context: context, runtime: runtime) }
         let displayText = isSecure && !isShowingPlaceholder ? String(repeating: "*", count: currentText.count) : currentText
         let textColor: Color
         if !context.isEnabled {
@@ -4608,7 +4663,7 @@ private func textInputComponent(
             .scaled(for: context.dynamicTypeSize)
 
         let labelNode = Controls.label(
-            isShowingPlaceholder ? (placeholder ?? "") : displayText,
+            isShowingPlaceholder ? (resolvedPlaceholder ?? "") : displayText,
             color: textColor,
             scale: resolvedFont.resolvedScale,
             weight: resolvedFont.weight.textWeight,
@@ -4727,6 +4782,46 @@ private func textInputComponent(
 
         return node
     }
+}
+
+@MainActor
+private func retainedPlainText(
+    from views: [AnyView],
+    context: ViewBuildContext,
+    runtime: RetainedViewRuntime
+) -> String? {
+    for view in views {
+        let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+        if let text = firstRetainedText(in: node), !text.isEmpty {
+            return text
+        }
+    }
+    return nil
+}
+
+@MainActor
+private func firstRetainedText(in node: ViewNode) -> String? {
+    let candidates = retainedTextCandidates(in: node)
+    return candidates.preferred ?? candidates.fallback
+}
+
+@MainActor
+private func retainedTextCandidates(in node: ViewNode) -> (preferred: String?, fallback: String?) {
+    var fallback: String?
+    if let text = node.text, !text.isEmpty {
+        if node.textStyle.fontFamily != "Segoe Fluent Icons" {
+            return (text, nil)
+        }
+        fallback = text
+    }
+    for child in node.children {
+        let childCandidates = retainedTextCandidates(in: child)
+        if let preferred = childCandidates.preferred {
+            return (preferred, fallback ?? childCandidates.fallback)
+        }
+        fallback = fallback ?? childCandidates.fallback
+    }
+    return (nil, fallback)
 }
 
 public struct DatePickerComponents: OptionSet, Sendable, Equatable {

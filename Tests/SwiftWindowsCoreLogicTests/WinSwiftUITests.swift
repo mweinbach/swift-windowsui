@@ -7626,11 +7626,27 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.gaugeStyle) var gaugeStyle
 
                 var body: some View {
-                    Text(gaugeStyle == .accessoryCircularCapacity ? "CIRCULAR" : "OTHER")
+                    Text(
+                        gaugeStyle == .accessoryCircularCapacity ? "CIRCULAR"
+                            : gaugeStyle == .linearCapacity ? "LINEARCAP"
+                            : gaugeStyle == .accessoryLinear ? "ACCESSORY"
+                            : gaugeStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
                 }
             }
 
-            let readerNode = makeNode(GaugeStyleReaderView().gaugeStyle(.accessoryCircularCapacity))
+            let tint = Color(red: 0.15, green: 0.7, blue: 0.5, alpha: 1)
+            let readerNode = makeNode(GaugeStyleReaderView().gaugeStyle(AccessoryCircularCapacityGaugeStyle()))
+            let linearCapacityReaderNode = makeNode(GaugeStyleReaderView().gaugeStyle(LinearCapacityGaugeStyle()))
+            let accessoryReaderNode = makeNode(GaugeStyleReaderView().gaugeStyle(AccessoryLinearGaugeStyle()))
+            let automaticReaderNode = makeNode(GaugeStyleReaderView().gaugeStyle(DefaultGaugeStyle()))
+            let circularTintNode = makeNode(
+                Gauge(value: 0.5, in: 0...1) {
+                    Text("BATTERY")
+                }
+                .gaugeStyle(CircularGaugeStyle(tint: tint))
+            )
             let inheritedNode = makeNode(
                 VStack {
                     Gauge(value: 0.25, in: 0...1) {
@@ -7640,10 +7656,14 @@ final class WinSwiftUITests: XCTestCase {
                         Text("MEMORY")
                     }
                 }
-                .gaugeStyle(.accessoryLinearCapacity)
+                .gaugeStyle(AccessoryLinearCapacityGaugeStyle())
             )
 
             XCTAssertEqual(readerNode.text, "CIRCULAR")
+            XCTAssertEqual(linearCapacityReaderNode.text, "LINEARCAP")
+            XCTAssertEqual(accessoryReaderNode.text, "ACCESSORY")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
+            XCTAssertEqual(circularTintNode.children[1].children[1].backgroundColor, tint)
             XCTAssertEqual(inheritedNode.children[0].children[1].children[1].frame.size.width, 50)
             XCTAssertEqual(inheritedNode.children[1].children[1].children[1].frame.size.width, 150)
         }

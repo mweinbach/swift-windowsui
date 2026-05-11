@@ -4146,6 +4146,42 @@ public struct GaugeStyle: Sendable, Equatable {
     public static let accessoryCircularCapacity = GaugeStyle(kind: .accessoryCircularCapacity)
 }
 
+public struct DefaultGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct LinearGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct LinearCapacityGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AccessoryLinearGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AccessoryLinearCapacityGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CircularGaugeStyle: Sendable, Equatable {
+    public var tint: Color?
+
+    public init(tint: Color? = nil) {
+        self.tint = tint
+    }
+}
+
+public struct AccessoryCircularGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AccessoryCircularCapacityGaugeStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct ProgressViewStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -7348,6 +7384,44 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.gaugeStyle, style))
         }
+    }
+
+    func gaugeStyle(_ style: DefaultGaugeStyle) -> some View {
+        gaugeStyle(.automatic)
+    }
+
+    func gaugeStyle(_ style: LinearGaugeStyle) -> some View {
+        gaugeStyle(.linear)
+    }
+
+    func gaugeStyle(_ style: LinearCapacityGaugeStyle) -> some View {
+        gaugeStyle(.linearCapacity)
+    }
+
+    func gaugeStyle(_ style: AccessoryLinearGaugeStyle) -> some View {
+        gaugeStyle(.accessoryLinear)
+    }
+
+    func gaugeStyle(_ style: AccessoryLinearCapacityGaugeStyle) -> some View {
+        gaugeStyle(.accessoryLinearCapacity)
+    }
+
+    func gaugeStyle(_ style: CircularGaugeStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let styledContext = context.withEnvironmentValue(\.gaugeStyle, GaugeStyle.circular)
+            if let tint = style.tint {
+                return content.makeComponent(context: styledContext.withTint(tint))
+            }
+            return content.makeComponent(context: styledContext)
+        }
+    }
+
+    func gaugeStyle(_ style: AccessoryCircularGaugeStyle) -> some View {
+        gaugeStyle(.accessoryCircular)
+    }
+
+    func gaugeStyle(_ style: AccessoryCircularCapacityGaugeStyle) -> some View {
+        gaugeStyle(.accessoryCircularCapacity)
     }
 
     func datePickerStyle(_ style: DatePickerStyle) -> some View {

@@ -670,6 +670,19 @@ public struct DismissSearchAction: @unchecked Sendable {
     public static let noop = DismissSearchAction {}
 }
 
+public struct RenameAction: @unchecked Sendable {
+    private let handler: () -> Void
+
+    public init(action: @escaping () -> Void) {
+        self.handler = action
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+}
+
 public struct RefreshAction: @unchecked Sendable {
     private let handler: @Sendable () async -> Void
 
@@ -839,6 +852,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
     public var dismissSearch: DismissSearchAction
+    public var rename: RenameAction?
     public var refresh: RefreshAction?
     public var undoManager: UndoManager?
     public var openWindow: OpenWindowAction
@@ -904,6 +918,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
         dismissSearch: DismissSearchAction = .noop,
+        rename: RenameAction? = nil,
         refresh: RefreshAction? = nil,
         undoManager: UndoManager? = nil,
         openWindow: OpenWindowAction = .noop,
@@ -973,6 +988,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.openURL = openURL
         self.dismiss = dismiss
         self.dismissSearch = dismissSearch
+        self.rename = rename
         self.refresh = refresh
         self.undoManager = undoManager
         self.openWindow = openWindow
@@ -5334,6 +5350,17 @@ public extension View {
                 context: context.withEnvironmentValue(
                     \.refresh,
                     RefreshAction(action: action)
+                )
+            )
+        }
+    }
+
+    func renameAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.rename,
+                    RenameAction(action: action)
                 )
             )
         }

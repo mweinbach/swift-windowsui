@@ -5618,6 +5618,26 @@ public struct Link: View {
 }
 
 @MainActor
+public struct RenameButton: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("RenameButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let rename = context.environmentValues.rename
+        return Button("Rename") {
+            rename?()
+        }
+        .disabled(rename == nil)
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct Button: View {
     public typealias Body = Never
 

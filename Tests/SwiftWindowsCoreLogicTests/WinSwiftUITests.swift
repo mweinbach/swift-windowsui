@@ -2497,6 +2497,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRenameActionEnvironmentAndRenameButtonRunRetainedAction() async {
+        await MainActor.run {
+            struct RenameReaderView: View {
+                @Environment(\.rename) var rename
+
+                var body: some View {
+                    Text(rename == nil ? "NO RENAME" : "CAN RENAME")
+                }
+            }
+
+            var renameCount = 0
+            var didInvalidate = false
+            let node = makeNode(
+                VStack {
+                    RenameReaderView()
+                    RenameButton()
+                }
+                .renameAction {
+                    renameCount += 1
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "CAN RENAME")
+            XCTAssertTrue(allTexts(in: node.children[1]).contains("Rename"))
+            XCTAssertTrue(node.children[1].isFocusable)
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(renameCount, 1)
+            XCTAssertTrue(didInvalidate)
+
+            let defaultNode = makeNode(
+                VStack {
+                    RenameReaderView()
+                    RenameButton()
+                }
+            )
+
+            XCTAssertEqual(defaultNode.children[0].text, "NO RENAME")
+            XCTAssertFalse(defaultNode.children[1].isFocusable)
+            XCTAssertNil(defaultNode.children[1].onActivate)
+        }
+    }
+
     func testButtonStyleModifierPropagatesThroughViewContextAndCanBeOverridden() async {
         await MainActor.run {
             let customColor = Color(red: 0.2, green: 0.7, blue: 0.4, alpha: 1)

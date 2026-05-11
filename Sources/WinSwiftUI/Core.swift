@@ -1617,6 +1617,7 @@ public struct AnyView: View {
     private let buildComponent: (ViewBuildContext) -> Component
     let selectionTag: AnyHashable?
     let tabItem: [AnyView]?
+    let badge: [AnyView]?
     let navigationTitle: [AnyView]?
     let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     let navigationDestinationRegistrations: [NavigationDestinationRegistration]
@@ -1625,6 +1626,7 @@ public struct AnyView: View {
     public init<V: View>(_ view: V) {
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
         self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
+        self.badge = (view as? any TaggedViewMetadata)?.anyBadge
         self.navigationTitle = (view as? any TaggedViewMetadata)?.anyNavigationTitle
         self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
         self.navigationDestinationRegistrations = (view as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
@@ -2355,6 +2357,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     var id: String?
     var selectionTag: AnyHashable?
     var tabItem: [AnyView]?
+    var badge: [AnyView]?
     var navigationTitle: [AnyView]?
     var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] = []
@@ -2366,6 +2369,10 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
     var anyTabItem: [AnyView]? {
         tabItem ?? (content as? any TaggedViewMetadata)?.anyTabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        badge ?? (content as? any TaggedViewMetadata)?.anyBadge
     }
 
     var anyNavigationTitle: [AnyView]? {
@@ -2408,6 +2415,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 protocol TaggedViewMetadata {
     var anySelectionTag: AnyHashable? { get }
     var anyTabItem: [AnyView]? { get }
+    var anyBadge: [AnyView]? { get }
     var anyNavigationTitle: [AnyView]? { get }
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] { get }
@@ -2416,6 +2424,10 @@ protocol TaggedViewMetadata {
 
 extension TaggedViewMetadata {
     var anyTabItem: [AnyView]? {
+        nil
+    }
+
+    var anyBadge: [AnyView]? {
         nil
     }
 
@@ -2707,6 +2719,30 @@ extension ViewBuildContext {
         withForegroundColor(badgeProminence.retainedBadgeTextColor)
             .withFont(.caption)
             .withLineLimit(1)
+    }
+
+    func makeRetainedBadgeNode(from views: [AnyView], runtime: RetainedViewRuntime) -> ViewNode {
+        let badgeContentNode = composeComponent(
+            from: views,
+            context: badgeContext,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+        .makeNode(runtime: runtime)
+
+        let badgeNode = Controls.stackPanel(
+            backgroundColor: badgeProminence.retainedBadgeBackgroundColor,
+            cornerRadius: 9,
+            stackLayout: .horizontal(
+                spacing: 0,
+                padding: EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6),
+                alignment: .center,
+                mainAlignment: .center
+            ),
+            isHitTestVisible: false,
+            children: [badgeContentNode]
+        )
+        badgeNode.layoutConstraints = LayoutConstraints(minWidth: 18, minHeight: 18)
+        return badgeNode
     }
 }
 
@@ -3503,29 +3539,16 @@ public extension View {
     }
 
     func badge(_ label: Text?) -> some View {
-        ModifiedView(content: self) { content, context in
+        var modified = ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
-            guard let label else {
+            let rendersIntoTabChrome = (content as? any TaggedViewMetadata)?.anyTabItem != nil
+            guard let label, !rendersIntoTabChrome else {
                 return component
             }
 
-            let badgeComponent = label.makeComponent(context: context.badgeContext)
             return Component { runtime in
                 let contentNode = component.makeNode(runtime: runtime)
-                let badgeTextNode = badgeComponent.makeNode(runtime: runtime)
-                let badgeNode = Controls.stackPanel(
-                    backgroundColor: context.badgeProminence.retainedBadgeBackgroundColor,
-                    cornerRadius: 9,
-                    stackLayout: .horizontal(
-                        spacing: 0,
-                        padding: EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6),
-                        alignment: .center,
-                        mainAlignment: .center
-                    ),
-                    isHitTestVisible: false,
-                    children: [badgeTextNode]
-                )
-                badgeNode.layoutConstraints = LayoutConstraints(minWidth: 18, minHeight: 18)
+                let badgeNode = context.makeRetainedBadgeNode(from: [AnyView(label)], runtime: runtime)
 
                 return Controls.stackPanel(
                     stackLayout: .horizontal(spacing: 8, padding: .zero, alignment: .center),
@@ -3538,6 +3561,8 @@ public extension View {
                 )
             }
         }
+        modified.badge = label.map { [AnyView($0)] }
+        return modified
     }
 
     func badgeProminence(_ prominence: BadgeProminence) -> some View {

@@ -3168,6 +3168,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTabViewRendersBadgesInTabChrome() async {
+        await MainActor.run {
+            let node = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                        .badge(3)
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                        .badge(nil as String?)
+                }
+                .badgeProminence(.increased)
+            )
+
+            let tabTexts = allTexts(in: node.children[0])
+            XCTAssertTrue(tabTexts.contains("FIRST TAB"))
+            XCTAssertTrue(tabTexts.contains("3"))
+            XCTAssertTrue(tabTexts.contains("SECOND TAB"))
+            XCTAssertEqual(node.children[1].text, "FIRST")
+
+            let firstTabButton = node.children[0].children[0]
+            let firstTabContent = firstTabButton.children[0]
+            XCTAssertEqual(firstTabContent.children[1].backgroundColor, Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96))
+            XCTAssertEqual(node.children[0].children[1].children[0].text, "SECOND TAB")
+        }
+    }
+
     func testNavigationLinkRendersLabelContent() async {
         await MainActor.run {
             let node = makeNode(

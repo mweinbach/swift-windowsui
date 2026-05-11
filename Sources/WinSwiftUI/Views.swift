@@ -1368,6 +1368,19 @@ public struct TabView: View {
                     fallbackLayout: .stack(.horizontal(spacing: 4, alignment: .center))
                 )
                 .makeNode(runtime: runtime)
+                let tabContentNode: ViewNode
+                if let badgeViews = view.badge {
+                    tabContentNode = Controls.stackPanel(
+                        stackLayout: .horizontal(spacing: 6, padding: .zero, alignment: .center),
+                        isHitTestVisible: false,
+                        children: [
+                            labelNode,
+                            context.makeRetainedBadgeNode(from: badgeViews, runtime: runtime),
+                        ]
+                    )
+                } else {
+                    tabContentNode = labelNode
+                }
                 let isSelected = index == selectedIndex
                 let palette = isSelected
                     ? ButtonSurfaceStyle.default.palette
@@ -1400,7 +1413,7 @@ public struct TabView: View {
                         state.selectedIndex = index
                         context.invalidate()
                     },
-                    children: [labelNode]
+                    children: [tabContentNode]
                 )
             }
 

@@ -7531,6 +7531,11 @@ public extension View {
         return background(color)
     }
 
+    func background(_ color: Color, alignment: Alignment) -> some View {
+        _ = alignment
+        return background(color)
+    }
+
     func background(_ color: Color?, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
         _ = edges
         return ModifiedView(content: self) { content, context in
@@ -7551,10 +7556,20 @@ public extension View {
         }
     }
 
+    func background(_ color: Color?, alignment: Alignment) -> some View {
+        _ = alignment
+        return background(color)
+    }
+
     func background(_ style: ForegroundStyle, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
         _ = edges
         let fill = resolvedStyleFill(from: style)
         return backgroundStyle(color: fill.color, gradient: fill.gradient)
+    }
+
+    func background(_ style: ForegroundStyle, alignment: Alignment) -> some View {
+        _ = alignment
+        return background(style)
     }
 
     func background(_ gradient: LinearGradient) -> some View {
@@ -7574,6 +7589,11 @@ public extension View {
 
     func background(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
         _ = edges
+        return background(gradient)
+    }
+
+    func background(_ gradient: LinearGradient, alignment: Alignment) -> some View {
+        _ = alignment
         return background(gradient)
     }
 
@@ -7655,9 +7675,19 @@ public extension View {
         return overlay(color)
     }
 
+    func overlay(_ color: Color, alignment: Alignment) -> some View {
+        _ = alignment
+        return overlay(color)
+    }
+
     func overlay(_ color: Color?, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
         _ = edges
         return overlayStyle(color: color, gradient: nil)
+    }
+
+    func overlay(_ color: Color?, alignment: Alignment) -> some View {
+        _ = alignment
+        return overlay(color)
     }
 
     func overlay(_ style: ForegroundStyle, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
@@ -7666,12 +7696,22 @@ public extension View {
         return overlayStyle(color: fill.color, gradient: fill.gradient)
     }
 
+    func overlay(_ style: ForegroundStyle, alignment: Alignment) -> some View {
+        _ = alignment
+        return overlay(style)
+    }
+
     func overlay(_ gradient: LinearGradient) -> some View {
         overlayStyle(color: nil, gradient: gradient)
     }
 
     func overlay(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
         _ = edges
+        return overlay(gradient)
+    }
+
+    func overlay(_ gradient: LinearGradient, alignment: Alignment) -> some View {
+        _ = alignment
         return overlay(gradient)
     }
 

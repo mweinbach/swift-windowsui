@@ -3097,6 +3097,56 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOverlayStyleAlignmentOverloadsFillBaseLayout() async {
+        await MainActor.run {
+            let color = Color(red: 0.7, green: 0.2, blue: 0.4, alpha: 0.8)
+            let optionalColor: Color? = Color(red: 0.2, green: 0.7, blue: 0.5, alpha: 0.6)
+            let nilColor: Color? = nil
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.2, green: 0.4, blue: 0.9, alpha: 1),
+                    Color(red: 0.8, green: 0.3, blue: 0.6, alpha: 1),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            let colorNode = renderedNode(
+                Text("BASE")
+                    .frame(width: 80, height: 32)
+                    .overlay(color, alignment: .topTrailing)
+            )
+            let optionalNode = renderedNode(
+                Text("OPTIONAL")
+                    .frame(width: 72, height: 28)
+                    .overlay(optionalColor, alignment: .bottomLeading)
+            )
+            let gradientNode = renderedNode(
+                Text("GRADIENT")
+                    .frame(width: 90, height: 36)
+                    .overlay(gradient, alignment: .bottomTrailing)
+            )
+            let storedStyleNode = renderedNode(
+                Text("STORED")
+                    .frame(width: 70, height: 24)
+                    .overlay(ForegroundStyle.color(color), alignment: .leading)
+            )
+            let nilNode = makeNode(
+                Text("PLAIN")
+                    .overlay(nilColor, alignment: .topLeading)
+            )
+
+            XCTAssertEqual(colorNode.children[1].backgroundColor, color)
+            XCTAssertEqual(colorNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+            XCTAssertEqual(optionalNode.children[1].backgroundColor, optionalColor)
+            XCTAssertEqual(optionalNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
+            XCTAssertEqual(gradientNode.children[1].backgroundGradient, gradient)
+            XCTAssertEqual(gradientNode.children[1].frame, Rect(x: 0, y: 0, width: 90, height: 36))
+            XCTAssertEqual(storedStyleNode.children[1].backgroundColor, color)
+            XCTAssertEqual(storedStyleNode.children[1].frame, Rect(x: 0, y: 0, width: 70, height: 24))
+            XCTAssertEqual(nilNode.text, "PLAIN")
+        }
+    }
+
     func testBackgroundContentAlignsBehindBaseWithoutExpandingLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())
@@ -3198,6 +3248,52 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: storedColorNode.children[0]), "STORED")
             XCTAssertEqual(storedGradientNode.backgroundGradient, gradient)
             XCTAssertEqual(firstText(in: storedGradientNode.children[0]), "STORED GRADIENT")
+            XCTAssertEqual(nilNode.text, "PLAIN")
+        }
+    }
+
+    func testBackgroundStyleAlignmentOverloadsFillBaseLayout() async {
+        await MainActor.run {
+            let color = Color(red: 0.3, green: 0.6, blue: 0.8, alpha: 0.85)
+            let optionalColor: Color? = Color(red: 0.8, green: 0.4, blue: 0.2, alpha: 0.65)
+            let nilColor: Color? = nil
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.1, green: 0.7, blue: 0.5, alpha: 1),
+                    Color(red: 0.6, green: 0.2, blue: 0.9, alpha: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let colorNode = makeNode(
+                Text("COLOR")
+                    .background(color, alignment: .bottomTrailing)
+            )
+            let optionalNode = makeNode(
+                Text("OPTIONAL")
+                    .background(optionalColor, alignment: .topLeading)
+            )
+            let gradientNode = makeNode(
+                Text("GRADIENT")
+                    .background(gradient, alignment: .trailing)
+            )
+            let storedStyleNode = makeNode(
+                Text("STORED")
+                    .background(ForegroundStyle.color(color), alignment: .bottom)
+            )
+            let nilNode = makeNode(
+                Text("PLAIN")
+                    .background(nilColor, alignment: .leading)
+            )
+
+            XCTAssertEqual(colorNode.backgroundColor, color)
+            XCTAssertEqual(firstText(in: colorNode.children[0]), "COLOR")
+            XCTAssertEqual(optionalNode.backgroundColor, optionalColor)
+            XCTAssertEqual(firstText(in: optionalNode.children[0]), "OPTIONAL")
+            XCTAssertEqual(gradientNode.backgroundGradient, gradient)
+            XCTAssertEqual(firstText(in: gradientNode.children[0]), "GRADIENT")
+            XCTAssertEqual(storedStyleNode.backgroundColor, color)
+            XCTAssertEqual(firstText(in: storedStyleNode.children[0]), "STORED")
             XCTAssertEqual(nilNode.text, "PLAIN")
         }
     }

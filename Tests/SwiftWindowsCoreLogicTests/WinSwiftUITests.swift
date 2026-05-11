@@ -2284,6 +2284,66 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageResourceInitializersBridgeGeneratedAssetResources() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-resource-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let resource = ImageResource(name: url.path, bundle: .main)
+            let matchingResource = ImageResource(name: url.path, bundle: .main)
+            let imageNode = makeNode(Image(resource))
+            let labelNode = makeNode(Label(LocalizedStringKey("ALBUM"), image: resource))
+
+            var didRunButton = false
+            let buttonTitle: Substring = "EXPORT"[...]
+            let buttonNode = makeNode(Button(buttonTitle, image: resource, role: .destructive) {
+                didRunButton = true
+            })
+
+            var didRunMenuPrimary = false
+            let menuNode = makeNode(Menu(LocalizedStringKey("MORE"), image: resource, content: {
+                Button("PICK") {}
+            }, primaryAction: {
+                didRunMenuPrimary = true
+            }))
+
+            var didRunControl = false
+            let controlTitle: Substring = "TOOLS"[...]
+            let controlNode = makeNode(ControlGroup(controlTitle, image: resource) {
+                Button("RESET") {
+                    didRunControl = true
+                }
+            })
+
+            let unavailableNode = makeNode(
+                ContentUnavailableView(LocalizedStringKey("OFFLINE"), image: resource, description: Text("Try again"))
+            )
+
+            XCTAssertEqual(resource, matchingResource)
+            XCTAssertEqual(imageNode.bitmapSurface?.width, 2)
+            XCTAssertEqual(imageNode.bitmapSurface?.height, 1)
+            XCTAssertEqual(labelNode.children[0].bitmapSurface?.width, 2)
+            XCTAssertTrue(allTexts(in: labelNode).contains("ALBUM"))
+            XCTAssertTrue(allTexts(in: buttonNode).contains("EXPORT"))
+            XCTAssertEqual(buttonNode.backgroundColor, ButtonSurfaceStyle.destructive.palette.idle)
+            XCTAssertTrue(allTexts(in: menuNode).contains("MORE"))
+            XCTAssertTrue(allTexts(in: controlNode).contains("TOOLS"))
+            XCTAssertTrue(allTexts(in: unavailableNode).contains("OFFLINE"))
+            XCTAssertTrue(allTexts(in: unavailableNode).contains("Try again"))
+
+            buttonNode.onActivate?()
+            menuNode.children[0].onActivate?()
+            controlNode.children[1].onActivate?()
+
+            XCTAssertTrue(didRunButton)
+            XCTAssertTrue(didRunMenuPrimary)
+            XCTAssertTrue(didRunControl)
+        }
+    }
+
     func testImageRenderingModeModifierStoresRetainedImageMetadata() async {
         await MainActor.run {
             let url = FileManager.default.temporaryDirectory

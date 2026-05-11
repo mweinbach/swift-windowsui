@@ -2049,6 +2049,10 @@ public struct Image: View {
         self.init(storage: .bitmap(Self.loadResource(named: name, bundle: bundle)))
     }
 
+    public init(_ resource: ImageResource) {
+        self.init(resource.name, bundle: resource.bundle)
+    }
+
     public init(_ name: String, variableValue: Double?, bundle: Bundle? = nil) {
         self.init(name, bundle: bundle)
         self.symbolVariableValue = variableValue
@@ -2576,6 +2580,26 @@ public struct Label: View {
         self.init(titleKey.resolvedString, image: name)
     }
 
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource) {
+        self.title = [
+            AnyView(
+                Text(String(title))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.icon = [
+            AnyView(Image(resource))
+        ]
+        self.color = nil
+        self.font = .system(size: 1.6, weight: .semibold)
+        self.spacing = 10
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource) {
+        self.init(titleKey.resolvedString, image: resource)
+    }
+
     public init(_ title: String, systemImage: String) {
         self.title = [
             AnyView(
@@ -2688,6 +2712,21 @@ public struct ContentUnavailableView: View {
 
     public init(_ titleKey: LocalizedStringKey, image name: String, description: Text? = nil) {
         self.init(titleKey.resolvedString, image: name, description: description)
+    }
+
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, description: Text? = nil) {
+        self.label = [
+            AnyView(
+                Label(title, image: resource)
+                    .font(.headline)
+            )
+        ]
+        self.description = description.map { [AnyView($0)] } ?? []
+        self.actions = []
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, description: Text? = nil) {
+        self.init(titleKey.resolvedString, image: resource, description: description)
     }
 
     public init(_ title: String, systemImage: String, description: Text? = nil) {
@@ -4034,6 +4073,34 @@ public struct Menu: View {
         self.init(titleKey.resolvedString, image: name, content: content)
     }
 
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, @ViewBuilder content: () -> [AnyView]) {
+        self.init(title, image: resource, content: content, primaryAction: nil)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        image resource: ImageResource,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(content: content, label: {
+            Label(title, image: resource)
+        }, primaryAction: primaryAction)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, image: resource, content: content)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        image resource: ImageResource,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(titleKey.resolvedString, image: resource, content: content, primaryAction: primaryAction)
+    }
+
     public init(
         _ titleKey: LocalizedStringKey,
         image name: String,
@@ -4274,6 +4341,16 @@ public struct ControlGroup: View {
 
     public init(_ titleKey: LocalizedStringKey, image name: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(titleKey.resolvedString, image: name, content: content)
+    }
+
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Label(title, image: resource)
+        }
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, image: resource, content: content)
     }
 
     public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
@@ -7460,6 +7537,21 @@ public struct Button: View {
         self.init(titleKey.resolvedString, image: name, action: action)
     }
 
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(Label(title, image: resource))
+        ]
+        self.role = nil
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, image: resource, action: action)
+    }
+
     public init(_ title: String, systemImage: String, action: @escaping @MainActor () -> Void) {
         self.action = action
         self.label = [
@@ -7520,6 +7612,21 @@ public struct Button: View {
 
     public init(_ titleKey: LocalizedStringKey, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
         self.init(titleKey.resolvedString, image: name, role: role, action: action)
+    }
+
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.action = action
+        self.label = [
+            AnyView(Label(title, image: resource))
+        ]
+        self.role = role
+        self.style = .default
+        self.resolvedButtonStyle = .automatic
+        self.hasCustomSurfaceStyle = false
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+        self.init(titleKey.resolvedString, image: resource, role: role, action: action)
     }
 
     public init(_ title: String, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {

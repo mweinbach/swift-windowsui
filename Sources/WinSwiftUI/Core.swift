@@ -56,6 +56,25 @@ public struct LocalizedStringKey: Sendable, Equatable, ExpressibleByStringLitera
     }
 }
 
+public struct ImageResource: Equatable, Hashable, @unchecked Sendable {
+    public var name: String
+    public var bundle: Bundle
+
+    public init(name: String, bundle: Bundle) {
+        self.name = name
+        self.bundle = bundle
+    }
+
+    public static func == (lhs: ImageResource, rhs: ImageResource) -> Bool {
+        lhs.name == rhs.name && lhs.bundle.bundlePath == rhs.bundle.bundlePath
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(name)
+        hasher.combine(bundle.bundlePath)
+    }
+}
+
 public struct Angle: Sendable, Equatable {
     public var radians: Double
 

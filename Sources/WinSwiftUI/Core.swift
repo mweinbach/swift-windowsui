@@ -529,6 +529,10 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
+    public var accessibilityDifferentiateWithoutColor: Bool
+    public var accessibilityReduceMotion: Bool
+    public var accessibilityReduceTransparency: Bool
+    public var accessibilityShowButtonShapes: Bool
     public var layoutDirection: LayoutDirection
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
@@ -573,6 +577,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
+        accessibilityDifferentiateWithoutColor: Bool = false,
+        accessibilityReduceMotion: Bool = false,
+        accessibilityReduceTransparency: Bool = false,
+        accessibilityShowButtonShapes: Bool = false,
         layoutDirection: LayoutDirection = .leftToRight,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
@@ -611,6 +619,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength
+        self.accessibilityDifferentiateWithoutColor = accessibilityDifferentiateWithoutColor
+        self.accessibilityReduceMotion = accessibilityReduceMotion
+        self.accessibilityReduceTransparency = accessibilityReduceTransparency
+        self.accessibilityShowButtonShapes = accessibilityShowButtonShapes
         self.layoutDirection = layoutDirection
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
@@ -1001,6 +1013,10 @@ public struct ViewBuildContext {
 
     public var pixelLength: Double {
         environmentValues.pixelLength
+    }
+
+    public var accessibilityReduceMotion: Bool {
+        environmentValues.accessibilityReduceMotion
     }
 
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -5092,7 +5108,7 @@ public extension View {
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let node = child.makeNode(runtime: runtime)
-                guard let animation else {
+                guard let animation, !context.accessibilityReduceMotion else {
                     return node
                 }
 

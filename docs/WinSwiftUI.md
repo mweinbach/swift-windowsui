@@ -267,6 +267,7 @@ Modifiers:
 - `accessibilityHint`
 - `accessibilityIdentifier`
 - `accessibilityHidden`
+- accessibility preference environment values: `accessibilityDifferentiateWithoutColor`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, and `accessibilityShowButtonShapes`
 - `help`
 - `tag`
 - `modifier`
@@ -355,6 +356,7 @@ Surface direction:
 - `keyboardShortcut(_:)` stores retained shortcut metadata on the modified node and routes matching `RetainedViewRuntime.keyDown` events to that node's activation handler. SwiftUI `.command` shortcuts map to Windows Control-key shortcuts, `.option` maps to Alt, and `.defaultAction` / `.cancelAction` use Enter / Escape without modifiers. Menu command routing and platform-reserved shortcut arbitration are not modeled yet.
 - `redacted(reason:)` and `unredacted()` propagate `EnvironmentValues.redactionReasons` and store retained redaction metadata on affected nodes. Placeholder skeleton drawing is not implemented yet, so this is currently a semantic/render-contract surface rather than a visual replacement.
 - `privacySensitive(_:)` propagates inherited privacy metadata and stores it on retained nodes. The Win32 host does not yet request OS-level capture exclusion or automatic redaction for privacy-sensitive surfaces.
+- Accessibility preference environment values for differentiating without color, reducing motion, reducing transparency, and showing button shapes can be read with `@Environment` and overridden with `.environment`. `accessibilityReduceMotion` suppresses retained `.animation(...)` state creation for affected subtrees; the other values are compatibility metadata until the retained control and rendering layers consume them visually.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
@@ -432,7 +434,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `legibilityWeight`, `displayScale`, `pixelLength`, `layoutDirection`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `legibilityWeight`, `displayScale`, `pixelLength`, `accessibilityDifferentiateWithoutColor`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityShowButtonShapes`, `layoutDirection`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

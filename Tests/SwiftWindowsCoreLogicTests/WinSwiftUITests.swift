@@ -5303,6 +5303,11 @@ final class WinSwiftUITests: XCTestCase {
                 Text("STILL")
                     .animation(nil, value: false)
             )
+            let reduceMotionNode = makeNode(
+                Text("QUIET")
+                    .animation(.linear(duration: 0.4), value: true)
+                    .environment(\.accessibilityReduceMotion, true)
+            )
 
             XCTAssertEqual(animatedNode.animationStates[.opacity]?.duration, 0.4)
             if case .linear? = animatedNode.animationStates[.opacity]?.easing {
@@ -5310,6 +5315,41 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected linear easing")
             }
             XCTAssertTrue(disabledNode.animationStates.isEmpty)
+            XCTAssertTrue(reduceMotionNode.animationStates.isEmpty)
+        }
+    }
+
+    func testAccessibilityPreferenceEnvironmentValuesCanBeReadAndOverrideAnimation() async {
+        await MainActor.run {
+            struct AccessibilityPreferenceReaderView: View {
+                @Environment(\.accessibilityDifferentiateWithoutColor) var differentiateWithoutColor
+                @Environment(\.accessibilityReduceMotion) var reduceMotion
+                @Environment(\.accessibilityReduceTransparency) var reduceTransparency
+                @Environment(\.accessibilityShowButtonShapes) var showButtonShapes
+
+                var body: some View {
+                    Text(
+                        differentiateWithoutColor
+                            && reduceMotion
+                            && reduceTransparency
+                            && showButtonShapes
+                            ? "ACCESS"
+                            : "DEFAULT"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(AccessibilityPreferenceReaderView())
+            let overriddenNode = makeNode(
+                AccessibilityPreferenceReaderView()
+                    .environment(\.accessibilityDifferentiateWithoutColor, true)
+                    .environment(\.accessibilityReduceMotion, true)
+                    .environment(\.accessibilityReduceTransparency, true)
+                    .environment(\.accessibilityShowButtonShapes, true)
+            )
+
+            XCTAssertEqual(defaultNode.text, "DEFAULT")
+            XCTAssertEqual(overriddenNode.text, "ACCESS")
         }
     }
 

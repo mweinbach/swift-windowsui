@@ -4710,6 +4710,112 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSheetIsPresentedComposesRetainedModalAndDismisses() async {
+        await MainActor.run {
+            struct SheetContent: View {
+                @Environment(\.dismiss) var dismiss
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    VStack {
+                        Text(isPresented ? "SHEET" : "ROOT")
+                        Button("DONE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var isPresented = true
+            var dismissCount = 0
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 200, height: 100)
+                .sheet(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    onDismiss: {
+                        dismissCount += 1
+                    }
+                ) {
+                    SheetContent()
+                }
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected sheet presentation to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 3)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("SHEET"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertEqual(dismissCount, 1)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("SHEET"))
+        }
+    }
+
+    func testSheetItemRendersSelectedItemAndClearsOnDismiss() async {
+        await MainActor.run {
+            struct ItemSheetContent: View {
+                let id: String
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    VStack {
+                        Text(id)
+                        Button("CLOSE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "DETAIL")
+            var didDismiss = false
+            let view = Text("ROOT")
+                .sheet(
+                    item: Binding(
+                        get: { selectedItem },
+                        set: { selectedItem = $0 }
+                    ),
+                    onDismiss: {
+                        didDismiss = true
+                    }
+                ) { item in
+                    ItemSheetContent(id: item.id)
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CLOSE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertNil(selectedItem)
+            XCTAssertTrue(didDismiss)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testDismissEnvironmentActionPopsNavigationPathBinding() async {
         await MainActor.run {
             struct DismissValueView: View {

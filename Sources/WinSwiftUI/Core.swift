@@ -4799,6 +4799,65 @@ private final class OnChangeObservationRegistry {
     }
 }
 
+@MainActor
+private func retainedSheetPresentation(
+    base: Component,
+    sheet: Component,
+    context: ViewBuildContext
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let scrimNode = Controls.panel(
+            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.48),
+            isHitTestVisible: false
+        )
+        let sheetContentNode = sheet.makeNode(runtime: runtime)
+        let sheetNode = Controls.stackPanel(
+            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderWidth: 1,
+            cornerRadius: 14,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 10,
+                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: [sheetContentNode]
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, scrimNode, sheetNode]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+            if scrimNode.frame != boundsFrame {
+                scrimNode.frame = boundsFrame
+            }
+
+            let sheetSize = sheetNode.intrinsicContentSize()
+            let sheetOrigin = Alignment.center.frameOrigin(
+                for: sheetSize,
+                in: bounds.size,
+                layoutDirection: context.layoutDirection
+            )
+            let sheetFrame = Rect(origin: sheetOrigin, size: sheetSize)
+            if sheetNode.frame != sheetFrame {
+                sheetNode.frame = sheetFrame
+            }
+        }
+
+        return root
+    }
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5045,6 +5104,70 @@ public extension View {
                     children: [toolbarNode, baseNode]
                 )
             }
+        }
+    }
+
+    func sheet(
+        isPresented: Binding<Bool>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content sheetContent: @escaping () -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let sheetContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard isPresented.wrappedValue else {
+                        return
+                    }
+
+                    isPresented.wrappedValue = false
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let sheet = composeComponent(
+                from: sheetContent(),
+                context: sheetContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedSheetPresentation(base: base, sheet: sheet, context: context)
+        }
+    }
+
+    func sheet<Item>(
+        item: Binding<Item?>,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content sheetContent: @escaping (Item) -> [AnyView]
+    ) -> some View where Item: Identifiable {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let sheetContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard item.wrappedValue != nil else {
+                        return
+                    }
+
+                    item.wrappedValue = nil
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let sheet = composeComponent(
+                from: sheetContent(selectedItem),
+                context: sheetContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedSheetPresentation(base: base, sheet: sheet, context: context)
         }
     }
 

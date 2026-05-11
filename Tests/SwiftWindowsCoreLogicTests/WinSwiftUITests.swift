@@ -806,6 +806,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testKeyboardTypeModifierRetainsTextInputMetadata() async {
+        await MainActor.run {
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let emailNode = makeNode(
+                TextField("EMAIL", text: binding)
+                    .keyboardType(.emailAddress)
+            )
+            let secureNode = makeNode(
+                SecureField("PIN", text: binding)
+                    .keyboardType(.numberPad)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    TextField("SEARCH", text: binding)
+                    TextEditor(text: binding)
+                        .keyboardType(.URL)
+                }
+                .keyboardType(.webSearch)
+            )
+            let resetNode = makeNode(
+                TextField("DEFAULT", text: binding)
+                    .keyboardType(.default)
+            )
+            let textNode = makeNode(
+                Text("LABEL")
+                    .keyboardType(.decimalPad)
+            )
+            let unknownNode = makeNode(
+                TextField("CUSTOM", text: binding)
+                    .keyboardType(UIKeyboardType(rawValue: 999))
+            )
+
+            XCTAssertEqual(emailNode.textInputKeyboardType, .emailAddress)
+            XCTAssertEqual(secureNode.textInputKeyboardType, .numberPad)
+            XCTAssertEqual(inheritedNode.children[0].textInputKeyboardType, .webSearch)
+            XCTAssertEqual(inheritedNode.children[1].textInputKeyboardType, .URL)
+            XCTAssertEqual(resetNode.textInputKeyboardType, .default)
+            XCTAssertEqual(textNode.textInputKeyboardType, .default)
+            XCTAssertEqual(unknownNode.textInputKeyboardType, .default)
+            XCTAssertEqual(UIKeyboardType.alphabet.rawValue, UIKeyboardType.asciiCapable.rawValue)
+        }
+    }
+
     func testTextInputSuggestionsAndCompletionRetainMetadata() async {
         await MainActor.run {
             struct Venue: Identifiable {

@@ -6487,6 +6487,7 @@ private func textInputComponent(
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
         node.textInputCaretOffset = currentText.count
         node.textContentType = context.textContentType?.retainedContentType
+        node.textInputKeyboardType = context.keyboardType.retainedKeyboardType
         node.textInputSuggestions = retainedTextInputSuggestions(
             from: context.textInputSuggestions,
             context: context,

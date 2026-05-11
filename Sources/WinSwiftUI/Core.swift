@@ -792,6 +792,58 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case characters
 }
 
+public struct UIKeyboardType: RawRepresentable, Sendable, Equatable, Hashable {
+    public var rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let `default` = UIKeyboardType(rawValue: 0)
+    public static let asciiCapable = UIKeyboardType(rawValue: 1)
+    public static let numbersAndPunctuation = UIKeyboardType(rawValue: 2)
+    public static let URL = UIKeyboardType(rawValue: 3)
+    public static let numberPad = UIKeyboardType(rawValue: 4)
+    public static let phonePad = UIKeyboardType(rawValue: 5)
+    public static let namePhonePad = UIKeyboardType(rawValue: 6)
+    public static let emailAddress = UIKeyboardType(rawValue: 7)
+    public static let decimalPad = UIKeyboardType(rawValue: 8)
+    public static let twitter = UIKeyboardType(rawValue: 9)
+    public static let webSearch = UIKeyboardType(rawValue: 10)
+    public static let asciiCapableNumberPad = UIKeyboardType(rawValue: 11)
+    public static let alphabet = UIKeyboardType(rawValue: 1)
+
+    var retainedKeyboardType: RetainedKeyboardType {
+        if self == .default {
+            return .default
+        } else if self == .asciiCapable {
+            return .asciiCapable
+        } else if self == .numbersAndPunctuation {
+            return .numbersAndPunctuation
+        } else if self == .URL {
+            return .URL
+        } else if self == .numberPad {
+            return .numberPad
+        } else if self == .phonePad {
+            return .phonePad
+        } else if self == .namePhonePad {
+            return .namePhonePad
+        } else if self == .emailAddress {
+            return .emailAddress
+        } else if self == .decimalPad {
+            return .decimalPad
+        } else if self == .twitter {
+            return .twitter
+        } else if self == .webSearch {
+            return .webSearch
+        } else if self == .asciiCapableNumberPad {
+            return .asciiCapableNumberPad
+        } else {
+            return .default
+        }
+    }
+}
+
 public struct WritingToolsBehavior: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -1798,6 +1850,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     var textContentType: NSTextContentType?
+    var keyboardType: UIKeyboardType
     var textInputCompletion: String?
     var textInputSuggestions: [AnyView]?
     public var writingToolsBehavior: WritingToolsBehavior?
@@ -2038,6 +2091,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.textContentType = nil
+        self.keyboardType = .default
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
         self.writingToolsBehavior = nil
@@ -2841,6 +2895,10 @@ public struct ViewBuildContext {
 
     var textContentType: NSTextContentType? {
         environmentValuesProvider().textContentType
+    }
+
+    var keyboardType: UIKeyboardType {
+        environmentValuesProvider().keyboardType
     }
 
     var textInputCompletion: String? {
@@ -10275,6 +10333,12 @@ public extension View {
     func textContentType(_ textContentType: NSTextContentType?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textContentType, textContentType))
+        }
+    }
+
+    func keyboardType(_ type: UIKeyboardType) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.keyboardType, type))
         }
     }
 

@@ -194,6 +194,21 @@ public struct RetainedTextContentType: Sendable, Equatable, Hashable {
     }
 }
 
+public enum RetainedKeyboardType: Sendable, Equatable, Hashable {
+    case `default`
+    case asciiCapable
+    case numbersAndPunctuation
+    case URL
+    case numberPad
+    case phonePad
+    case namePhonePad
+    case emailAddress
+    case decimalPad
+    case twitter
+    case webSearch
+    case asciiCapableNumberPad
+}
+
 public struct RetainedTextInputSuggestion: Sendable, Equatable, Hashable {
     public var displayText: String
     public var completion: String?
@@ -974,6 +989,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textInputKeyboardType: RetainedKeyboardType {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var textInputCompletion: String? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1207,6 +1226,7 @@ public final class ViewNode {
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
         textContentType: RetainedTextContentType? = nil,
+        textInputKeyboardType: RetainedKeyboardType = .default,
         textInputCompletion: String? = nil,
         textInputSuggestions: [RetainedTextInputSuggestion] = [],
         writingToolsBehavior: RetainedWritingToolsBehavior? = nil,
@@ -1297,6 +1317,7 @@ public final class ViewNode {
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
         self.textContentType = textContentType
+        self.textInputKeyboardType = textInputKeyboardType
         self.textInputCompletion = textInputCompletion
         self.textInputSuggestions = textInputSuggestions
         self.writingToolsBehavior = writingToolsBehavior

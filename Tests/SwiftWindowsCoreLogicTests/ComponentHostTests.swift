@@ -93,6 +93,7 @@ final class ComponentHostTests: XCTestCase {
                     let caretOffset = useSecondState ? 4 : 1
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
                     let textContentType = RetainedTextContentType(rawValue: useSecondState ? "password" : "username")
+                    let keyboardType: RetainedKeyboardType = useSecondState ? .emailAddress : .numberPad
                     let textInputCompletion = useSecondState ? "second completion" : "first completion"
                     let textInputSuggestions = [
                         RetainedTextInputSuggestion(
@@ -195,6 +196,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputCaretOffset = caretOffset
                     node.textSelectability = textSelectability
                     node.textContentType = textContentType
+                    node.textInputKeyboardType = keyboardType
                     node.textInputCompletion = textInputCompletion
                     node.textInputSuggestions = textInputSuggestions
                     node.writingToolsBehavior = writingToolsBehavior
@@ -258,6 +260,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
             XCTAssertEqual(firstNode?.textContentType, RetainedTextContentType(rawValue: "username"))
+            XCTAssertEqual(firstNode?.textInputKeyboardType, .numberPad)
             XCTAssertEqual(firstNode?.textInputCompletion, "first completion")
             XCTAssertEqual(
                 firstNode?.textInputSuggestions,
@@ -349,6 +352,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
             XCTAssertEqual(reusedNode?.textContentType, RetainedTextContentType(rawValue: "password"))
+            XCTAssertEqual(reusedNode?.textInputKeyboardType, .emailAddress)
             XCTAssertEqual(reusedNode?.textInputCompletion, "second completion")
             XCTAssertEqual(
                 reusedNode?.textInputSuggestions,

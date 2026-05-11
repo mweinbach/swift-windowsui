@@ -4407,6 +4407,22 @@ public struct LabelStyle: Sendable, Equatable {
     public static let titleOnly = LabelStyle(kind: .titleOnly)
 }
 
+public struct DefaultLabelStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct IconOnlyLabelStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TitleAndIconLabelStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TitleOnlyLabelStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct ToggleStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -4425,6 +4441,22 @@ public struct ToggleStyle: Sendable, Equatable {
     public static let `switch` = ToggleStyle(kind: .switch)
     public static let checkbox = ToggleStyle(kind: .checkbox)
     public static let button = ToggleStyle(kind: .button)
+}
+
+public struct DefaultToggleStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SwitchToggleStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CheckboxToggleStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ButtonToggleStyle: Sendable, Equatable {
+    public init() {}
 }
 
 public struct TextFieldStyle: Sendable, Equatable {
@@ -7188,6 +7220,22 @@ public extension View {
         }
     }
 
+    func labelStyle(_ style: DefaultLabelStyle) -> some View {
+        labelStyle(.automatic)
+    }
+
+    func labelStyle(_ style: IconOnlyLabelStyle) -> some View {
+        labelStyle(.iconOnly)
+    }
+
+    func labelStyle(_ style: TitleAndIconLabelStyle) -> some View {
+        labelStyle(.titleAndIcon)
+    }
+
+    func labelStyle(_ style: TitleOnlyLabelStyle) -> some View {
+        labelStyle(.titleOnly)
+    }
+
     func labeledContentStyle(_ style: LabeledContentStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labeledContentStyle, style))
@@ -7294,6 +7342,22 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.toggleStyle, style))
         }
+    }
+
+    func toggleStyle(_ style: DefaultToggleStyle) -> some View {
+        toggleStyle(.automatic)
+    }
+
+    func toggleStyle(_ style: SwitchToggleStyle) -> some View {
+        toggleStyle(.switch)
+    }
+
+    func toggleStyle(_ style: CheckboxToggleStyle) -> some View {
+        toggleStyle(.checkbox)
+    }
+
+    func toggleStyle(_ style: ButtonToggleStyle) -> some View {
+        toggleStyle(.button)
     }
 
     func textFieldStyle(_ style: TextFieldStyle) -> some View {

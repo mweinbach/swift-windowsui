@@ -2078,17 +2078,23 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let iconOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.iconOnly))
             let titleOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.titleOnly))
+            let concreteIconOnlyNode = makeNode(Label("TOOLS", systemImage: "wrench").labelStyle(IconOnlyLabelStyle()))
+            let concreteTitleOnlyNode = makeNode(Label("PROFILE", systemImage: "person").labelStyle(TitleOnlyLabelStyle()))
+            let defaultNode = makeNode(Label("HOME", systemImage: "house").labelStyle(DefaultLabelStyle()))
             let inheritedNode = makeNode(
                 VStack {
                     Label("SETTINGS", systemImage: "gear")
                     Label("PROFILE", systemImage: "person")
-                        .labelStyle(.titleAndIcon)
+                        .labelStyle(TitleAndIconLabelStyle())
                 }
                 .labelStyle(.titleOnly)
             )
 
             XCTAssertFalse(allTexts(in: iconOnlyNode).contains("SETTINGS"))
             XCTAssertEqual(titleOnlyNode.text, "SETTINGS")
+            XCTAssertFalse(allTexts(in: concreteIconOnlyNode).contains("TOOLS"))
+            XCTAssertEqual(concreteTitleOnlyNode.text, "PROFILE")
+            XCTAssertEqual(defaultNode.children.count, 2)
             XCTAssertEqual(inheritedNode.children[0].text, "SETTINGS")
             XCTAssertEqual(inheritedNode.children[1].children.count, 2)
             XCTAssertEqual(inheritedNode.children[1].children[1].text, "PROFILE")
@@ -6201,7 +6207,7 @@ final class WinSwiftUITests: XCTestCase {
                         set: { checkboxValue = $0 }
                     )
                 )
-                .toggleStyle(.checkbox)
+                .toggleStyle(CheckboxToggleStyle())
                 .tint(tint),
                 onInvalidate: {
                     didInvalidate = true
@@ -6209,8 +6215,16 @@ final class WinSwiftUITests: XCTestCase {
             )
             let buttonNode = makeNode(
                 Toggle("FILTER", isOn: .constant(true))
-                    .toggleStyle(.button)
+                    .toggleStyle(ButtonToggleStyle())
                     .tint(tint)
+            )
+            let switchNode = makeNode(
+                Toggle("WIRELESS", isOn: .constant(false))
+                    .toggleStyle(SwitchToggleStyle())
+            )
+            let defaultNode = makeNode(
+                Toggle("DEFAULT", isOn: .constant(false))
+                    .toggleStyle(DefaultToggleStyle())
             )
             let inheritedNode = makeNode(
                 VStack {
@@ -6232,6 +6246,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(didInvalidate)
             XCTAssertEqual(buttonNode.backgroundColor, tint.opacity(0.82))
             XCTAssertTrue(buttonNode.isFocusable)
+            XCTAssertEqual(switchNode.children.count, 2)
+            XCTAssertEqual(defaultNode.children.count, 2)
             XCTAssertTrue(inheritedNode.children[0].isFocusable)
             XCTAssertTrue(inheritedNode.children[1].isFocusable)
             XCTAssertEqual(readerNode.text, "CHECKBOX")

@@ -1067,6 +1067,11 @@ private func navigationContainerComponent(
     )
 
     let title = navigationTitle(in: visibleContent) ?? navigationTitle(in: content)
+    let hidesNavigationBar = navigationBarHidden(in: visibleContent) ?? navigationBarHidden(in: content) ?? false
+    guard !hidesNavigationBar else {
+        return body
+    }
+
     let shouldShowChrome = title != nil || !combinedDestinationStack.isEmpty
     guard shouldShowChrome else {
         return body
@@ -1156,6 +1161,11 @@ private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarI
 @MainActor
 private func navigationBarBackButtonHidden(in content: [AnyView]) -> Bool? {
     content.lazy.compactMap(\.navigationBarBackButtonHidden).first
+}
+
+@MainActor
+private func navigationBarHidden(in content: [AnyView]) -> Bool? {
+    content.lazy.compactMap(\.navigationBarHidden).first
 }
 
 @MainActor

@@ -6252,6 +6252,65 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationBarHiddenSuppressesRetainedNavigationChrome() async {
+        await MainActor.run {
+            let stack = NavigationStack {
+                NavigationLink(
+                    "OPEN",
+                    destination: Text("DETAIL")
+                        .navigationTitle("DETAIL TITLE")
+                        .navigationBarHidden(true)
+                )
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+            rootNode.children[1].onActivate?()
+
+            let detailNode = makeNode(stack)
+            XCTAssertEqual(detailNode.text, "DETAIL")
+            XCTAssertFalse(allTexts(in: detailNode).contains("DETAIL TITLE"))
+            XCTAssertFalse(allTexts(in: detailNode).contains("<"))
+        }
+    }
+
+    func testNavigationBarHiddenFalsePreservesRetainedNavigationChrome() async {
+        await MainActor.run {
+            let stack = NavigationStack {
+                NavigationLink(
+                    "OPEN",
+                    destination: Text("DETAIL")
+                        .navigationTitle("DETAIL TITLE")
+                        .navigationBarHidden(false)
+                )
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+            rootNode.children[1].onActivate?()
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("<"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+        }
+    }
+
+    func testRootNavigationBarHiddenSuppressesRootNavigationChrome() async {
+        await MainActor.run {
+            let node = makeNode(
+                NavigationStack {
+                    Text("ROOT")
+                        .navigationTitle("ROOT TITLE")
+                        .navigationBarHidden(true)
+                }
+            )
+
+            XCTAssertEqual(node.text, "ROOT")
+            XCTAssertFalse(allTexts(in: node).contains("ROOT TITLE"))
+        }
+    }
+
     func testNavigationLinkValueResolvesNavigationDestination() async {
         await MainActor.run {
             var didInvalidate = false

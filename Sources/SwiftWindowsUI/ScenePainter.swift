@@ -180,11 +180,14 @@ public enum ScenePainter {
 
         // GPUI/Zed carries opacity as an inherited paint scalar.
         let opacity = primitiveOpacity * Float(node.opacity)
+        let resolvedHoverEffect = node.resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: opacity,
-            displayScale: displayScale
+            displayScale: displayScale,
+            isHovered: node.isHovered,
+            hoverEffect: resolvedHoverEffect
         )
         guard opacity > 0 else {
             node.cachedSceneKey = cacheKey
@@ -207,6 +210,17 @@ public enum ScenePainter {
             node.markSubtreeRendered()
             replayCount += 1
             return
+        }
+
+        if let hoverShadow = node.hoverEffectShadowCommand(
+            for: absoluteFrame,
+            inheritedClip: inheritedClip,
+            opacity: opacity
+        ) {
+            scene.addQuad(
+                quad(for: hoverShadow, surfaceSize: surfaceSize, displayScale: displayScale),
+                toLayer: layerIndex
+            )
         }
 
         // Shadow
@@ -302,6 +316,18 @@ public enum ScenePainter {
                 clipX: clipR.0, clipY: clipR.1,
                 clipWidth: clipR.2, clipHeight: clipR.3
             ), toLayer: layerIndex)
+        }
+
+        if let hoverOverlay = node.hoverEffectOverlayCommand(
+            for: fillRect,
+            cornerRadius: fillCornerRadius,
+            clipRect: effectiveClip,
+            opacity: opacity
+        ) {
+            scene.addQuad(
+                quad(for: hoverOverlay, surfaceSize: surfaceSize, displayScale: displayScale),
+                toLayer: layerIndex
+            )
         }
 
         let drawsRedactionPlaceholder = node.redactionReasons.contains(.placeholder)

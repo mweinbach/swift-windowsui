@@ -445,6 +445,78 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testHoverEffectHighlightRendersOnFramePath() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .black,
+                hoverEffect: .highlight
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerMoved(to: Point(x: 20, y: 20))
+            let hoveredFrame = runtime.renderFrame()
+            runtime.pointerExitedWindow()
+            let unhoveredFrame = runtime.renderFrame()
+
+            XCTAssertFalse(node.isHovered)
+            XCTAssertTrue(
+                fillRectCommands(in: hoveredFrame).contains {
+                    $0.color == Color(red: 1, green: 1, blue: 1, alpha: 0.10)
+                }
+            )
+            XCTAssertFalse(
+                fillRectCommands(in: unhoveredFrame).contains {
+                    $0.color == Color(red: 1, green: 1, blue: 1, alpha: 0.10)
+                }
+            )
+        }
+    }
+
+    func testHoverEffectHighlightRendersOnScenePath() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .black,
+                hoverEffect: .highlight
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerMoved(to: Point(x: 20, y: 20))
+            let scene = runtime.renderScene()
+
+            XCTAssertTrue(sceneQuadColors(in: scene).contains(Color(red: 1, green: 1, blue: 1, alpha: 0.10)))
+        }
+    }
+
+    func testHoverEffectLiftRendersShadowAndOverlay() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40),
+                backgroundColor: .black,
+                hoverEffect: .lift
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerMoved(to: Point(x: 20, y: 20))
+            let frame = runtime.renderFrame()
+            let scene = runtime.renderScene()
+
+            XCTAssertTrue(
+                fillRectCommands(in: frame).contains {
+                    $0.color == Color(red: 0, green: 0, blue: 0, alpha: 0.18)
+                }
+            )
+            XCTAssertTrue(
+                fillRectCommands(in: frame).contains {
+                    $0.color == Color(red: 1, green: 1, blue: 1, alpha: 0.07)
+                }
+            )
+            XCTAssertTrue(sceneQuadColors(in: scene).contains(Color(red: 0, green: 0, blue: 0, alpha: 0.18)))
+            XCTAssertTrue(sceneQuadColors(in: scene).contains(Color(red: 1, green: 1, blue: 1, alpha: 0.07)))
+        }
+    }
+
     func testAnimateColorInterpolatesAndCompletes() async {
         await MainActor.run {
             let node = ViewNode(backgroundColor: .black)

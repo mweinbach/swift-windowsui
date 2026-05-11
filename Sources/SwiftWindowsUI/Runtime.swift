@@ -26,6 +26,8 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var contentMask: Rect?
     var opacity: Float
     var displayScale: Double
+    var isHovered: Bool
+    var hoverEffect: RetainedHoverEffect?
 }
 
 struct ViewMeasureCacheKey: Equatable, Sendable {
@@ -654,6 +656,14 @@ public final class ViewNode {
 
     public var hoverEffect: RetainedHoverEffect? {
         didSet { invalidateRuntime(.paint) }
+    }
+
+    public internal(set) var isHovered: Bool = false {
+        didSet {
+            if oldValue != isHovered, hoverEffect != nil, !isHoverEffectDisabled {
+                invalidateRuntime(.paint)
+            }
+        }
     }
 
     public var isHoverEffectDisabled: Bool {
@@ -1335,11 +1345,14 @@ public final class ViewNode {
         }
 
         let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
-            displayScale: displayScale
+            displayScale: displayScale,
+            isHovered: isHovered,
+            hoverEffect: resolvedHoverEffect
         )
 
         if
@@ -1634,11 +1647,14 @@ public final class ViewNode {
         // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
         // GPUI/Zed instead carries opacity as an inherited paint scalar.
         let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
-            displayScale: displayScale
+            displayScale: displayScale,
+            isHovered: isHovered,
+            hoverEffect: resolvedHoverEffect
         )
         guard effectiveOpacity > 0 else {
             cachedFrameKey = cacheKey
@@ -1672,6 +1688,14 @@ public final class ViewNode {
             x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
             y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
+
+        if let hoverShadow = hoverEffectShadowCommand(
+            for: absoluteFrame,
+            inheritedClip: inheritedClip,
+            opacity: effectiveOpacity
+        ) {
+            commands.append(.fillRect(hoverShadow))
+        }
 
         let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveShadowColor.alpha > 0 {
@@ -1750,6 +1774,15 @@ public final class ViewNode {
                     )
                 )
             }
+        }
+
+        if let hoverOverlay = hoverEffectOverlayCommand(
+            for: fillRect,
+            cornerRadius: fillCornerRadius,
+            clipRect: effectiveClip,
+            opacity: effectiveOpacity
+        ) {
+            commands.append(.fillRect(hoverOverlay))
         }
 
         let drawsRedactionPlaceholder = redactionReasons.contains(.placeholder)
@@ -1901,6 +1934,83 @@ public final class ViewNode {
         }
 
         return nil
+    }
+
+    var resolvedActiveHoverEffect: RetainedHoverEffect? {
+        guard isHovered, !isHoverEffectDisabled, let hoverEffect else {
+            return nil
+        }
+
+        switch hoverEffect {
+        case .automatic:
+            return .highlight
+        case .highlight, .lift:
+            return hoverEffect
+        }
+    }
+
+    func hoverEffectShadowCommand(
+        for absoluteFrame: Rect,
+        inheritedClip: Rect?,
+        opacity: Float
+    ) -> FillRectCommand? {
+        guard resolvedActiveHoverEffect == .lift else {
+            return nil
+        }
+
+        let shadowColor = Color(red: 0, green: 0, blue: 0, alpha: 0.18).multipliedAlpha(by: opacity)
+        guard shadowColor.alpha > 0 else {
+            return nil
+        }
+
+        let spread = max(3, min(12, min(absoluteFrame.size.width, absoluteFrame.size.height) * 0.08))
+        let shadowRect = absoluteFrame
+            .outset(by: spread)
+            .offsetBy(dx: 0, dy: max(1, spread * 0.35))
+        guard baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) else {
+            return nil
+        }
+
+        return FillRectCommand(
+            rect: shadowRect,
+            color: shadowColor,
+            cornerRadius: cornerRadius + spread,
+            clipRect: inheritedClip
+        )
+    }
+
+    func hoverEffectOverlayCommand(
+        for fillRect: Rect,
+        cornerRadius: Double,
+        clipRect: Rect?,
+        opacity: Float
+    ) -> FillRectCommand? {
+        guard let effect = resolvedActiveHoverEffect else {
+            return nil
+        }
+
+        let alpha: Float
+        switch effect {
+        case .automatic, .highlight:
+            alpha = 0.10
+        case .lift:
+            alpha = 0.07
+        }
+
+        let color = Color(red: 1, green: 1, blue: 1, alpha: alpha).multipliedAlpha(by: opacity)
+        guard color.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 else {
+            return nil
+        }
+        guard baseClipAllowsDrawing(baseClip: clipRect, rect: fillRect) else {
+            return nil
+        }
+
+        return FillRectCommand(
+            rect: fillRect,
+            color: color,
+            cornerRadius: cornerRadius,
+            clipRect: clipRect
+        )
     }
 
     fileprivate func containsInteractionPoint(_ point: Point, in frame: Rect) -> Bool {
@@ -3413,8 +3523,11 @@ public final class RetainedViewRuntime {
             return
         }
 
-        hoveredNode?.onPointerExit?()
+        let previousNode = hoveredNode
+        previousNode?.isHovered = false
+        previousNode?.onPointerExit?()
         hoveredNode = nextHoveredNode
+        hoveredNode?.isHovered = true
         hoveredNode?.onPointerEnter?()
     }
 

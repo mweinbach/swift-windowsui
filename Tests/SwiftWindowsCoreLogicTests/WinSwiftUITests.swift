@@ -361,6 +361,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextSelectionRetainsExplicitAndInheritedSelectability() async {
+        await MainActor.run {
+            let enabledNode = makeNode(Text("COPY").textSelection(.enabled))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .textSelection(.disabled)
+            )
+
+            XCTAssertEqual(enabledNode.textSelectability, .enabled)
+            XCTAssertEqual(inheritedNode.children[0].textSelectability, .disabled)
+            XCTAssertEqual(inheritedNode.children[1].textSelectability, .disabled)
+        }
+    }
+
     func testLocalizedStringKeyInputsMapToPlainRetainedText() async {
         await MainActor.run {
             let count = 7

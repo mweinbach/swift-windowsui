@@ -1633,6 +1633,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var minimumScaleFactor: CGFloat
     public var allowsTightening: Bool
     public var textCase: Text.Case?
+    public var textSelectability: TextSelectability?
     public var imageScale: Image.Scale
     public var symbolRenderingMode: SymbolRenderingMode?
     public var symbolVariants: SymbolVariants
@@ -1749,6 +1750,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         minimumScaleFactor: CGFloat = 1,
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
+        textSelectability: TextSelectability? = nil,
         imageScale: Image.Scale = .medium,
         symbolRenderingMode: SymbolRenderingMode? = nil,
         symbolVariants: SymbolVariants = .none,
@@ -1863,6 +1865,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.minimumScaleFactor = Self.clampedMinimumScaleFactor(minimumScaleFactor)
         self.allowsTightening = allowsTightening
         self.textCase = textCase
+        self.textSelectability = textSelectability
         self.imageScale = imageScale
         self.symbolRenderingMode = symbolRenderingMode
         self.symbolVariants = symbolVariants
@@ -4018,6 +4021,20 @@ public enum TextAlignment: Sendable {
     case leading
     case center
     case trailing
+}
+
+public enum TextSelectability: Sendable, Equatable, Hashable {
+    case enabled
+    case disabled
+
+    var retainedSelectability: RetainedTextSelectability {
+        switch self {
+        case .enabled:
+            return .enabled
+        case .disabled:
+            return .disabled
+        }
+    }
 }
 
 public enum Axis: Sendable {
@@ -10477,6 +10494,12 @@ public extension View {
     func textCase(_ textCase: Text.Case?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTextCase(textCase))
+        }
+    }
+
+    func textSelection(_ selectability: TextSelectability) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textSelectability, selectability))
         }
     }
 

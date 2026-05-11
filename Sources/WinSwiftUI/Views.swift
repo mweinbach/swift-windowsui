@@ -2572,6 +2572,7 @@ public struct Text: View {
             )
             node.redactionReasons = redactionReasons
             node.isPrivacySensitive = isPrivacySensitive
+            node.textSelectability = context.environmentValues.textSelectability?.retainedSelectability
             if let baselineOffset, baselineOffset != 0 {
                 node.transform = node.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
             }

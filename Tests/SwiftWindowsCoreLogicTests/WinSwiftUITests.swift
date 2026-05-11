@@ -650,6 +650,79 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDeprecatedTextFieldOptionalFormatterEditingAndCommitInitializerHooksRetainedInput() async {
+        await MainActor.run {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .none
+
+            var value: Int?
+            var editingChanges: [Bool] = []
+            var commitCount = 0
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                TextField(
+                    "COUNT",
+                    value: binding,
+                    formatter: formatter,
+                    onEditingChanged: { isEditing in
+                        editingChanges.append(isEditing)
+                    },
+                    onCommit: {
+                        commitCount += 1
+                    }
+                ),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "COUNT")
+
+            node.onFocusEnter?()
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x35))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            node.onFocusExit?()
+
+            XCTAssertEqual(value, 5)
+            XCTAssertEqual(editingChanges, [true, false])
+            XCTAssertEqual(commitCount, 1)
+            XCTAssertEqual(invalidationCount, 2)
+        }
+    }
+
+    func testDeprecatedTextFieldOptionalFormatterCommitOnlyInitializerSupportsLocalizedTitle() async {
+        await MainActor.run {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .none
+
+            var value: Int?
+            var commitCount = 0
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+
+            let node = makeNode(
+                TextField(LocalizedStringKey("COUNT"), value: binding, formatter: formatter) {
+                    commitCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "COUNT")
+
+            node.onKeyDown?(KeyboardEvent(keyCode: 0x38))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(value, 8)
+            XCTAssertEqual(commitCount, 1)
+        }
+    }
+
     func testTextInputSupportsBasicCaretNavigationAndDeletion() async {
         await MainActor.run {
             var value = "abc"

@@ -750,6 +750,21 @@ public struct DismissWindowAction: @unchecked Sendable {
     public static let noop = DismissWindowAction { _ in }
 }
 
+public struct OpenSettingsAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = OpenSettingsAction {}
+}
+
 public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
     public struct NavigationBarDrawerDisplayMode: Sendable, Equatable, Hashable {
         private let rawValue: String
@@ -857,6 +872,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var undoManager: UndoManager?
     public var openWindow: OpenWindowAction
     public var dismissWindow: DismissWindowAction
+    public var openSettings: OpenSettingsAction
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -922,7 +938,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         refresh: RefreshAction? = nil,
         undoManager: UndoManager? = nil,
         openWindow: OpenWindowAction = .noop,
-        dismissWindow: DismissWindowAction = .noop
+        dismissWindow: DismissWindowAction = .noop,
+        openSettings: OpenSettingsAction = .noop
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -993,6 +1010,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.undoManager = undoManager
         self.openWindow = openWindow
         self.dismissWindow = dismissWindow
+        self.openSettings = openSettings
         self.customValues = [:]
     }
 

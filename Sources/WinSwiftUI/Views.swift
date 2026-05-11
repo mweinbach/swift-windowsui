@@ -5638,6 +5638,45 @@ public struct RenameButton: View {
 }
 
 @MainActor
+public struct DefaultSettingsLinkLabel: View {
+    public init() {}
+
+    public var body: some View {
+        Text("Settings")
+    }
+}
+
+@MainActor
+public struct SettingsLink: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+
+    public init() {
+        self.label = [AnyView(DefaultSettingsLinkLabel())]
+    }
+
+    public init(@ViewBuilder label: () -> [AnyView]) {
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError("SettingsLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let openSettings = context.environmentValues.openSettings
+        return Button {
+            openSettings()
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct Button: View {
     public typealias Body = Never
 

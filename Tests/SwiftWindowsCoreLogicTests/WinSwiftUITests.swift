@@ -2544,6 +2544,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSettingsLinkUsesOpenSettingsEnvironmentAction() async {
+        await MainActor.run {
+            struct OpenSettingsReaderView: View {
+                @Environment(\.openSettings) var openSettings
+
+                var body: some View {
+                    Button("OPEN SETTINGS") {
+                        openSettings()
+                    }
+                }
+            }
+
+            var openCount = 0
+            var didInvalidate = false
+            let node = makeNode(
+                VStack {
+                    SettingsLink()
+                    SettingsLink {
+                        Label("Preferences", systemImage: "gearshape")
+                    }
+                    OpenSettingsReaderView()
+                }
+                .environment(\.openSettings, OpenSettingsAction {
+                    openCount += 1
+                }),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("Settings"))
+            XCTAssertTrue(allTexts(in: node.children[1]).contains("Preferences"))
+            XCTAssertTrue(allTexts(in: node.children[2]).contains("OPEN SETTINGS"))
+
+            node.children[0].onActivate?()
+            node.children[1].onActivate?()
+            node.children[2].onActivate?()
+
+            XCTAssertEqual(openCount, 3)
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testButtonStyleModifierPropagatesThroughViewContextAndCanBeOverridden() async {
         await MainActor.run {
             let customColor = Color(red: 0.2, green: 0.7, blue: 0.4, alpha: 1)

@@ -364,6 +364,36 @@ public enum NavigationSplitViewVisibility: Sendable, Equatable {
     case detailOnly
 }
 
+public struct NavigationSplitViewStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case balanced
+        case prominentDetail
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = NavigationSplitViewStyle(kind: .automatic)
+    public static let balanced = NavigationSplitViewStyle(kind: .balanced)
+    public static let prominentDetail = NavigationSplitViewStyle(kind: .prominentDetail)
+}
+
+public struct AutomaticNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BalancedNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ProminentDetailNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
 @MainActor
 struct NavigationDestinationRegistration {
     let resolve: (AnyHashable) -> [AnyView]?
@@ -1201,6 +1231,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var buttonSizing: ButtonSizing
     public var buttonBorderShape: ButtonBorderShape
     public var menuIndicatorVisibility: Visibility
+    public var navigationSplitViewStyle: NavigationSplitViewStyle
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
@@ -1309,6 +1340,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         buttonSizing: ButtonSizing = .automatic,
         buttonBorderShape: ButtonBorderShape = .automatic,
         menuIndicatorVisibility: Visibility = .automatic,
+        navigationSplitViewStyle: NavigationSplitViewStyle = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
@@ -1413,6 +1445,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.buttonSizing = buttonSizing
         self.buttonBorderShape = buttonBorderShape
         self.menuIndicatorVisibility = menuIndicatorVisibility
+        self.navigationSplitViewStyle = navigationSplitViewStyle
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
@@ -2098,6 +2131,10 @@ public struct ViewBuildContext {
 
     public var controlGroupStyle: ControlGroupStyle {
         environmentValuesProvider().controlGroupStyle
+    }
+
+    public var navigationSplitViewStyle: NavigationSplitViewStyle {
+        environmentValuesProvider().navigationSplitViewStyle
     }
 
     public var progressViewStyle: ProgressViewStyle {
@@ -7994,6 +8031,24 @@ public extension View {
         }
         modified.navigationPresentedDestinations = [presentedDestination]
         return modified
+    }
+
+    func navigationSplitViewStyle(_ style: NavigationSplitViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.navigationSplitViewStyle, style))
+        }
+    }
+
+    func navigationSplitViewStyle(_ style: AutomaticNavigationSplitViewStyle) -> some View {
+        navigationSplitViewStyle(.automatic)
+    }
+
+    func navigationSplitViewStyle(_ style: BalancedNavigationSplitViewStyle) -> some View {
+        navigationSplitViewStyle(.balanced)
+    }
+
+    func navigationSplitViewStyle(_ style: ProminentDetailNavigationSplitViewStyle) -> some View {
+        navigationSplitViewStyle(.prominentDetail)
     }
 
     func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {

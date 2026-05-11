@@ -4966,6 +4966,51 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationSplitViewStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct NavigationSplitViewStyleReader: View {
+                @Environment(\.navigationSplitViewStyle) var navigationSplitViewStyle
+
+                var body: some View {
+                    Text(
+                        navigationSplitViewStyle == .balanced ? "BALANCED"
+                            : navigationSplitViewStyle == .prominentDetail ? "PROMINENT"
+                            : navigationSplitViewStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let balancedReaderNode = makeNode(
+                NavigationSplitViewStyleReader()
+                    .navigationSplitViewStyle(BalancedNavigationSplitViewStyle())
+            )
+            let prominentReaderNode = makeNode(
+                NavigationSplitViewStyleReader()
+                    .navigationSplitViewStyle(ProminentDetailNavigationSplitViewStyle())
+            )
+            let automaticReaderNode = makeNode(
+                NavigationSplitViewStyleReader()
+                    .navigationSplitViewStyle(AutomaticNavigationSplitViewStyle())
+            )
+            let splitNode = makeNode(
+                NavigationSplitView {
+                    Text("SIDEBAR")
+                } detail: {
+                    Text("DETAIL")
+                }
+                .navigationSplitViewStyle(.balanced)
+            )
+
+            XCTAssertEqual(balancedReaderNode.text, "BALANCED")
+            XCTAssertEqual(prominentReaderNode.text, "PROMINENT")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
+            XCTAssertEqual(splitNode.children.count, 2)
+            XCTAssertEqual(splitNode.children[0].text, "SIDEBAR")
+            XCTAssertEqual(splitNode.children[1].text, "DETAIL")
+        }
+    }
+
     func testTabViewRendersSelectedTaggedPage() async {
         await MainActor.run {
             var didInvalidate = false

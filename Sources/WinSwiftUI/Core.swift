@@ -863,6 +863,19 @@ public struct TextSelection: Sendable, Equatable, Hashable {
         }
     }
 
+    func editableSelectedOffsetRange(in text: String) -> Range<Int>? {
+        guard case .selection(let range) = indices, !range.isEmpty else {
+            return nil
+        }
+
+        let lowerBound = clampedTextSelectionOffset(for: range.lowerBound, in: text)
+        let upperBound = clampedTextSelectionOffset(for: range.upperBound, in: text)
+        guard lowerBound < upperBound else {
+            return nil
+        }
+        return lowerBound..<upperBound
+    }
+
     private func retainedIndices(in text: String) -> RetainedTextSelection.Indices {
         switch indices {
         case .selection(let range):

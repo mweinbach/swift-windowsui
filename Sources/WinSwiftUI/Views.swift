@@ -6604,6 +6604,7 @@ private func textInputComponent(
         }
         node.onKeyDown = { event in
             let clampedCaret = clampedTextOffset(node.textInputCaretOffset, in: binding.wrappedValue)
+            let selectedRange = selection?.wrappedValue?.editableSelectedOffsetRange(in: binding.wrappedValue)
             @MainActor func setCaretOffset(_ offset: Int) {
                 let clampedOffset = clampedTextOffset(offset, in: binding.wrappedValue)
                 node.textInputCaretOffset = clampedOffset
@@ -6629,6 +6630,13 @@ private func textInputComponent(
             }
 
             if event.key == .backspace {
+                if let selectedRange {
+                    binding.wrappedValue = binding.wrappedValue.removingText(in: selectedRange)
+                    setCaretOffset(selectedRange.lowerBound)
+                    context.invalidate()
+                    return
+                }
+
                 guard clampedCaret > 0 else {
                     return
                 }
@@ -6643,6 +6651,13 @@ private func textInputComponent(
             }
 
             if event.key == .deleteForward {
+                if let selectedRange {
+                    binding.wrappedValue = binding.wrappedValue.removingText(in: selectedRange)
+                    setCaretOffset(selectedRange.lowerBound)
+                    context.invalidate()
+                    return
+                }
+
                 guard clampedCaret < binding.wrappedValue.count else {
                     return
                 }
@@ -6678,17 +6693,18 @@ private func textInputComponent(
                 break
             }
 
+            let replacementRange = selectedRange ?? (clampedCaret..<clampedCaret)
             guard let character = textFieldInsertedCharacter(
                 for: event,
                 allowsNewlines: allowsNewlines,
-                currentText: binding.wrappedValue.textPrefix(upTo: clampedCaret),
+                currentText: binding.wrappedValue.textPrefix(upTo: replacementRange.lowerBound),
                 textInputAutocapitalization: context.textInputAutocapitalization
             ) else {
                 return
             }
 
-            binding.wrappedValue = binding.wrappedValue.insertingText(character, at: clampedCaret)
-            setCaretOffset(clampedCaret + character.count)
+            binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: character)
+            setCaretOffset(replacementRange.lowerBound + character.count)
             context.invalidate()
         }
 
@@ -10360,6 +10376,16 @@ private extension String {
         let upperIndex = index(startIndex, offsetBy: upperBound)
         var copy = self
         copy.removeSubrange(lowerIndex..<upperIndex)
+        return copy
+    }
+
+    func replacingText(in offsets: Range<Int>, with replacement: String) -> String {
+        let lowerBound = clampedTextOffset(offsets.lowerBound, in: self)
+        let upperBound = clampedTextOffset(offsets.upperBound, in: self)
+        let lowerIndex = index(startIndex, offsetBy: lowerBound)
+        let upperIndex = index(startIndex, offsetBy: upperBound)
+        var copy = self
+        copy.replaceSubrange(lowerIndex..<upperIndex, with: replacement)
         return copy
     }
 }

@@ -928,6 +928,91 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextInputSingleRangeSelectionReplacesAndDeletes() async {
+        await MainActor.run {
+            func insertionOffset(_ selection: TextSelection?, in text: String) -> Int? {
+                guard case .selection(let range) = selection?.indices, range.isEmpty else {
+                    return nil
+                }
+                return text.distance(from: text.startIndex, to: range.lowerBound)
+            }
+
+            var insertValue = "abcdef"
+            var insertSelection: TextSelection? = TextSelection(
+                range: insertValue.index(insertValue.startIndex, offsetBy: 1)..<insertValue.index(insertValue.startIndex, offsetBy: 3)
+            )
+            let insertNode = makeNode(
+                TextField(
+                    "VALUE",
+                    text: Binding(
+                        get: { insertValue },
+                        set: { insertValue = $0 }
+                    ),
+                    selection: Binding<TextSelection?>(
+                        get: { insertSelection },
+                        set: { insertSelection = $0 }
+                    )
+                )
+            )
+
+            insertNode.onKeyDown?(KeyboardEvent(keyCode: 0x58))
+
+            XCTAssertEqual(insertValue, "axdef")
+            XCTAssertEqual(insertNode.textInputCaretOffset, 2)
+            XCTAssertEqual(insertNode.textInputSelection, RetainedTextSelection(indices: .insertionPoint(2)))
+            XCTAssertEqual(insertionOffset(insertSelection, in: insertValue), 2)
+
+            var backspaceValue = "abcdef"
+            var backspaceSelection: TextSelection? = TextSelection(
+                range: backspaceValue.index(backspaceValue.startIndex, offsetBy: 2)..<backspaceValue.index(backspaceValue.startIndex, offsetBy: 4)
+            )
+            let backspaceNode = makeNode(
+                TextField(
+                    "VALUE",
+                    text: Binding(
+                        get: { backspaceValue },
+                        set: { backspaceValue = $0 }
+                    ),
+                    selection: Binding<TextSelection?>(
+                        get: { backspaceSelection },
+                        set: { backspaceSelection = $0 }
+                    )
+                )
+            )
+
+            backspaceNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+
+            XCTAssertEqual(backspaceValue, "abef")
+            XCTAssertEqual(backspaceNode.textInputCaretOffset, 2)
+            XCTAssertEqual(backspaceNode.textInputSelection, RetainedTextSelection(indices: .insertionPoint(2)))
+            XCTAssertEqual(insertionOffset(backspaceSelection, in: backspaceValue), 2)
+
+            var deleteValue = "abcdef"
+            var deleteSelection: TextSelection? = TextSelection(
+                range: deleteValue.index(deleteValue.startIndex, offsetBy: 2)..<deleteValue.index(deleteValue.startIndex, offsetBy: 5)
+            )
+            let deleteNode = makeNode(
+                TextEditor(
+                    text: Binding(
+                        get: { deleteValue },
+                        set: { deleteValue = $0 }
+                    ),
+                    selection: Binding<TextSelection?>(
+                        get: { deleteSelection },
+                        set: { deleteSelection = $0 }
+                    )
+                )
+            )
+
+            deleteNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.deleteForward.rawValue))
+
+            XCTAssertEqual(deleteValue, "abf")
+            XCTAssertEqual(deleteNode.textInputCaretOffset, 2)
+            XCTAssertEqual(deleteNode.textInputSelection, RetainedTextSelection(indices: .insertionPoint(2)))
+            XCTAssertEqual(insertionOffset(deleteSelection, in: deleteValue), 2)
+        }
+    }
+
     func testKeyboardTypeModifierRetainsTextInputMetadata() async {
         await MainActor.run {
             var value = ""

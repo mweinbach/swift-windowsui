@@ -5111,6 +5111,66 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testColorPickerWritesBindingFromKeyboardPaletteAndOpacity() async {
+        await MainActor.run {
+            var selectedColor = Color.blue.opacity(0.5)
+            var invalidationCount = 0
+            let binding = Binding<Color>(
+                get: { selectedColor },
+                set: { selectedColor = $0 }
+            )
+            let node = makeNode(
+                ColorPicker("ACCENT", selection: binding),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            assertColor(selectedColor, red: 0.29, green: 0, blue: 0.51, alpha: 0.5)
+            XCTAssertEqual(invalidationCount, 1)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(invalidationCount, 2)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.6)
+            XCTAssertEqual(invalidationCount, 3)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(invalidationCount, 4)
+        }
+    }
+
+    func testColorPickerWithoutOpacityWritesOpaquePaletteColors() async {
+        await MainActor.run {
+            var selectedColor = Color.blue.opacity(0.5)
+            var invalidationCount = 0
+            let binding = Binding<Color>(
+                get: { selectedColor },
+                set: { selectedColor = $0 }
+            )
+            let node = makeNode(
+                ColorPicker("ACCENT", selection: binding, supportsOpacity: false),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            assertColor(selectedColor, red: 0, green: 0, blue: 1, alpha: 0.5)
+            XCTAssertEqual(invalidationCount, 0)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            assertColor(selectedColor, red: 0.29, green: 0, blue: 0.51, alpha: 1)
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testLabelsHiddenSuppressesControlLabels() async {
         await MainActor.run {
             let toggleNode = makeNode(

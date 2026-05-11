@@ -4453,22 +4453,164 @@ public struct ColorPicker: View {
                 .makeNode(runtime: runtime)
             let controlNode = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 8, alignment: .center),
-                isHitTestVisible: false,
+                isHitTestVisible: context.isEnabled,
                 children: [swatchNode, valueNode]
             )
 
             guard !context.labelsHidden, !labelViews.isEmpty else {
+                Self.configureInteraction(
+                    on: controlNode,
+                    selection: selection,
+                    supportsOpacity: supportsOpacity,
+                    isEnabled: context.isEnabled,
+                    invalidate: context.invalidate
+                )
                 return controlNode
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
             labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
-            return Controls.stackPanel(
+            let node = Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 12, alignment: .center),
-                isHitTestVisible: false,
+                isHitTestVisible: context.isEnabled,
                 children: [labelNode, controlNode]
             )
+            Self.configureInteraction(
+                on: node,
+                selection: selection,
+                supportsOpacity: supportsOpacity,
+                isEnabled: context.isEnabled,
+                invalidate: context.invalidate
+            )
+            return node
         }
+    }
+
+    private static func configureInteraction(
+        on node: ViewNode,
+        selection: Binding<Color>,
+        supportsOpacity: Bool,
+        isEnabled: Bool,
+        invalidate: @escaping () -> Void
+    ) {
+        guard isEnabled else {
+            return
+        }
+
+        node.isFocusable = true
+        node.isHitTestVisible = true
+        node.onActivate = {
+            applyPaletteStep(to: selection, direction: 1, supportsOpacity: supportsOpacity, invalidate: invalidate)
+        }
+        node.onKeyDown = { event in
+            switch event.key {
+            case .rightArrow:
+                applyPaletteStep(to: selection, direction: 1, supportsOpacity: supportsOpacity, invalidate: invalidate)
+            case .leftArrow:
+                applyPaletteStep(to: selection, direction: -1, supportsOpacity: supportsOpacity, invalidate: invalidate)
+            case .upArrow where supportsOpacity:
+                applyOpacityStep(to: selection, direction: 1, invalidate: invalidate)
+            case .downArrow where supportsOpacity:
+                applyOpacityStep(to: selection, direction: -1, invalidate: invalidate)
+            default:
+                return
+            }
+        }
+    }
+
+    private static func applyPaletteStep(
+        to selection: Binding<Color>,
+        direction: Int,
+        supportsOpacity: Bool,
+        invalidate: () -> Void
+    ) {
+        let currentColor = selection.wrappedValue
+        let nextColor = steppedPaletteColor(from: currentColor, direction: direction, preservesOpacity: supportsOpacity)
+        guard nextColor != currentColor else {
+            return
+        }
+
+        selection.wrappedValue = nextColor
+        invalidate()
+    }
+
+    private static func applyOpacityStep(
+        to selection: Binding<Color>,
+        direction: Int,
+        invalidate: () -> Void
+    ) {
+        let currentColor = selection.wrappedValue
+        let currentComponents = currentColor.rgba
+        let nextAlpha = Float(clampedUnitIntervalValue(Double(currentComponents.3) + (Double(direction) * 0.10)))
+        guard nextAlpha != currentComponents.3 else {
+            return
+        }
+
+        selection.wrappedValue = Color(
+            red: currentComponents.0,
+            green: currentComponents.1,
+            blue: currentComponents.2,
+            alpha: nextAlpha
+        )
+        invalidate()
+    }
+
+    private static func steppedPaletteColor(from color: Color, direction: Int, preservesOpacity: Bool) -> Color {
+        let palette = retainedKeyboardPalette
+        guard !palette.isEmpty else {
+            return color
+        }
+
+        let baseIndex = nearestPaletteIndex(to: color, in: palette)
+        let nextIndex = (baseIndex + direction + palette.count) % palette.count
+        let nextBaseColor = palette[nextIndex]
+        let alpha = preservesOpacity ? color.rgba.3 : 1
+        return nextBaseColor.opacity(Double(alpha))
+    }
+
+    private static func nearestPaletteIndex(to color: Color, in palette: [Color]) -> Int {
+        let components = color.rgba
+        var bestIndex = 0
+        var bestDistance = Double.greatestFiniteMagnitude
+
+        for (index, paletteColor) in palette.enumerated() {
+            let paletteComponents = paletteColor.rgba
+            let redDistance = Double(components.0 - paletteComponents.0)
+            let greenDistance = Double(components.1 - paletteComponents.1)
+            let blueDistance = Double(components.2 - paletteComponents.2)
+            let distance = (redDistance * redDistance) + (greenDistance * greenDistance) + (blueDistance * blueDistance)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestIndex = index
+            }
+        }
+
+        return bestIndex
+    }
+
+    private static let retainedKeyboardPalette: [Color] = [
+        .red,
+        .orange,
+        .yellow,
+        .green,
+        .mint,
+        .teal,
+        .cyan,
+        .blue,
+        .indigo,
+        .purple,
+        .pink,
+        .brown,
+        .gray,
+        .black,
+        .white,
+    ]
+
+    private static func clampedUnitIntervalValue(_ value: Double) -> Double {
+        guard value.isFinite else {
+            return 0
+        }
+        return min(max(value, 0), 1)
     }
 
     private static func hexValue(_ color: Color, includesOpacity: Bool) -> String {

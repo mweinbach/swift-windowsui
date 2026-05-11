@@ -12162,6 +12162,17 @@ public extension View {
         }
     }
 
+    func onPlayPauseCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.key == .mediaPlayPause else {
+                return false
+            }
+
+            action?()
+            return true
+        }
+    }
+
     private func keyCommandModifier(
         perform handler: @escaping (KeyboardEvent) -> Bool
     ) -> some View {

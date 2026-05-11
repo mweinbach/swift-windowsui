@@ -7087,7 +7087,7 @@ private func textInputComponent(
                 return
             case .backspace, .deleteForward:
                 return
-            case nil, .tab, .enter, .shift, .control, .alt, .escape, .pageUp, .pageDown, .upArrow, .downArrow, .space:
+            case nil, .tab, .enter, .shift, .control, .alt, .escape, .pageUp, .pageDown, .upArrow, .downArrow, .space, .mediaPlayPause:
                 break
             }
 

@@ -12074,6 +12074,30 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnPlayPauseCommandHandlesMediaKeyAndPreservesOtherKeys() async {
+        await MainActor.run {
+            var playPauseCount = 0
+            var forwardedKeys: [KeyboardKey?] = []
+            let node = makeNode(
+                PointerHandlerProbe(onKeyDown: { event in
+                    forwardedKeys.append(event.key)
+                })
+                .onPlayPauseCommand {
+                    playPauseCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.mediaPlayPause.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.space.rawValue))
+
+            XCTAssertEqual(playPauseCount, 1)
+            XCTAssertEqual(forwardedKeys, [.space])
+        }
+    }
+
     func testAccessibilityModifiersMapToRetainedMetadata() async {
         await MainActor.run {
             var actions: [String] = []

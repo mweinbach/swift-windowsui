@@ -46,6 +46,7 @@ public enum KeyboardKey: UInt32, Sendable {
     case downArrow = 0x28
     case deleteForward = 0x2E
     case space = 0x20
+    case mediaPlayPause = 0xB3
 }
 
 public struct KeyboardEvent: Sendable {

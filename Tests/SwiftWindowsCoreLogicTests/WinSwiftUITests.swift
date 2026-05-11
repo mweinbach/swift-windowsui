@@ -4299,9 +4299,16 @@ final class WinSwiftUITests: XCTestCase {
             struct DateEnvironmentReaderView: View {
                 @Environment(\.calendar) var calendar
                 @Environment(\.timeZone) var timeZone
+                @Environment(\.locale) var locale
 
                 var body: some View {
-                    Text(calendar.identifier == .gregorian && timeZone.secondsFromGMT() == 3_600 ? "DATEENV" : "DEFAULT")
+                    Text(
+                        calendar.identifier == .gregorian
+                            && timeZone.secondsFromGMT() == 3_600
+                            && locale.identifier == "fr_FR"
+                            ? "DATEENV"
+                            : "DEFAULT"
+                    )
                 }
             }
 
@@ -4340,6 +4347,7 @@ final class WinSwiftUITests: XCTestCase {
             let environmentReaderNode = makeNode(
                 DateEnvironmentReaderView()
                     .environment(\.timeZone, TimeZone(secondsFromGMT: 3_600)!)
+                    .environment(\.locale, Locale(identifier: "fr_FR"))
             )
 
             XCTAssertEqual(allTexts(in: dateNode), ["START", "2026-05-10"])

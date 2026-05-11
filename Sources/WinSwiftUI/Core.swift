@@ -7909,10 +7909,43 @@ public extension View {
         alignment: Alignment = .center,
         @ViewBuilder content background: () -> [AnyView]
     ) -> some View {
-        _ = alignment
-        _ = background()
+        let backgroundViews = background()
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let base = content.makeComponent(context: context)
+            let background = composeComponent(from: backgroundViews, context: context, fallbackLayout: .absolute)
+
+            return Component { runtime in
+                let backgroundNode = background.makeNode(runtime: runtime)
+                let baseNode = base.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let backgroundSize = backgroundNode.intrinsicContentSize()
+                    let backgroundOrigin = alignment.frameOrigin(
+                        for: backgroundSize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
+                    let backgroundFrame = Rect(origin: backgroundOrigin, size: backgroundSize)
+                    if backgroundNode.frame != backgroundFrame {
+                        backgroundNode.frame = backgroundFrame
+                    }
+                }
+
+                return root
+            }
         }
     }
 

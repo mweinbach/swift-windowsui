@@ -7126,6 +7126,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(allTexts(in: presentedNode).contains("STYLED SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("PRESENTATION BACKGROUND"))
             guard let sheetPanel = presentedNode.children.last else {
                 return XCTFail("Expected retained sheet panel")
             }

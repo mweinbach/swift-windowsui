@@ -4566,6 +4566,9 @@ public struct SquareBorderTextFieldStyle: Sendable, Equatable {
 public struct ListStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
+        case bordered
+        case carousel
+        case elliptical
         case plain
         case grouped
         case inset
@@ -4580,6 +4583,9 @@ public struct ListStyle: Sendable, Equatable {
     }
 
     public static let automatic = ListStyle(kind: .automatic)
+    public static let bordered = ListStyle(kind: .bordered)
+    public static let carousel = ListStyle(kind: .carousel)
+    public static let elliptical = ListStyle(kind: .elliptical)
     public static let plain = ListStyle(kind: .plain)
     public static let grouped = ListStyle(kind: .grouped)
     public static let inset = ListStyle(kind: .inset)
@@ -4590,6 +4596,24 @@ public struct ListStyle: Sendable, Equatable {
         switch kind {
         case .automatic, .plain:
             return RetainedListChrome()
+        case .bordered:
+            return RetainedListChrome(
+                defaultSpacing: 0,
+                padding: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                backgroundColor: nil,
+                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.28),
+                borderWidth: 1,
+                cornerRadius: 6
+            )
+        case .carousel, .elliptical:
+            return RetainedListChrome(
+                defaultSpacing: 6,
+                padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.68),
+                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.14),
+                borderWidth: 1,
+                cornerRadius: 16
+            )
         case .grouped:
             return RetainedListChrome(
                 defaultSpacing: 8,
@@ -4628,6 +4652,50 @@ public struct ListStyle: Sendable, Equatable {
             )
         }
     }
+}
+
+public struct DefaultListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderedListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CarouselListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct EllipticalListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PlainListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct GroupedListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct InsetListStyle: Sendable, Equatable {
+    let alternatesRowBackgrounds: Bool?
+
+    public init() {
+        self.alternatesRowBackgrounds = nil
+    }
+
+    public init(alternatesRowBackgrounds: Bool) {
+        self.alternatesRowBackgrounds = alternatesRowBackgrounds
+    }
+}
+
+public struct InsetGroupedListStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SidebarListStyle: Sendable, Equatable {
+    public init() {}
 }
 
 struct RetainedListChrome: Sendable, Equatable {
@@ -7542,6 +7610,42 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.listStyle, style))
         }
+    }
+
+    func listStyle(_ style: DefaultListStyle) -> some View {
+        listStyle(.automatic)
+    }
+
+    func listStyle(_ style: BorderedListStyle) -> some View {
+        listStyle(.bordered)
+    }
+
+    func listStyle(_ style: CarouselListStyle) -> some View {
+        listStyle(.carousel)
+    }
+
+    func listStyle(_ style: EllipticalListStyle) -> some View {
+        listStyle(.elliptical)
+    }
+
+    func listStyle(_ style: PlainListStyle) -> some View {
+        listStyle(.plain)
+    }
+
+    func listStyle(_ style: GroupedListStyle) -> some View {
+        listStyle(.grouped)
+    }
+
+    func listStyle(_ style: InsetListStyle) -> some View {
+        listStyle(.inset)
+    }
+
+    func listStyle(_ style: InsetGroupedListStyle) -> some View {
+        listStyle(.insetGrouped)
+    }
+
+    func listStyle(_ style: SidebarListStyle) -> some View {
+        listStyle(.sidebar)
     }
 
     func textInputAutocapitalization(_ textInputAutocapitalization: TextInputAutocapitalization?) -> some View {

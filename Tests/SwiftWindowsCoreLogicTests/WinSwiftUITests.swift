@@ -3641,26 +3641,46 @@ final class WinSwiftUITests: XCTestCase {
                     Text("ONE")
                     Text("TWO")
                 }
-                .listStyle(.plain)
+                .listStyle(PlainListStyle())
+            )
+            let borderedNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(BorderedListStyle())
+            )
+            let carouselNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(CarouselListStyle())
             )
             let insetGroupedNode = makeNode(
                 List {
                     Text("ONE")
                     Text("TWO")
                 }
-                .listStyle(.insetGrouped)
+                .listStyle(InsetGroupedListStyle())
             )
             let overriddenSpacingNode = makeNode(
                 List {
                     Text("ONE")
                     Text("TWO")
                 }
-                .listStyle(.grouped)
+                .listStyle(GroupedListStyle())
                 .listRowSpacing(18)
             )
 
             guard case .stack(let plainLayout) = plainNode.layoutMode else {
                 return XCTFail("Expected plain List to keep retained stack layout")
+            }
+            guard case .stack(let borderedLayout) = borderedNode.layoutMode else {
+                return XCTFail("Expected bordered List to keep retained stack layout")
+            }
+            guard case .stack(let carouselLayout) = carouselNode.layoutMode else {
+                return XCTFail("Expected carousel List to keep retained stack layout")
             }
             guard case .stack(let insetGroupedLayout) = insetGroupedNode.layoutMode else {
                 return XCTFail("Expected insetGrouped List to keep retained stack layout")
@@ -3673,6 +3693,23 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(plainNode.borderWidth, 0)
             XCTAssertEqual(plainNode.cornerRadius, 0)
             XCTAssertEqual(plainLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+
+            XCTAssertNil(borderedNode.backgroundColor)
+            XCTAssertEqual(borderedNode.borderWidth, 1)
+            XCTAssertEqual(borderedNode.cornerRadius, 6)
+            XCTAssertEqual(borderedLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+
+            XCTAssertEqual(carouselNode.backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.68))
+            XCTAssertEqual(carouselNode.borderWidth, 1)
+            XCTAssertEqual(carouselNode.cornerRadius, 16)
+            XCTAssertEqual(
+                carouselLayout,
+                .vertical(
+                    spacing: 6,
+                    padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8),
+                    alignment: .stretch
+                )
+            )
 
             XCTAssertEqual(insetGroupedNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.78))
             XCTAssertEqual(insetGroupedNode.borderWidth, 1)
@@ -3702,15 +3739,28 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.listStyle) var listStyle
 
                 var body: some View {
-                    Text(listStyle == .sidebar ? "SIDEBAR" : "OTHER")
+                    Text(
+                        listStyle == .sidebar ? "SIDEBAR"
+                            : listStyle == .bordered ? "BORDERED"
+                            : listStyle == .elliptical ? "ELLIPTICAL"
+                            : listStyle == .inset ? "INSET"
+                            : listStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
                 }
             }
 
             let defaultNode = makeNode(ListStyleReader())
-            let sidebarNode = makeNode(ListStyleReader().listStyle(.sidebar))
+            let sidebarNode = makeNode(ListStyleReader().listStyle(SidebarListStyle()))
+            let borderedNode = makeNode(ListStyleReader().listStyle(BorderedListStyle()))
+            let ellipticalNode = makeNode(ListStyleReader().listStyle(EllipticalListStyle()))
+            let insetNode = makeNode(ListStyleReader().listStyle(InsetListStyle(alternatesRowBackgrounds: true)))
 
-            XCTAssertEqual(defaultNode.text, "OTHER")
+            XCTAssertEqual(defaultNode.text, "AUTOMATIC")
             XCTAssertEqual(sidebarNode.text, "SIDEBAR")
+            XCTAssertEqual(borderedNode.text, "BORDERED")
+            XCTAssertEqual(ellipticalNode.text, "ELLIPTICAL")
+            XCTAssertEqual(insetNode.text, "INSET")
         }
     }
 

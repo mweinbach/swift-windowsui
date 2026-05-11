@@ -8593,6 +8593,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStylePaletteUsesCompactRetainedButtonsAndWritesSelection() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.palette)
+                .controlSize(.large),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let paletteNode = node.children[1]
+            XCTAssertEqual(paletteNode.children.count, 2)
+            XCTAssertEqual(allTexts(in: paletteNode), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(paletteNode.children[0].preferredSize?.height, 44)
+            XCTAssertEqual(paletteNode.children[1].preferredSize?.height, 44)
+            XCTAssertEqual(paletteNode.children[0].preferredSize?.width ?? 0, 63.8, accuracy: 0.001)
+            XCTAssertEqual(paletteNode.children[1].preferredSize?.width ?? 0, 63.8, accuracy: 0.001)
+            XCTAssertEqual(paletteNode.children[0].borderWidth, 2)
+            XCTAssertEqual(paletteNode.children[1].borderWidth, 1)
+
+            paletteNode.children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testDatePickerMapsToRetainedLabelValueRow() async {
         await MainActor.run {
             struct DateEnvironmentReaderView: View {

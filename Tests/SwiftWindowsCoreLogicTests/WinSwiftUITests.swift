@@ -7014,12 +7014,31 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Set<PresentationDetent>([.medium, .large, .height(320), .fraction(0.4)]).count, 4)
             XCTAssertTrue(allTexts(in: presentedNode).contains("DETENT SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+            guard let sheetPanel = presentedNode.children.last else {
+                return XCTFail("Expected retained sheet panel")
+            }
+            XCTAssertEqual(sheetPanel.children.count, 2)
+            XCTAssertEqual(sheetPanel.children.first?.children.first?.preferredSize, Size(width: 36, height: 5))
+            XCTAssertEqual(sheetPanel.children.first?.children.first?.cornerRadius, 2.5)
 
             firstFocusable(in: presentedNode)?.onActivate?()
 
             XCTAssertFalse(isPresented)
             XCTAssertTrue(didDismiss)
             XCTAssertEqual(selectedDetent, .medium)
+
+            let hiddenIndicatorNode = makeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        Text("NO HANDLE")
+                            .presentationDragIndicator(.visible)
+                            .presentationDragIndicator(.hidden)
+                    }
+            )
+            guard let hiddenIndicatorPanel = hiddenIndicatorNode.children.last else {
+                return XCTFail("Expected retained hidden-indicator sheet panel")
+            }
+            XCTAssertEqual(hiddenIndicatorPanel.children.count, 1)
         }
     }
 
@@ -7104,6 +7123,7 @@ final class WinSwiftUITests: XCTestCase {
                         Text("POPOVER")
                             .presentationBackground(popoverColor)
                             .presentationCornerRadius(9)
+                            .presentationDragIndicator(.visible)
                     }
             )
 
@@ -7113,6 +7133,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(popoverPanel.backgroundColor, popoverColor)
             XCTAssertNil(popoverPanel.backgroundGradient)
             XCTAssertEqual(popoverPanel.cornerRadius, 9)
+            XCTAssertEqual(popoverPanel.children.count, 2)
 
             let coverGradient = LinearGradient(
                 colors: [.green, .blue],
@@ -7125,6 +7146,7 @@ final class WinSwiftUITests: XCTestCase {
                         Text("COVER")
                             .presentationBackground(coverGradient)
                             .presentationCornerRadius(4)
+                            .presentationDragIndicator(.visible)
                     }
             )
 
@@ -7136,6 +7158,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(coverPanel.backgroundGradient?.endColor, .blue)
             XCTAssertEqual(coverPanel.cornerRadius, 4)
             XCTAssertTrue(coverPanel.clipsToBounds)
+            XCTAssertEqual(coverPanel.children.count, 2)
         }
     }
 

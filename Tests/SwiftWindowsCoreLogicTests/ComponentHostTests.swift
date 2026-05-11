@@ -119,7 +119,9 @@ final class ComponentHostTests: XCTestCase {
                             hasBackgroundOverride: true,
                             backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
                             hasCornerRadiusOverride: true,
-                            cornerRadius: 18
+                            cornerRadius: 18,
+                            hasDragIndicatorOverride: true,
+                            showsDragIndicator: false
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
@@ -129,7 +131,9 @@ final class ComponentHostTests: XCTestCase {
                                 axis: .vertical
                             ),
                             hasCornerRadiusOverride: true,
-                            cornerRadius: 8
+                            cornerRadius: 8,
+                            hasDragIndicatorOverride: true,
+                            showsDragIndicator: true
                         )
 
                     node.text = label
@@ -213,7 +217,9 @@ final class ComponentHostTests: XCTestCase {
                         axis: .vertical
                     ),
                     hasCornerRadiusOverride: true,
-                    cornerRadius: 8
+                    cornerRadius: 8,
+                    hasDragIndicatorOverride: true,
+                    showsDragIndicator: true
                 )
             )
             XCTAssertEqual(firstNode?.isFocusable, false)
@@ -266,7 +272,9 @@ final class ComponentHostTests: XCTestCase {
                     hasBackgroundOverride: true,
                     backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
                     hasCornerRadiusOverride: true,
-                    cornerRadius: 18
+                    cornerRadius: 18,
+                    hasDragIndicatorOverride: true,
+                    showsDragIndicator: false
                 )
             )
             XCTAssertEqual(reusedNode?.isFocusable, true)

@@ -6467,6 +6467,10 @@ private func mergedPresentationChrome(
         result.hasCornerRadiusOverride = true
         result.cornerRadius = override.cornerRadius
     }
+    if override.hasDragIndicatorOverride {
+        result.hasDragIndicatorOverride = true
+        result.showsDragIndicator = override.showsDragIndicator
+    }
     return result
 }
 
@@ -6484,6 +6488,31 @@ private func normalizedPresentationCornerRadius(_ value: Double?, defaultValue: 
         return defaultValue
     }
     return max(0, value)
+}
+
+@MainActor
+private func retainedPresentationDragIndicatorNode() -> ViewNode {
+    let handle = Controls.panel(
+        preferredSize: Size(width: 36, height: 5),
+        backgroundColor: Color(red: 0.95, green: 0.97, blue: 1.0, alpha: 0.44),
+        cornerRadius: 2.5,
+        isHitTestVisible: false
+    )
+    return Controls.stackPanel(
+        stackLayout: .horizontal(spacing: 0, alignment: .center, mainAlignment: .center),
+        isHitTestVisible: false,
+        children: [handle]
+    )
+}
+
+@MainActor
+private func retainedPresentationChildren(
+    contentNode: ViewNode,
+    chrome: RetainedPresentationChrome
+) -> [ViewNode] {
+    chrome.showsDragIndicator
+        ? [retainedPresentationDragIndicatorNode(), contentNode]
+        : [contentNode]
 }
 
 @MainActor
@@ -6522,7 +6551,7 @@ private func retainedSheetPresentation(
                 alignment: .stretch
             ),
             isHitTestVisible: false,
-            children: [sheetContentNode]
+            children: retainedPresentationChildren(contentNode: sheetContentNode, chrome: presentationChrome)
         )
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
@@ -6585,7 +6614,7 @@ private func retainedFullScreenCoverPresentation(
                 mainAlignment: .start
             ),
             isHitTestVisible: false,
-            children: [coverContentNode]
+            children: retainedPresentationChildren(contentNode: coverContentNode, chrome: presentationChrome)
         )
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
@@ -6644,7 +6673,7 @@ private func retainedPopoverPresentation(
                 alignment: .stretch
             ),
             isHitTestVisible: false,
-            children: [popoverContentNode]
+            children: retainedPresentationChildren(contentNode: popoverContentNode, chrome: presentationChrome)
         )
         let root = Controls.panel(
             preferredSize: baseNode.intrinsicContentSize(),
@@ -7730,9 +7759,14 @@ public extension View {
     }
 
     func presentationDragIndicator(_ visibility: Visibility) -> some View {
-        _ = visibility
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasDragIndicatorOverride = true
+                node.presentationChrome.showsDragIndicator = visibility == .visible
+                return node
+            }
         }
     }
 

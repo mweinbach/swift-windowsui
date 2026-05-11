@@ -266,19 +266,25 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var backgroundGradient: LinearGradient?
     public var hasCornerRadiusOverride: Bool
     public var cornerRadius: Double?
+    public var hasDragIndicatorOverride: Bool
+    public var showsDragIndicator: Bool
 
     public init(
         hasBackgroundOverride: Bool = false,
         backgroundColor: Color? = nil,
         backgroundGradient: LinearGradient? = nil,
         hasCornerRadiusOverride: Bool = false,
-        cornerRadius: Double? = nil
+        cornerRadius: Double? = nil,
+        hasDragIndicatorOverride: Bool = false,
+        showsDragIndicator: Bool = false
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
         self.backgroundGradient = backgroundGradient
         self.hasCornerRadiusOverride = hasCornerRadiusOverride
         self.cornerRadius = cornerRadius
+        self.hasDragIndicatorOverride = hasDragIndicatorOverride
+        self.showsDragIndicator = showsDragIndicator
     }
 
     public static let empty = RetainedPresentationChrome()

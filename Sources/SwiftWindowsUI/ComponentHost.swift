@@ -160,6 +160,8 @@ public final class ComponentHost {
         if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
         if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
         if target.symbolVariableValue != source.symbolVariableValue { target.symbolVariableValue = source.symbolVariableValue }
+        if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
+        if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
         if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }

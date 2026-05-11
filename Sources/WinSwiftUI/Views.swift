@@ -1903,7 +1903,7 @@ public struct Image: View {
         case large
     }
 
-    public enum ResizingMode: Sendable {
+    public enum ResizingMode: Sendable, Equatable {
         case tile
         case stretch
     }
@@ -1919,6 +1919,7 @@ public struct Image: View {
     private var alignment: TextAlignment
     private var isResizable: Bool
     private var resizingMode: ResizingMode
+    private var capInsets: EdgeInsets
     private var aspectRatioValue: Double?
     private var contentMode: ContentMode?
     private var accessibilityLabel: String?
@@ -1955,6 +1956,7 @@ public struct Image: View {
         self.alignment = .center
         self.isResizable = false
         self.resizingMode = .stretch
+        self.capInsets = .zero
         self.aspectRatioValue = nil
         self.contentMode = nil
         self.accessibilityLabel = nil
@@ -1984,8 +1986,7 @@ public struct Image: View {
                     scale: resolvedScale,
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
-                applyAccessibility(to: node)
-                node.symbolVariableValue = symbolVariableValue
+                applyImageMetadata(to: node)
                 return node
             }
         case .bitmap(let bitmap):
@@ -1993,12 +1994,12 @@ public struct Image: View {
             return Component { _ in
                 guard let bitmap else {
                     let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
-                    applyAccessibility(to: node)
+                    applyImageMetadata(to: node)
                     return node
                 }
 
                 let node = Controls.image(bitmap, preferredSize: preferredSize)
-                applyAccessibility(to: node)
+                applyImageMetadata(to: node)
                 return node
             }
         }
@@ -2032,6 +2033,7 @@ public struct Image: View {
         var copy = self
         copy.isResizable = true
         copy.resizingMode = resizingMode
+        copy.capInsets = capInsets
         return copy
     }
 
@@ -2117,6 +2119,24 @@ public struct Image: View {
     private func applyAccessibility(to node: ViewNode) {
         node.accessibilityLabel = accessibilityLabel
         node.isAccessibilityHidden = isAccessibilityHidden
+    }
+
+    private func applyImageMetadata(to node: ViewNode) {
+        applyAccessibility(to: node)
+        node.symbolVariableValue = symbolVariableValue
+        node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
+        node.imageCapInsets = isResizable ? capInsets : nil
+    }
+}
+
+extension Image.ResizingMode {
+    var retainedImageResizingMode: RetainedImageResizingMode {
+        switch self {
+        case .stretch:
+            return .stretch
+        case .tile:
+            return .tile
+        }
     }
 }
 

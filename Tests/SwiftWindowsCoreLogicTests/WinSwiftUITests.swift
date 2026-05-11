@@ -1987,6 +1987,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageResizableRetainsModeAndCapInsetsMetadata() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-resizable-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let capInsets = EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
+            let plainNode = makeNode(Image(systemName: "gearshape"))
+            let tiledSymbolNode = makeNode(
+                Image(systemName: "gearshape")
+                    .resizable(capInsets: capInsets, resizingMode: .tile)
+            )
+            let stretchBitmapNode = makeNode(Image(url.path).resizable())
+
+            XCTAssertNil(plainNode.imageResizingMode)
+            XCTAssertNil(plainNode.imageCapInsets)
+            XCTAssertEqual(tiledSymbolNode.imageResizingMode, .tile)
+            XCTAssertEqual(tiledSymbolNode.imageCapInsets, capInsets)
+            XCTAssertEqual(stretchBitmapNode.imageResizingMode, .stretch)
+            XCTAssertEqual(stretchBitmapNode.imageCapInsets, .zero)
+        }
+    }
+
     func testImageCompatibilityInitializersReuseBitmapAndSystemIconPaths() async {
         await MainActor.run {
             let url = FileManager.default.temporaryDirectory

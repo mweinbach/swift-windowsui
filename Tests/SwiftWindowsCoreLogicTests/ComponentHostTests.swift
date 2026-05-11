@@ -75,6 +75,10 @@ final class ComponentHostTests: XCTestCase {
                     let submitLabel: RetainedSubmitLabel = useSecondState ? .search : .return
                     let caretOffset = useSecondState ? 4 : 1
                     let symbolVariableValue = useSecondState ? 0.75 : 0.25
+                    let imageResizingMode: RetainedImageResizingMode = useSecondState ? .tile : .stretch
+                    let imageCapInsets = useSecondState
+                        ? EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8)
+                        : EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
                     let isSubmitScopeBoundary = useSecondState
 
                     node.text = label
@@ -87,6 +91,8 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputSubmitLabel = submitLabel
                     node.textInputCaretOffset = caretOffset
                     node.symbolVariableValue = symbolVariableValue
+                    node.imageResizingMode = imageResizingMode
+                    node.imageCapInsets = imageCapInsets
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.isFocusable = useSecondState
                     node.animationStates = [
@@ -116,6 +122,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.symbolVariableValue, 0.25)
+            XCTAssertEqual(firstNode?.imageResizingMode, .stretch)
+            XCTAssertEqual(firstNode?.imageCapInsets, EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
@@ -135,6 +143,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.symbolVariableValue, 0.75)
+            XCTAssertEqual(reusedNode?.imageResizingMode, .tile)
+            XCTAssertEqual(reusedNode?.imageCapInsets, EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8))
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)

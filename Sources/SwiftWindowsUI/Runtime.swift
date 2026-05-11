@@ -53,6 +53,11 @@ public enum RetainedHoverEffect: Sendable, Equatable {
     case lift
 }
 
+public enum RetainedImageResizingMode: Sendable, Equatable {
+    case stretch
+    case tile
+}
+
 public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public let rawValue: Int
 
@@ -605,6 +610,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var imageResizingMode: RetainedImageResizingMode? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var imageCapInsets: EdgeInsets? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var keyboardShortcuts: [KeyboardShortcutBinding] {
         didSet { invalidateRuntime(.paint) }
     }
@@ -756,6 +769,8 @@ public final class ViewNode {
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
+        imageResizingMode: RetainedImageResizingMode? = nil,
+        imageCapInsets: EdgeInsets? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
@@ -814,6 +829,8 @@ public final class ViewNode {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
+        self.imageResizingMode = imageResizingMode
+        self.imageCapInsets = imageCapInsets
         self.keyboardShortcuts = keyboardShortcuts
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)

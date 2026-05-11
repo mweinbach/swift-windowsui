@@ -4816,6 +4816,105 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPopoverIsPresentedComposesRetainedFloatingPanelAndDismisses() async {
+        await MainActor.run {
+            struct PopoverContent: View {
+                @Environment(\.dismiss) var dismiss
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    VStack {
+                        Text(isPresented ? "POPOVER" : "ROOT")
+                        Button("CLOSE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var isPresented = true
+            var didInvalidate = false
+            let view = Text("ROOT")
+                .frame(width: 200, height: 100)
+                .popover(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    attachmentAnchor: .point(.top),
+                    arrowEdge: .bottom
+                ) {
+                    PopoverContent()
+                }
+
+            let presentedNode = makeNode(
+                view,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            guard case .absolute = presentedNode.layoutMode else {
+                return XCTFail("Expected popover presentation to use retained absolute overlay layout")
+            }
+            XCTAssertEqual(presentedNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("POPOVER"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CLOSE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(view)
+            XCTAssertTrue(allTexts(in: rootNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: rootNode).contains("POPOVER"))
+        }
+    }
+
+    func testPopoverItemRendersSelectedItemAndClearsOnDismiss() async {
+        await MainActor.run {
+            struct ItemPopoverContent: View {
+                let id: String
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    VStack {
+                        Text(id)
+                        Button("CLOSE") {
+                            dismiss()
+                        }
+                    }
+                }
+            }
+
+            var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "POPOVER DETAIL")
+            let view = Text("ROOT")
+                .popover(
+                    item: Binding(
+                        get: { selectedItem },
+                        set: { selectedItem = $0 }
+                    ),
+                    arrowEdge: .trailing
+                ) { item in
+                    ItemPopoverContent(id: item.id)
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertTrue(allTexts(in: presentedNode).contains("POPOVER DETAIL"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("CLOSE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertNil(selectedItem)
+
+            let rootNode = makeNode(view)
+            XCTAssertEqual(rootNode.text, "ROOT")
+        }
+    }
+
     func testDismissEnvironmentActionPopsNavigationPathBinding() async {
         await MainActor.run {
             struct DismissValueView: View {

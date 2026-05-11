@@ -152,6 +152,27 @@ public struct UnitPoint: Sendable, Equatable {
     public static let bottomTrailing = UnitPoint(x: 1.0, y: 1.0)
 }
 
+public struct PopoverAttachmentAnchor: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case rect(UnitPoint)
+        case point(UnitPoint)
+    }
+
+    public var kind: Kind
+
+    public init(_ kind: Kind = .rect(.center)) {
+        self.kind = kind
+    }
+
+    public static func rect(_ anchor: UnitPoint = .center) -> PopoverAttachmentAnchor {
+        PopoverAttachmentAnchor(.rect(anchor))
+    }
+
+    public static func point(_ anchor: UnitPoint) -> PopoverAttachmentAnchor {
+        PopoverAttachmentAnchor(.point(anchor))
+    }
+}
+
 public struct MatchedGeometryProperties: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -4858,6 +4879,76 @@ private func retainedSheetPresentation(
     }
 }
 
+@MainActor
+private func retainedPopoverPresentation(
+    base: Component,
+    popover: Component,
+    context: ViewBuildContext,
+    arrowEdge: Edge
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let popoverContentNode = popover.makeNode(runtime: runtime)
+        let popoverNode = Controls.stackPanel(
+            backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
+            shadowOffset: Point(x: 0, y: 10),
+            shadowSpread: 16,
+            cornerRadius: 12,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 8,
+                padding: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: [popoverContentNode]
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, popoverNode]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+
+            let popoverSize = popoverNode.intrinsicContentSize()
+            let alignment = popoverAlignment(for: arrowEdge, layoutDirection: context.layoutDirection)
+            let popoverOrigin = alignment.frameOrigin(
+                for: popoverSize,
+                in: bounds.size,
+                layoutDirection: context.layoutDirection
+            )
+            let popoverFrame = Rect(origin: popoverOrigin, size: popoverSize)
+            if popoverNode.frame != popoverFrame {
+                popoverNode.frame = popoverFrame
+            }
+        }
+
+        return root
+    }
+}
+
+private func popoverAlignment(for arrowEdge: Edge, layoutDirection: LayoutDirection) -> Alignment {
+    switch arrowEdge {
+    case .top:
+        return .top
+    case .bottom:
+        return .bottom
+    case .leading:
+        return layoutDirection == .rightToLeft ? .trailing : .leading
+    case .trailing:
+        return layoutDirection == .rightToLeft ? .leading : .trailing
+    }
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5168,6 +5259,82 @@ public extension View {
             )
 
             return retainedSheetPresentation(base: base, sheet: sheet, context: context)
+        }
+    }
+
+    func popover(
+        isPresented: Binding<Bool>,
+        attachmentAnchor: PopoverAttachmentAnchor = .rect(),
+        arrowEdge: Edge = .top,
+        @ViewBuilder content popoverContent: @escaping () -> [AnyView]
+    ) -> some View {
+        _ = attachmentAnchor
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let popoverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard isPresented.wrappedValue else {
+                        return
+                    }
+
+                    isPresented.wrappedValue = false
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let popover = composeComponent(
+                from: popoverContent(),
+                context: popoverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedPopoverPresentation(
+                base: base,
+                popover: popover,
+                context: context,
+                arrowEdge: arrowEdge
+            )
+        }
+    }
+
+    func popover<Item>(
+        item: Binding<Item?>,
+        attachmentAnchor: PopoverAttachmentAnchor = .rect(),
+        arrowEdge: Edge = .top,
+        @ViewBuilder content popoverContent: @escaping (Item) -> [AnyView]
+    ) -> some View where Item: Identifiable {
+        _ = attachmentAnchor
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let popoverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard item.wrappedValue != nil else {
+                        return
+                    }
+
+                    item.wrappedValue = nil
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let popover = composeComponent(
+                from: popoverContent(selectedItem),
+                context: popoverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedPopoverPresentation(
+                base: base,
+                popover: popover,
+                context: context,
+                arrowEdge: arrowEdge
+            )
         }
     }
 

@@ -335,6 +335,58 @@ public enum LayoutDirection: Sendable, Equatable {
     case rightToLeft
 }
 
+public enum DynamicTypeSize: Int, CaseIterable, Comparable, Sendable {
+    case xSmall
+    case small
+    case medium
+    case large
+    case xLarge
+    case xxLarge
+    case xxxLarge
+    case accessibility1
+    case accessibility2
+    case accessibility3
+    case accessibility4
+    case accessibility5
+
+    public static func < (lhs: DynamicTypeSize, rhs: DynamicTypeSize) -> Bool {
+        lhs.rawValue < rhs.rawValue
+    }
+
+    public var isAccessibilitySize: Bool {
+        self >= .accessibility1
+    }
+
+    var retainedFontScale: Double {
+        switch self {
+        case .xSmall:
+            return 0.82
+        case .small:
+            return 0.88
+        case .medium:
+            return 0.95
+        case .large:
+            return 1.0
+        case .xLarge:
+            return 1.12
+        case .xxLarge:
+            return 1.24
+        case .xxxLarge:
+            return 1.36
+        case .accessibility1:
+            return 1.55
+        case .accessibility2:
+            return 1.75
+        case .accessibility3:
+            return 2.0
+        case .accessibility4:
+            return 2.35
+        case .accessibility5:
+            return 2.75
+        }
+    }
+}
+
 public enum TextInputAutocapitalization: Sendable, Equatable {
     case never
     case words
@@ -455,6 +507,7 @@ public struct OpenURLAction: @unchecked Sendable {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var layoutDirection: LayoutDirection
+    public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
@@ -494,6 +547,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public init(
         colorScheme: ColorScheme = .dark,
         layoutDirection: LayoutDirection = .leftToRight,
+        dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
@@ -527,6 +581,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     ) {
         self.colorScheme = colorScheme
         self.layoutDirection = layoutDirection
+        self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle
         self.tint = tint
@@ -898,6 +953,10 @@ public struct ViewBuildContext {
 
     public var layoutDirection: LayoutDirection {
         environmentValues.layoutDirection
+    }
+
+    public var dynamicTypeSize: DynamicTypeSize {
+        environmentValues.dynamicTypeSize
     }
 
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -2993,6 +3052,15 @@ extension Font {
         Font(size: size, weight: weight, design: design, family: family)
     }
 
+    func scaled(for dynamicTypeSize: DynamicTypeSize) -> Font {
+        Font(
+            size: size * dynamicTypeSize.retainedFontScale,
+            weight: weight,
+            design: design,
+            family: family
+        )
+    }
+
     var resolvedScale: Double {
         size >= 8 ? size / 10.0 : size
     }
@@ -3954,6 +4022,12 @@ public extension View {
             }
 
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func dynamicTypeSize(_ size: DynamicTypeSize) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.dynamicTypeSize, size))
         }
     }
 

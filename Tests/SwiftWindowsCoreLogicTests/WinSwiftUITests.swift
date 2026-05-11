@@ -1040,6 +1040,60 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    @MainActor
+    private static func assertNativeFontSize(_ node: ViewNode, _ expectedSize: Double, file: StaticString = #filePath, line: UInt = #line) {
+        guard let nativeFontSize = node.textStyle.nativeFontSize else {
+            XCTFail("Expected native font size", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(nativeFontSize, expectedSize, accuracy: 0.001, file: file, line: line)
+    }
+
+    func testDynamicTypeSizeScalesRetainedTextAndInputs() async {
+        await MainActor.run {
+            struct DynamicTypeReaderView: View {
+                @Environment(\.dynamicTypeSize) var dynamicTypeSize
+
+                var body: some View {
+                    Text(dynamicTypeSize.isAccessibilitySize ? "ACCESS" : "REGULAR")
+                }
+            }
+
+            let defaultNode = makeNode(
+                Text("DEFAULT")
+                    .font(.system(size: 10))
+            )
+            let explicitNode = makeNode(
+                Text("EXPLICIT")
+                    .font(.system(size: 10))
+                    .dynamicTypeSize(.xxLarge)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                }
+                .font(.system(size: 10))
+                .dynamicTypeSize(.xxLarge)
+            )
+            let inputNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .font(.system(size: 10))
+                    .dynamicTypeSize(.xxxLarge)
+            )
+            let readerNode = makeNode(
+                DynamicTypeReaderView()
+                    .dynamicTypeSize(.accessibility1)
+            )
+
+            Self.assertNativeFontSize(defaultNode, 10)
+            Self.assertNativeFontSize(explicitNode, 12.4)
+            Self.assertNativeFontSize(inheritedNode.children[0], 12.4)
+            Self.assertNativeFontSize(inputNode.children[0], 13.6)
+            XCTAssertEqual(readerNode.text, "ACCESS")
+        }
+    }
+
     func testFontDesignModifierPropagatesThroughViewContext() async {
         await MainActor.run {
             let inheritedNode = makeNode(

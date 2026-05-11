@@ -1660,6 +1660,7 @@ public struct Text: View {
         if let fontDesign {
             resolvedFont = resolvedFont.withDesign(fontDesign)
         }
+        resolvedFont = resolvedFont.scaled(for: context.dynamicTypeSize)
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
         if let lineLimit {
@@ -3645,13 +3646,16 @@ private func textInputComponent(
             textColor = context.foregroundColor
         }
 
+        let resolvedFont = (context.fontWeight.map { context.font.weight($0) } ?? context.font)
+            .scaled(for: context.dynamicTypeSize)
+
         let labelNode = Controls.label(
             isShowingPlaceholder ? (placeholder ?? "") : displayText,
             color: textColor,
-            scale: context.font.resolvedScale,
-            weight: (context.fontWeight ?? context.font.weight).textWeight,
-            fontFamily: context.font.resolvedFamily,
-            nativeFontSize: context.font.resolvedNativeTextSize,
+            scale: resolvedFont.resolvedScale,
+            weight: resolvedFont.weight.textWeight,
+            fontFamily: resolvedFont.resolvedFamily,
+            nativeFontSize: resolvedFont.resolvedNativeTextSize,
             alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
             lineBreakMode: allowsNewlines ? .wrap : .truncateTail,

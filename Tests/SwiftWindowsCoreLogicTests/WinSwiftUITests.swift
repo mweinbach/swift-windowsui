@@ -9127,6 +9127,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFlipsForRightToLeftLayoutDirectionMapsToRetainedTransform() async {
+        await MainActor.run {
+            let leftToRightNode = makeNode(
+                Image(systemName: "chevron.right")
+                    .flipsForRightToLeftLayoutDirection(true)
+                    .environment(\.layoutDirection, .leftToRight)
+            )
+            let rightToLeftNode = makeNode(
+                Image(systemName: "chevron.right")
+                    .flipsForRightToLeftLayoutDirection(true)
+                    .environment(\.layoutDirection, .rightToLeft)
+            )
+            let disabledNode = makeNode(
+                Image(systemName: "chevron.right")
+                    .flipsForRightToLeftLayoutDirection(false)
+                    .environment(\.layoutDirection, .rightToLeft)
+            )
+            let scaledRightToLeftNode = makeNode(
+                Image(systemName: "chevron.right")
+                    .scaleEffect(2)
+                    .flipsForRightToLeftLayoutDirection(true)
+                    .environment(\.layoutDirection, .rightToLeft)
+            )
+
+            XCTAssertEqual(leftToRightNode.transform, .identity)
+            XCTAssertEqual(rightToLeftNode.transform, Transform2D.scale(x: -1, y: 1))
+            XCTAssertEqual(disabledNode.transform, .identity)
+            XCTAssertEqual(scaledRightToLeftNode.transform, Transform2D.scale(x: -2, y: 2))
+        }
+    }
+
     func testAngleAndRotationEffectMapToRetainedTransform() async {
         await MainActor.run {
             let angle = Angle.degrees(90)

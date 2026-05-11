@@ -9153,6 +9153,23 @@ public extension View {
         }
     }
 
+    func flipsForRightToLeftLayoutDirection(_ enabled: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                if enabled && context.layoutDirection == .rightToLeft {
+                    if childNode.transform.isIdentity {
+                        childNode.transform = .scale(x: -1, y: 1)
+                    } else {
+                        childNode.transform.scaleX *= -1
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
     func rotationEffect(_ angle: Angle) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

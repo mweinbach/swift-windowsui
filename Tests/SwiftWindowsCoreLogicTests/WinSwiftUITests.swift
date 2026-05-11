@@ -35,6 +35,30 @@ private struct NavigationDestinationItem: Identifiable {
     let id: String
 }
 
+private enum TestParseError: Error {
+    case invalid
+}
+
+private struct TestIntegerParseStrategy: ParseStrategy {
+    func parse(_ value: String) throws -> Int {
+        let normalized = value.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard let parsed = Int(normalized) else {
+            throw TestParseError.invalid
+        }
+        return parsed
+    }
+}
+
+private struct TestIntegerParseableFormatStyle: ParseableFormatStyle {
+    var parseStrategy: TestIntegerParseStrategy {
+        TestIntegerParseStrategy()
+    }
+
+    func format(_ value: Int) -> String {
+        "#\(value)"
+    }
+}
+
 private struct TestEnvironmentLabelKey: EnvironmentKey {
     static let defaultValue = "DEFAULT"
 }
@@ -702,6 +726,55 @@ final class WinSwiftUITests: XCTestCase {
             builderNode.onKeyDown?(KeyboardEvent(keyCode: 0x39))
 
             XCTAssertEqual(builderValue, 79)
+        }
+    }
+
+    func testTextFieldParseableFormatStyleValueInitializersDisplayAndWriteBinding() async {
+        await MainActor.run {
+            let format = TestIntegerParseableFormatStyle()
+
+            var count = 12
+            let countBinding = Binding(
+                get: { count },
+                set: { count = $0 }
+            )
+            let countNode = makeNode(
+                TextField("COUNT", value: countBinding, format: format)
+            )
+
+            XCTAssertEqual(countNode.children[0].text, "#12")
+
+            countNode.onKeyDown?(KeyboardEvent(keyCode: 0x33))
+
+            XCTAssertEqual(count, 123)
+
+            countNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+
+            XCTAssertEqual(count, 123)
+
+            var optionalCount: Int? = 4
+            let optionalNode = makeNode(
+                TextField(
+                    value: Binding(
+                        get: { optionalCount },
+                        set: { optionalCount = $0 }
+                    ),
+                    format: format,
+                    prompt: Text("COUNT")
+                ) {
+                    Text("TOTAL")
+                }
+            )
+
+            XCTAssertEqual(optionalNode.children[0].text, "#4")
+
+            optionalNode.onKeyDown?(KeyboardEvent(keyCode: 0x35))
+
+            XCTAssertEqual(optionalCount, 45)
+
+            optionalNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+
+            XCTAssertNil(optionalCount)
         }
     }
 

@@ -5879,6 +5879,50 @@ public struct TextField: View {
         self.init(titleKey.resolvedString, value: value, formatter: formatter, prompt: prompt)
     }
 
+    public init<S: StringProtocol, F: ParseableFormatStyle>(
+        _ title: S,
+        value: Binding<F.FormatInput>,
+        format: F,
+        prompt: Text? = nil
+    ) where F.FormatOutput == String {
+        self.init(
+            String(title),
+            text: parseableFormatBackedTextBinding(value: value, format: format),
+            prompt: prompt
+        )
+    }
+
+    public init<F: ParseableFormatStyle>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<F.FormatInput>,
+        format: F,
+        prompt: Text? = nil
+    ) where F.FormatOutput == String {
+        self.init(titleKey.resolvedString, value: value, format: format, prompt: prompt)
+    }
+
+    public init<S: StringProtocol, F: ParseableFormatStyle>(
+        _ title: S,
+        value: Binding<F.FormatInput?>,
+        format: F,
+        prompt: Text? = nil
+    ) where F.FormatOutput == String {
+        self.init(
+            String(title),
+            text: optionalParseableFormatBackedTextBinding(value: value, format: format),
+            prompt: prompt
+        )
+    }
+
+    public init<F: ParseableFormatStyle>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<F.FormatInput?>,
+        format: F,
+        prompt: Text? = nil
+    ) where F.FormatOutput == String {
+        self.init(titleKey.resolvedString, value: value, format: format, prompt: prompt)
+    }
+
     public init(
         _ title: String,
         text: Binding<String>,
@@ -5940,6 +5984,38 @@ public struct TextField: View {
     ) {
         self.title = ""
         self.text = formatterBackedTextBinding(value: value, formatter: formatter)
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.selection = nil
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init<F: ParseableFormatStyle>(
+        value: Binding<F.FormatInput>,
+        format: F,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) where F.FormatOutput == String {
+        self.title = ""
+        self.text = parseableFormatBackedTextBinding(value: value, format: format)
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.selection = nil
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init<F: ParseableFormatStyle>(
+        value: Binding<F.FormatInput?>,
+        format: F,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) where F.FormatOutput == String {
+        self.title = ""
+        self.text = optionalParseableFormatBackedTextBinding(value: value, format: format)
         self.prompt = prompt?.plainContent
         self.axis = .horizontal
         self.label = label()
@@ -6220,6 +6296,38 @@ private func parsedFormatterValue<Value>(_ text: String, formatter: Formatter) -
     }
 
     return nil
+}
+
+@MainActor
+private func parseableFormatBackedTextBinding<F: ParseableFormatStyle>(
+    value: Binding<F.FormatInput>,
+    format: F
+) -> Binding<String> where F.FormatOutput == String {
+    Binding<String>(
+        get: {
+            format.format(value.wrappedValue)
+        },
+        set: { text in
+            if let parsed = try? format.parseStrategy.parse(text) {
+                value.wrappedValue = parsed
+            }
+        }
+    )
+}
+
+@MainActor
+private func optionalParseableFormatBackedTextBinding<F: ParseableFormatStyle>(
+    value: Binding<F.FormatInput?>,
+    format: F
+) -> Binding<String> where F.FormatOutput == String {
+    Binding<String>(
+        get: {
+            value.wrappedValue.map { format.format($0) } ?? ""
+        },
+        set: { text in
+            value.wrappedValue = try? format.parseStrategy.parse(text)
+        }
+    )
 }
 
 private func convertedFormatterValue<Value>(_ object: Any) -> Value? {

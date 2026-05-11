@@ -121,7 +121,10 @@ final class ComponentHostTests: XCTestCase {
                             hasCornerRadiusOverride: true,
                             cornerRadius: 18,
                             hasDragIndicatorOverride: true,
-                            showsDragIndicator: false
+                            showsDragIndicator: false,
+                            hasDetentsOverride: true,
+                            detents: [.fraction(0.5), .large],
+                            selectedDetent: .fraction(0.5)
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
@@ -133,7 +136,10 @@ final class ComponentHostTests: XCTestCase {
                             hasCornerRadiusOverride: true,
                             cornerRadius: 8,
                             hasDragIndicatorOverride: true,
-                            showsDragIndicator: true
+                            showsDragIndicator: true,
+                            hasDetentsOverride: true,
+                            detents: [.height(240), .medium],
+                            selectedDetent: .height(240)
                         )
 
                     node.text = label
@@ -219,7 +225,10 @@ final class ComponentHostTests: XCTestCase {
                     hasCornerRadiusOverride: true,
                     cornerRadius: 8,
                     hasDragIndicatorOverride: true,
-                    showsDragIndicator: true
+                    showsDragIndicator: true,
+                    hasDetentsOverride: true,
+                    detents: [.height(240), .medium],
+                    selectedDetent: .height(240)
                 )
             )
             XCTAssertEqual(firstNode?.isFocusable, false)
@@ -274,7 +283,10 @@ final class ComponentHostTests: XCTestCase {
                     hasCornerRadiusOverride: true,
                     cornerRadius: 18,
                     hasDragIndicatorOverride: true,
-                    showsDragIndicator: false
+                    showsDragIndicator: false,
+                    hasDetentsOverride: true,
+                    detents: [.fraction(0.5), .large],
+                    selectedDetent: .fraction(0.5)
                 )
             )
             XCTAssertEqual(reusedNode?.isFocusable, true)

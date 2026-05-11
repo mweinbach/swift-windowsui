@@ -7021,6 +7021,16 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(sheetPanel.children.first?.children.first?.preferredSize, Size(width: 36, height: 5))
             XCTAssertEqual(sheetPanel.children.first?.children.first?.cornerRadius, 2.5)
 
+            let (_, renderedPresentedNode) = makeRuntimeNode(view, size: Size(width: 800, height: 600))
+            guard let renderedSheetPanel = renderedPresentedNode.children.last else {
+                return XCTFail("Expected rendered retained sheet panel")
+            }
+            XCTAssertEqual(
+                renderedSheetPanel.frame.size.height,
+                269,
+                accuracy: 0.001
+            )
+
             firstFocusable(in: presentedNode)?.onActivate?()
 
             XCTAssertFalse(isPresented)
@@ -7039,6 +7049,36 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected retained hidden-indicator sheet panel")
             }
             XCTAssertEqual(hiddenIndicatorPanel.children.count, 1)
+
+            let (_, heightDetentNode) = makeRuntimeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        Text("HEIGHT")
+                            .presentationDetents([.height(320)])
+                    },
+                size: Size(width: 800, height: 600)
+            )
+            guard let heightDetentPanel = heightDetentNode.children.last else {
+                return XCTFail("Expected height-detent sheet panel")
+            }
+            XCTAssertEqual(heightDetentPanel.frame.size.height, 320, accuracy: 0.001)
+
+            let (_, fractionDetentNode) = makeRuntimeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        Text("FRACTION")
+                            .presentationDetents([.fraction(0.25)])
+                    },
+                size: Size(width: 800, height: 600)
+            )
+            guard let fractionDetentPanel = fractionDetentNode.children.last else {
+                return XCTFail("Expected fraction-detent sheet panel")
+            }
+            XCTAssertEqual(
+                fractionDetentPanel.frame.size.height,
+                134.5,
+                accuracy: 0.001
+            )
         }
     }
 

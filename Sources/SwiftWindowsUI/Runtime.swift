@@ -260,6 +260,13 @@ public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case disabled
 }
 
+public enum RetainedPresentationDetent: Sendable, Equatable, Hashable {
+    case medium
+    case large
+    case height(Double)
+    case fraction(Double)
+}
+
 public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasBackgroundOverride: Bool
     public var backgroundColor: Color?
@@ -268,6 +275,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var cornerRadius: Double?
     public var hasDragIndicatorOverride: Bool
     public var showsDragIndicator: Bool
+    public var hasDetentsOverride: Bool
+    public var detents: [RetainedPresentationDetent]
+    public var selectedDetent: RetainedPresentationDetent?
 
     public init(
         hasBackgroundOverride: Bool = false,
@@ -276,7 +286,10 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         hasCornerRadiusOverride: Bool = false,
         cornerRadius: Double? = nil,
         hasDragIndicatorOverride: Bool = false,
-        showsDragIndicator: Bool = false
+        showsDragIndicator: Bool = false,
+        hasDetentsOverride: Bool = false,
+        detents: [RetainedPresentationDetent] = [],
+        selectedDetent: RetainedPresentationDetent? = nil
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
@@ -285,6 +298,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         self.cornerRadius = cornerRadius
         self.hasDragIndicatorOverride = hasDragIndicatorOverride
         self.showsDragIndicator = showsDragIndicator
+        self.hasDetentsOverride = hasDetentsOverride
+        self.detents = detents
+        self.selectedDetent = selectedDetent
     }
 
     public static let empty = RetainedPresentationChrome()
@@ -853,7 +869,7 @@ public final class ViewNode {
     }
 
     public var presentationChrome: RetainedPresentationChrome {
-        didSet { invalidateRuntime(.paint) }
+        didSet { invalidateRuntime(.layout) }
     }
 
     /// Optional stable identity tag used by the diffing algorithm to match

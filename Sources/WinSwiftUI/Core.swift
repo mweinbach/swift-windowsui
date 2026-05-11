@@ -987,6 +987,21 @@ public struct PresentationDetent: Sendable, Equatable, Hashable {
     }
 }
 
+private extension PresentationDetent {
+    var retainedDetent: RetainedPresentationDetent {
+        switch kind {
+        case .medium:
+            return .medium
+        case .large:
+            return .large
+        case let .height(height):
+            return .height(height)
+        case let .fraction(fraction):
+            return .fraction(fraction)
+        }
+    }
+}
+
 public struct PresentationAdaptation: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -6471,6 +6486,11 @@ private func mergedPresentationChrome(
         result.hasDragIndicatorOverride = true
         result.showsDragIndicator = override.showsDragIndicator
     }
+    if override.hasDetentsOverride {
+        result.hasDetentsOverride = true
+        result.detents = override.detents
+        result.selectedDetent = override.selectedDetent
+    }
     return result
 }
 
@@ -6481,6 +6501,74 @@ private func retainedPresentationChrome(in node: ViewNode) -> RetainedPresentati
         chrome = mergedPresentationChrome(chrome, applying: retainedPresentationChrome(in: child))
     }
     return mergedPresentationChrome(chrome, applying: node.presentationChrome)
+}
+
+private func retainedPresentationDetentSortKey(_ detent: RetainedPresentationDetent) -> (Int, Double) {
+    switch detent {
+    case .medium:
+        return (0, 0)
+    case let .fraction(fraction):
+        return (1, fraction.isFinite ? fraction : 0)
+    case let .height(height):
+        return (2, height.isFinite ? height : 0)
+    case .large:
+        return (3, 0)
+    }
+}
+
+private func retainedPresentationDetentPrecedes(
+    _ lhs: RetainedPresentationDetent,
+    _ rhs: RetainedPresentationDetent
+) -> Bool {
+    let lhsKey = retainedPresentationDetentSortKey(lhs)
+    let rhsKey = retainedPresentationDetentSortKey(rhs)
+    if lhsKey.0 != rhsKey.0 {
+        return lhsKey.0 < rhsKey.0
+    }
+    return lhsKey.1 < rhsKey.1
+}
+
+private func retainedPresentationDetents(from detents: Set<PresentationDetent>) -> [RetainedPresentationDetent] {
+    detents.map(\.retainedDetent).sorted(by: retainedPresentationDetentPrecedes)
+}
+
+private func clampedPresentationFraction(_ fraction: Double) -> Double {
+    guard fraction.isFinite else {
+        return 0
+    }
+    return min(1, max(0, fraction))
+}
+
+private func retainedPresentationHeight(
+    chrome: RetainedPresentationChrome,
+    boundsSize: Size
+) -> Double? {
+    guard chrome.hasDetentsOverride else {
+        return nil
+    }
+
+    let detents = chrome.detents
+    let selectedDetent = chrome.selectedDetent.flatMap { selected in
+        detents.isEmpty || detents.contains(selected) ? selected : nil
+    } ?? detents.first
+    guard let selectedDetent else {
+        return nil
+    }
+
+    let availableHeight = max(0, boundsSize.height - 48)
+    let targetHeight: Double
+    switch selectedDetent {
+    case .medium:
+        targetHeight = availableHeight * 0.5
+    case .large:
+        targetHeight = availableHeight
+    case let .height(height):
+        targetHeight = height.isFinite ? max(0, height) : 0
+    case let .fraction(fraction):
+        targetHeight = availableHeight * clampedPresentationFraction(fraction)
+    }
+
+    return min(availableHeight, targetHeight)
 }
 
 private func normalizedPresentationCornerRadius(_ value: Double?, defaultValue: Double) -> Double {
@@ -6569,7 +6657,13 @@ private func retainedSheetPresentation(
                 scrimNode.frame = boundsFrame
             }
 
-            let sheetSize = sheetNode.intrinsicContentSize()
+            var sheetSize = sheetNode.intrinsicContentSize()
+            if let detentHeight = retainedPresentationHeight(
+                chrome: presentationChrome,
+                boundsSize: bounds.size
+            ) {
+                sheetSize.height = detentHeight
+            }
             let sheetOrigin = Alignment.center.frameOrigin(
                 for: sheetSize,
                 in: bounds.size,
@@ -7741,9 +7835,16 @@ public extension View {
     }
 
     func presentationDetents(_ detents: Set<PresentationDetent>) -> some View {
-        _ = detents
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let retainedDetents = retainedPresentationDetents(from: detents)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasDetentsOverride = true
+                node.presentationChrome.detents = retainedDetents
+                node.presentationChrome.selectedDetent = retainedDetents.first
+                return node
+            }
         }
     }
 
@@ -7751,10 +7852,20 @@ public extension View {
         _ detents: Set<PresentationDetent>,
         selection: Binding<PresentationDetent>
     ) -> some View {
-        _ = detents
-        _ = selection
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let retainedDetents = retainedPresentationDetents(from: detents)
+            let selectedDetent = selection.wrappedValue.retainedDetent
+            let retainedSelectedDetent = retainedDetents.contains(selectedDetent)
+                ? selectedDetent
+                : retainedDetents.first
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasDetentsOverride = true
+                node.presentationChrome.detents = retainedDetents
+                node.presentationChrome.selectedDetent = retainedSelectedDetent
+                return node
+            }
         }
     }
 

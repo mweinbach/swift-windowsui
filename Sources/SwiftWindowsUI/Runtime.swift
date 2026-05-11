@@ -278,6 +278,8 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasDetentsOverride: Bool
     public var detents: [RetainedPresentationDetent]
     public var selectedDetent: RetainedPresentationDetent?
+    public var hasInteractiveDismissDisabledOverride: Bool
+    public var interactiveDismissDisabled: Bool
 
     public init(
         hasBackgroundOverride: Bool = false,
@@ -289,7 +291,9 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         showsDragIndicator: Bool = false,
         hasDetentsOverride: Bool = false,
         detents: [RetainedPresentationDetent] = [],
-        selectedDetent: RetainedPresentationDetent? = nil
+        selectedDetent: RetainedPresentationDetent? = nil,
+        hasInteractiveDismissDisabledOverride: Bool = false,
+        interactiveDismissDisabled: Bool = false
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
@@ -301,6 +305,8 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         self.hasDetentsOverride = hasDetentsOverride
         self.detents = detents
         self.selectedDetent = selectedDetent
+        self.hasInteractiveDismissDisabledOverride = hasInteractiveDismissDisabledOverride
+        self.interactiveDismissDisabled = interactiveDismissDisabled
     }
 
     public static let empty = RetainedPresentationChrome()

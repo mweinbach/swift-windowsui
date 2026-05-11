@@ -6748,6 +6748,10 @@ private func mergedPresentationChrome(
         result.detents = override.detents
         result.selectedDetent = override.selectedDetent
     }
+    if override.hasInteractiveDismissDisabledOverride {
+        result.hasInteractiveDismissDisabledOverride = true
+        result.interactiveDismissDisabled = override.interactiveDismissDisabled
+    }
     return result
 }
 
@@ -6864,16 +6868,25 @@ private func retainedPresentationChildren(
 private func retainedSheetPresentation(
     base: Component,
     sheet: Component,
-    context: ViewBuildContext
+    context: ViewBuildContext,
+    onInteractiveDismiss: @escaping @MainActor () -> Void
 ) -> Component {
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
-        let scrimNode = Controls.panel(
-            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.48),
-            isHitTestVisible: false
-        )
         let sheetContentNode = sheet.makeNode(runtime: runtime)
         let presentationChrome = retainedPresentationChrome(in: sheetContentNode)
+        let scrimNode = Controls.panel(
+            backgroundColor: Color(red: 0.02, green: 0.03, blue: 0.05, alpha: 0.48),
+            isHitTestVisible: !presentationChrome.interactiveDismissDisabled
+        )
+        scrimNode.nodeTag = presentationChrome.interactiveDismissDisabled
+            ? "sheet-scrim-dismiss-disabled"
+            : "sheet-scrim-dismiss-enabled"
+        if !presentationChrome.interactiveDismissDisabled {
+            scrimNode.onActivate = {
+                onInteractiveDismiss()
+            }
+        }
         let sheetBackgroundColor = presentationChrome.hasBackgroundOverride
             ? presentationChrome.backgroundColor
             : Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
@@ -7922,16 +7935,17 @@ public extension View {
                 return base
             }
 
-            let sheetContext = context
-                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
-                    guard isPresented.wrappedValue else {
-                        return
-                    }
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
 
-                    isPresented.wrappedValue = false
-                    onDismiss?()
-                    context.invalidate()
-                }))
+                isPresented.wrappedValue = false
+                onDismiss?()
+                context.invalidate()
+            }
+            let sheetContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
                 from: sheetContent(),
@@ -7939,7 +7953,12 @@ public extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedSheetPresentation(base: base, sheet: sheet, context: context)
+            return retainedSheetPresentation(
+                base: base,
+                sheet: sheet,
+                context: context,
+                onInteractiveDismiss: dismiss
+            )
         }
     }
 
@@ -7954,16 +7973,17 @@ public extension View {
                 return base
             }
 
-            let sheetContext = context
-                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
-                    guard item.wrappedValue != nil else {
-                        return
-                    }
+            let dismiss: @MainActor () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
 
-                    item.wrappedValue = nil
-                    onDismiss?()
-                    context.invalidate()
-                }))
+                item.wrappedValue = nil
+                onDismiss?()
+                context.invalidate()
+            }
+            let sheetContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
                 .withEnvironmentValue(\.isPresented, true)
             let sheet = composeComponent(
                 from: sheetContent(selectedItem),
@@ -7971,7 +7991,12 @@ public extension View {
                 fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
             )
 
-            return retainedSheetPresentation(base: base, sheet: sheet, context: context)
+            return retainedSheetPresentation(
+                base: base,
+                sheet: sheet,
+                context: context,
+                onInteractiveDismiss: dismiss
+            )
         }
     }
 
@@ -8163,9 +8188,14 @@ public extension View {
     }
 
     func interactiveDismissDisabled(_ isDisabled: Bool = true) -> some View {
-        _ = isDisabled
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasInteractiveDismissDisabledOverride = true
+                node.presentationChrome.interactiveDismissDisabled = isDisabled
+                return node
+            }
         }
     }
 

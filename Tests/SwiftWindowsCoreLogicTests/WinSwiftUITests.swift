@@ -7334,6 +7334,71 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testInteractiveDismissDisabledControlsRetainedSheetScrimDismissal() async {
+        await MainActor.run {
+            var defaultPresented = true
+            var defaultDismissCount = 0
+            let defaultNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { defaultPresented },
+                            set: { defaultPresented = $0 }
+                        ),
+                        onDismiss: {
+                            defaultDismissCount += 1
+                        }
+                    ) {
+                        Text("SHEET")
+                    }
+            )
+
+            XCTAssertEqual(defaultNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
+            XCTAssertTrue(defaultNode.children[1].isHitTestVisible)
+            defaultNode.children[1].onActivate?()
+            XCTAssertFalse(defaultPresented)
+            XCTAssertEqual(defaultDismissCount, 1)
+
+            var disabledPresented = true
+            let disabledNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { disabledPresented },
+                            set: { disabledPresented = $0 }
+                        )
+                    ) {
+                        Text("SHEET")
+                            .interactiveDismissDisabled()
+                    }
+            )
+
+            XCTAssertEqual(disabledNode.children[1].nodeTag, "sheet-scrim-dismiss-disabled")
+            XCTAssertFalse(disabledNode.children[1].isHitTestVisible)
+            XCTAssertNil(disabledNode.children[1].onActivate)
+            XCTAssertTrue(disabledPresented)
+
+            var reenabledPresented = true
+            let reenabledNode = makeNode(
+                Text("ROOT")
+                    .sheet(
+                        isPresented: Binding(
+                            get: { reenabledPresented },
+                            set: { reenabledPresented = $0 }
+                        )
+                    ) {
+                        Text("SHEET")
+                            .interactiveDismissDisabled()
+                            .interactiveDismissDisabled(false)
+                    }
+            )
+
+            XCTAssertEqual(reenabledNode.children[1].nodeTag, "sheet-scrim-dismiss-enabled")
+            reenabledNode.children[1].onActivate?()
+            XCTAssertFalse(reenabledPresented)
+        }
+    }
+
     func testPresentationDetentAndDismissModifiersPreserveRetainedSheetContent() async {
         await MainActor.run {
             struct SheetContent: View {

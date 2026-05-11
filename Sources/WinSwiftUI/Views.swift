@@ -6192,6 +6192,7 @@ private func searchableComponent<Content: View>(
         if showsSearchField {
             let searchNode = searchField.makeNode(runtime: runtime)
             applySearchPlacementChrome(to: searchNode, placement: placement, context: context)
+            searchNode.textInputDictationBehavior = context.searchDictationBehavior?.retainedBehavior
             let existingOnFocusEnter = searchNode.onFocusEnter
             searchNode.onFocusEnter = {
                 existingOnFocusEnter?()

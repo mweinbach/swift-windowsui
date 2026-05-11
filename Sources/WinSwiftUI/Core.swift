@@ -825,6 +825,63 @@ public struct WritingToolsBehavior: Sendable, Equatable, Hashable {
     }
 }
 
+public struct TextInputDictationActivation: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case onLook
+        case onSelect
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let onLook = TextInputDictationActivation(kind: .onLook)
+    public static let onSelect = TextInputDictationActivation(kind: .onSelect)
+
+    var retainedActivation: RetainedTextInputDictationActivation {
+        switch kind {
+        case .onLook:
+            return .onLook
+        case .onSelect:
+            return .onSelect
+        }
+    }
+}
+
+public struct TextInputDictationBehavior: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case preventDictation
+        case inline(TextInputDictationActivation)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TextInputDictationBehavior(kind: .automatic)
+    public static let preventDictation = TextInputDictationBehavior(kind: .preventDictation)
+
+    public static func inline(activation: TextInputDictationActivation) -> TextInputDictationBehavior {
+        TextInputDictationBehavior(kind: .inline(activation))
+    }
+
+    var retainedBehavior: RetainedTextInputDictationBehavior {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .preventDictation:
+            return .preventDictation
+        case .inline(let activation):
+            return .inline(activation: activation.retainedActivation)
+        }
+    }
+}
+
 public struct NSTextContentType: RawRepresentable, Sendable, Equatable, Hashable, ExpressibleByStringLiteral {
     public var rawValue: String
 
@@ -1744,6 +1801,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var textInputCompletion: String?
     var textInputSuggestions: [AnyView]?
     public var writingToolsBehavior: WritingToolsBehavior?
+    var searchDictationBehavior: TextInputDictationBehavior?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
@@ -1983,6 +2041,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
         self.writingToolsBehavior = nil
+        self.searchDictationBehavior = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
@@ -2794,6 +2853,10 @@ public struct ViewBuildContext {
 
     public var writingToolsBehavior: WritingToolsBehavior? {
         environmentValuesProvider().writingToolsBehavior
+    }
+
+    var searchDictationBehavior: TextInputDictationBehavior? {
+        environmentValuesProvider().searchDictationBehavior
     }
 
     var isFindDisabled: Bool {
@@ -11478,6 +11541,12 @@ public extension View {
     func scrollDismissesKeyboard(_ mode: ScrollDismissesKeyboardMode) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.scrollDismissesKeyboardMode, mode))
+        }
+    }
+
+    func searchDictationBehavior(_ dictationBehavior: TextInputDictationBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.searchDictationBehavior, Optional(dictationBehavior)))
         }
     }
 

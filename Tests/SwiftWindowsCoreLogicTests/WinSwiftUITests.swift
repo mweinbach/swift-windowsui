@@ -1232,6 +1232,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.children[0].nodeTag, "search-field-toolbar")
             XCTAssertEqual(node.children[0].cornerRadius, 12)
             XCTAssertEqual(node.children[0].borderColor, ViewBuildContext.defaultTint.opacity(0.26))
+            XCTAssertNil(node.children[0].textInputDictationBehavior)
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SEARCHING"))
 
             node.children[1].onActivate?()
@@ -1246,6 +1247,34 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(updatedNode.children[0].children[0].text, "Find")
             XCTAssertTrue(allTexts(in: updatedNode.children[1]).contains("IDLE"))
+        }
+    }
+
+    func testSearchDictationBehaviorRetainsSearchFieldMetadata() async {
+        await MainActor.run {
+            var query = ""
+            let binding = Binding(
+                get: { query },
+                set: { query = $0 }
+            )
+            let preventedNode = makeNode(
+                Text("RESULTS")
+                    .searchable(text: binding)
+                    .searchDictationBehavior(.preventDictation)
+            )
+            let inlineNode = makeNode(
+                Text("RESULTS")
+                    .searchable(text: binding)
+                    .searchDictationBehavior(.inline(activation: .onSelect))
+            )
+            let normalFieldNode = makeNode(
+                TextField("QUERY", text: binding)
+                    .searchDictationBehavior(.inline(activation: .onLook))
+            )
+
+            XCTAssertEqual(preventedNode.children[0].textInputDictationBehavior, .preventDictation)
+            XCTAssertEqual(inlineNode.children[0].textInputDictationBehavior, .inline(activation: .onSelect))
+            XCTAssertNil(normalFieldNode.textInputDictationBehavior)
         }
     }
 

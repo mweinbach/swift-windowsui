@@ -349,6 +349,7 @@ public enum ScenePainter {
             let effectiveTextStyle = node.textStyle.multipliedOpacity(by: opacity)
             var nativeGlyphs: [GlyphPrimitive] = []
             var pixelGlyphs: [GlyphPrimitive] = []
+            var textDecorationQuads: [QuadPrimitive] = []
             appendTextGlyphs(
                 for: text,
                 style: effectiveTextStyle,
@@ -359,13 +360,17 @@ public enum ScenePainter {
                 displayScale: displayScale,
                 textSystem: textSystem,
                 into: &nativeGlyphs,
-                pixelGlyphs: &pixelGlyphs
+                pixelGlyphs: &pixelGlyphs,
+                decorationQuads: &textDecorationQuads
             )
             for glyph in nativeGlyphs {
                 scene.addGlyph(glyph, toLayer: layerIndex)
             }
             for glyph in pixelGlyphs {
                 scene.addPixelGlyph(glyph, toLayer: layerIndex)
+            }
+            for quad in textDecorationQuads {
+                scene.addQuad(quad, toLayer: layerIndex)
             }
             usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
             usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
@@ -584,7 +589,8 @@ public enum ScenePainter {
         displayScale: Double,
         textSystem: WindowTextSystem,
         into glyphs: inout [GlyphPrimitive],
-        pixelGlyphs: inout [GlyphPrimitive]
+        pixelGlyphs: inout [GlyphPrimitive],
+        decorationQuads: inout [QuadPrimitive]
     ) {
         guard !text.isEmpty, style.color.alpha > 0 else {
             return
@@ -604,7 +610,8 @@ public enum ScenePainter {
             surfaceSize: surfaceSize,
             displayScale: displayScale,
             textSystem: textSystem,
-            into: &glyphs
+            into: &glyphs,
+            decorationQuads: &decorationQuads
         ) {
             return
         }
@@ -704,6 +711,20 @@ public enum ScenePainter {
                 )
             }
 
+            appendTextDecorationQuads(
+                lineRect: Rect(
+                    x: startX,
+                    y: cursorY / displayScale,
+                    width: lineWidth,
+                    height: Double(PixelFontAtlas.glyphHeight) * scale
+                ),
+                style: effectiveStyle,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                into: &decorationQuads
+            )
             cursorY += verticalAdvance
         }
     }
@@ -717,7 +738,8 @@ public enum ScenePainter {
         surfaceSize: Size,
         displayScale: Double,
         textSystem: WindowTextSystem,
-        into glyphs: inout [GlyphPrimitive]
+        into glyphs: inout [GlyphPrimitive],
+        decorationQuads: inout [QuadPrimitive]
     ) -> Bool {
         guard !text.unicodeScalars.contains(where: isPrivateUseScalar) else {
             return false
@@ -744,6 +766,7 @@ public enum ScenePainter {
         let clipRect = clipRectFloats(clip, surfaceSize: surfaceSize, displayScale: displayScale)
         let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
         var appendedGlyphs: [GlyphPrimitive] = []
+        var appendedDecorationQuads: [QuadPrimitive] = []
         var lineOriginY = baseY
 
         for line in layout.lines {
@@ -824,11 +847,111 @@ public enum ScenePainter {
                 )
             }
 
+            appendTextDecorationQuads(
+                lineRect: Rect(
+                    x: startX,
+                    y: lineOriginY,
+                    width: line.width,
+                    height: line.height
+                ),
+                style: style,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                into: &appendedDecorationQuads
+            )
             lineOriginY += line.height + layout.lineSpacing
         }
 
+        guard !appendedGlyphs.isEmpty else {
+            return false
+        }
+
         glyphs.append(contentsOf: appendedGlyphs)
-        return !appendedGlyphs.isEmpty
+        decorationQuads.append(contentsOf: appendedDecorationQuads)
+        return true
+    }
+
+    private static func appendTextDecorationQuads(
+        lineRect: Rect,
+        style: PixelTextStyle,
+        opacity: Float,
+        clip: Rect?,
+        surfaceSize: Size,
+        displayScale: Double,
+        into quads: inout [QuadPrimitive]
+    ) {
+        guard lineRect.size.width > 0, lineRect.size.height > 0 else {
+            return
+        }
+
+        let thickness = max(1 / max(displayScale, 1), min(lineRect.size.height, max(1, lineRect.size.height * 0.08)))
+        if style.underline {
+            appendDecorationQuad(
+                lineRect: lineRect,
+                y: min(lineRect.maxY - thickness, lineRect.origin.y + lineRect.size.height * 0.86),
+                thickness: thickness,
+                color: style.underlineColor ?? style.color,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                into: &quads
+            )
+        }
+
+        if style.strikethrough {
+            appendDecorationQuad(
+                lineRect: lineRect,
+                y: lineRect.origin.y + max(0, (lineRect.size.height - thickness) * 0.52),
+                thickness: thickness,
+                color: style.strikethroughColor ?? style.color,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                into: &quads
+            )
+        }
+    }
+
+    private static func appendDecorationQuad(
+        lineRect: Rect,
+        y: Double,
+        thickness: Double,
+        color: Color,
+        opacity: Float,
+        clip: Rect?,
+        surfaceSize: Size,
+        displayScale: Double,
+        into quads: inout [QuadPrimitive]
+    ) {
+        guard color.alpha > 0 else {
+            return
+        }
+
+        let rect = Rect(
+            x: lineRect.origin.x,
+            y: y,
+            width: lineRect.size.width,
+            height: thickness
+        )
+        guard clipAllowsDrawing(clip: clip, rect: rect) else {
+            return
+        }
+
+        quads.append(
+            solidQuad(
+                rect: rect,
+                cornerRadius: 0,
+                color: color,
+                opacity: opacity,
+                clip: clip,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale
+            )
+        )
     }
 
     private static func nativeGlyphPreflightRect(

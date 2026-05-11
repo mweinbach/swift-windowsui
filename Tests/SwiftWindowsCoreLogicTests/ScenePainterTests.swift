@@ -332,6 +332,70 @@ struct ScenePainterTests {
         }
     }
 
+    @Test("Pixel text decorations emit colored quads on the scene path")
+    func pixelTextDecorationsEmitColoredQuads() {
+        let underlineColor = Color(red: 0.1, green: 0.4, blue: 1, alpha: 0.7)
+        let strikethroughColor = Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 40, height: 32),
+            text: SymbolIcon.search.rawValue,
+            textStyle: PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                underline: true,
+                underlineColor: underlineColor,
+                strikethrough: true,
+                strikethroughColor: strikethroughColor
+            )
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let colors = sceneQuadColors(in: scene)
+
+        #expect(scene.layers[0].pixelGlyphs.count == 1)
+        #expect(colors == [underlineColor, strikethroughColor])
+    }
+
+    @Test("Native text decorations emit colored quads on the scene path")
+    func nativeTextDecorationsEmitColoredQuads() {
+        defer {
+            NativeTextRenderer.resetTestingOverrides()
+            NativeGlyphAtlas.shared.resetForTesting()
+        }
+        NativeGlyphAtlas.shared.resetForTesting()
+        NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+            syntheticNativeLayout(for: text, style: style)
+        }
+        NativeTextRenderer.testingOverrides.rasterizeGlyphForLayout = { _, _, _ in
+            stubNativeGlyphBitmap()
+        }
+
+        let underlineColor = Color(red: 0.2, green: 0.7, blue: 1, alpha: 0.6)
+        let strikethroughColor = Color(red: 1, green: 0.3, blue: 0.2, alpha: 0.9)
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 20, width: 80, height: 32),
+            text: "AB",
+            textStyle: PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 18,
+                underline: true,
+                underlineColor: underlineColor,
+                strikethrough: true,
+                strikethroughColor: strikethroughColor
+            )
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let colors = sceneQuadColors(in: scene)
+
+        #expect(scene.layers[0].glyphs.count == 2)
+        #expect(scene.layers[0].pixelGlyphs.isEmpty)
+        #expect(colors == [underlineColor, strikethroughColor])
+    }
+
     @Test("Symbol icons resolve to dedicated atlas glyphs")
     func symbolIconsUseDedicatedAtlasEntries() {
         let symbol = Character(SymbolIcon.search.rawValue)

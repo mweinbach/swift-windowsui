@@ -3939,9 +3939,19 @@ public struct Spacer: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { _ in
+        let preferredSize: Size
+        switch context.stackAxis {
+        case .horizontal:
+            preferredSize = Size(width: minLength ?? 0, height: 0)
+        case .vertical:
+            preferredSize = Size(width: 0, height: minLength ?? 0)
+        case nil:
+            preferredSize = Size(width: minLength ?? 0, height: minLength ?? 0)
+        }
+
+        return Component { _ in
             Controls.panel(
-                preferredSize: Size(width: minLength ?? 0, height: minLength ?? 0),
+                preferredSize: preferredSize,
                 layoutPriority: 1,
                 isHitTestVisible: false
             )

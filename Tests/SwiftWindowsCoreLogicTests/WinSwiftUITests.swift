@@ -3568,6 +3568,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSpacerMinLengthAppliesOnlyAlongStackAxis() async {
+        await MainActor.run {
+            let verticalStack = makeNode(
+                VStack {
+                    Spacer(minLength: 12)
+                }
+            )
+            let horizontalStack = makeNode(
+                HStack {
+                    Spacer(minLength: 18)
+                }
+            )
+            let rootSpacer = makeNode(Spacer(minLength: 9))
+
+            XCTAssertEqual(verticalStack.children[0].preferredSize, Size(width: 0, height: 12))
+            XCTAssertEqual(horizontalStack.children[0].preferredSize, Size(width: 18, height: 0))
+            XCTAssertEqual(rootSpacer.preferredSize, Size(width: 9, height: 9))
+        }
+    }
+
     func testDividerAdaptsToStackAxis() async {
         await MainActor.run {
             let verticalStack = makeNode(

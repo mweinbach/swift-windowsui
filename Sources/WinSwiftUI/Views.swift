@@ -4728,6 +4728,177 @@ public struct ProgressView: View {
 }
 
 @MainActor
+public struct Gauge: View {
+    public typealias Body = Never
+
+    private let value: Double
+    private let bounds: ClosedRange<Double>
+    private let label: [AnyView]
+    private let currentValueLabel: [AnyView]
+    private let minimumValueLabel: [AnyView]
+    private let maximumValueLabel: [AnyView]
+
+    public init(value: Double, in bounds: ClosedRange<Double> = 0...1, @ViewBuilder label: () -> [AnyView]) {
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = []
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init(_ title: String, value: Double, in bounds: ClosedRange<Double> = 0...1) {
+        self.value = value
+        self.bounds = bounds
+        self.label = [
+            AnyView(
+                Text(title)
+                    .font(.system(size: 1.5, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.currentValueLabel = []
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init<S: StringProtocol>(_ title: S, value: Double, in bounds: ClosedRange<Double> = 0...1) {
+        self.init(String(title), value: value, in: bounds)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, value: Double, in bounds: ClosedRange<Double> = 0...1) {
+        self.init(titleKey.resolvedString, value: value, in: bounds)
+    }
+
+    public init(
+        value: Double,
+        in bounds: ClosedRange<Double> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init(
+        value: Double,
+        in bounds: ClosedRange<Double> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView]
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+    }
+
+    public var body: Never {
+        fatalError("Gauge has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context,
+            fallbackLayout: .stack(.vertical(spacing: 0, alignment: .leading)),
+            isHitTestVisible: false
+        )
+        let currentValueLabelComponent = composeComponent(
+            from: currentValueLabel,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let minimumValueLabelComponent = composeComponent(
+            from: minimumValueLabel,
+            context: context.withFont(.caption).withForegroundColor(.secondary),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .leading)),
+            isHitTestVisible: false
+        )
+        let maximumValueLabelComponent = composeComponent(
+            from: maximumValueLabel,
+            context: context.withFont(.caption).withForegroundColor(.secondary),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .trailing)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let rangeTotal = max(0, bounds.upperBound - bounds.lowerBound)
+            let gaugeNode = Controls.progressBar(
+                value: value - bounds.lowerBound,
+                total: rangeTotal,
+                preferredSize: context.controlSize.progressPreferredSize,
+                filledColor: context.tint
+            )
+            guard !context.labelsHidden else {
+                return gaugeNode
+            }
+
+            let hasHeader = !label.isEmpty || !currentValueLabel.isEmpty
+            let hasBounds = !minimumValueLabel.isEmpty || !maximumValueLabel.isEmpty
+            guard hasHeader || hasBounds else {
+                return gaugeNode
+            }
+
+            var children: [ViewNode] = []
+            if hasHeader {
+                var headerChildren: [ViewNode] = []
+                if !label.isEmpty {
+                    headerChildren.append(labelComponent.makeNode(runtime: runtime))
+                }
+                if !currentValueLabel.isEmpty {
+                    headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
+                }
+
+                children.append(
+                    Controls.stackPanel(
+                        stackLayout: .horizontal(spacing: 8, alignment: .center),
+                        isHitTestVisible: false,
+                        children: headerChildren
+                    )
+                )
+            }
+
+            children.append(gaugeNode)
+
+            if hasBounds {
+                var boundsChildren: [ViewNode] = []
+                if !minimumValueLabel.isEmpty {
+                    boundsChildren.append(minimumValueLabelComponent.makeNode(runtime: runtime))
+                }
+                boundsChildren.append(Controls.panel(layoutPriority: 1, isHitTestVisible: false))
+                if !maximumValueLabel.isEmpty {
+                    boundsChildren.append(maximumValueLabelComponent.makeNode(runtime: runtime))
+                }
+
+                children.append(
+                    Controls.stackPanel(
+                        stackLayout: .horizontal(spacing: 8, alignment: .center),
+                        isHitTestVisible: false,
+                        children: boundsChildren
+                    )
+                )
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Button: View {
     public typealias Body = Never
 

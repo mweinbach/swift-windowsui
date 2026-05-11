@@ -3881,6 +3881,18 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .labelsHidden()
             )
+            let gaugeNode = makeNode(
+                Gauge(value: 0.5, in: 0...1) {
+                    Text("BATTERY")
+                } currentValueLabel: {
+                    Text("50%")
+                } minimumValueLabel: {
+                    Text("EMPTY")
+                } maximumValueLabel: {
+                    Text("FULL")
+                }
+                .labelsHidden()
+            )
 
             XCTAssertFalse(allTexts(in: toggleNode).contains("ENABLED"))
             XCTAssertNotNil(firstFocusable(in: toggleNode))
@@ -3896,6 +3908,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertFalse(progressNode.children.isEmpty)
             XCTAssertTrue(allTexts(in: progressNode).isEmpty)
+
+            XCTAssertFalse(gaugeNode.children.isEmpty)
+            XCTAssertTrue(allTexts(in: gaugeNode).isEmpty)
         }
     }
 
@@ -4242,6 +4257,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGaugeMapsToRetainedProgressBarWithSwiftUIShapedLabels() async {
+        await MainActor.run {
+            let stringNode = makeNode(Gauge("BATTERY", value: 0.75, in: 0...1))
+            let keyNode = makeNode(Gauge(LocalizedStringKey("LOAD"), value: 0.5, in: 0...1))
+            let node = makeNode(
+                Gauge(value: 50, in: 0...200) {
+                    Label("SPEED", systemImage: "speedometer")
+                } currentValueLabel: {
+                    Text("50 MPH")
+                } minimumValueLabel: {
+                    Text("0")
+                } maximumValueLabel: {
+                    Text("200")
+                }
+            )
+
+            XCTAssertEqual(stringNode.children.count, 2)
+            XCTAssertTrue(allTexts(in: stringNode.children[0]).contains("BATTERY"))
+            XCTAssertEqual(stringNode.children[1].children[1].frame.size.width, 150)
+
+            XCTAssertTrue(allTexts(in: keyNode.children[0]).contains("LOAD"))
+            XCTAssertEqual(keyNode.children[1].children[1].frame.size.width, 100)
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("SPEED"))
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("50 MPH"))
+            XCTAssertEqual(node.children[1].children[1].frame.size.width, 50)
+            XCTAssertEqual(firstText(in: node.children[2].children[0]), "0")
+            XCTAssertEqual(firstText(in: node.children[2].children[2]), "200")
+            XCTAssertEqual(node.children[2].children[0].textStyle.color, .secondary)
+            XCTAssertEqual(node.children[2].children[2].textStyle.color, .secondary)
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true
@@ -4264,6 +4313,9 @@ final class WinSwiftUITests: XCTestCase {
                         )
                     )
                     ProgressView(value: 0.5, total: 1.0)
+                    Gauge(value: 0.5, in: 0...1) {
+                        Text("CAPACITY")
+                    }
                 }
                 .tint(tint)
             )
@@ -4271,10 +4323,12 @@ final class WinSwiftUITests: XCTestCase {
             let toggleTrack = node.children[0].children[1].children[0]
             let sliderFilled = node.children[1].children[1]
             let progressFilled = node.children[2].children[1]
+            let gaugeFilled = node.children[3].children[1].children[1]
 
             XCTAssertEqual(toggleTrack.backgroundColor, tint)
             XCTAssertEqual(sliderFilled.backgroundColor, tint)
             XCTAssertEqual(progressFilled.backgroundColor, tint)
+            XCTAssertEqual(gaugeFilled.backgroundColor, tint)
         }
     }
 

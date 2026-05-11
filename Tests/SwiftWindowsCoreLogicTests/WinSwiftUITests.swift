@@ -4830,6 +4830,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPrivacySensitiveModifierPropagatesThroughEnvironmentAndRetainedNodes() async {
+        await MainActor.run {
+            struct PrivacyEnvironmentReader: View {
+                @Environment(\.isPrivacySensitive) var isPrivacySensitive
+
+                var body: some View {
+                    Text(isPrivacySensitive ? "PRIVATE" : "PUBLIC")
+                }
+            }
+
+            let privateNode = makeNode(Text("TOKEN").privacySensitive())
+            let inheritedNode = makeNode(PrivacyEnvironmentReader().privacySensitive())
+            let publicNode = makeNode(
+                VStack {
+                    PrivacyEnvironmentReader()
+                        .privacySensitive(false)
+                }
+                .privacySensitive()
+            )
+
+            XCTAssertTrue(privateNode.isPrivacySensitive)
+            XCTAssertTrue(inheritedNode.isPrivacySensitive)
+            XCTAssertEqual(inheritedNode.text, "PRIVATE")
+            XCTAssertTrue(publicNode.isPrivacySensitive)
+            XCTAssertFalse(publicNode.children.first?.isPrivacySensitive ?? true)
+            XCTAssertEqual(publicNode.children.first?.text, "PUBLIC")
+        }
+    }
+
     func testKeyboardShortcutModifierMapsAndActivatesRetainedNode() async {
         await MainActor.run {
             var activations = 0

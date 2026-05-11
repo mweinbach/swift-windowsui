@@ -474,6 +474,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var isPrivacySensitive: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -582,6 +586,7 @@ public final class ViewNode {
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
         redactionReasons: RetainedRedactionReasons = [],
+        isPrivacySensitive: Bool = false,
         paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
@@ -633,6 +638,7 @@ public final class ViewNode {
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled
         self.redactionReasons = redactionReasons
+        self.isPrivacySensitive = isPrivacySensitive
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil

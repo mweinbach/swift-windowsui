@@ -471,6 +471,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var redactionReasons: RedactionReasons
+    public var isPrivacySensitive: Bool
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var listRowSpacing: Double?
@@ -508,6 +509,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         redactionReasons: RedactionReasons = [],
+        isPrivacySensitive: Bool = false,
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
         headerProminence: Prominence = .standard,
@@ -539,6 +541,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.redactionReasons = redactionReasons
+        self.isPrivacySensitive = isPrivacySensitive
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.listRowSpacing = nil
@@ -4283,6 +4286,19 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.redactionReasons = []
+                return childNode
+            }
+        }
+    }
+
+    func privacySensitive(_ sensitive: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(
+                context: context.withEnvironmentValue(\.isPrivacySensitive, sensitive)
+            )
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isPrivacySensitive = sensitive
                 return childNode
             }
         }

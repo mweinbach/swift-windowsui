@@ -1670,6 +1670,7 @@ public struct Text: View {
 
         let resolvedContent = content.resolvedTextCase(textCase ?? context.textCase)
         let redactionReasons = context.environmentValues.redactionReasons.retainedReasons
+        let isPrivacySensitive = context.environmentValues.isPrivacySensitive
 
         return Component { _ in
             let node = Controls.label(
@@ -1692,6 +1693,7 @@ public struct Text: View {
                 enableKerning: allowsTightening ?? context.allowsTightening
             )
             node.redactionReasons = redactionReasons
+            node.isPrivacySensitive = isPrivacySensitive
             return node
         }
     }

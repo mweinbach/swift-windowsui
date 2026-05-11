@@ -164,6 +164,7 @@ public final class ComponentHost {
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }
         if target.isFocusEffectDisabled != source.isFocusEffectDisabled { target.isFocusEffectDisabled = source.isFocusEffectDisabled }
         if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
+        if target.isPrivacySensitive != source.isPrivacySensitive { target.isPrivacySensitive = source.isPrivacySensitive }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

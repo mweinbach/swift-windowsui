@@ -2124,6 +2124,26 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGridCellColumnsMapsToRetainedGrowthPriority() async {
+        await MainActor.run {
+            let node = makeNode(
+                GridRow {
+                    Text("A")
+                        .gridCellColumns(3)
+                    Text("B")
+                        .layoutPriority(5)
+                        .gridCellColumns(2)
+                    Text("C")
+                        .gridCellColumns(0)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].layoutPriority, 3)
+            XCTAssertEqual(node.children[1].layoutPriority, 5)
+            XCTAssertEqual(node.children[2].layoutPriority, 1)
+        }
+    }
+
     func testStacksAcceptNilSpacing() async {
         await MainActor.run {
             let vStackNode = makeNode(

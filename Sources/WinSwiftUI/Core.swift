@@ -4012,6 +4012,18 @@ public extension View {
         }
     }
 
+    func gridCellColumns(_ count: Int) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let retainedPriority = Double(max(1, count))
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.layoutPriority = max(childNode.layoutPriority, retainedPriority)
+                return childNode
+            }
+        }
+    }
+
     func allowsHitTesting(_ enabled: Bool) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

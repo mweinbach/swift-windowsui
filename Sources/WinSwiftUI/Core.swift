@@ -5528,6 +5528,12 @@ extension Font {
 }
 
 public extension SwiftWindowsCore.Color {
+    enum RGBColorSpace: Sendable, Equatable, Hashable {
+        case sRGB
+        case sRGBLinear
+        case displayP3
+    }
+
     static let red = SwiftWindowsCore.Color(red: 1, green: 0, blue: 0, alpha: 1)
     static let orange = SwiftWindowsCore.Color(red: 1, green: 0.5, blue: 0, alpha: 1)
     static let yellow = SwiftWindowsCore.Color(red: 1, green: 1, blue: 0, alpha: 1)
@@ -5550,9 +5556,19 @@ public extension SwiftWindowsCore.Color {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
     }
 
+    init(_ colorSpace: RGBColorSpace = .sRGB, red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
+        _ = colorSpace
+        self.init(red: red, green: green, blue: blue, opacity: opacity)
+    }
+
     init(white: Double, opacity: Double = 1.0) {
         let channel = Float(clampedUnitInterval(white))
         self.init(red: channel, green: channel, blue: channel, alpha: Float(clampedUnitInterval(opacity)))
+    }
+
+    init(_ colorSpace: RGBColorSpace = .sRGB, white: Double, opacity: Double = 1.0) {
+        _ = colorSpace
+        self.init(white: white, opacity: opacity)
     }
 
     init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1.0) {

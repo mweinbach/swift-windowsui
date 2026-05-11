@@ -361,6 +361,9 @@ Compatibility helpers:
 - `ColorResource(name:bundle:)`
 - `Color(_:bundle:)`
 - `Color(ColorResource)`
+- `Color.RGBColorSpace`
+- `Color(_:red:green:blue:opacity:)`
+- `Color(_:white:opacity:)`
 - `Color(red:green:blue:opacity:)`
 - `Color(white:opacity:)`
 - `Color(hue:saturation:brightness:opacity:)`
@@ -502,6 +505,7 @@ Surface direction:
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
 - `ImageResource(name:bundle:)` is accepted as a lightweight generated-asset compatibility value. `Image(ImageResource)` and image-resource label/control overloads resolve through the same retained bitmap loading path as named images. `ColorResource(name:bundle:)`, `Color(ColorResource)`, and `Color(_:bundle:)` are accepted for generated color asset source compatibility, with resource colors currently resolving to the deterministic retained fallback `Color.accentColor` until asset-catalog color lookup exists. `Image.resizable`, image `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. Generic view `aspectRatio`, `scaledToFit`, and `scaledToFill` wrap retained content with a preferred-size container derived from the child intrinsic size. `resizingMode` and `capInsets` are retained as compatibility metadata; real tile and nine-slice rendering are not implemented yet.
+- `Color.RGBColorSpace` accepts `.sRGB`, `.sRGBLinear`, and `.displayP3` for SwiftUI source compatibility. Color-space component initializers currently preserve the supplied numeric components as retained RGBA values; they do not yet perform platform color-management conversion.
 - `LabeledContent` maps title/value, `value:format:`, and builder-label forms to a retained horizontal row with secondary leading label text and trailing content, matching common settings and form call sites without adding native control dependencies. `labeledContentStyle(_:)`, `EnvironmentValues.labeledContentStyle`, `LabeledContentStyle.automatic`, and `AutomaticLabeledContentStyle` are accepted as source-compatible metadata; retained rendering still uses the same label/value row chrome.
 - `ToolbarItem`, `ToolbarItemGroup`, and `toolbar(content:)` / `toolbar(id:content:)` accept common SwiftUI-shaped command definitions and compose them into a retained compact command row above the modified content. Toolbar placements are source-compatible values today; WinSwiftUI does not yet route them into native window chrome, navigation bars, bottom bars, or user-customizable toolbar slots.
 - `Link` maps title and builder labels onto a retained plain button. Activation calls `EnvironmentValues.openURL`, whose default action asks the Windows shell to open the destination URL; tests and apps can inject an `OpenURLAction` through `.environment(\.openURL, ...)`.

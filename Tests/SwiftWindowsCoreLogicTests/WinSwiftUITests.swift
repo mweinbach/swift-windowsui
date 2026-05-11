@@ -150,6 +150,15 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSwiftUIColorRGBColorSpaceInitializersMapToCoreRGBA() async {
+        await MainActor.run {
+            XCTAssertEqual(Set<Color.RGBColorSpace>([.sRGB, .sRGBLinear, .displayP3]).count, 3)
+            assertColor(Color(.displayP3, red: 0.1, green: 0.2, blue: 0.3, opacity: 0.4), red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
+            assertColor(Color(.sRGBLinear, white: 0.35, opacity: 0.65), red: 0.35, green: 0.35, blue: 0.35, alpha: 0.65)
+            assertColor(Color(.sRGB, red: 1.2, green: -0.2, blue: 0.5, opacity: 1.5), red: 1.2, green: -0.2, blue: 0.5, alpha: 1.5)
+        }
+    }
+
     func testColorResourceInitializersUseDeterministicCompatibilityFallback() async {
         await MainActor.run {
             let resource = ColorResource(name: "BrandColor", bundle: .main)

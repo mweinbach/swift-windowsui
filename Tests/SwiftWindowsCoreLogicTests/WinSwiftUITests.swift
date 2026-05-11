@@ -6748,6 +6748,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDatePickerStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct DatePickerStyleReaderView: View {
+                @Environment(\.datePickerStyle) var datePickerStyle
+
+                var body: some View {
+                    Text(
+                        datePickerStyle == .compact ? "COMPACT"
+                            : datePickerStyle == .graphical ? "GRAPHICAL"
+                            : datePickerStyle == .wheel ? "WHEEL"
+                            : datePickerStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let compactNode = makeNode(DatePickerStyleReaderView().datePickerStyle(CompactDatePickerStyle()))
+            let graphicalNode = makeNode(DatePickerStyleReaderView().datePickerStyle(.graphical))
+            let wheelNode = makeNode(DatePickerStyleReaderView().datePickerStyle(WheelDatePickerStyle()))
+            let automaticNode = makeNode(DatePickerStyleReaderView().datePickerStyle(DefaultDatePickerStyle()))
+            let fieldNode = makeNode(DatePickerStyleReaderView().datePickerStyle(FieldDatePickerStyle()))
+            let stepperFieldNode = makeNode(DatePickerStyleReaderView().datePickerStyle(StepperFieldDatePickerStyle()))
+
+            XCTAssertEqual(compactNode.text, "COMPACT")
+            XCTAssertEqual(graphicalNode.text, "GRAPHICAL")
+            XCTAssertEqual(wheelNode.text, "WHEEL")
+            XCTAssertEqual(automaticNode.text, "AUTOMATIC")
+            XCTAssertEqual(fieldNode.text, "OTHER")
+            XCTAssertEqual(stepperFieldNode.text, "OTHER")
+        }
+    }
+
     func testDatePickerWritesBindingFromKeyboardWithinRange() async {
         await MainActor.run {
             var selectedDate = Date(timeIntervalSince1970: 1_778_400_000)

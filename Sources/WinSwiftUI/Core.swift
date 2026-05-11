@@ -1185,6 +1185,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
+    public var datePickerStyle: DatePickerStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     public var submitLabel: SubmitLabel
@@ -1291,6 +1292,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
+        datePickerStyle: DatePickerStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         submitLabel: SubmitLabel = .return,
@@ -1393,6 +1395,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
+        self.datePickerStyle = datePickerStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.submitLabel = submitLabel
@@ -2100,6 +2103,10 @@ public struct ViewBuildContext {
 
     public var gaugeStyle: GaugeStyle {
         environmentValuesProvider().gaugeStyle
+    }
+
+    public var datePickerStyle: DatePickerStyle {
+        environmentValuesProvider().datePickerStyle
     }
 
     public var toggleStyle: ToggleStyle {
@@ -4155,6 +4162,54 @@ public struct ProgressViewStyle: Sendable, Equatable {
     public static let automatic = ProgressViewStyle(kind: .automatic)
     public static let linear = ProgressViewStyle(kind: .linear)
     public static let circular = ProgressViewStyle(kind: .circular)
+}
+
+public struct DatePickerStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case field
+        case graphical
+        case stepperField
+        case wheel
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = DatePickerStyle(kind: .automatic)
+    public static let compact = DatePickerStyle(kind: .compact)
+    public static let field = DatePickerStyle(kind: .field)
+    public static let graphical = DatePickerStyle(kind: .graphical)
+    public static let stepperField = DatePickerStyle(kind: .stepperField)
+    public static let wheel = DatePickerStyle(kind: .wheel)
+}
+
+public struct DefaultDatePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CompactDatePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct FieldDatePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct GraphicalDatePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct StepperFieldDatePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct WheelDatePickerStyle: Sendable, Equatable {
+    public init() {}
 }
 
 public struct ControlGroupStyle: Sendable, Equatable {
@@ -7203,6 +7258,36 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.gaugeStyle, style))
         }
+    }
+
+    func datePickerStyle(_ style: DatePickerStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.datePickerStyle, style))
+        }
+    }
+
+    func datePickerStyle(_ style: DefaultDatePickerStyle) -> some View {
+        datePickerStyle(.automatic)
+    }
+
+    func datePickerStyle(_ style: CompactDatePickerStyle) -> some View {
+        datePickerStyle(.compact)
+    }
+
+    func datePickerStyle(_ style: FieldDatePickerStyle) -> some View {
+        datePickerStyle(.field)
+    }
+
+    func datePickerStyle(_ style: GraphicalDatePickerStyle) -> some View {
+        datePickerStyle(.graphical)
+    }
+
+    func datePickerStyle(_ style: StepperFieldDatePickerStyle) -> some View {
+        datePickerStyle(.stepperField)
+    }
+
+    func datePickerStyle(_ style: WheelDatePickerStyle) -> some View {
+        datePickerStyle(.wheel)
     }
 
     func toggleStyle(_ style: ToggleStyle) -> some View {

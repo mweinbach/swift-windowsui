@@ -4919,11 +4919,45 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .formStyle(GroupedFormStyle())
             )
+            let columnsNode = makeNode(
+                Form {
+                    Text("LABEL")
+                    Text("VALUE")
+                }
+                .formStyle(.columns)
+            )
 
             XCTAssertEqual(columnsReaderNode.text, "COLUMNS")
             XCTAssertEqual(groupedReaderNode.text, "GROUPED")
             XCTAssertEqual(inheritedNode.children[0].children.count, 2)
             XCTAssertEqual(inheritedNode.children[0].children[0].text, "NAME")
+            XCTAssertEqual(inheritedNode.children[0].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62))
+            XCTAssertEqual(inheritedNode.children[0].borderWidth, 1)
+            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 16)
+            guard case .stack(let groupedStackLayout) = inheritedNode.children[0].layoutMode else {
+                return XCTFail("Expected grouped Form to use retained stack layout")
+            }
+            XCTAssertEqual(
+                groupedStackLayout,
+                .vertical(
+                    spacing: 10,
+                    padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+                    alignment: .stretch
+                )
+            )
+            guard case .stack(let columnsStackLayout) = columnsNode.layoutMode else {
+                return XCTFail("Expected columns Form to use retained stack layout")
+            }
+            XCTAssertEqual(
+                columnsStackLayout,
+                .vertical(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(columnsNode.borderWidth, 1)
+            XCTAssertEqual(columnsNode.cornerRadius, 8)
         }
     }
 

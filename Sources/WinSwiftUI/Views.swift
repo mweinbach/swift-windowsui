@@ -4258,10 +4258,56 @@ public struct Form: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
-            Controls.stackPanel(
-                stackLayout: .vertical(spacing: 12, padding: EdgeInsets.all(12), alignment: .stretch),
+            let chrome = Self.retainedChrome(for: context.formStyle)
+            return Controls.stackPanel(
+                backgroundColor: chrome.backgroundColor,
+                borderColor: chrome.borderColor,
+                borderWidth: chrome.borderWidth,
+                cornerRadius: chrome.cornerRadius,
+                stackLayout: .vertical(spacing: chrome.spacing, padding: chrome.padding, alignment: .stretch),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+        }
+    }
+
+    private struct RetainedChrome {
+        var spacing: Double
+        var padding: EdgeInsets
+        var backgroundColor: Color?
+        var borderColor: Color
+        var borderWidth: Double
+        var cornerRadius: Double
+    }
+
+    private static func retainedChrome(for style: FormStyle) -> RetainedChrome {
+        switch style.kind {
+        case .automatic:
+            return RetainedChrome(
+                spacing: 12,
+                padding: EdgeInsets.all(12),
+                backgroundColor: nil,
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 0
+            )
+        case .columns:
+            return RetainedChrome(
+                spacing: 8,
+                padding: EdgeInsets(top: 8, leading: 18, bottom: 8, trailing: 18),
+                backgroundColor: nil,
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+                borderWidth: 1,
+                cornerRadius: 8
+            )
+        case .grouped:
+            return RetainedChrome(
+                spacing: 10,
+                padding: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16),
+                backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62),
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 16
             )
         }
     }

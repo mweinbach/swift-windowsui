@@ -6932,6 +6932,70 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationInteractionAndAdaptationModifiersPreserveRetainedSheetContent() async {
+        await MainActor.run {
+            struct SheetContent: View {
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    VStack {
+                        Text("ADAPTIVE SHEET")
+                        Button("DONE") {
+                            dismiss()
+                        }
+                    }
+                    .presentationBackgroundInteraction(.enabled(upThrough: .height(120)))
+                    .presentationBackgroundInteraction(.disabled)
+                    .presentationContentInteraction(.scrolls)
+                    .presentationContentInteraction(.resizes)
+                    .presentationCompactAdaptation(.none)
+                    .presentationCompactAdaptation(horizontal: .popover, vertical: .fullScreenCover)
+                }
+            }
+
+            var isPresented = true
+            let interactions: Set<PresentationBackgroundInteraction> = [
+                .automatic,
+                .disabled,
+                .enabled,
+                .enabled(upThrough: .medium),
+            ]
+            let adaptations: Set<PresentationAdaptation> = [
+                .automatic,
+                .none,
+                .popover,
+                .sheet,
+                .fullScreenCover,
+            ]
+            let contentInteractions: Set<PresentationContentInteraction> = [
+                .automatic,
+                .resizes,
+                .scrolls,
+            ]
+            let view = Text("ROOT")
+                .sheet(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    )
+                ) {
+                    SheetContent()
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertEqual(interactions.count, 4)
+            XCTAssertEqual(adaptations.count, 5)
+            XCTAssertEqual(contentInteractions.count, 3)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("ADAPTIVE SHEET"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+        }
+    }
+
     func testFullScreenCoverIsPresentedComposesRetainedCoverAndDismisses() async {
         await MainActor.run {
             struct FullScreenCoverContent: View {

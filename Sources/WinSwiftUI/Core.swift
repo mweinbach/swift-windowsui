@@ -828,6 +828,69 @@ public struct PresentationDetent: Sendable, Equatable, Hashable {
     }
 }
 
+public struct PresentationAdaptation: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case none
+        case popover
+        case sheet
+        case fullScreenCover
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PresentationAdaptation(kind: .automatic)
+    public static let none = PresentationAdaptation(kind: .none)
+    public static let popover = PresentationAdaptation(kind: .popover)
+    public static let sheet = PresentationAdaptation(kind: .sheet)
+    public static let fullScreenCover = PresentationAdaptation(kind: .fullScreenCover)
+}
+
+public struct PresentationContentInteraction: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case resizes
+        case scrolls
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PresentationContentInteraction(kind: .automatic)
+    public static let resizes = PresentationContentInteraction(kind: .resizes)
+    public static let scrolls = PresentationContentInteraction(kind: .scrolls)
+}
+
+public struct PresentationBackgroundInteraction: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case disabled
+        case enabled
+        case enabledUpThrough(PresentationDetent)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PresentationBackgroundInteraction(kind: .automatic)
+    public static let disabled = PresentationBackgroundInteraction(kind: .disabled)
+    public static let enabled = PresentationBackgroundInteraction(kind: .enabled)
+
+    public static func enabled(upThrough detent: PresentationDetent) -> PresentationBackgroundInteraction {
+        PresentationBackgroundInteraction(kind: .enabledUpThrough(detent))
+    }
+}
+
 public struct HoverEffect: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -7367,6 +7430,38 @@ public extension View {
 
     func presentationCornerRadius(_ cornerRadius: Double?) -> some View {
         _ = cornerRadius
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationBackgroundInteraction(_ interaction: PresentationBackgroundInteraction) -> some View {
+        _ = interaction
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationContentInteraction(_ behavior: PresentationContentInteraction) -> some View {
+        _ = behavior
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationCompactAdaptation(_ adaptation: PresentationAdaptation) -> some View {
+        _ = adaptation
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationCompactAdaptation(
+        horizontal: PresentationAdaptation,
+        vertical: PresentationAdaptation
+    ) -> some View {
+        _ = horizontal
+        _ = vertical
         return ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
         }

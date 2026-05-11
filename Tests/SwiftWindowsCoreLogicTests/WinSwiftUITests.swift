@@ -1352,6 +1352,28 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScaledMetricReadsDynamicTypeScaleFromViewContext() async {
+        await MainActor.run {
+            struct ScaledMetricReaderView: View {
+                @ScaledMetric var padding = 10.0
+                @ScaledMetric(relativeTo: .caption) var captionSpacing = 4.0
+
+                var body: some View {
+                    Text(String(format: "%.1f %.1f", padding, captionSpacing))
+                }
+            }
+
+            let defaultNode = makeNode(ScaledMetricReaderView())
+            let scaledNode = makeNode(
+                ScaledMetricReaderView()
+                    .dynamicTypeSize(.xxLarge)
+            )
+
+            XCTAssertEqual(defaultNode.text, "10.0 4.0")
+            XCTAssertEqual(scaledNode.text, "12.4 5.0")
+        }
+    }
+
     func testFontDesignModifierPropagatesThroughViewContext() async {
         await MainActor.run {
             let inheritedNode = makeNode(

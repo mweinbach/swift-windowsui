@@ -346,12 +346,13 @@ Compatibility helpers:
 - `FocusedObject`
 - `EnvironmentObject`
 - `AppStorage`
+- `ScaledMetric`
 - `UndoManager`
 - `UserInterfaceSizeClass`
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - `EdgeInsets()`
-- minimal `Binding`, `State`, `AppStorage`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `AppStorage`, `ScaledMetric`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -489,6 +490,7 @@ Surface direction:
 - `Binding`
 - `@State`
 - `@AppStorage`
+- `@ScaledMetric`
 - `@Environment`
 - `@EnvironmentObject`
 - `@FocusedValue`
@@ -504,6 +506,7 @@ Surface direction:
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@AppStorage` supports common non-optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, exposes `$storage` as a `Binding`, and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
+`@ScaledMetric` scales floating-point values with the same deterministic `DynamicTypeSize` table used by retained text, accepts `relativeTo:` for source compatibility, and exposes the requested text style as metadata. It does not yet model SwiftUI's per-text-style scaling curves.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.
 
 This is intentionally small. It exists to support shared app source and runtime invalidation, not to reproduce the full SwiftUI observation stack.

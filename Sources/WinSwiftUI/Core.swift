@@ -1520,6 +1520,31 @@ public struct AppStorage<Value> {
 
 @MainActor
 @propertyWrapper
+public struct ScaledMetric<Value: BinaryFloatingPoint> {
+    private let baseValue: Value
+    private let relativeTextStyle: Font.TextStyle
+
+    public init(wrappedValue: Value, relativeTo textStyle: Font.TextStyle = .body) {
+        self.baseValue = wrappedValue
+        self.relativeTextStyle = textStyle
+    }
+
+    public var wrappedValue: Value {
+        let dynamicTypeSize = ViewBuildContextScope.current?.environmentValues.dynamicTypeSize ?? .large
+        return baseValue * Value(dynamicTypeSize.retainedFontScale)
+    }
+
+    public var projectedValue: ScaledMetric<Value> {
+        self
+    }
+
+    public var relativeTo: Font.TextStyle {
+        relativeTextStyle
+    }
+}
+
+@MainActor
+@propertyWrapper
 public struct FocusState<Value> {
     @MainActor
     private final class Storage {

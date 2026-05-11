@@ -3891,6 +3891,7 @@ public struct Font: Sendable, Equatable {
 
     public enum Design: Sendable, Equatable {
         case `default`
+        case serif
         case rounded
         case monospaced
     }
@@ -5609,6 +5610,8 @@ extension Font {
         switch design {
         case .default, .rounded:
             return "Segoe UI"
+        case .serif:
+            return "Georgia"
         case .monospaced:
             return "Cascadia Mono"
         }

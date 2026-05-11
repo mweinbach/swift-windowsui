@@ -1633,6 +1633,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSerifFontDesignMapsToRetainedFontFamily() async {
+        await MainActor.run {
+            let directNode = makeNode(
+                Text("SERIF")
+                    .font(.system(size: 18, weight: .regular, design: .serif))
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("DEFAULT")
+                        .fontDesign(.default)
+                }
+                .font(.system(size: 16, weight: .bold))
+                .fontDesign(.serif)
+            )
+            let styleNode = makeNode(
+                Text("TITLE")
+                    .font(.system(.title, design: .serif, weight: .semibold))
+            )
+
+            XCTAssertEqual(directNode.textStyle.fontFamily, "Georgia")
+            XCTAssertEqual(directNode.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Georgia")
+            XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 16)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(styleNode.textStyle.fontFamily, "Georgia")
+            XCTAssertEqual(styleNode.textStyle.weight, .semibold)
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

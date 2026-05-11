@@ -2449,7 +2449,13 @@ public struct List: View {
                 axis: .vertical,
                 stackLayout: .vertical(spacing: context.listRowSpacing ?? 0, padding: .zero, alignment: .stretch),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+                children: content.map {
+                    let row = $0.makeComponent(context: context).makeNode(runtime: runtime)
+                    if context.defaultMinListRowHeight > 0 {
+                        row.applyDefaultListRowMinimumHeight(context.defaultMinListRowHeight)
+                    }
+                    return row
+                }
             )
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
@@ -2471,6 +2477,19 @@ public extension List {
         @ViewBuilder rowContent: (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
         self.init(data, id: \.id, rowContent: rowContent)
+    }
+}
+
+private extension ViewNode {
+    func applyDefaultListRowMinimumHeight(_ minimumHeight: Double) {
+        let resolvedMinimumHeight = max(0, minimumHeight)
+        let constraints = layoutConstraints ?? .unconstrained
+        layoutConstraints = LayoutConstraints(
+            minWidth: constraints.minWidth,
+            maxWidth: constraints.maxWidth,
+            minHeight: max(constraints.minHeight, resolvedMinimumHeight),
+            maxHeight: max(constraints.maxHeight, resolvedMinimumHeight)
+        )
     }
 }
 

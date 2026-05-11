@@ -2529,6 +2529,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDefaultMinListRowHeightMapsToRetainedRowConstraints() async {
+        await MainActor.run {
+            let node = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                        .frame(minHeight: 60)
+                }
+                .environment(\.defaultMinListRowHeight, 44)
+            )
+
+            XCTAssertEqual(node.children[0].layoutConstraints?.minHeight, 44)
+            XCTAssertEqual(node.children[0].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertEqual(node.children[1].layoutConstraints?.minHeight, 60)
+            XCTAssertEqual(node.children[1].layoutConstraints?.maxHeight, .infinity)
+        }
+    }
+
+    func testDefaultMinListRowHeightEnvironmentCanBeRead() async {
+        await MainActor.run {
+            struct RowHeightReader: View {
+                @Environment(\.defaultMinListRowHeight) var rowHeight
+
+                var body: some View {
+                    Text(rowHeight == 44 ? "CUSTOM" : "DEFAULT")
+                }
+            }
+
+            let defaultNode = makeNode(RowHeightReader())
+            let customNode = makeNode(RowHeightReader().environment(\.defaultMinListRowHeight, 44))
+
+            XCTAssertEqual(defaultNode.text, "DEFAULT")
+            XCTAssertEqual(customNode.text, "CUSTOM")
+        }
+    }
+
     func testListDataInitializerRendersRowsWithStableIDs() async {
         await MainActor.run {
             let node = makeNode(

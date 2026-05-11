@@ -2452,7 +2452,7 @@ public struct List: View {
                 children: content.map {
                     let row = $0.makeComponent(context: context).makeNode(runtime: runtime)
                     if context.defaultMinListRowHeight > 0 {
-                        row.applyDefaultListRowMinimumHeight(context.defaultMinListRowHeight)
+                        row.applyDefaultMinimumHeight(context.defaultMinListRowHeight)
                     }
                     return row
                 }
@@ -2481,7 +2481,7 @@ public extension List {
 }
 
 private extension ViewNode {
-    func applyDefaultListRowMinimumHeight(_ minimumHeight: Double) {
+    func applyDefaultMinimumHeight(_ minimumHeight: Double) {
         let resolvedMinimumHeight = max(0, minimumHeight)
         let constraints = layoutConstraints ?? .unconstrained
         layoutConstraints = LayoutConstraints(
@@ -2595,7 +2595,13 @@ public struct Section: View {
                 .withTextAlignment(.leading)
 
             let children =
-                header.map { $0.makeComponent(context: headerContext).makeNode(runtime: runtime) } +
+                header.map {
+                    let headerNode = $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
+                    if let minimumHeaderHeight = context.defaultMinListHeaderHeight, minimumHeaderHeight > 0 {
+                        headerNode.applyDefaultMinimumHeight(minimumHeaderHeight)
+                    }
+                    return headerNode
+                } +
                 content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) } +
                 footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
             let hidesScrollContentBackground = style.scrollAxis != nil &&

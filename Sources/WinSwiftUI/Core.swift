@@ -377,6 +377,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var scrollContentBackgroundVisibility: Visibility
     var listRowSpacing: Double?
     public var defaultMinListRowHeight: Double
+    public var defaultMinListHeaderHeight: CGFloat?
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -402,6 +403,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
         defaultMinListRowHeight: Double = 0,
+        defaultMinListHeaderHeight: CGFloat? = nil,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic
     ) {
@@ -428,6 +430,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.scrollContentBackgroundVisibility = .automatic
         self.listRowSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
+        self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -717,6 +720,10 @@ public struct ViewBuildContext {
 
     public var defaultMinListRowHeight: Double {
         environmentValuesProvider().defaultMinListRowHeight
+    }
+
+    public var defaultMinListHeaderHeight: CGFloat? {
+        environmentValuesProvider().defaultMinListHeaderHeight
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {

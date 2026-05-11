@@ -2654,6 +2654,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDefaultMinListHeaderHeightMapsToRetainedSectionHeaderConstraints() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("ROW")
+                } header: {
+                    Text("HEADER")
+                    Text("TALL")
+                        .frame(minHeight: 60)
+                }
+                .environment(\.defaultMinListHeaderHeight, 32)
+            )
+
+            XCTAssertEqual(node.children[0].layoutConstraints?.minHeight, 32)
+            XCTAssertEqual(node.children[0].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertEqual(node.children[1].layoutConstraints?.minHeight, 60)
+            XCTAssertEqual(node.children[1].layoutConstraints?.maxHeight, .infinity)
+            XCTAssertNil(node.children[2].layoutConstraints)
+        }
+    }
+
+    func testDefaultMinListHeaderHeightEnvironmentCanBeRead() async {
+        await MainActor.run {
+            struct HeaderHeightReader: View {
+                @Environment(\.defaultMinListHeaderHeight) var headerHeight
+
+                var body: some View {
+                    Text(headerHeight == 32 ? "CUSTOM" : "DEFAULT")
+                }
+            }
+
+            let defaultNode = makeNode(HeaderHeightReader())
+            let customNode = makeNode(HeaderHeightReader().environment(\.defaultMinListHeaderHeight, 32))
+
+            XCTAssertEqual(defaultNode.text, "DEFAULT")
+            XCTAssertEqual(customNode.text, "CUSTOM")
+        }
+    }
+
     func testSectionContentOnlySyntaxBuildsRowsWithoutHeader() async {
         await MainActor.run {
             let node = makeNode(

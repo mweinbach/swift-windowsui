@@ -88,6 +88,21 @@ final class ComponentHostTests: XCTestCase {
                         ? EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8)
                         : EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
                     let isSubmitScopeBoundary = useSecondState
+                    let matchedGeometryEffect = useSecondState
+                        ? RetainedMatchedGeometryEffect(
+                            namespaceID: "secondNamespace",
+                            elementID: "secondElement",
+                            properties: 3,
+                            anchor: Point(x: 1, y: 1),
+                            isSource: false
+                        )
+                        : RetainedMatchedGeometryEffect(
+                            namespaceID: "firstNamespace",
+                            elementID: "firstElement",
+                            properties: 1,
+                            anchor: Point(x: 0, y: 0),
+                            isSource: true
+                        )
 
                     node.text = label
                     node.opacity = opacity
@@ -104,6 +119,7 @@ final class ComponentHostTests: XCTestCase {
                     node.imageResizingMode = imageResizingMode
                     node.imageCapInsets = imageCapInsets
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
+                    node.matchedGeometryEffect = matchedGeometryEffect
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -137,6 +153,16 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.imageResizingMode, .stretch)
             XCTAssertEqual(firstNode?.imageCapInsets, EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
+            XCTAssertEqual(
+                firstNode?.matchedGeometryEffect,
+                RetainedMatchedGeometryEffect(
+                    namespaceID: "firstNamespace",
+                    elementID: "firstElement",
+                    properties: 1,
+                    anchor: Point(x: 0, y: 0),
+                    isSource: true
+                )
+            )
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -160,6 +186,16 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.imageResizingMode, .tile)
             XCTAssertEqual(reusedNode?.imageCapInsets, EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8))
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
+            XCTAssertEqual(
+                reusedNode?.matchedGeometryEffect,
+                RetainedMatchedGeometryEffect(
+                    namespaceID: "secondNamespace",
+                    elementID: "secondElement",
+                    properties: 3,
+                    anchor: Point(x: 1, y: 1),
+                    isSource: false
+                )
+            )
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

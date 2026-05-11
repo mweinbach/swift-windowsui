@@ -137,6 +137,18 @@ public struct UnitPoint: Sendable, Equatable {
     public static let bottomTrailing = UnitPoint(x: 1.0, y: 1.0)
 }
 
+public struct MatchedGeometryProperties: OptionSet, Sendable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let position = MatchedGeometryProperties(rawValue: 1 << 0)
+    public static let size = MatchedGeometryProperties(rawValue: 1 << 1)
+    public static let frame: MatchedGeometryProperties = [.position, .size]
+}
+
 public struct Gradient: Sendable, Equatable {
     public var colors: [Color]
 
@@ -223,6 +235,41 @@ public protocol DynamicProperty {
 
 public extension DynamicProperty {
     mutating func update() {}
+}
+
+@MainActor
+@propertyWrapper
+public struct Namespace: DynamicProperty {
+    public struct ID: Sendable, Hashable, CustomStringConvertible {
+        fileprivate let rawValue: String
+
+        fileprivate init(rawValue: String = UUID().uuidString) {
+            self.rawValue = rawValue
+        }
+
+        public var description: String {
+            rawValue
+        }
+    }
+
+    @MainActor
+    private final class Storage {
+        let id = ID()
+    }
+
+    private let storage: Storage
+
+    public init() {
+        self.storage = Storage()
+    }
+
+    public var wrappedValue: ID {
+        storage.id
+    }
+
+    public var projectedValue: ID {
+        storage.id
+    }
 }
 
 @MainActor
@@ -6507,6 +6554,29 @@ public extension View {
         }
         modified.selectionTag = AnyHashable(tag)
         return modified
+    }
+
+    func matchedGeometryEffect<ID: Hashable>(
+        id: ID,
+        in namespace: Namespace.ID,
+        properties: MatchedGeometryProperties = .frame,
+        anchor: UnitPoint = .center,
+        isSource: Bool = true
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                    namespaceID: namespace.rawValue,
+                    elementID: String(describing: id),
+                    properties: properties.rawValue,
+                    anchor: Point(x: anchor.x, y: anchor.y),
+                    isSource: isSource
+                )
+                return node
+            }
+        }
     }
 
     func animation(_ animation: Animation?) -> some View {

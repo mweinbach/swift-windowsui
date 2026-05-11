@@ -4911,6 +4911,7 @@ final class WinSwiftUITests: XCTestCase {
             acceptDynamicProperty(SceneStorage(wrappedValue: "value", "dynamicProperty"))
             acceptDynamicProperty(ScaledMetric(wrappedValue: 1.0))
             acceptDynamicProperty(FocusState<Bool>())
+            acceptDynamicProperty(Namespace())
         }
     }
 
@@ -6582,6 +6583,35 @@ final class WinSwiftUITests: XCTestCase {
             let node = makeNode(Text("FRONT").zIndex(7.5))
 
             XCTAssertEqual(node.zIndex, 7.5)
+        }
+    }
+
+    func testNamespaceAndMatchedGeometryEffectMapToRetainedMetadata() async {
+        await MainActor.run {
+            struct MatchedGeometryView: View {
+                @Namespace private var namespace
+
+                var body: some View {
+                    Text("CARD")
+                        .matchedGeometryEffect(
+                            id: "card",
+                            in: namespace,
+                            properties: .position,
+                            anchor: .topLeading,
+                            isSource: false
+                        )
+                }
+            }
+
+            let node = makeNode(MatchedGeometryView())
+            let effect = node.matchedGeometryEffect
+
+            XCTAssertNotNil(effect)
+            XCTAssertEqual(effect?.elementID, "card")
+            XCTAssertEqual(effect?.properties, MatchedGeometryProperties.position.rawValue)
+            XCTAssertEqual(effect?.anchor, Point(x: 0, y: 0))
+            XCTAssertEqual(effect?.isSource, false)
+            XCTAssertFalse(effect?.namespaceID.isEmpty ?? true)
         }
     }
 

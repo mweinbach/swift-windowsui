@@ -174,6 +174,7 @@ public final class ComponentHost {
         if target.contentShapes != source.contentShapes { target.contentShapes = source.contentShapes }
         if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
         if target.isPrivacySensitive != source.isPrivacySensitive { target.isPrivacySensitive = source.isPrivacySensitive }
+        if target.matchedGeometryEffect != source.matchedGeometryEffect { target.matchedGeometryEffect = source.matchedGeometryEffect }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

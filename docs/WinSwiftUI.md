@@ -346,6 +346,8 @@ Compatibility helpers:
 - `FocusedObject`
 - `EnvironmentObject`
 - `DynamicProperty`
+- `Namespace`
+- `MatchedGeometryProperties`
 - `AppStorage`
 - `SceneStorage`
 - `ScaledMetric`
@@ -354,7 +356,7 @@ Compatibility helpers:
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - `EdgeInsets()`
-- minimal `Binding`, `State`, `DynamicProperty`, `AppStorage`, `SceneStorage`, `ScaledMetric`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `DynamicProperty`, `Namespace`, `AppStorage`, `SceneStorage`, `ScaledMetric`, `FocusState`, `Environment`, `EnvironmentValues`, `EnvironmentObject`, `FocusedValue`, `FocusedBinding`, `FocusedObject`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RenameAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `OpenSettingsAction`, `RequestReviewAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -449,6 +451,7 @@ Surface direction:
 - `border` maps to retained panel border fields. Stored `ForegroundStyle.color` values map directly, while gradient border inputs use the gradient start color until renderer-neutral gradient stroke primitives exist.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
 - `zIndex(_:)`, `offset`, `scaleEffect`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
+- `@Namespace` creates stable SwiftUI-shaped namespace IDs, and `matchedGeometryEffect(id:in:properties:anchor:isSource:)` records retained metadata on the node. WinSwiftUI does not yet interpolate geometry across matched source/destination pairs, but the metadata is available to the retained runtime for future animation work.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
 - `animation(_:)` and `animation(_:value:)` attach retained animation state for properties the runtime can interpolate today, currently focused on opacity and background color. `withAnimation` accepts SwiftUI-shaped call sites and executes the body immediately.
 - `disabled(_:)` propagates an inherited enabled-state environment through `ViewBuildContext`, and retained controls consume that state while they are built.
@@ -500,6 +503,7 @@ Surface direction:
 - `@FocusedBinding`
 - `@FocusedObject`
 - `@FocusState`
+- `@Namespace`
 - `DynamicProperty`
 - `ObservableObject`
 - `@Published`
@@ -509,6 +513,7 @@ Surface direction:
 `@Environment` can read retained-context values such as `isEnabled`, `isFocused`, `isFocusEffectEnabled`, `isLuminanceReduced`, `isSceneCaptured`, `isTabBarShowingSections`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `scrollDismissesKeyboardMode`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `defaultWheelPickerItemHeight`, `backgroundProminence`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `scenePhase`, `controlActiveState`, `appearsActive`, `supportsMultipleWindows`, `isPresented`, `editMode`, `legibilityWeight`, `displayScale`, `pixelLength`, `calendar`, `timeZone`, `locale`, `dismiss`, `dismissSearch`, `isSearching`, `rename`, `refresh`, `openWindow`, `dismissWindow`, `openSettings`, `requestReview`, `undoManager`, `accessibilityAssistiveAccessEnabled`, `accessibilityDimFlashingLights`, `accessibilityDifferentiateWithoutColor`, `accessibilityEnabled`, `accessibilityInvertColors`, `accessibilityLargeContentViewerEnabled`, `accessibilityPlayAnimatedImages`, `accessibilityPrefersHeadAnchorAlternative`, `accessibilityQuickActionsEnabled`, `accessibilityReduceHighlightingEffects`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityShowButtonShapes`, `accessibilityShowBorders`, `accessibilitySwitchControlEnabled`, `accessibilityVoiceOverEnabled`, `layoutDirection`, `horizontalSizeClass`, `verticalSizeClass`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `minimumScaleFactor`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `buttonRepeatBehavior`, `buttonSizing`, `buttonBorderShape`, `menuIndicatorVisibility`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, `textFieldStyle`, and `submitLabel`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)`, `transformEnvironment(_:_:)`, and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `DynamicProperty` is available as a source-compatibility marker with a default no-op `update()`. WinSwiftUI's built-in SwiftUI-shaped property wrappers conform to it, but the retained runtime does not yet perform SwiftUI's pre-body dynamic property update sweep.
+`@Namespace` creates a stable namespace ID retained by the property wrapper value and exposes it through `$namespace`, which is enough for source-compatible `matchedGeometryEffect` call sites.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@AppStorage` supports common non-optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, exposes `$storage` as a `Binding`, and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@SceneStorage` stores non-optional values in a retained in-memory scene-state table, exposes `$storage` as a `Binding`, and invalidates after writes. The current implementation matches the single-window host scope and does not yet serialize scene restoration data or isolate values per future `WindowGroup` instance.

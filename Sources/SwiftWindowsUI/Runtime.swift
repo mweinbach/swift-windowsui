@@ -62,6 +62,28 @@ public enum RetainedImageResizingMode: Sendable, Equatable {
     case tile
 }
 
+public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
+    public var namespaceID: String
+    public var elementID: String
+    public var properties: UInt8
+    public var anchor: Point
+    public var isSource: Bool
+
+    public init(
+        namespaceID: String,
+        elementID: String,
+        properties: UInt8,
+        anchor: Point,
+        isSource: Bool
+    ) {
+        self.namespaceID = namespaceID
+        self.elementID = elementID
+        self.properties = properties
+        self.anchor = anchor
+        self.isSource = isSource
+    }
+}
+
 public struct RetainedClipFillStyle: Sendable, Equatable {
     public var eoFill: Bool
     public var antialiased: Bool
@@ -713,6 +735,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var matchedGeometryEffect: RetainedMatchedGeometryEffect? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -834,6 +860,7 @@ public final class ViewNode {
         redactionReasons: RetainedRedactionReasons = [],
         isPrivacySensitive: Bool = false,
         paintsInDeferredPhase: Bool = false,
+        matchedGeometryEffect: RetainedMatchedGeometryEffect? = nil,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -896,6 +923,7 @@ public final class ViewNode {
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
         self.paintsInDeferredPhase = paintsInDeferredPhase
+        self.matchedGeometryEffect = matchedGeometryEffect
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil

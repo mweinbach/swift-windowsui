@@ -10875,6 +10875,8 @@ final class WinSwiftUITests: XCTestCase {
                     .accessibilityValue(LocalizedStringKey("Ready"))
                     .accessibilityHint("Writes the current document")
                     .accessibilityIdentifier("save-button")
+                    .accessibilityAddTraits([.isButton, .isHeader, .isSelected])
+                    .accessibilityRemoveTraits(.isHeader)
                     .accessibilityHidden(true)
             )
 
@@ -10882,6 +10884,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.accessibilityValue, "Ready")
             XCTAssertEqual(node.accessibilityHint, "Writes the current document")
             XCTAssertEqual(node.accessibilityIdentifier, "save-button")
+            XCTAssertEqual(node.accessibilityTraits, [.isButton, .isSelected])
             XCTAssertTrue(node.isAccessibilityHidden)
         }
     }

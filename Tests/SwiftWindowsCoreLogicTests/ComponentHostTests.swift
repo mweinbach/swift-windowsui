@@ -99,6 +99,9 @@ final class ComponentHostTests: XCTestCase {
                     let imageInterpolation: RetainedImageInterpolation = useSecondState ? .high : .low
                     let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
+                    let accessibilityTraits: RetainedAccessibilityTraits = useSecondState
+                        ? [.isSelected, .isImage]
+                        : [.isButton, .isHeader]
                     let toolbarPlacementTags: Set<String> = useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
                     let sectionHeaderChildCount = useSecondState ? 2 : 0
                     let sectionFooterChildCount = useSecondState ? 1 : 0
@@ -178,6 +181,7 @@ final class ComponentHostTests: XCTestCase {
                     node.imageInterpolation = imageInterpolation
                     node.imageAntialiased = imageAntialiased
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
+                    node.accessibilityTraits = accessibilityTraits
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.presentationChrome = presentationChrome
                     node.isToolbarContainer = useSecondState
@@ -224,6 +228,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.imageInterpolation, .low)
             XCTAssertEqual(firstNode?.imageAntialiased, false)
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
+            XCTAssertEqual(firstNode?.accessibilityTraits, [.isButton, .isHeader])
             XCTAssertEqual(
                 firstNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(
@@ -297,6 +302,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.imageInterpolation, .high)
             XCTAssertEqual(reusedNode?.imageAntialiased, true)
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
+            XCTAssertEqual(reusedNode?.accessibilityTraits, [.isSelected, .isImage])
             XCTAssertEqual(
                 reusedNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(

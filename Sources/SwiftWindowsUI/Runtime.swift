@@ -143,6 +143,30 @@ public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public static let accessibility = RetainedContentShapeKinds(rawValue: 1 << 5)
 }
 
+public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
+    public let rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public static let isButton = RetainedAccessibilityTraits(rawValue: 1 << 0)
+    public static let isHeader = RetainedAccessibilityTraits(rawValue: 1 << 1)
+    public static let isSelected = RetainedAccessibilityTraits(rawValue: 1 << 2)
+    public static let isLink = RetainedAccessibilityTraits(rawValue: 1 << 3)
+    public static let isImage = RetainedAccessibilityTraits(rawValue: 1 << 4)
+    public static let isSearchField = RetainedAccessibilityTraits(rawValue: 1 << 5)
+    public static let isKeyboardKey = RetainedAccessibilityTraits(rawValue: 1 << 6)
+    public static let isStaticText = RetainedAccessibilityTraits(rawValue: 1 << 7)
+    public static let isSummaryElement = RetainedAccessibilityTraits(rawValue: 1 << 8)
+    public static let updatesFrequently = RetainedAccessibilityTraits(rawValue: 1 << 9)
+    public static let startsMediaSession = RetainedAccessibilityTraits(rawValue: 1 << 10)
+    public static let playsSound = RetainedAccessibilityTraits(rawValue: 1 << 11)
+    public static let allowsDirectInteraction = RetainedAccessibilityTraits(rawValue: 1 << 12)
+    public static let causesPageTurn = RetainedAccessibilityTraits(rawValue: 1 << 13)
+    public static let isModal = RetainedAccessibilityTraits(rawValue: 1 << 14)
+}
+
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
@@ -807,6 +831,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var accessibilityTraits: RetainedAccessibilityTraits {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isAccessibilityHidden: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1042,6 +1070,7 @@ public final class ViewNode {
         accessibilityValue: String? = nil,
         accessibilityHint: String? = nil,
         accessibilityIdentifier: String? = nil,
+        accessibilityTraits: RetainedAccessibilityTraits = [],
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
         symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
@@ -1119,6 +1148,7 @@ public final class ViewNode {
         self.accessibilityValue = accessibilityValue
         self.accessibilityHint = accessibilityHint
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityTraits = accessibilityTraits
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
         self.symbolRenderingMode = symbolRenderingMode

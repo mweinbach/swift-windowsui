@@ -4124,6 +4124,34 @@ public struct ContentShapeKinds: OptionSet, Sendable {
     }
 }
 
+public struct AccessibilityTraits: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public static let isButton = AccessibilityTraits(rawValue: 1 << 0)
+    public static let isHeader = AccessibilityTraits(rawValue: 1 << 1)
+    public static let isSelected = AccessibilityTraits(rawValue: 1 << 2)
+    public static let isLink = AccessibilityTraits(rawValue: 1 << 3)
+    public static let isImage = AccessibilityTraits(rawValue: 1 << 4)
+    public static let isSearchField = AccessibilityTraits(rawValue: 1 << 5)
+    public static let isKeyboardKey = AccessibilityTraits(rawValue: 1 << 6)
+    public static let isStaticText = AccessibilityTraits(rawValue: 1 << 7)
+    public static let isSummaryElement = AccessibilityTraits(rawValue: 1 << 8)
+    public static let updatesFrequently = AccessibilityTraits(rawValue: 1 << 9)
+    public static let startsMediaSession = AccessibilityTraits(rawValue: 1 << 10)
+    public static let playsSound = AccessibilityTraits(rawValue: 1 << 11)
+    public static let allowsDirectInteraction = AccessibilityTraits(rawValue: 1 << 12)
+    public static let causesPageTurn = AccessibilityTraits(rawValue: 1 << 13)
+    public static let isModal = AccessibilityTraits(rawValue: 1 << 14)
+
+    var retainedTraits: RetainedAccessibilityTraits {
+        RetainedAccessibilityTraits(rawValue: rawValue)
+    }
+}
+
 public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: Int
 
@@ -10940,6 +10968,28 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isAccessibilityHidden = hidden
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityAddTraits(_ traits: AccessibilityTraits) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityTraits.formUnion(traits.retainedTraits)
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityRemoveTraits(_ traits: AccessibilityTraits) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityTraits.subtract(traits.retainedTraits)
                 return childNode
             }
         }

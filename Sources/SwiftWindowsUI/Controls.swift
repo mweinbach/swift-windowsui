@@ -1158,6 +1158,70 @@ public enum Controls {
         )
     }
 
+    public static func circularProgress(
+        value: Double?,
+        total: Double = 1.0,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        trackColor: Color = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0),
+        filledColor: Color = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+    ) -> ViewNode {
+        let size = max(12, min(preferredSize?.width ?? 28, preferredSize?.height ?? 28))
+        let dotSize = max(3, size * 0.16)
+        let segmentCenters: [(Double, Double)] = [
+            (0.50, 0.00), (0.75, 0.07), (0.93, 0.25), (1.00, 0.50),
+            (0.93, 0.75), (0.75, 0.93), (0.50, 1.00), (0.25, 0.93),
+            (0.07, 0.75), (0.00, 0.50), (0.07, 0.25), (0.25, 0.07)
+        ]
+
+        let segmentCount = segmentCenters.count
+        let filledSegments: Int?
+        if let value {
+            let progress = total > 0 ? min(max(value / total, 0), 1) : 0
+            filledSegments = progress <= 0 ? 0 : max(1, Int((progress * Double(segmentCount)).rounded(.up)))
+        } else {
+            filledSegments = nil
+        }
+
+        let children = segmentCenters.enumerated().map { index, center -> ViewNode in
+            let color: Color
+            if let filledSegments {
+                color = index < filledSegments ? filledColor : trackColor
+            } else {
+                switch index {
+                case 0:
+                    color = filledColor
+                case 1:
+                    color = filledColor.multipliedAlpha(by: 0.72)
+                case 2:
+                    color = filledColor.multipliedAlpha(by: 0.44)
+                default:
+                    color = trackColor
+                }
+            }
+
+            return panel(
+                frame: Rect(
+                    x: center.0 * (size - dotSize),
+                    y: center.1 * (size - dotSize),
+                    width: dotSize,
+                    height: dotSize
+                ),
+                backgroundColor: color,
+                cornerRadius: dotSize / 2,
+                isHitTestVisible: false
+            )
+        }
+
+        return panel(
+            preferredSize: Size(width: size, height: size),
+            layoutPriority: layoutPriority,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: children
+        )
+    }
+
     // MARK: - Radio Button
 
     public static func radioButton(

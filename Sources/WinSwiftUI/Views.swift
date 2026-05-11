@@ -5653,6 +5653,21 @@ private extension ControlSize {
         }
     }
 
+    var circularProgressPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 18, height: 18)
+        case .small:
+            return Size(width: 22, height: 22)
+        case .regular:
+            return Size(width: 28, height: 28)
+        case .large:
+            return Size(width: 34, height: 34)
+        case .extraLarge:
+            return Size(width: 40, height: 40)
+        }
+    }
+
     var colorSwatchPreferredSize: Size {
         switch self {
         case .mini:
@@ -7982,12 +7997,23 @@ public struct ProgressView: View {
         )
 
         return Component { runtime in
-            let progressNode = Controls.progressBar(
-                value: value ?? 0,
-                total: total,
-                preferredSize: context.controlSize.progressPreferredSize,
-                filledColor: context.tint
-            )
+            let progressNode: ViewNode
+            switch context.progressViewStyle.kind {
+            case .circular:
+                progressNode = Controls.circularProgress(
+                    value: value,
+                    total: total,
+                    preferredSize: context.controlSize.circularProgressPreferredSize,
+                    filledColor: context.tint
+                )
+            case .automatic, .linear:
+                progressNode = Controls.progressBar(
+                    value: value ?? 0,
+                    total: total,
+                    preferredSize: context.controlSize.progressPreferredSize,
+                    filledColor: context.tint
+                )
+            }
             guard !context.labelsHidden else {
                 return progressNode
             }

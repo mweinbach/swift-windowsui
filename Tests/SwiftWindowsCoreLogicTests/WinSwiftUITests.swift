@@ -9439,6 +9439,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCircularProgressViewStyleUsesRetainedCircularSegments() async {
+        await MainActor.run {
+            let tint = Color(red: 0.15, green: 0.70, blue: 0.50, alpha: 1)
+            let track = Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0)
+            let node = makeNode(
+                ProgressView(value: 0.5, total: 1.0)
+                    .progressViewStyle(CircularProgressViewStyle())
+                    .controlSize(.large)
+                    .tint(tint)
+            )
+            let labeledNode = makeNode(
+                ProgressView("SYNC", value: 0.25, total: 1.0)
+                    .progressViewStyle(.circular)
+                    .tint(tint)
+            )
+            let indeterminateNode = makeNode(
+                ProgressView()
+                    .progressViewStyle(.circular)
+                    .tint(tint)
+            )
+
+            XCTAssertEqual(node.preferredSize?.width, 34)
+            XCTAssertEqual(node.preferredSize?.height, 34)
+            XCTAssertEqual(node.children.count, 12)
+            XCTAssertEqual(node.children[0].backgroundColor, tint)
+            XCTAssertEqual(node.children[5].backgroundColor, tint)
+            XCTAssertEqual(node.children[6].backgroundColor, track)
+
+            XCTAssertEqual(firstText(in: labeledNode.children[0]), "SYNC")
+            XCTAssertEqual(labeledNode.children[1].children.count, 12)
+            XCTAssertEqual(labeledNode.children[1].children[0].backgroundColor, tint)
+            XCTAssertEqual(labeledNode.children[1].children[3].backgroundColor, track)
+
+            XCTAssertEqual(indeterminateNode.children.count, 12)
+            XCTAssertEqual(indeterminateNode.children[0].backgroundColor, tint)
+            XCTAssertEqual(indeterminateNode.children[1].backgroundColor, tint.multipliedAlpha(by: 0.72))
+        }
+    }
+
     func testGaugeMapsToRetainedProgressBarWithSwiftUIShapedLabels() async {
         await MainActor.run {
             let stringNode = makeNode(Gauge("BATTERY", value: 0.75, in: 0...1))

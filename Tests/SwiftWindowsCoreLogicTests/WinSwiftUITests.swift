@@ -58,6 +58,20 @@ private actor AsyncTaskCounter {
     }
 }
 
+private struct EmphasisModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .foregroundColor(.red)
+            .font(.system(size: 1.7, weight: .bold))
+    }
+}
+
+private struct IdentityModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+    }
+}
+
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -1381,6 +1395,19 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(storedNode.children[0].textStyle.color, Color(red: 0.2, green: 0.5, blue: 0.9, alpha: 1))
             XCTAssertEqual(secondaryNode.textStyle.color, .secondary)
             XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
+        }
+    }
+
+    func testCustomViewModifierMapsThroughRetainedComponentPipeline() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("ALERT")
+                    .modifier(EmphasisModifier())
+            )
+
+            XCTAssertEqual(node.text, "ALERT")
+            XCTAssertEqual(node.textStyle.color, .red)
+            XCTAssertEqual(node.textStyle.weight, .bold)
         }
     }
 
@@ -3841,6 +3868,33 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(selection, "expanded")
             XCTAssertTrue(didInvalidate)
+        }
+    }
+
+    func testCustomViewModifierPreservesTaggedPickerMetadata() async {
+        await MainActor.run {
+            var selection = "one"
+
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("ONE")
+                        .tag("one")
+                        .modifier(IdentityModifier())
+                    Text("TWO")
+                        .tag("two")
+                        .modifier(IdentityModifier())
+                }
+            )
+
+            node.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "two")
         }
     }
 

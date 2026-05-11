@@ -1581,6 +1581,113 @@ public extension View {
 }
 
 @MainActor
+public protocol ViewModifier {
+    associatedtype Body: View
+    typealias Content = ViewModifierContent
+
+    @ViewBuilder
+    func body(content: Content) -> Body
+}
+
+@MainActor
+public struct ViewModifierContent: View, TaggedViewMetadata {
+    public typealias Body = Never
+
+    private let content: AnyView
+
+    init<V: View>(_ content: V) {
+        self.content = AnyView(content)
+    }
+
+    public var body: Never {
+        fatalError("ViewModifierContent has no body")
+    }
+
+    var anySelectionTag: AnyHashable? {
+        content.selectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        content.tabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        content.badge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        content.navigationTitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        content.navigationTitleDisplayMode
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        content.navigationDestinationRegistrations
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        content.navigationPresentedDestinations
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, TaggedViewMetadata {
+    public typealias Body = Never
+
+    public let content: Content
+    public let modifier: Modifier
+
+    public init(content: Content, modifier: Modifier) {
+        self.content = content
+        self.modifier = modifier
+    }
+
+    public var body: Never {
+        fatalError("ModifiedContent has no body")
+    }
+
+    var anySelectionTag: AnyHashable? {
+        (content as? any TaggedViewMetadata)?.anySelectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyTabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyBadge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        (content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        (content as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        modifier
+            .body(content: ViewModifierContent(content))
+            .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public protocol Shape: View {}
 
 public extension Shape {
@@ -2893,6 +3000,10 @@ private final class OnChangeObservationRegistry {
 }
 
 public extension View {
+    func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
+        ModifiedContent(content: self, modifier: modifier)
+    }
+
     func frame(width: Double? = nil, height: Double? = nil, alignment: Alignment = .center) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

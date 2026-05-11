@@ -2095,6 +2095,82 @@ private extension Image.Scale {
 }
 
 @MainActor
+public struct LabeledContent: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Text(title)
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, content: content)
+    }
+
+    public init<Title: StringProtocol, Value: StringProtocol>(_ title: Title, value: Value) {
+        self.init(String(title)) {
+            Text(String(value))
+                .multilineTextAlignment(.trailing)
+                .lineLimit(1)
+        }
+    }
+
+    public init<Value: StringProtocol>(_ titleKey: LocalizedStringKey, value: Value) {
+        self.init(titleKey.resolvedString, value: String(value))
+    }
+
+    public var body: Never {
+        fatalError("LabeledContent has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponent = composeComponent(
+            from: label,
+            context: context
+                .withForegroundColor(.secondary)
+                .withTextAlignment(.leading)
+                .withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let contentComponent = composeComponent(
+            from: content,
+            context: context
+                .withTextAlignment(.trailing)
+                .withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            let contentNode = contentComponent.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 12, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, contentNode]
+            )
+        }
+    }
+}
+
+@MainActor
 public struct Label: View {
     public typealias Body = Never
 

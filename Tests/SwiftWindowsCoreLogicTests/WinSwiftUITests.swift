@@ -180,10 +180,11 @@ final class WinSwiftUITests: XCTestCase {
                     Button(title, systemImage: "doc.text") {}
                     Button(title, role: .cancel) {}
                     Button(title, systemImage: "trash", role: .destructive) {}
+                    LabeledContent(title, value: "READY")
                 }
             )
 
-            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 10)
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 11)
         }
     }
 
@@ -5079,6 +5080,26 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: horizontalNode), "NARROW")
             XCTAssertEqual(firstText(in: verticalNode), "SHORT")
             XCTAssertEqual(firstText(in: fallbackNode), "TOO TALL")
+        }
+    }
+
+    func testLabeledContentMapsToRetainedLabelValueRow() async {
+        await MainActor.run {
+            let builderNode = makeNode(
+                LabeledContent {
+                    Text("VALUE")
+                } label: {
+                    Text("LABEL")
+                }
+            )
+            let stringNode = makeNode(LabeledContent("STATUS", value: "READY"))
+            let keyNode = makeNode(LabeledContent(LocalizedStringKey("MODE"), value: "AUTO"))
+
+            XCTAssertEqual(allTexts(in: builderNode), ["LABEL", "VALUE"])
+            XCTAssertEqual(builderNode.children[0].layoutPriority, 1)
+            XCTAssertEqual(builderNode.children[0].textStyle.color, .secondary)
+            XCTAssertEqual(allTexts(in: stringNode), ["STATUS", "READY"])
+            XCTAssertEqual(allTexts(in: keyNode), ["MODE", "AUTO"])
         }
     }
 

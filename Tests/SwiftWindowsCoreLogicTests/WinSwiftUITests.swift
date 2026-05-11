@@ -8521,6 +8521,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStyleRadioGroupUsesRetainedRadioButtonsAndWritesSelection() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+            let node = makeNode(
+                Picker(
+                    "MODE",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+                .pickerStyle(.radioGroup),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            let radioGroupNode = node.children[1]
+            XCTAssertEqual(radioGroupNode.children.count, 2)
+            XCTAssertEqual(allTexts(in: radioGroupNode), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(radioGroupNode.children[0].children[0].children.count, 1)
+            XCTAssertTrue(radioGroupNode.children[1].children[0].children.isEmpty)
+
+            radioGroupNode.children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testDatePickerMapsToRetainedLabelValueRow() async {
         await MainActor.run {
             struct DateEnvironmentReaderView: View {

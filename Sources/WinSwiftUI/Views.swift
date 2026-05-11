@@ -6904,12 +6904,20 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             let pickerNode: ViewNode
             switch context.pickerStyle.kind {
-            case .automatic, .inline, .segmented, .navigationLink, .palette, .radioGroup, .wheel:
+            case .automatic, .inline, .segmented, .navigationLink, .palette, .wheel:
                 pickerNode = Self.segmentedPickerNode(
                     runtime: runtime,
                     context: context,
                     selection: selection,
                     selectedValue: selectedValue,
+                    selectedAnyValue: selectedAnyValue,
+                    options: options
+                )
+            case .radioGroup:
+                pickerNode = Self.radioGroupPickerNode(
+                    runtime: runtime,
+                    context: context,
+                    selection: selection,
                     selectedAnyValue: selectedAnyValue,
                     options: options
                 )
@@ -7015,6 +7023,57 @@ public struct Picker<SelectionValue: Hashable>: View {
             stackLayout: .horizontal(
                 spacing: 4,
                 padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: optionNodes
+        )
+    }
+
+    private static func radioGroupPickerNode(
+        runtime: RetainedViewRuntime,
+        context: ViewBuildContext,
+        selection: Binding<SelectionValue>,
+        selectedAnyValue: AnyHashable,
+        options: [Option]
+    ) -> ViewNode {
+        let optionNodes: [ViewNode] = options.enumerated().map { index, option in
+            let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
+            let title = firstText(in: option.node) ?? "OPTION \(index + 1)"
+            return Controls.radioButton(
+                runtime: runtime,
+                label: title,
+                isSelected: isSelected,
+                isEnabled: context.isEnabled && option.value != nil,
+                layoutPriority: 1,
+                chrome: SurfaceChrome(
+                    borderColor: isSelected ? context.tint.opacity(0.40) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderHoveredColor: isSelected ? context.tint.opacity(0.58) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                    borderFocusedColor: isSelected ? context.tint.opacity(0.72) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
+                    borderWidth: 1,
+                    focusRingColor: context.tint.opacity(0.28),
+                    focusRingWidth: 2
+                ),
+                selectedColor: context.tint,
+                onSelect: option.value.map { value in
+                    {
+                        selection.wrappedValue = value
+                        context.invalidate()
+                    }
+                }
+            )
+        }
+
+        return Controls.stackPanel(
+            backgroundColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.72),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+            borderWidth: 1,
+            cornerRadius: 12,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 6,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
                 alignment: .stretch
             ),
             isHitTestVisible: false,

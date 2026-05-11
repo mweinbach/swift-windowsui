@@ -5872,11 +5872,81 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(plainNode.text, "PLAIN")
+            XCTAssertEqual(
+                plainNode.contentShapes,
+                [
+                    RetainedContentShape(
+                        kinds: .interaction,
+                        style: .rectangle
+                    )
+                ]
+            )
             XCTAssertTrue(gestureNode.isHitTestVisible)
             XCTAssertEqual(gestureNode.text, "TAP")
+            XCTAssertEqual(
+                gestureNode.contentShapes,
+                [
+                    RetainedContentShape(
+                        kinds: .interaction,
+                        style: .ellipse,
+                        eoFill: true
+                    )
+                ]
+            )
             XCTAssertTrue(kindNode.isHitTestVisible)
             XCTAssertEqual(kindNode.text, "KIND")
+            XCTAssertEqual(
+                kindNode.contentShapes,
+                [
+                    RetainedContentShape(
+                        kinds: [.interaction, .hoverEffect, .accessibility],
+                        style: .capsule,
+                        eoFill: true
+                    )
+                ]
+            )
             XCTAssertEqual(customNode.text, "CUSTOM")
+            XCTAssertEqual(
+                customNode.contentShapes,
+                [
+                    RetainedContentShape(
+                        kinds: .dragPreview,
+                        style: .rectangle
+                    )
+                ]
+            )
+        }
+    }
+
+    func testContentShapeInteractionConstrainsRetainedPointerHitTesting() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 120, height: 120) },
+                invalidateHandler: {}
+            )
+            var tapCount = 0
+
+            let node = Text("TAP")
+                .frame(width: 80, height: 80)
+                .contentShape(Circle())
+                .onTapGesture {
+                    tapCount += 1
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 120, height: 120))
+            _ = runtime.renderFrame()
+
+            runtime.pointerDown(at: Point(x: 0, y: 0))
+            runtime.pointerUp(at: Point(x: 0, y: 0))
+            XCTAssertEqual(tapCount, 0)
+
+            runtime.pointerDown(at: Point(x: 40, y: 40))
+            runtime.pointerUp(at: Point(x: 40, y: 40))
+            XCTAssertEqual(tapCount, 1)
         }
     }
 

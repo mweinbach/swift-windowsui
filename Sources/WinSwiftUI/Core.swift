@@ -2494,11 +2494,31 @@ enum RetainedClipShapeStyle {
             return max(0, radius)
         }
     }
+
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        switch self {
+        case .rectangle:
+            return .rectangle
+        case .roundedRectangle(let radius):
+            return .roundedRectangle(radius)
+        case .capsule:
+            return .capsule
+        }
+    }
 }
 
 @MainActor
 protocol RetainedClipShape: Shape {
     var retainedClipShapeStyle: RetainedClipShapeStyle { get }
+}
+
+@MainActor
+private func retainedContentShapeStyle<S: Shape>(for shape: S) -> SwiftWindowsUI.RetainedContentShapeStyle {
+    if shape is Circle || shape is Ellipse {
+        return .ellipse
+    }
+
+    return (shape as? any RetainedClipShape)?.retainedClipShapeStyle.retainedContentShapeStyle ?? .rectangle
 }
 
 @MainActor
@@ -2760,6 +2780,17 @@ public struct ContentShapeKinds: OptionSet, Sendable {
     public static let focusEffect = ContentShapeKinds(rawValue: 1 << 3)
     public static let hoverEffect = ContentShapeKinds(rawValue: 1 << 4)
     public static let accessibility = ContentShapeKinds(rawValue: 1 << 5)
+
+    var retainedKinds: RetainedContentShapeKinds {
+        var retained: RetainedContentShapeKinds = []
+        if contains(.interaction) { retained.insert(.interaction) }
+        if contains(.dragPreview) { retained.insert(.dragPreview) }
+        if contains(.contextMenuPreview) { retained.insert(.contextMenuPreview) }
+        if contains(.focusEffect) { retained.insert(.focusEffect) }
+        if contains(.hoverEffect) { retained.insert(.hoverEffect) }
+        if contains(.accessibility) { retained.insert(.accessibility) }
+        return retained
+    }
 }
 
 public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
@@ -5131,10 +5162,20 @@ public extension View {
     }
 
     func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false) -> some View {
-        _ = kind
-        _ = shape
-        _ = eoFill
-        return self
+        let retainedStyle = retainedContentShapeStyle(for: shape)
+        let retainedShape = RetainedContentShape(
+            kinds: kind.retainedKinds,
+            style: retainedStyle,
+            eoFill: eoFill
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.contentShapes.append(retainedShape)
+                return childNode
+            }
+        }
     }
 
     func border(_ color: Color, width: Double = 1, cornerRadius: Double = 0) -> some View {

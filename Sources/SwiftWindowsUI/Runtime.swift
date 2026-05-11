@@ -53,6 +53,105 @@ public enum RetainedHoverEffect: Sendable, Equatable {
     case lift
 }
 
+public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let interaction = RetainedContentShapeKinds(rawValue: 1 << 0)
+    public static let dragPreview = RetainedContentShapeKinds(rawValue: 1 << 1)
+    public static let contextMenuPreview = RetainedContentShapeKinds(rawValue: 1 << 2)
+    public static let focusEffect = RetainedContentShapeKinds(rawValue: 1 << 3)
+    public static let hoverEffect = RetainedContentShapeKinds(rawValue: 1 << 4)
+    public static let accessibility = RetainedContentShapeKinds(rawValue: 1 << 5)
+}
+
+public enum RetainedContentShapeStyle: Sendable, Equatable {
+    case rectangle
+    case roundedRectangle(Double)
+    case capsule
+    case ellipse
+
+    public func contains(_ point: Point, in rect: Rect) -> Bool {
+        guard rect.contains(point) else {
+            return false
+        }
+
+        switch self {
+        case .rectangle:
+            return true
+        case .roundedRectangle(let radius):
+            return roundedRectContains(point, in: rect, radius: max(0, radius))
+        case .capsule:
+            return roundedRectContains(
+                point,
+                in: rect,
+                radius: max(0, min(rect.size.width, rect.size.height) * 0.5)
+            )
+        case .ellipse:
+            return ellipseContains(point, in: rect)
+        }
+    }
+}
+
+public struct RetainedContentShape: Sendable, Equatable {
+    public var kinds: RetainedContentShapeKinds
+    public var style: RetainedContentShapeStyle
+    public var eoFill: Bool
+
+    public init(
+        kinds: RetainedContentShapeKinds,
+        style: RetainedContentShapeStyle,
+        eoFill: Bool = false
+    ) {
+        self.kinds = kinds
+        self.style = style
+        self.eoFill = eoFill
+    }
+}
+
+private func roundedRectContains(_ point: Point, in rect: Rect, radius: Double) -> Bool {
+    let radius = min(radius, rect.size.width * 0.5, rect.size.height * 0.5)
+    guard radius > 0 else {
+        return rect.contains(point)
+    }
+
+    let left = rect.origin.x
+    let right = rect.origin.x + rect.size.width
+    let top = rect.origin.y
+    let bottom = rect.origin.y + rect.size.height
+
+    if point.x >= left + radius && point.x <= right - radius {
+        return true
+    }
+
+    if point.y >= top + radius && point.y <= bottom - radius {
+        return true
+    }
+
+    let centerX = point.x < left + radius ? left + radius : right - radius
+    let centerY = point.y < top + radius ? top + radius : bottom - radius
+    let dx = point.x - centerX
+    let dy = point.y - centerY
+    return dx * dx + dy * dy <= radius * radius
+}
+
+private func ellipseContains(_ point: Point, in rect: Rect) -> Bool {
+    let radiusX = rect.size.width * 0.5
+    let radiusY = rect.size.height * 0.5
+    guard radiusX > 0, radiusY > 0 else {
+        return false
+    }
+
+    let centerX = rect.origin.x + radiusX
+    let centerY = rect.origin.y + radiusY
+    let normalizedX = (point.x - centerX) / radiusX
+    let normalizedY = (point.y - centerY) / radiusY
+    return normalizedX * normalizedX + normalizedY * normalizedY <= 1
+}
+
 public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case automatic
     case enabled
@@ -243,7 +342,7 @@ struct PrepaintInteractionState {
             hitTestPoint = clippedPoint
         }
 
-        return frame.contains(hitTestPoint)
+        return node.containsInteractionPoint(hitTestPoint, in: frame)
     }
 
     func containsForScrollTarget(_ point: Point) -> Bool {
@@ -490,6 +589,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var contentShapes: [RetainedContentShape] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var buttonRepeatBehavior: RetainedButtonRepeatBehavior
 
     public var redactionReasons: RetainedRedactionReasons {
@@ -608,6 +711,7 @@ public final class ViewNode {
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
+        contentShapes: [RetainedContentShape] = [],
         buttonRepeatBehavior: RetainedButtonRepeatBehavior = .automatic,
         redactionReasons: RetainedRedactionReasons = [],
         isPrivacySensitive: Bool = false,
@@ -661,6 +765,7 @@ public final class ViewNode {
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled
+        self.contentShapes = contentShapes
         self.buttonRepeatBehavior = buttonRepeatBehavior
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
@@ -1670,10 +1775,25 @@ public final class ViewNode {
         }
 
         if isHitTestVisible, absoluteFrame.contains(testPoint) {
+            guard containsInteractionPoint(testPoint, in: absoluteFrame) else {
+                return nil
+            }
             return self
         }
 
         return nil
+    }
+
+    fileprivate func containsInteractionPoint(_ point: Point, in frame: Rect) -> Bool {
+        guard frame.contains(point) else {
+            return false
+        }
+
+        guard let contentShape = contentShapes.last(where: { $0.kinds.contains(.interaction) }) else {
+            return true
+        }
+
+        return contentShape.style.contains(point, in: frame)
     }
 
     fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {

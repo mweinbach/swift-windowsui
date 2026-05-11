@@ -163,6 +163,7 @@ public final class ComponentHost {
         if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }
         if target.isFocusEffectDisabled != source.isFocusEffectDisabled { target.isFocusEffectDisabled = source.isFocusEffectDisabled }
+        if target.contentShapes != source.contentShapes { target.contentShapes = source.contentShapes }
         if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
         if target.isPrivacySensitive != source.isPrivacySensitive { target.isPrivacySensitive = source.isPrivacySensitive }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }

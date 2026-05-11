@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var groupBoxStyle: GroupBoxStyle
     public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
@@ -1278,6 +1279,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        groupBoxStyle: GroupBoxStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
@@ -1375,6 +1377,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.groupBoxStyle = groupBoxStyle
         self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
@@ -2053,6 +2056,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var groupBoxStyle: GroupBoxStyle {
+        environmentValuesProvider().groupBoxStyle
     }
 
     public var controlGroupStyle: ControlGroupStyle {
@@ -4093,6 +4100,26 @@ public struct ControlGroupStyle: Sendable, Equatable {
     public static let navigation = ControlGroupStyle(kind: .navigation)
     public static let palette = ControlGroupStyle(kind: .palette)
 }
+
+public struct GroupBoxStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+    }
+
+    let kind: Kind
+
+    public init() {
+        self.kind = .automatic
+    }
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = GroupBoxStyle(kind: .automatic)
+}
+
+public typealias DefaultGroupBoxStyle = GroupBoxStyle
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
@@ -6868,6 +6895,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func groupBoxStyle(_ style: GroupBoxStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.groupBoxStyle, style))
         }
     }
 

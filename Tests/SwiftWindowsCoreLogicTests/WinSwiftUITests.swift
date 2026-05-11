@@ -4252,6 +4252,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGroupBoxStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct GroupBoxStyleReaderView: View {
+                @Environment(\.groupBoxStyle) var groupBoxStyle
+
+                var body: some View {
+                    Text(groupBoxStyle == .automatic ? "AUTOMATIC" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(GroupBoxStyleReaderView().groupBoxStyle(DefaultGroupBoxStyle()))
+            let inheritedNode = makeNode(
+                VStack {
+                    GroupBox("SETTINGS") {
+                        Text("BODY")
+                    }
+                }
+                .groupBoxStyle(.automatic)
+            )
+
+            XCTAssertEqual(readerNode.text, "AUTOMATIC")
+            XCTAssertEqual(inheritedNode.children[0].children.count, 2)
+            XCTAssertEqual(inheritedNode.children[0].children[0].text, "SETTINGS")
+            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 12)
+        }
+    }
+
     func testDisclosureGroupTogglesBindingAndRevealsContentWhenRebuilt() async {
         await MainActor.run {
             var isExpanded = false

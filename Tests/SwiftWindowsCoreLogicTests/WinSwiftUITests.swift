@@ -46,6 +46,18 @@ private extension EnvironmentValues {
     }
 }
 
+private actor AsyncTaskCounter {
+    private var count = 0
+
+    func increment() {
+        count += 1
+    }
+
+    func value() -> Int {
+        count
+    }
+}
+
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -5082,6 +5094,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTaskModifierRunsOnceWhenRendered() async {
+        let counter = AsyncTaskCounter()
+
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+
+            let node = Text("LOAD")
+                .task {
+                    await counter.increment()
+                }
+                .makeComponent(context: context)
+                .makeNode(runtime: runtime)
+
+            runtime.root.addChild(node)
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+            _ = runtime.renderFrame()
+        }
+
+        await waitForAsyncTaskCounter(counter, toReach: 1)
+        let finalCount = await counter.value()
+        XCTAssertEqual(finalCount, 1)
+    }
+
+    func testTaskIDModifierRerunsWhenValueChanges() async {
+        let counter = AsyncTaskCounter()
+
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var taskID = 1
+
+            host.setComponents {
+                [
+                    Text("LOAD")
+                        .task(id: taskID) {
+                            await counter.increment()
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            taskID = 2
+            host.reload()
+        }
+
+        await waitForAsyncTaskCounter(counter, toReach: 2)
+        let finalCount = await counter.value()
+        XCTAssertEqual(finalCount, 2)
+    }
+
     func testOnChangeModifierObservesEquatableValueChangesAcrossBuilds() async {
         await MainActor.run {
             var changes: [(Int, Int)] = []
@@ -5519,6 +5593,15 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+}
+
+private func waitForAsyncTaskCounter(_ counter: AsyncTaskCounter, toReach expectedValue: Int) async {
+    for _ in 0..<50 {
+        if await counter.value() >= expectedValue {
+            return
+        }
+        try? await Swift.Task.sleep(nanoseconds: 10_000_000)
+    }
 }
 
 @MainActor

@@ -4182,6 +4182,63 @@ public extension View {
         }
     }
 
+    func task(
+        priority: TaskPriority = .userInitiated,
+        _ action: @escaping @Sendable () async -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnAppear = childNode.onAppear
+                childNode.onAppear = {
+                    existingOnAppear?()
+                    Swift.Task(priority: priority) {
+                        await action()
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
+    func task<Value: Equatable>(
+        id value: Value,
+        priority: TaskPriority = .userInitiated,
+        _ action: @escaping @Sendable () async -> Void,
+        fileID: String = #fileID,
+        line: Int = #line,
+        column: Int = #column
+    ) -> some View {
+        let key = "\(fileID):\(line):\(column):task:\(Value.self)"
+        return ModifiedView(content: self) { content, context in
+            let launchState = OnChangeObservationRegistry.shared.observe(value: value, key: key, initial: true)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                guard let launchState else {
+                    return childNode
+                }
+
+                if launchState.oldValue != launchState.newValue {
+                    Swift.Task(priority: priority) {
+                        await action()
+                    }
+                    return childNode
+                }
+
+                let existingOnAppear = childNode.onAppear
+                childNode.onAppear = {
+                    existingOnAppear?()
+                    Swift.Task(priority: priority) {
+                        await action()
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
     func onChange<Value: Equatable>(
         of value: Value,
         initial: Bool = false,

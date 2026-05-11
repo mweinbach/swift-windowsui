@@ -242,6 +242,7 @@ Modifiers:
 - `headerProminence`
 - `badge`
 - `badgeProminence`
+- `task`
 - `onAppear`
 - `onDisappear`
 - `onChange`
@@ -314,6 +315,7 @@ Surface direction:
 - `NavigationStack` and `NavigationView` preserve `navigationTitle` / `navigationBarTitle` metadata, render lightweight retained title chrome, and support local push/pop presentation for direct `NavigationLink(destination:)` and `NavigationLink { destination } label: { ... }` links plus `NavigationLink(value:)` routes resolved by `navigationDestination(for:)`. `NavigationStack(path:)` syncs value-link pushes and back navigation with `NavigationPath` or generic mutable collection bindings, including nested path restoration as each resolved destination contributes its own registered destinations. Boolean and item `navigationDestination` overloads render binding-driven retained destinations and clear their bindings through the back control. Platform-native navigation transitions are not implemented yet.
 - `NavigationSplitView` maps two- and three-column source-compatible initializers to a retained horizontal stack. `NavigationSplitViewVisibility` bindings drive coarse retained column filtering for `.all`, `.doubleColumn`, and `.detailOnly`; adaptive platform breakpoint collapsing is not implemented yet.
 - `TabView` renders retained tab chrome from `.tabItem` labels, shows the first page by default, and shows the page whose `.tag(_:)` matches the `selection:` binding. Activating a tab updates local selection state or writes through a tagged `selection:` binding. Badges applied after `.tabItem` render in the tab chrome instead of the selected page content. Platform-specific tab styling and overflow behavior are still minimal.
+- `task(priority:_:)` launches an async Swift task when the retained node first appears. `task(id:priority:_:)` accepts SwiftUI-shaped id call sites and relaunches when rebuilt with a changed id, but automatic cancellation on disappearance or id replacement is not modeled yet.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs; submit scopes and platform keyboard return-key labels are not modeled yet.
 - `submitLabel(_:)` accepts SwiftUI return-key label call sites for source compatibility. It does not alter hardware keyboard behavior on the retained Windows input path today.

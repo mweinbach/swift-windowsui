@@ -5401,6 +5401,126 @@ public enum MoveCommandDirection: Sendable, Equatable, Hashable {
     case right
 }
 
+public struct GestureMask: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let gesture = GestureMask(rawValue: 1 << 0)
+    public static let subviews = GestureMask(rawValue: 1 << 1)
+    public static let all: GestureMask = [.gesture, .subviews]
+    public static let none: GestureMask = []
+}
+
+@MainActor
+public protocol Gesture {
+    associatedtype Value
+
+    func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView
+}
+
+public struct TapGesture: Gesture {
+    public typealias Value = Void
+
+    public var count: Int
+    private let endedAction: (@MainActor () -> Void)?
+
+    public init(count: Int = 1) {
+        self.count = count
+        self.endedAction = nil
+    }
+
+    private init(count: Int, endedAction: (@MainActor () -> Void)?) {
+        self.count = count
+        self.endedAction = endedAction
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> TapGesture {
+        TapGesture(count: count, endedAction: {
+            action(())
+        })
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            view.onTapGesture(count: count) {
+                endedAction?()
+            }
+        )
+    }
+}
+
+public struct LongPressGesture: Gesture {
+    public typealias Value = Bool
+
+    public var minimumDuration: Double
+    public var maximumDistance: CGFloat
+    private let changedAction: (@MainActor (Bool) -> Void)?
+    private let endedAction: (@MainActor (Bool) -> Void)?
+
+    public init(minimumDuration: Double = 0.5, maximumDistance: CGFloat = 10) {
+        self.minimumDuration = minimumDuration
+        self.maximumDistance = maximumDistance
+        self.changedAction = nil
+        self.endedAction = nil
+    }
+
+    private init(
+        minimumDuration: Double,
+        maximumDistance: CGFloat,
+        changedAction: (@MainActor (Bool) -> Void)?,
+        endedAction: (@MainActor (Bool) -> Void)?
+    ) {
+        self.minimumDuration = minimumDuration
+        self.maximumDistance = maximumDistance
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> LongPressGesture {
+        LongPressGesture(
+            minimumDuration: minimumDuration,
+            maximumDistance: maximumDistance,
+            changedAction: action,
+            endedAction: endedAction
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> LongPressGesture {
+        LongPressGesture(
+            minimumDuration: minimumDuration,
+            maximumDistance: maximumDistance,
+            changedAction: changedAction,
+            endedAction: action
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            view.onLongPressGesture(
+                minimumDuration: minimumDuration,
+                maximumDistance: maximumDistance,
+                perform: {
+                    endedAction?(true)
+                },
+                onPressingChanged: { isPressing in
+                    changedAction?(isPressing)
+                }
+            )
+        )
+    }
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -12171,6 +12291,18 @@ public extension View {
             action?()
             return true
         }
+    }
+
+    func gesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
+        gesture._applying(to: self, including: mask)
+    }
+
+    func highPriorityGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
+        gesture._applying(to: self, including: mask)
+    }
+
+    func simultaneousGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
+        gesture._applying(to: self, including: mask)
     }
 
     private func keyCommandModifier(

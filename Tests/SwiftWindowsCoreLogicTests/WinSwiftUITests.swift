@@ -14315,6 +14315,83 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTapGestureObjectMapsThroughGestureModifier() async {
+        await MainActor.run {
+            var tapCount = 0
+            let node = makeNode(
+                Text("TAP")
+                    .gesture(
+                        TapGesture(count: 2).onEnded { _ in
+                            tapCount += 1
+                        }
+                    )
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 0)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 1)
+        }
+    }
+
+    func testGestureMaskCanDisableDirectGestureObject() async {
+        await MainActor.run {
+            var tapCount = 0
+            let node = makeNode(
+                Text("TAP")
+                    .gesture(
+                        TapGesture().onEnded { _ in
+                            tapCount += 1
+                        },
+                        including: .subviews
+                    )
+            )
+
+            node.onPointerUpInside?()
+
+            XCTAssertEqual(tapCount, 0)
+        }
+    }
+
+    func testLongPressGestureObjectMapsThroughPriorityGestureModifiers() async {
+        await MainActor.run {
+            var endings: [Bool] = []
+            var changes: [Bool] = []
+            var simultaneousTapCount = 0
+            let highPriorityNode = makeNode(
+                Text("HOLD")
+                    .highPriorityGesture(
+                        LongPressGesture(minimumDuration: 0.2, maximumDistance: 8)
+                            .onChanged { isPressing in
+                                changes.append(isPressing)
+                            }
+                            .onEnded { didFinish in
+                                endings.append(didFinish)
+                            }
+                    )
+            )
+            let simultaneousNode = makeNode(
+                Text("TAP")
+                    .simultaneousGesture(
+                        TapGesture().onEnded { _ in
+                            simultaneousTapCount += 1
+                        }
+                    )
+            )
+
+            highPriorityNode.onPointerDown?()
+            highPriorityNode.onPointerUpInside?()
+            simultaneousNode.onPointerUpInside?()
+
+            XCTAssertEqual(changes, [true, false])
+            XCTAssertEqual(endings, [true])
+            XCTAssertEqual(simultaneousTapCount, 1)
+        }
+    }
+
     func testViewThatFitsSelectsFirstCandidateMatchingRequestedAxes() async {
         await MainActor.run {
             let horizontalNode = makeNode(

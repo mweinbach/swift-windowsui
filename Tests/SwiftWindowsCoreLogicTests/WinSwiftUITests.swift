@@ -883,8 +883,9 @@ final class WinSwiftUITests: XCTestCase {
                 RetainedTextSelection(indices: .insertionPoint(3), affinity: .downstream)
             )
             XCTAssertEqual(fieldSelection?.affinity, .downstream)
-            if case .insertionPoint(let index) = fieldSelection?.indices {
-                XCTAssertEqual(fieldValue.distance(from: fieldValue.startIndex, to: index), 3)
+            if case .selection(let range) = fieldSelection?.indices {
+                XCTAssertTrue(range.isEmpty)
+                XCTAssertEqual(fieldValue.distance(from: fieldValue.startIndex, to: range.lowerBound), 3)
             } else {
                 XCTFail("Expected insertion-point selection after retained editing")
             }
@@ -909,6 +910,20 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 editorNode.textInputSelection,
                 RetainedTextSelection(indices: .range(1..<4), affinity: .automatic)
+            )
+
+            let firstRange = editorValue.startIndex..<editorValue.index(editorValue.startIndex, offsetBy: 1)
+            let secondRange = editorValue.index(editorValue.startIndex, offsetBy: 3)..<editorValue.endIndex
+            let multiSelection = TextSelection(ranges: RangeSet([firstRange, secondRange]))
+            let multiNode = makeNode(
+                TextEditor(text: editorBinding, selection: .constant(multiSelection))
+            )
+
+            XCTAssertFalse(multiSelection.isInsertion)
+            XCTAssertEqual(multiNode.textInputCaretOffset, 5)
+            XCTAssertEqual(
+                multiNode.textInputSelection,
+                RetainedTextSelection(indices: .ranges([0..<1, 3..<5]), affinity: .automatic)
             )
         }
     }

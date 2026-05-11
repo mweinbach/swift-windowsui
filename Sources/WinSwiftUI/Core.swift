@@ -811,21 +811,25 @@ public enum TextSelectionAffinity: Sendable, Equatable, Hashable {
 
 public struct TextSelection: Sendable, Equatable, Hashable {
     public enum Indices: Sendable, Equatable, Hashable {
-        case insertionPoint(String.Index)
-        case range(Range<String.Index>)
-        case ranges([Range<String.Index>])
+        case selection(Range<String.Index>)
+        case multiSelection(RangeSet<String.Index>)
     }
 
     public var indices: Indices
     public var affinity: TextSelectionAffinity
 
     public init(insertionPoint: String.Index) {
-        self.indices = .insertionPoint(insertionPoint)
+        self.indices = .selection(insertionPoint..<insertionPoint)
         self.affinity = .automatic
     }
 
     public init(range: Range<String.Index>) {
-        self.indices = .range(range)
+        self.indices = .selection(range)
+        self.affinity = .automatic
+    }
+
+    public init(ranges: RangeSet<String.Index>) {
+        self.indices = .multiSelection(ranges)
         self.affinity = .automatic
     }
 
@@ -835,10 +839,12 @@ public struct TextSelection: Sendable, Equatable, Hashable {
     }
 
     public var isInsertion: Bool {
-        if case .insertionPoint = indices {
-            return true
+        switch indices {
+        case .selection(let range):
+            return range.isEmpty
+        case .multiSelection(let ranges):
+            return ranges.ranges.isEmpty
         }
-        return false
     }
 
     func retainedSelection(in text: String) -> RetainedTextSelection {
@@ -850,26 +856,25 @@ public struct TextSelection: Sendable, Equatable, Hashable {
 
     func caretOffset(in text: String) -> Int {
         switch indices {
-        case .insertionPoint(let index):
-            return clampedTextSelectionOffset(for: index, in: text)
-        case .range(let range):
+        case .selection(let range):
             return clampedTextSelectionOffset(for: range.upperBound, in: text)
-        case .ranges(let ranges):
-            return ranges.last.map { clampedTextSelectionOffset(for: $0.upperBound, in: text) } ?? text.count
+        case .multiSelection(let ranges):
+            return ranges.ranges.last.map { clampedTextSelectionOffset(for: $0.upperBound, in: text) } ?? text.count
         }
     }
 
     private func retainedIndices(in text: String) -> RetainedTextSelection.Indices {
         switch indices {
-        case .insertionPoint(let index):
-            return .insertionPoint(clampedTextSelectionOffset(for: index, in: text))
-        case .range(let range):
+        case .selection(let range):
+            if range.isEmpty {
+                return .insertionPoint(clampedTextSelectionOffset(for: range.lowerBound, in: text))
+            }
             return .range(
                 clampedTextSelectionOffset(for: range.lowerBound, in: text)..<clampedTextSelectionOffset(for: range.upperBound, in: text)
             )
-        case .ranges(let ranges):
+        case .multiSelection(let ranges):
             return .ranges(
-                ranges.map {
+                ranges.ranges.map {
                     clampedTextSelectionOffset(for: $0.lowerBound, in: text)..<clampedTextSelectionOffset(for: $0.upperBound, in: text)
                 }
             )
@@ -877,7 +882,8 @@ public struct TextSelection: Sendable, Equatable, Hashable {
     }
 
     static func insertion(at offset: Int, in text: String, affinity: TextSelectionAffinity) -> TextSelection {
-        TextSelection(indices: .insertionPoint(textIndex(at: offset, in: text)), affinity: affinity)
+        let index = textIndex(at: offset, in: text)
+        return TextSelection(indices: .selection(index..<index), affinity: affinity)
     }
 }
 

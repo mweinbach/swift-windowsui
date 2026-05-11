@@ -297,6 +297,26 @@ struct ScenePainterTests {
         })
     }
 
+    @Test("Dashed square border maps round line caps onto segment corner radius")
+    func dashedSquareBorderMapsRoundLineCaps() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 20, height: 10),
+            backgroundColor: .white,
+            borderColor: .black,
+            borderWidth: 2,
+            borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [4, 2], lineCap: .round)
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let firstSegment = scene.layers[0].quads[0]
+
+        #expect(firstSegment.x == 0)
+        #expect(firstSegment.y == 0)
+        #expect(firstSegment.width == 5)
+        #expect(firstSegment.height == 2)
+        #expect(firstSegment.cornerRadius == 1)
+    }
+
     // MARK: - Opacity multiplied into alpha
 
     @Test("Opacity is multiplied into quad alpha")

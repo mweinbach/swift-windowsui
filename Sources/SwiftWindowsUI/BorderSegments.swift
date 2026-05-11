@@ -1,13 +1,18 @@
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
+struct BorderSegment: Equatable, Sendable {
+    var rect: Rect
+    var cornerRadius: Double
+}
+
 enum BorderSegments {
-    static func dashedRects(
+    static func dashedSegments(
         frame: Rect,
         width: Double,
         cornerRadius: Double,
         strokeStyle: StrokeStyle?
-    ) -> [Rect]? {
+    ) -> [BorderSegment]? {
         guard cornerRadius <= 0, width > 0, frame.size.width > 0, frame.size.height > 0 else {
             return nil
         }
@@ -43,17 +48,18 @@ enum BorderSegments {
         }
 
         var distance = 0.0
-        var rects: [Rect] = []
+        var segments: [BorderSegment] = []
         while distance < perimeter {
             let remainingPatternLength = dashPattern[patternIndex] - patternOffset
             let length = min(remainingPatternLength, perimeter - distance)
             if patternIndex.isMultiple(of: 2), length > 0 {
-                appendRects(
+                appendSegments(
                     from: distance,
                     to: distance + length,
                     frame: frame,
                     width: segmentWidth,
-                    into: &rects
+                    lineCap: strokeStyle.lineCap,
+                    into: &segments
                 )
             }
 
@@ -62,7 +68,7 @@ enum BorderSegments {
             patternOffset = 0
         }
 
-        return rects
+        return segments
     }
 
     private static func normalizedDashPattern(_ pattern: [Double]) -> [Double] {
@@ -81,17 +87,20 @@ enum BorderSegments {
         return remainder >= 0 ? remainder : remainder + divisor
     }
 
-    private static func appendRects(
+    private static func appendSegments(
         from start: Double,
         to end: Double,
         frame: Rect,
         width: Double,
-        into rects: inout [Rect]
+        lineCap: StrokeStyle.LineCap,
+        into segments: inout [BorderSegment]
     ) {
         let topEnd = frame.size.width
         let rightEnd = topEnd + frame.size.height
         let bottomEnd = rightEnd + frame.size.width
         let leftEnd = bottomEnd + frame.size.height
+        let capExtension = lineCap == .butt ? 0 : width * 0.5
+        let capRadius = lineCap == .round ? width * 0.5 : 0
 
         appendHorizontalEdge(
             from: start,
@@ -102,7 +111,9 @@ enum BorderSegments {
             y: frame.origin.y,
             leftToRight: true,
             width: width,
-            into: &rects
+            capExtension: capExtension,
+            capRadius: capRadius,
+            into: &segments
         )
         appendVerticalEdge(
             from: start,
@@ -113,7 +124,9 @@ enum BorderSegments {
             yOrigin: frame.origin.y,
             topToBottom: true,
             width: width,
-            into: &rects
+            capExtension: capExtension,
+            capRadius: capRadius,
+            into: &segments
         )
         appendHorizontalEdge(
             from: start,
@@ -124,7 +137,9 @@ enum BorderSegments {
             y: frame.maxY - width,
             leftToRight: false,
             width: width,
-            into: &rects
+            capExtension: capExtension,
+            capRadius: capRadius,
+            into: &segments
         )
         appendVerticalEdge(
             from: start,
@@ -135,7 +150,9 @@ enum BorderSegments {
             yOrigin: frame.origin.y,
             topToBottom: false,
             width: width,
-            into: &rects
+            capExtension: capExtension,
+            capRadius: capRadius,
+            into: &segments
         )
     }
 
@@ -148,10 +165,12 @@ enum BorderSegments {
         y: Double,
         leftToRight: Bool,
         width strokeWidth: Double,
-        into rects: inout [Rect]
+        capExtension: Double,
+        capRadius: Double,
+        into segments: inout [BorderSegment]
     ) {
-        let clippedStart = max(start, edgeStart)
-        let clippedEnd = min(end, edgeEnd)
+        let clippedStart = max(start - capExtension, edgeStart)
+        let clippedEnd = min(end + capExtension, edgeEnd)
         guard clippedEnd > clippedStart else {
             return
         }
@@ -160,7 +179,8 @@ enum BorderSegments {
         let localStart = clippedStart - edgeStart
         let localEnd = clippedEnd - edgeStart
         let x = leftToRight ? xOrigin + localStart : xOrigin + edgeLength - localEnd
-        rects.append(Rect(x: x, y: y, width: localEnd - localStart, height: strokeWidth))
+        let rect = Rect(x: x, y: y, width: localEnd - localStart, height: strokeWidth)
+        segments.append(BorderSegment(rect: rect, cornerRadius: capRadius))
     }
 
     private static func appendVerticalEdge(
@@ -172,10 +192,12 @@ enum BorderSegments {
         yOrigin: Double,
         topToBottom: Bool,
         width strokeWidth: Double,
-        into rects: inout [Rect]
+        capExtension: Double,
+        capRadius: Double,
+        into segments: inout [BorderSegment]
     ) {
-        let clippedStart = max(start, edgeStart)
-        let clippedEnd = min(end, edgeEnd)
+        let clippedStart = max(start - capExtension, edgeStart)
+        let clippedEnd = min(end + capExtension, edgeEnd)
         guard clippedEnd > clippedStart else {
             return
         }
@@ -184,6 +206,7 @@ enum BorderSegments {
         let localStart = clippedStart - edgeStart
         let localEnd = clippedEnd - edgeStart
         let y = topToBottom ? yOrigin + localStart : yOrigin + edgeLength - localEnd
-        rects.append(Rect(x: x, y: y, width: strokeWidth, height: localEnd - localStart))
+        let rect = Rect(x: x, y: y, width: strokeWidth, height: localEnd - localStart)
+        segments.append(BorderSegment(rect: rect, cornerRadius: capRadius))
     }
 }

@@ -180,6 +180,24 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDashedSquareBorderMapsRoundLineCapsToSegmentCornerRadius() async {
+        await MainActor.run {
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 20, height: 10),
+                backgroundColor: .white,
+                borderColor: .black,
+                borderWidth: 2,
+                borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [4, 2], lineCap: .round)
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let firstFill = fillRectCommands(in: runtime.renderFrame()).first
+
+            XCTAssertEqual(firstFill?.rect, Rect(x: 0, y: 0, width: 5, height: 2))
+            XCTAssertEqual(firstFill?.cornerRadius, 1)
+        }
+    }
+
     func testClippingPreventsPointerHitsOutsideParentBounds() async {
         await MainActor.run {
             var activations = 0

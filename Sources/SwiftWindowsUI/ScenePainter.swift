@@ -287,16 +287,16 @@ public enum ScenePainter {
         if node.borderColor.alpha > 0, node.borderWidth > 0,
            clipAllowsDrawing(clip: effectiveClip, rect: absoluteFrame)
         {
-            if let borderSegments = BorderSegments.dashedRects(
+            if let borderSegments = BorderSegments.dashedSegments(
                 frame: absoluteFrame,
                 width: node.borderWidth,
                 cornerRadius: node.cornerRadius,
                 strokeStyle: node.borderStrokeStyle
             ) {
-                for rect in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: rect) {
+                for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
                     scene.addQuad(solidQuad(
-                        rect: rect,
-                        cornerRadius: 0,
+                        rect: segment.rect,
+                        cornerRadius: segment.cornerRadius,
                         color: node.borderColor,
                         opacity: opacity,
                         clip: effectiveClip,

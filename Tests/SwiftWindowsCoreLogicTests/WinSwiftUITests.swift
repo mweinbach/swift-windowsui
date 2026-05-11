@@ -5960,6 +5960,45 @@ final class WinSwiftUITests: XCTestCase {
         XCTAssertEqual(finalCount, 2)
     }
 
+    func testRefreshableProvidesRefreshEnvironmentAction() async {
+        let counter = AsyncTaskCounter()
+
+        await MainActor.run {
+            struct RefreshEnvironmentReaderView: View {
+                @Environment(\.refresh) var refresh
+
+                var body: some View {
+                    Button(refresh == nil ? "NO REFRESH" : "REFRESH") {
+                        guard let refresh else {
+                            return
+                        }
+
+                        Swift.Task {
+                            await refresh()
+                        }
+                    }
+                }
+            }
+
+            let defaultNode = makeNode(RefreshEnvironmentReaderView())
+            let refreshableNode = makeNode(
+                RefreshEnvironmentReaderView()
+                    .refreshable {
+                        await counter.increment()
+                    }
+            )
+
+            XCTAssertTrue(allTexts(in: defaultNode).contains("NO REFRESH"))
+            XCTAssertTrue(allTexts(in: refreshableNode).contains("REFRESH"))
+
+            firstFocusable(in: refreshableNode)?.onActivate?()
+        }
+
+        await waitForAsyncTaskCounter(counter, toReach: 1)
+        let finalCount = await counter.value()
+        XCTAssertEqual(finalCount, 1)
+    }
+
     func testOnChangeModifierObservesEquatableValueChangesAcrossBuilds() async {
         await MainActor.run {
             var changes: [(Int, Int)] = []

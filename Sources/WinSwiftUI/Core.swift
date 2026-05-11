@@ -550,6 +550,18 @@ public struct DismissAction: @unchecked Sendable {
     public static let noop = DismissAction {}
 }
 
+public struct RefreshAction: @unchecked Sendable {
+    private let handler: @Sendable () async -> Void
+
+    public init(action: @escaping @Sendable () async -> Void) {
+        self.handler = action
+    }
+
+    public func callAsFunction() async {
+        await handler()
+    }
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
@@ -603,6 +615,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
+    public var refresh: RefreshAction?
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -653,7 +666,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         openURL: OpenURLAction = .system,
-        dismiss: DismissAction = .noop
+        dismiss: DismissAction = .noop,
+        refresh: RefreshAction? = nil
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -709,6 +723,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.openURL = openURL
         self.dismiss = dismiss
+        self.refresh = refresh
         self.customValues = [:]
     }
 
@@ -5012,6 +5027,17 @@ public extension View {
                 }
                 return childNode
             }
+        }
+    }
+
+    func refreshable(action: @escaping @Sendable () async -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.refresh,
+                    RefreshAction(action: action)
+                )
+            )
         }
     }
 

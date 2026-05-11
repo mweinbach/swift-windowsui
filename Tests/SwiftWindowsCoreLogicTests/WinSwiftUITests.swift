@@ -14041,6 +14041,27 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnChangeModifierSupportsZeroArgumentModernOverload() async {
+        await MainActor.run {
+            var changeCount = 0
+
+            @MainActor
+            func observedView(_ value: Int) -> some View {
+                Text("VALUE")
+                    .onChange(of: value, initial: true) {
+                        changeCount += 1
+                    }
+            }
+
+            _ = makeNode(observedView(1))
+            _ = makeNode(observedView(1))
+            _ = makeNode(observedView(2))
+            _ = makeNode(observedView(3))
+
+            XCTAssertEqual(changeCount, 3)
+        }
+    }
+
     func testOnHoverModifierEnablesHitTestingAndReportsPointerTransitions() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

@@ -13282,6 +13282,26 @@ public extension View {
         )
     }
 
+    func onChange<Value: Equatable>(
+        of value: Value,
+        initial: Bool = false,
+        _ action: @escaping () -> Void,
+        fileID: String = #fileID,
+        line: Int = #line,
+        column: Int = #column
+    ) -> some View {
+        onChange(
+            of: value,
+            initial: initial,
+            { _, _ in
+                action()
+            },
+            fileID: fileID,
+            line: line,
+            column: column
+        )
+    }
+
     func onSubmit(of triggers: SubmitTriggers = .text, _ action: @escaping () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

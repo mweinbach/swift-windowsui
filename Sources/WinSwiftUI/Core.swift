@@ -4464,6 +4464,7 @@ public struct TextFieldStyle: Sendable, Equatable {
         case automatic
         case plain
         case roundedBorder
+        case squareBorder
     }
 
     let kind: Kind
@@ -4475,6 +4476,23 @@ public struct TextFieldStyle: Sendable, Equatable {
     public static let automatic = TextFieldStyle(kind: .automatic)
     public static let plain = TextFieldStyle(kind: .plain)
     public static let roundedBorder = TextFieldStyle(kind: .roundedBorder)
+    public static let squareBorder = TextFieldStyle(kind: .squareBorder)
+}
+
+public struct DefaultTextFieldStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PlainTextFieldStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RoundedBorderTextFieldStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SquareBorderTextFieldStyle: Sendable, Equatable {
+    public init() {}
 }
 
 public struct ListStyle: Sendable, Equatable {
@@ -7364,6 +7382,22 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textFieldStyle, style))
         }
+    }
+
+    func textFieldStyle(_ style: DefaultTextFieldStyle) -> some View {
+        textFieldStyle(.automatic)
+    }
+
+    func textFieldStyle(_ style: PlainTextFieldStyle) -> some View {
+        textFieldStyle(.plain)
+    }
+
+    func textFieldStyle(_ style: RoundedBorderTextFieldStyle) -> some View {
+        textFieldStyle(.roundedBorder)
+    }
+
+    func textFieldStyle(_ style: SquareBorderTextFieldStyle) -> some View {
+        textFieldStyle(.squareBorder)
     }
 
     func listStyle(_ style: ListStyle) -> some View {

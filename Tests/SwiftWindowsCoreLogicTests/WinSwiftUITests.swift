@@ -975,17 +975,30 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.textFieldStyle) var textFieldStyle
 
                 var body: some View {
-                    Text(textFieldStyle == .plain ? "PLAIN" : textFieldStyle == .roundedBorder ? "ROUNDED" : "AUTOMATIC")
+                    Text(
+                        textFieldStyle == .plain ? "PLAIN"
+                            : textFieldStyle == .roundedBorder ? "ROUNDED"
+                            : textFieldStyle == .squareBorder ? "SQUARE"
+                            : "AUTOMATIC"
+                    )
                 }
             }
 
             let plainNode = makeNode(
                 TextField("NAME", text: .constant(""))
-                    .textFieldStyle(.plain)
+                    .textFieldStyle(PlainTextFieldStyle())
             )
             let roundedNode = makeNode(
                 TextField("NAME", text: .constant(""))
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(RoundedBorderTextFieldStyle())
+            )
+            let squareNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .textFieldStyle(SquareBorderTextFieldStyle())
+            )
+            let defaultNode = makeNode(
+                TextField("NAME", text: .constant(""))
+                    .textFieldStyle(DefaultTextFieldStyle())
             )
             let inheritedNode = makeNode(
                 VStack {
@@ -994,16 +1007,19 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .textFieldStyle(.plain)
             )
-            let readerNode = makeNode(TextFieldStyleReaderView().textFieldStyle(.plain))
+            let readerNode = makeNode(TextFieldStyleReaderView().textFieldStyle(.squareBorder))
 
             XCTAssertEqual(plainNode.backgroundColor, .clear)
             XCTAssertEqual(plainNode.borderWidth, 0)
             XCTAssertEqual(plainNode.cornerRadius, 0)
             XCTAssertEqual(roundedNode.borderWidth, 1)
             XCTAssertEqual(roundedNode.cornerRadius, 8)
+            XCTAssertEqual(squareNode.borderWidth, 1)
+            XCTAssertEqual(squareNode.cornerRadius, 0)
+            XCTAssertEqual(defaultNode.borderWidth, 1)
             XCTAssertEqual(inheritedNode.children[0].backgroundColor, .clear)
             XCTAssertEqual(inheritedNode.children[1].backgroundColor, .clear)
-            XCTAssertEqual(readerNode.text, "PLAIN")
+            XCTAssertEqual(readerNode.text, "SQUARE")
         }
     }
 

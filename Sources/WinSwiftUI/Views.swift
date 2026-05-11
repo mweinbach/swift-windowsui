@@ -7639,6 +7639,18 @@ private extension TextFieldStyle {
                 cornerRadius: 8,
                 padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
             )
+        case .squareBorder:
+            return ResolvedTextInputStyle(
+                backgroundColor: isEnabled
+                    ? Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.82)
+                    : Color(red: 0.08, green: 0.09, blue: 0.11, alpha: 0.58),
+                borderColor: isEnabled
+                    ? Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.18)
+                    : Color(red: 0.45, green: 0.48, blue: 0.52, alpha: 0.20),
+                borderWidth: 1,
+                cornerRadius: 0,
+                padding: EdgeInsets(top: 7, leading: 10, bottom: 7, trailing: 10)
+            )
         case .plain:
             return ResolvedTextInputStyle(
                 backgroundColor: .clear,

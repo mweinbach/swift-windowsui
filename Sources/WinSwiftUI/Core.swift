@@ -12137,6 +12137,31 @@ public extension View {
         }
     }
 
+    func pageCommand<V>(
+        value: Binding<V>,
+        in bounds: ClosedRange<V>,
+        step: V = 1
+    ) -> some View where V: BinaryInteger {
+        keyCommandModifier { event in
+            let currentValue = value.wrappedValue
+            let nextValue: V
+
+            switch event.key {
+            case .pageUp:
+                nextValue = currentValue - step
+            case .pageDown:
+                nextValue = currentValue + step
+            default:
+                return false
+            }
+
+            if bounds.contains(nextValue) {
+                value.wrappedValue = nextValue
+            }
+            return true
+        }
+    }
+
     private func keyCommandModifier(
         perform handler: @escaping (KeyboardEvent) -> Bool
     ) -> some View {

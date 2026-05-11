@@ -12036,6 +12036,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPageCommandStepsIntegerBindingWithinBounds() async {
+        await MainActor.run {
+            var page = 2
+            var forwardedKeys: [KeyboardKey?] = []
+            let binding = Binding<Int>(
+                get: { page },
+                set: { page = $0 }
+            )
+            let node = makeNode(
+                PointerHandlerProbe(onKeyDown: { event in
+                    forwardedKeys.append(event.key)
+                })
+                .pageCommand(value: binding, in: 0...4, step: 2)
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.pageDown.rawValue))
+            XCTAssertEqual(page, 4)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.pageDown.rawValue))
+            XCTAssertEqual(page, 4)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.pageUp.rawValue))
+            XCTAssertEqual(page, 2)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.pageUp.rawValue))
+            XCTAssertEqual(page, 0)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.pageUp.rawValue))
+            XCTAssertEqual(page, 0)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            XCTAssertEqual(forwardedKeys, [.enter])
+        }
+    }
+
     func testAccessibilityModifiersMapToRetainedMetadata() async {
         await MainActor.run {
             var actions: [String] = []

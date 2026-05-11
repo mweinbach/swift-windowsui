@@ -375,6 +375,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isScrollEnabled: Bool
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
+    var listRowSpacing: Double?
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -423,6 +424,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isScrollEnabled = isScrollEnabled
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
+        self.listRowSpacing = nil
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -704,6 +706,10 @@ public struct ViewBuildContext {
 
     var scrollContentBackgroundVisibility: Visibility {
         environmentValuesProvider().scrollContentBackgroundVisibility
+    }
+
+    var listRowSpacing: Double? {
+        environmentValuesProvider().listRowSpacing
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
@@ -3943,6 +3949,12 @@ public extension View {
                 trailing: edges.contains(.trailing) ? length ?? 16 : 0
             )
         )
+    }
+
+    func listRowSpacing(_ spacing: Double?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.listRowSpacing, spacing))
+        }
     }
 
     func onAppear(perform action: (() -> Void)? = nil) -> some View {

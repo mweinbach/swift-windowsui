@@ -2447,7 +2447,7 @@ public struct List: View {
         Component { runtime in
             let node = Controls.scrollPanel(
                 axis: .vertical,
-                stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
+                stackLayout: .vertical(spacing: context.listRowSpacing ?? 0, padding: .zero, alignment: .stretch),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )

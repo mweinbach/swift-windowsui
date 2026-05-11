@@ -2500,6 +2500,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListRowSpacingMapsToRetainedListStackSpacing() async {
+        await MainActor.run {
+            let spacedListNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listRowSpacing(12)
+            )
+            let resetListNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listRowSpacing(nil)
+            )
+
+            guard case .stack(let spacedLayout) = spacedListNode.layoutMode else {
+                return XCTFail("Expected List to keep retained stack layout")
+            }
+            guard case .stack(let resetLayout) = resetListNode.layoutMode else {
+                return XCTFail("Expected List to keep retained stack layout")
+            }
+
+            XCTAssertEqual(spacedLayout, .vertical(spacing: 12, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(resetLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+        }
+    }
+
     func testListDataInitializerRendersRowsWithStableIDs() async {
         await MainActor.run {
             let node = makeNode(

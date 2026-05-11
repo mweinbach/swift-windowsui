@@ -5568,6 +5568,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlActiveEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct ControlActiveReaderView: View {
+                @Environment(\.controlActiveState) var controlActiveState
+                @Environment(\.appearsActive) var appearsActive
+
+                var body: some View {
+                    Text(
+                        "\(controlActiveState == .key ? "KEY" : controlActiveState == .active ? "ACTIVE" : "INACTIVE") "
+                            + "\(appearsActive ? "APPEARS" : "DIMMED")"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ControlActiveReaderView())
+            let keyNode = makeNode(
+                ControlActiveReaderView()
+                    .environment(\.controlActiveState, .key)
+            )
+            let inactiveNode = makeNode(
+                ControlActiveReaderView()
+                    .environment(\.controlActiveState, .inactive)
+                    .environment(\.appearsActive, false)
+            )
+
+            XCTAssertEqual(defaultNode.text, "ACTIVE APPEARS")
+            XCTAssertEqual(keyNode.text, "KEY APPEARS")
+            XCTAssertEqual(inactiveNode.text, "INACTIVE DIMMED")
+        }
+    }
+
     func testDisplayScaleAndPixelLengthEnvironmentValuesCanBeReadAndOverridden() async {
         await MainActor.run {
             struct ScaleReaderView: View {

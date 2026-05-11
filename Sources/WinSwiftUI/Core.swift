@@ -341,6 +341,12 @@ public enum ScenePhase: Sendable, Equatable, Hashable {
     case background
 }
 
+public enum ControlActiveState: Sendable, Equatable, Hashable, CaseIterable {
+    case key
+    case active
+    case inactive
+}
+
 public enum LegibilityWeight: Sendable, Equatable {
     case regular
     case bold
@@ -548,6 +554,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
     public var scenePhase: ScenePhase
+    public var controlActiveState: ControlActiveState
+    public var appearsActive: Bool
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
@@ -600,6 +608,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         colorScheme: ColorScheme = .dark,
         colorSchemeContrast: ColorSchemeContrast = .standard,
         scenePhase: ScenePhase = .active,
+        controlActiveState: ControlActiveState = .active,
+        appearsActive: Bool = true,
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
@@ -646,6 +656,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
         self.scenePhase = scenePhase
+        self.controlActiveState = controlActiveState
+        self.appearsActive = appearsActive
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength

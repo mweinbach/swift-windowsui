@@ -3914,12 +3914,20 @@ public struct Font: Sendable, Equatable {
     public var weight: Weight
     public var design: Design
     public var family: String?
+    public var scalesWithDynamicType: Bool
 
-    public init(size: Double, weight: Weight = .regular, design: Design = .default, family: String? = nil) {
+    public init(
+        size: Double,
+        weight: Weight = .regular,
+        design: Design = .default,
+        family: String? = nil,
+        scalesWithDynamicType: Bool = true
+    ) {
         self.size = size
         self.weight = weight
         self.design = design
         self.family = family
+        self.scalesWithDynamicType = scalesWithDynamicType
     }
 
     public static func system(size: Double, weight: Weight = .regular, design: Design = .default) -> Font {
@@ -3932,8 +3940,22 @@ public struct Font: Sendable, Equatable {
             size: font.size,
             weight: weight ?? font.weight,
             design: design ?? font.design,
-            family: font.family
+            family: font.family,
+            scalesWithDynamicType: font.scalesWithDynamicType
         )
+    }
+
+    public static func custom(_ name: String, size: CGFloat) -> Font {
+        Font(size: size, family: name)
+    }
+
+    public static func custom(_ name: String, fixedSize: CGFloat) -> Font {
+        Font(size: fixedSize, family: name, scalesWithDynamicType: false)
+    }
+
+    public static func custom(_ name: String, size: CGFloat, relativeTo textStyle: TextStyle) -> Font {
+        _ = textStyle
+        return custom(name, size: size)
     }
 
     public static let largeTitle = Font(size: 34)
@@ -3949,7 +3971,13 @@ public struct Font: Sendable, Equatable {
     public static let caption2 = Font(size: 11)
 
     public func weight(_ weight: Weight) -> Font {
-        Font(size: size, weight: weight, design: design, family: family)
+        Font(
+            size: size,
+            weight: weight,
+            design: design,
+            family: family,
+            scalesWithDynamicType: scalesWithDynamicType
+        )
     }
 
     public func monospaced() -> Font {
@@ -5582,15 +5610,22 @@ extension Font.Weight {
 
 extension Font {
     func withDesign(_ design: Design) -> Font {
-        Font(size: size, weight: weight, design: design, family: family)
+        Font(
+            size: size,
+            weight: weight,
+            design: design,
+            family: family,
+            scalesWithDynamicType: scalesWithDynamicType
+        )
     }
 
     func scaled(for dynamicTypeSize: DynamicTypeSize) -> Font {
         Font(
-            size: size * dynamicTypeSize.retainedFontScale,
+            size: scalesWithDynamicType ? size * dynamicTypeSize.retainedFontScale : size,
             weight: weight,
             design: design,
-            family: family
+            family: family,
+            scalesWithDynamicType: scalesWithDynamicType
         )
     }
 

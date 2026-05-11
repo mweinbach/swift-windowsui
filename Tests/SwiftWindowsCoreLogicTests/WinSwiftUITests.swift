@@ -1664,6 +1664,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCustomFontConstructorsMapFamilyAndDynamicScaling() async {
+        await MainActor.run {
+            let customNode = makeNode(
+                Text("CUSTOM")
+                    .font(.custom("Aptos", size: 18))
+                    .dynamicTypeSize(.xxLarge)
+            )
+            let fixedNode = makeNode(
+                Text("FIXED")
+                    .font(.custom("Aptos", fixedSize: 18))
+                    .dynamicTypeSize(.xxLarge)
+            )
+            let relativeNode = makeNode(
+                Text("RELATIVE")
+                    .font(.custom("Georgia", size: 12, relativeTo: .caption))
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                }
+                .font(.custom("Cascadia Code", fixedSize: 16))
+                .dynamicTypeSize(.accessibility1)
+            )
+
+            XCTAssertEqual(customNode.textStyle.fontFamily, "Aptos")
+            XCTAssertEqual(customNode.textStyle.nativeFontSize, 18 * DynamicTypeSize.xxLarge.retainedFontScale)
+            XCTAssertEqual(fixedNode.textStyle.fontFamily, "Aptos")
+            XCTAssertEqual(fixedNode.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(relativeNode.textStyle.fontFamily, "Georgia")
+            XCTAssertEqual(relativeNode.textStyle.nativeFontSize, 12)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Code")
+            XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, 16)
+        }
+    }
+
     func testFontWeightAndBoldMapToTextWeight() async {
         await MainActor.run {
             let boldNode = makeNode(Text("LOUD").bold())

@@ -4044,6 +4044,7 @@ public struct List: View {
         Component { runtime in
             let listChrome = context.listStyle.retainedChrome
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
+            let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
             let node = Controls.scrollPanel(
                 axis: .vertical,
                 backgroundColor: listChrome.backgroundColor,
@@ -4064,6 +4065,7 @@ public struct List: View {
                             wrapping: row,
                             tag: tag,
                             selectionMode: selectionMode,
+                            isEditing: isEditing,
                             context: context
                         )
                     }
@@ -4113,10 +4115,25 @@ public struct List: View {
         wrapping row: ViewNode,
         tag: AnyHashable,
         selectionMode: ListSelectionMode,
+        isEditing: Bool,
         context: ViewBuildContext
     ) -> ViewNode {
         let isSelected = selectionMode.contains(tag)
         let selectionTint = context.tint
+        if isEditing {
+            row.layoutPriority = max(row.layoutPriority, 1)
+        }
+        let rowContent = isEditing
+            ? Controls.stackPanel(
+                layoutPriority: 1,
+                stackLayout: .horizontal(spacing: 10, padding: .zero, alignment: .center),
+                isHitTestVisible: false,
+                children: [
+                    Self.editSelectionIndicator(isSelected: isSelected, tint: selectionTint),
+                    row,
+                ]
+            )
+            : row
         let rowNode = Controls.stackPanel(
             backgroundColor: isSelected ? selectionTint.opacity(0.16) : nil,
             borderColor: isSelected ? selectionTint.opacity(0.52) : .clear,
@@ -4128,7 +4145,7 @@ public struct List: View {
                 alignment: .stretch
             ),
             isHitTestVisible: true,
-            children: [row]
+            children: [rowContent]
         )
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
 
@@ -4143,6 +4160,29 @@ public struct List: View {
             }
         }
         return rowNode
+    }
+
+    private static func editSelectionIndicator(isSelected: Bool, tint: Color) -> ViewNode {
+        let innerNode = Controls.panel(
+            preferredSize: Size(width: 8, height: 8),
+            backgroundColor: isSelected ? .white : nil,
+            cornerRadius: 4,
+            isHitTestVisible: false
+        )
+        innerNode.nodeTag = "list-edit-selection-dot"
+
+        let indicator = Controls.stackPanel(
+            preferredSize: Size(width: 18, height: 18),
+            backgroundColor: isSelected ? tint.opacity(0.92) : nil,
+            borderColor: isSelected ? tint.opacity(0.96) : tint.opacity(0.46),
+            borderWidth: 1,
+            cornerRadius: 9,
+            stackLayout: .vertical(alignment: .center, mainAlignment: .center),
+            isHitTestVisible: false,
+            children: isSelected ? [innerNode] : []
+        )
+        indicator.nodeTag = isSelected ? "list-edit-selection-selected" : "list-edit-selection-unselected"
+        return indicator
     }
 }
 

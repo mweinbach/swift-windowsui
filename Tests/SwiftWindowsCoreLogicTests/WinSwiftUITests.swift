@@ -4767,6 +4767,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListSelectionRowsRenderEditModeSelectionChrome() async {
+        await MainActor.run {
+            var selected: String? = "one"
+            var editMode = EditMode.inactive
+            let selection = Binding<String?>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+            let editing = Binding(
+                get: { editMode },
+                set: { editMode = $0 }
+            )
+
+            let inactiveNode = makeNode(
+                List(selection: selection) {
+                    Text("ONE").tag("one")
+                    Text("TWO").tag("two")
+                }
+                .environment(\.editMode, editing)
+            )
+
+            XCTAssertEqual(inactiveNode.children[0].children[0].text, "ONE")
+
+            editMode = .active
+            let activeNode = makeNode(
+                List(selection: selection) {
+                    Text("ONE").tag("one")
+                    Text("TWO").tag("two")
+                }
+                .environment(\.editMode, editing)
+            )
+
+            let selectedContent = activeNode.children[0].children[0]
+            let unselectedContent = activeNode.children[1].children[0]
+            let selectedIndicator = selectedContent.children[0]
+            let unselectedIndicator = unselectedContent.children[0]
+
+            XCTAssertEqual(selectedIndicator.nodeTag, "list-edit-selection-selected")
+            XCTAssertEqual(selectedIndicator.preferredSize, Size(width: 18, height: 18))
+            XCTAssertNotNil(selectedIndicator.backgroundColor)
+            XCTAssertEqual(selectedIndicator.children.first?.nodeTag, "list-edit-selection-dot")
+            XCTAssertEqual(selectedContent.children[1].text, "ONE")
+            XCTAssertEqual(unselectedIndicator.nodeTag, "list-edit-selection-unselected")
+            XCTAssertNil(unselectedIndicator.backgroundColor)
+            XCTAssertTrue(unselectedIndicator.children.isEmpty)
+            XCTAssertEqual(unselectedContent.children[1].text, "TWO")
+
+            activeNode.children[1].onActivate?()
+            XCTAssertEqual(selected, "two")
+        }
+    }
+
     func testListRequiredRangeSelectionWritesIntegerIndex() async {
         await MainActor.run {
             var selected = 1

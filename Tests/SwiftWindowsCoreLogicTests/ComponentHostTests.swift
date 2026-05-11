@@ -93,6 +93,13 @@ final class ComponentHostTests: XCTestCase {
                     let caretOffset = useSecondState ? 4 : 1
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
                     let textContentType = RetainedTextContentType(rawValue: useSecondState ? "password" : "username")
+                    let textInputCompletion = useSecondState ? "second completion" : "first completion"
+                    let textInputSuggestions = [
+                        RetainedTextInputSuggestion(
+                            displayText: useSecondState ? "SECOND SUGGESTION" : "FIRST SUGGESTION",
+                            completion: useSecondState ? "second value" : "first value"
+                        )
+                    ]
                     let isFindDisabled = useSecondState
                     let isReplaceDisabled = !useSecondState
                     let isFindNavigatorPresented = useSecondState
@@ -184,6 +191,8 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputCaretOffset = caretOffset
                     node.textSelectability = textSelectability
                     node.textContentType = textContentType
+                    node.textInputCompletion = textInputCompletion
+                    node.textInputSuggestions = textInputSuggestions
                     node.isFindDisabled = isFindDisabled
                     node.isReplaceDisabled = isReplaceDisabled
                     node.isFindNavigatorPresented = isFindNavigatorPresented
@@ -243,6 +252,11 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
             XCTAssertEqual(firstNode?.textContentType, RetainedTextContentType(rawValue: "username"))
+            XCTAssertEqual(firstNode?.textInputCompletion, "first completion")
+            XCTAssertEqual(
+                firstNode?.textInputSuggestions,
+                [RetainedTextInputSuggestion(displayText: "FIRST SUGGESTION", completion: "first value")]
+            )
             XCTAssertFalse(firstNode?.isFindDisabled ?? true)
             XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
             XCTAssertFalse(firstNode?.isFindNavigatorPresented ?? true)
@@ -327,6 +341,11 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
             XCTAssertEqual(reusedNode?.textContentType, RetainedTextContentType(rawValue: "password"))
+            XCTAssertEqual(reusedNode?.textInputCompletion, "second completion")
+            XCTAssertEqual(
+                reusedNode?.textInputSuggestions,
+                [RetainedTextInputSuggestion(displayText: "SECOND SUGGESTION", completion: "second value")]
+            )
             XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
             XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)
             XCTAssertTrue(reusedNode?.isFindNavigatorPresented ?? false)

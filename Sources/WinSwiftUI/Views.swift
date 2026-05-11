@@ -6485,6 +6485,11 @@ private func textInputComponent(
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
         node.textInputCaretOffset = currentText.count
         node.textContentType = context.textContentType?.retainedContentType
+        node.textInputSuggestions = retainedTextInputSuggestions(
+            from: context.textInputSuggestions,
+            context: context,
+            runtime: runtime
+        )
         node.isFindDisabled = context.isFindDisabled
         node.isReplaceDisabled = context.isReplaceDisabled
         node.isFindNavigatorPresented = context.isFindNavigatorPresented
@@ -6583,6 +6588,67 @@ private func textInputComponent(
 
         return node
     }
+}
+
+@MainActor
+private func retainedTextInputSuggestions(
+    from views: [AnyView]?,
+    context: ViewBuildContext,
+    runtime: RetainedViewRuntime
+) -> [RetainedTextInputSuggestion] {
+    guard let views, !views.isEmpty else {
+        return []
+    }
+
+    let suggestionContext = context.withEnvironmentValue(\.textInputSuggestions, Optional<[AnyView]>.none)
+    var suggestions: [RetainedTextInputSuggestion] = []
+    for view in views {
+        let node = view.makeComponent(context: suggestionContext).makeNode(runtime: runtime)
+        appendRetainedTextInputSuggestions(from: node, to: &suggestions)
+    }
+    return suggestions
+}
+
+@MainActor
+private func appendRetainedTextInputSuggestions(
+    from node: ViewNode,
+    to suggestions: inout [RetainedTextInputSuggestion]
+) {
+    if node.sectionHeaderChildCount > 0 || node.sectionFooterChildCount > 0 {
+        let lowerBound = min(node.sectionHeaderChildCount, node.children.count)
+        let upperBound = max(lowerBound, node.children.count - node.sectionFooterChildCount)
+        for child in node.children[lowerBound..<upperBound] {
+            appendRetainedTextInputSuggestions(from: child, to: &suggestions)
+        }
+        return
+    }
+
+    if let displayText = firstRetainedText(in: node), !displayText.isEmpty {
+        suggestions.append(
+            RetainedTextInputSuggestion(
+                displayText: displayText,
+                completion: firstTextInputCompletion(in: node)
+            )
+        )
+        return
+    }
+
+    for child in node.children {
+        appendRetainedTextInputSuggestions(from: child, to: &suggestions)
+    }
+}
+
+@MainActor
+private func firstTextInputCompletion(in node: ViewNode) -> String? {
+    if let completion = node.textInputCompletion {
+        return completion
+    }
+    for child in node.children {
+        if let completion = firstTextInputCompletion(in: child) {
+            return completion
+        }
+    }
+    return nil
 }
 
 @MainActor

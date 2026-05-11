@@ -806,6 +806,76 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextInputSuggestionsAndCompletionRetainMetadata() async {
+        await MainActor.run {
+            struct Venue: Identifiable {
+                var id: Int
+                var name: String
+                var address: String
+            }
+
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let venues = [
+                Venue(id: 1, name: "FILLMORE", address: "1805 GEARY"),
+                Venue(id: 2, name: "CATALYST", address: "1011 PACIFIC")
+            ]
+
+            let builderNode = makeNode(
+                TextField("LOCATION", text: binding)
+                    .textInputSuggestions {
+                        Text("FILLMORE")
+                            .textInputCompletion("1805 GEARY")
+                        Label("CATALYST", systemImage: "mappin")
+                            .textInputCompletion("1011 PACIFIC")
+                        Section("RECENTS") {
+                            Text("RIO")
+                                .textInputCompletion("1205 SOQUEL")
+                        }
+                    }
+            )
+            let dataNode = makeNode(
+                TextField("DATA", text: binding)
+                    .textInputSuggestions(venues) { venue in
+                        Text(venue.name)
+                            .textInputCompletion(venue.address)
+                    }
+            )
+            let idNode = makeNode(
+                TextField("ID", text: binding)
+                    .textInputSuggestions(venues, id: \.name) { venue in
+                        Text(venue.name)
+                            .textInputCompletion(venue.address)
+                    }
+            )
+            let completionNode = makeNode(
+                Text("CHOICE")
+                    .textInputCompletion("chosen value")
+            )
+
+            XCTAssertEqual(
+                builderNode.textInputSuggestions,
+                [
+                    RetainedTextInputSuggestion(displayText: "FILLMORE", completion: "1805 GEARY"),
+                    RetainedTextInputSuggestion(displayText: "CATALYST", completion: "1011 PACIFIC"),
+                    RetainedTextInputSuggestion(displayText: "RIO", completion: "1205 SOQUEL")
+                ]
+            )
+            XCTAssertEqual(
+                dataNode.textInputSuggestions,
+                [
+                    RetainedTextInputSuggestion(displayText: "FILLMORE", completion: "1805 GEARY"),
+                    RetainedTextInputSuggestion(displayText: "CATALYST", completion: "1011 PACIFIC")
+                ]
+            )
+            XCTAssertEqual(idNode.textInputSuggestions, dataNode.textInputSuggestions)
+            XCTAssertEqual(completionNode.textInputCompletion, "chosen value")
+        }
+    }
+
     func testTextEditorFindAndReplaceModifiersRetainMetadata() async {
         await MainActor.run {
             var value = "Find me"

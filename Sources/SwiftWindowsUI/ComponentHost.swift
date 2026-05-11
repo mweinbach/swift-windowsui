@@ -182,6 +182,8 @@ public final class ComponentHost {
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }
         if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
         if target.textContentType != source.textContentType { target.textContentType = source.textContentType }
+        if target.textInputCompletion != source.textInputCompletion { target.textInputCompletion = source.textInputCompletion }
+        if target.textInputSuggestions != source.textInputSuggestions { target.textInputSuggestions = source.textInputSuggestions }
         if target.isFindDisabled != source.isFindDisabled { target.isFindDisabled = source.isFindDisabled }
         if target.isReplaceDisabled != source.isReplaceDisabled { target.isReplaceDisabled = source.isReplaceDisabled }
         if target.isFindNavigatorPresented != source.isFindNavigatorPresented { target.isFindNavigatorPresented = source.isFindNavigatorPresented }

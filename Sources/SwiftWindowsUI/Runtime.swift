@@ -194,6 +194,16 @@ public struct RetainedTextContentType: Sendable, Equatable, Hashable {
     }
 }
 
+public struct RetainedTextInputSuggestion: Sendable, Equatable, Hashable {
+    public var displayText: String
+    public var completion: String?
+
+    public init(displayText: String, completion: String? = nil) {
+        self.displayText = displayText
+        self.completion = completion
+    }
+}
+
 public struct RetainedAccessibilityAction {
     public var name: String?
     public var kind: RetainedAccessibilityActionKind?
@@ -946,6 +956,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textInputCompletion: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var textInputSuggestions: [RetainedTextInputSuggestion] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isFindDisabled: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1163,6 +1181,8 @@ public final class ViewNode {
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
         textContentType: RetainedTextContentType? = nil,
+        textInputCompletion: String? = nil,
+        textInputSuggestions: [RetainedTextInputSuggestion] = [],
         isFindDisabled: Bool = false,
         isReplaceDisabled: Bool = false,
         isFindNavigatorPresented: Bool = false,
@@ -1249,6 +1269,8 @@ public final class ViewNode {
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
         self.textContentType = textContentType
+        self.textInputCompletion = textInputCompletion
+        self.textInputSuggestions = textInputSuggestions
         self.isFindDisabled = isFindDisabled
         self.isReplaceDisabled = isReplaceDisabled
         self.isFindNavigatorPresented = isFindNavigatorPresented

@@ -1708,6 +1708,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     var textContentType: NSTextContentType?
+    var textInputCompletion: String?
+    var textInputSuggestions: [AnyView]?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
@@ -1944,6 +1946,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.textContentType = nil
+        self.textInputCompletion = nil
+        self.textInputSuggestions = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
@@ -2743,6 +2747,14 @@ public struct ViewBuildContext {
 
     var textContentType: NSTextContentType? {
         environmentValuesProvider().textContentType
+    }
+
+    var textInputCompletion: String? {
+        environmentValuesProvider().textInputCompletion
+    }
+
+    var textInputSuggestions: [AnyView]? {
+        environmentValuesProvider().textInputSuggestions
     }
 
     var isFindDisabled: Bool {
@@ -10161,6 +10173,45 @@ public extension View {
     func textContentType(_ textContentType: NSTextContentType?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textContentType, textContentType))
+        }
+    }
+
+    func textInputCompletion(_ completion: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(
+                context: context.withEnvironmentValue(\.textInputCompletion, completion)
+            )
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.textInputCompletion = completion
+                return childNode
+            }
+        }
+    }
+
+    func textInputSuggestions(@ViewBuilder _ suggestions: () -> [AnyView]) -> some View {
+        let suggestionViews = suggestions()
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textInputSuggestions, suggestionViews))
+        }
+    }
+
+    func textInputSuggestions<Data>(
+        _ data: Data,
+        @ViewBuilder content: @escaping (Data.Element) -> [AnyView]
+    ) -> some View where Data: RandomAccessCollection, Data.Element: Identifiable {
+        textInputSuggestions {
+            ForEach(data, content: content)
+        }
+    }
+
+    func textInputSuggestions<Data, ID>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        @ViewBuilder content: @escaping (Data.Element) -> [AnyView]
+    ) -> some View where Data: RandomAccessCollection, ID: Hashable {
+        textInputSuggestions {
+            ForEach(data, id: id, content: content)
         }
     }
 

@@ -3567,6 +3567,21 @@ private extension ControlSize {
             return Size(width: 280, height: 12)
         }
     }
+
+    var colorSwatchPreferredSize: Size {
+        switch self {
+        case .mini:
+            return Size(width: 28, height: 22)
+        case .small:
+            return Size(width: 30, height: 24)
+        case .regular:
+            return Size(width: 34, height: 28)
+        case .large:
+            return Size(width: 40, height: 34)
+        case .extraLarge:
+            return Size(width: 46, height: 40)
+        }
+    }
 }
 
 @MainActor
@@ -3893,6 +3908,117 @@ public struct DatePicker: View {
             return timeText
         }
         return dateText
+    }
+}
+
+@MainActor
+public struct ColorPicker: View {
+    public typealias Body = Never
+
+    private let selection: Binding<Color>
+    private let supportsOpacity: Bool
+    private let label: [AnyView]
+
+    public init(
+        selection: Binding<Color>,
+        supportsOpacity: Bool = true,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.supportsOpacity = supportsOpacity
+        self.label = label()
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Color>,
+        supportsOpacity: Bool = true
+    ) {
+        self.init(selection: selection, supportsOpacity: supportsOpacity) {
+            Text(String(title))
+        }
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Color>,
+        supportsOpacity: Bool = true
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, supportsOpacity: supportsOpacity)
+    }
+
+    public var body: Never {
+        fatalError("ColorPicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelViews = label
+        let selection = selection
+        let supportsOpacity = supportsOpacity
+        let labelComponent = composeComponent(
+            from: labelViews,
+            context: context
+                .withForegroundColor(.secondary)
+                .withTextAlignment(.leading)
+                .withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let color = selection.wrappedValue
+            let swatchNode = Controls.panel(
+                preferredSize: context.controlSize.colorSwatchPreferredSize,
+                backgroundColor: color,
+                borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.30),
+                borderWidth: 1,
+                cornerRadius: 6,
+                isHitTestVisible: false
+            )
+            let valueNode = Text(Self.hexValue(color, includesOpacity: supportsOpacity))
+                .monospaced()
+                .lineLimit(1)
+                .makeComponent(
+                    context: context
+                        .withTextAlignment(.trailing)
+                        .withLineLimit(1)
+                )
+                .makeNode(runtime: runtime)
+            let controlNode = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 8, alignment: .center),
+                isHitTestVisible: false,
+                children: [swatchNode, valueNode]
+            )
+
+            guard !context.labelsHidden, !labelViews.isEmpty else {
+                return controlNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 12, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, controlNode]
+            )
+        }
+    }
+
+    private static func hexValue(_ color: Color, includesOpacity: Bool) -> String {
+        let components = color.rgba
+        let alphaText = includesOpacity ? String(format: "%02X", byte(from: components.3)) : ""
+        return String(
+            format: "#%02X%02X%02X%@",
+            byte(from: components.0),
+            byte(from: components.1),
+            byte(from: components.2),
+            alphaText
+        )
+    }
+
+    private static func byte(from channel: Float) -> Int {
+        let clampedChannel = min(max(Double(channel), 0), 1)
+        return Int((clampedChannel * 255).rounded())
     }
 }
 

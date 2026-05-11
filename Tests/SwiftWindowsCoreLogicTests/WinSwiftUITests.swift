@@ -3960,6 +3960,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testColorPickerMapsToRetainedLabelValueSwatch() async {
+        await MainActor.run {
+            let color = Color(red: 51.0 / 255.0, green: 102.0 / 255.0, blue: 153.0 / 255.0, opacity: 128.0 / 255.0)
+            let titledNode = makeNode(
+                ColorPicker("ACCENT", selection: .constant(color))
+            )
+            let noOpacityNode = makeNode(
+                ColorPicker(LocalizedStringKey("BRAND"), selection: .constant(color), supportsOpacity: false)
+            )
+            let builderNode = makeNode(
+                ColorPicker(selection: .constant(.orange), supportsOpacity: true) {
+                    Label("TINT", systemImage: "paintpalette")
+                }
+                .controlSize(.large)
+            )
+
+            XCTAssertEqual(allTexts(in: titledNode), ["ACCENT", "#33669980"])
+            XCTAssertEqual(titledNode.children[1].children[0].backgroundColor, color)
+            XCTAssertEqual(titledNode.children[1].children[0].preferredSize, Size(width: 34, height: 28))
+            XCTAssertEqual(titledNode.children[0].layoutPriority, 1)
+            XCTAssertEqual(allTexts(in: noOpacityNode), ["BRAND", "#336699"])
+            XCTAssertTrue(allTexts(in: builderNode).contains("TINT"))
+            XCTAssertEqual(builderNode.children[1].children[0].backgroundColor, .orange)
+            XCTAssertEqual(builderNode.children[1].children[0].preferredSize, Size(width: 40, height: 34))
+        }
+    }
+
     func testLabelsHiddenSuppressesControlLabels() async {
         await MainActor.run {
             let toggleNode = makeNode(
@@ -4012,6 +4039,10 @@ final class WinSwiftUITests: XCTestCase {
                 DatePicker("START", selection: .constant(Date(timeIntervalSince1970: 1_778_423_880)))
                     .labelsHidden()
             )
+            let colorPickerNode = makeNode(
+                ColorPicker("ACCENT", selection: .constant(.blue), supportsOpacity: false)
+                    .labelsHidden()
+            )
 
             XCTAssertFalse(allTexts(in: toggleNode).contains("ENABLED"))
             XCTAssertNotNil(firstFocusable(in: toggleNode))
@@ -4033,6 +4064,10 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertFalse(allTexts(in: datePickerNode).contains("START"))
             XCTAssertEqual(allTexts(in: datePickerNode), ["2026-05-10 14:38"])
+
+            XCTAssertFalse(allTexts(in: colorPickerNode).contains("ACCENT"))
+            XCTAssertEqual(allTexts(in: colorPickerNode), ["#0000FF"])
+            XCTAssertEqual(colorPickerNode.children[0].backgroundColor, .blue)
         }
     }
 

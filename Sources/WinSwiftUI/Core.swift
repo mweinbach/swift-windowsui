@@ -1186,6 +1186,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
     public var datePickerStyle: DatePickerStyle
+    public var tabViewStyle: TabViewStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     public var submitLabel: SubmitLabel
@@ -1293,6 +1294,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
         datePickerStyle: DatePickerStyle = .automatic,
+        tabViewStyle: TabViewStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         submitLabel: SubmitLabel = .return,
@@ -1396,6 +1398,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
         self.datePickerStyle = datePickerStyle
+        self.tabViewStyle = tabViewStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.submitLabel = submitLabel
@@ -4351,6 +4354,110 @@ public struct NavigationControlGroupStyle: Sendable, Equatable {
 }
 
 public struct PaletteControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TabViewStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case sidebarAdaptable
+        case tabBarOnly
+        case grouped
+        case page(indexDisplayMode: PageTabViewStyle.IndexDisplayMode)
+        case verticalPage(transitionStyle: VerticalPageTabViewStyle.TransitionStyle)
+        case carousel
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TabViewStyle(kind: .automatic)
+    public static let sidebarAdaptable = TabViewStyle(kind: .sidebarAdaptable)
+    public static let tabBarOnly = TabViewStyle(kind: .tabBarOnly)
+    public static let grouped = TabViewStyle(kind: .grouped)
+    public static let page = TabViewStyle(kind: .page(indexDisplayMode: .automatic))
+    public static func page(indexDisplayMode: PageTabViewStyle.IndexDisplayMode) -> TabViewStyle {
+        TabViewStyle(kind: .page(indexDisplayMode: indexDisplayMode))
+    }
+    public static let verticalPage = TabViewStyle(kind: .verticalPage(transitionStyle: .automatic))
+    public static func verticalPage(transitionStyle: VerticalPageTabViewStyle.TransitionStyle) -> TabViewStyle {
+        TabViewStyle(kind: .verticalPage(transitionStyle: transitionStyle))
+    }
+    public static let carousel = TabViewStyle(kind: .carousel)
+}
+
+public struct DefaultTabViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SidebarAdaptableTabViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TabBarOnlyTabViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct GroupedTabViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PageTabViewStyle: Sendable, Equatable {
+    public struct IndexDisplayMode: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case automatic
+            case always
+            case never
+        }
+
+        let kind: Kind
+
+        private init(_ kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let automatic = IndexDisplayMode(.automatic)
+        public static let always = IndexDisplayMode(.always)
+        public static let never = IndexDisplayMode(.never)
+    }
+
+    public var indexDisplayMode: IndexDisplayMode
+
+    public init(indexDisplayMode: IndexDisplayMode = .automatic) {
+        self.indexDisplayMode = indexDisplayMode
+    }
+}
+
+public struct VerticalPageTabViewStyle: Sendable, Equatable {
+    public struct TransitionStyle: Sendable, Equatable, Hashable {
+        enum Kind: Sendable, Equatable, Hashable {
+            case automatic
+            case blur
+            case identity
+        }
+
+        let kind: Kind
+
+        private init(_ kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let automatic = TransitionStyle(.automatic)
+        public static let blur = TransitionStyle(.blur)
+        public static let identity = TransitionStyle(.identity)
+    }
+
+    public var transitionStyle: TransitionStyle
+
+    public init(transitionStyle: TransitionStyle = .automatic) {
+        self.transitionStyle = transitionStyle
+    }
+}
+
+public struct CarouselTabViewStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -7654,6 +7761,40 @@ public extension View {
 
     func datePickerStyle(_ style: WheelDatePickerStyle) -> some View {
         datePickerStyle(.wheel)
+    }
+
+    func tabViewStyle(_ style: TabViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.tabViewStyle, style))
+        }
+    }
+
+    func tabViewStyle(_ style: DefaultTabViewStyle) -> some View {
+        tabViewStyle(.automatic)
+    }
+
+    func tabViewStyle(_ style: SidebarAdaptableTabViewStyle) -> some View {
+        tabViewStyle(.sidebarAdaptable)
+    }
+
+    func tabViewStyle(_ style: TabBarOnlyTabViewStyle) -> some View {
+        tabViewStyle(.tabBarOnly)
+    }
+
+    func tabViewStyle(_ style: GroupedTabViewStyle) -> some View {
+        tabViewStyle(.grouped)
+    }
+
+    func tabViewStyle(_ style: PageTabViewStyle) -> some View {
+        tabViewStyle(.page(indexDisplayMode: style.indexDisplayMode))
+    }
+
+    func tabViewStyle(_ style: VerticalPageTabViewStyle) -> some View {
+        tabViewStyle(.verticalPage(transitionStyle: style.transitionStyle))
+    }
+
+    func tabViewStyle(_ style: CarouselTabViewStyle) -> some View {
+        tabViewStyle(.carousel)
     }
 
     func toggleStyle(_ style: ToggleStyle) -> some View {

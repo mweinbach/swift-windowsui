@@ -5069,6 +5069,75 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTabViewStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct TabViewStyleReader: View {
+                @Environment(\.tabViewStyle) var tabViewStyle
+
+                var body: some View {
+                    Text(
+                        tabViewStyle == .page(indexDisplayMode: .never) ? "PAGE"
+                            : tabViewStyle == .verticalPage(transitionStyle: .blur) ? "VERTICAL"
+                            : tabViewStyle == .sidebarAdaptable ? "SIDEBAR"
+                            : tabViewStyle == .tabBarOnly ? "TABBAR"
+                            : tabViewStyle == .grouped ? "GROUPED"
+                            : tabViewStyle == .carousel ? "CAROUSEL"
+                            : tabViewStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let pageReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(PageTabViewStyle(indexDisplayMode: .never))
+            )
+            let verticalReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(VerticalPageTabViewStyle(transitionStyle: .blur))
+            )
+            let sidebarReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(SidebarAdaptableTabViewStyle())
+            )
+            let tabBarReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(TabBarOnlyTabViewStyle())
+            )
+            let groupedReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(GroupedTabViewStyle())
+            )
+            let carouselReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(CarouselTabViewStyle())
+            )
+            let automaticReaderNode = makeNode(
+                TabViewStyleReader()
+                    .tabViewStyle(DefaultTabViewStyle())
+            )
+            let styledTabNode = makeNode(
+                TabView {
+                    Text("FIRST")
+                        .tabItem { Text("FIRST TAB") }
+                    Text("SECOND")
+                        .tabItem { Text("SECOND TAB") }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .always))
+            )
+
+            XCTAssertEqual(pageReaderNode.text, "PAGE")
+            XCTAssertEqual(verticalReaderNode.text, "VERTICAL")
+            XCTAssertEqual(sidebarReaderNode.text, "SIDEBAR")
+            XCTAssertEqual(tabBarReaderNode.text, "TABBAR")
+            XCTAssertEqual(groupedReaderNode.text, "GROUPED")
+            XCTAssertEqual(carouselReaderNode.text, "CAROUSEL")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
+            XCTAssertTrue(allTexts(in: styledTabNode.children[0]).contains("FIRST TAB"))
+            XCTAssertEqual(styledTabNode.children[1].text, "FIRST")
+        }
+    }
+
     func testNavigationLinkRendersLabelContent() async {
         await MainActor.run {
             let node = makeNode(

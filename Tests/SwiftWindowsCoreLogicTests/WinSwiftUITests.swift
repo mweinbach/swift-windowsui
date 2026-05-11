@@ -5048,6 +5048,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlGroupNamedImageInitializersComposeBitmapLabel() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-controlgroup-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            var activationCount = 0
+            let stringNode = makeNode(
+                ControlGroup("PHOTO", image: url.path) {
+                    Button("EXPORT") {
+                        activationCount += 1
+                    }
+                }
+            )
+            let protocolTitle: Substring = "TOOLS"[...]
+            let protocolNode = makeNode(
+                ControlGroup(protocolTitle, image: url.path) {
+                    Button("RESET") {}
+                }
+            )
+            let keyNode = makeNode(
+                ControlGroup(LocalizedStringKey("ALBUM"), image: url.path) {
+                    Button("APPLY") {}
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: stringNode).contains("PHOTO"))
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.height, 1)
+            XCTAssertTrue(allTexts(in: protocolNode).contains("TOOLS"))
+            XCTAssertTrue(allTexts(in: keyNode).contains("ALBUM"))
+
+            stringNode.children[1].onActivate?()
+
+            XCTAssertEqual(activationCount, 1)
+        }
+    }
+
     func testControlGroupStyleModifierPropagatesThroughEnvironment() async {
         await MainActor.run {
             struct ControlGroupStyleReaderView: View {

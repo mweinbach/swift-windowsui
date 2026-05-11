@@ -4243,6 +4243,20 @@ public struct ControlGroup: View {
         self.init(titleKey.resolvedString, content: content)
     }
 
+    public init(_ title: String, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Label(title, image: name)
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), image: name, content: content)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, image: name, content: content)
+    }
+
     public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(content: content) {
             Label(title, systemImage: systemImage)

@@ -783,6 +783,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var controlActiveState: ControlActiveState
     public var appearsActive: Bool
     public var supportsMultipleWindows: Bool
+    public var isPresented: Bool
     public var editMode: Binding<EditMode>?
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
@@ -851,6 +852,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         controlActiveState: ControlActiveState = .active,
         appearsActive: Bool = true,
         supportsMultipleWindows: Bool = false,
+        isPresented: Bool = false,
         editMode: Binding<EditMode>? = nil,
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
@@ -913,6 +915,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.controlActiveState = controlActiveState
         self.appearsActive = appearsActive
         self.supportsMultipleWindows = supportsMultipleWindows
+        self.isPresented = isPresented
         self.editMode = editMode
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale

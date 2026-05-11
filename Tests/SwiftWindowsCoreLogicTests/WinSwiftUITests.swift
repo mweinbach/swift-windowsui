@@ -3971,6 +3971,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationDestinationsUpdateIsPresentedEnvironment() async {
+        await MainActor.run {
+            struct PresentationStateReader: View {
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    Text(isPresented ? "PRESENTED" : "ROOT")
+                }
+            }
+
+            var isPresented = true
+            let stack = NavigationStack {
+                PresentationStateReader()
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(
+                isPresented: Binding(
+                    get: { isPresented },
+                    set: { isPresented = $0 }
+                )
+            ) {
+                PresentationStateReader()
+                    .navigationTitle("PRESENTED TITLE")
+            }
+
+            let presentedNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: presentedNode.children[0]).contains("PRESENTED TITLE"))
+            XCTAssertEqual(presentedNode.children[1].text, "PRESENTED")
+
+            isPresented = false
+
+            let rootNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: rootNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertEqual(rootNode.children[1].text, "ROOT")
+        }
+    }
+
     func testDismissEnvironmentActionDismissesPresentedNavigationDestination() async {
         await MainActor.run {
             struct DismissButtonView: View {

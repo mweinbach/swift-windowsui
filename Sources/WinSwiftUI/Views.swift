@@ -967,6 +967,7 @@ private func navigationContainerComponent(
         .withEnvironmentValue(\.dismiss, DismissAction {
             dismissVisibleDestination()
         })
+        .withEnvironmentValue(\.isPresented, !combinedDestinationStack.isEmpty)
         .withNavigationDestinationHandler { destination in
             pushDestination(destination)
         }

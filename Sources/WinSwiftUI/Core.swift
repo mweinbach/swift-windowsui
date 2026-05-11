@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
     public var toggleStyle: ToggleStyle
@@ -1277,6 +1278,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
@@ -1373,6 +1375,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
         self.toggleStyle = toggleStyle
@@ -2050,6 +2053,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var controlGroupStyle: ControlGroupStyle {
+        environmentValuesProvider().controlGroupStyle
     }
 
     public var progressViewStyle: ProgressViewStyle {
@@ -4063,6 +4070,28 @@ public struct ProgressViewStyle: Sendable, Equatable {
     public static let automatic = ProgressViewStyle(kind: .automatic)
     public static let linear = ProgressViewStyle(kind: .linear)
     public static let circular = ProgressViewStyle(kind: .circular)
+}
+
+public struct ControlGroupStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case compactMenu
+        case menu
+        case navigation
+        case palette
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ControlGroupStyle(kind: .automatic)
+    public static let compactMenu = ControlGroupStyle(kind: .compactMenu)
+    public static let menu = ControlGroupStyle(kind: .menu)
+    public static let navigation = ControlGroupStyle(kind: .navigation)
+    public static let palette = ControlGroupStyle(kind: .palette)
 }
 
 public enum ForegroundStyle: Sendable, Equatable {
@@ -6839,6 +6868,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func controlGroupStyle(_ style: ControlGroupStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.controlGroupStyle, style))
         }
     }
 

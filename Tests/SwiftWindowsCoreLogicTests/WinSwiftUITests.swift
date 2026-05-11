@@ -4574,6 +4574,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testControlGroupStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct ControlGroupStyleReaderView: View {
+                @Environment(\.controlGroupStyle) var controlGroupStyle
+
+                var body: some View {
+                    Text(controlGroupStyle == .palette ? "PALETTE" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(ControlGroupStyleReaderView().controlGroupStyle(.palette))
+            let inheritedNode = makeNode(
+                VStack {
+                    ControlGroup {
+                        Button("EXPORT") {}
+                        Button("ARCHIVE") {}
+                    }
+                }
+                .controlGroupStyle(.menu)
+            )
+
+            XCTAssertEqual(readerNode.text, "PALETTE")
+            XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
+            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 10)
+        }
+    }
+
     func testNavigationContainersRenderTitleChromeWhenProvided() async {
         await MainActor.run {
             var path = NavigationPath()

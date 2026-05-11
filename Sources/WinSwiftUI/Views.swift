@@ -3983,6 +3983,47 @@ public struct Menu: View {
         self.init(titleKey.resolvedString, content: content, primaryAction: primaryAction)
     }
 
+    public init(_ title: String, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(title, image: name, content: content, primaryAction: nil)
+    }
+
+    public init(
+        _ title: String,
+        image name: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(content: content, label: {
+            Label(title, image: name)
+        }, primaryAction: primaryAction)
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), image: name, content: content)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        image name: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(String(title), image: name, content: content, primaryAction: primaryAction)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, image: name, content: content)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        image name: String,
+        @ViewBuilder content: () -> [AnyView],
+        primaryAction: (@MainActor () -> Void)?
+    ) {
+        self.init(titleKey.resolvedString, image: name, content: content, primaryAction: primaryAction)
+    }
+
     public init(_ title: String, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
         self.init(title, systemImage: systemImage, content: content, primaryAction: nil)
     }

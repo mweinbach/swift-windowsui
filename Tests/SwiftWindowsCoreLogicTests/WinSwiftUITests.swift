@@ -4786,6 +4786,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuNamedImageInitializersComposeBitmapLabelAndPrimaryAction() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-menu-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            var primaryCount = 0
+            let stringNode = makeNode(Menu("PHOTO", image: url.path) {
+                Button("OPEN") {}
+            })
+            let protocolTitle: Substring = "TOOLS"[...]
+            let protocolMenu = Menu(protocolTitle, image: url.path, content: {
+                Button("PICK") {}
+            }, primaryAction: {
+                primaryCount += 1
+            })
+            let protocolNode = makeNode(protocolMenu)
+            let keyNode = makeNode(Menu(LocalizedStringKey("ALBUM"), image: url.path) {
+                Button("EDIT") {}
+            })
+
+            XCTAssertTrue(allTexts(in: stringNode).contains("PHOTO"))
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
+            XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.height, 1)
+            XCTAssertTrue(allTexts(in: protocolNode).contains("TOOLS"))
+            XCTAssertTrue(allTexts(in: keyNode).contains("ALBUM"))
+
+            protocolNode.children[0].onActivate?()
+
+            XCTAssertEqual(primaryCount, 1)
+            XCTAssertFalse(allTexts(in: makeNode(protocolMenu)).contains("PICK"))
+        }
+    }
+
     func testMenuIndicatorVisibilityControlsRetainedDisclosureGlyph() async {
         await MainActor.run {
             let automaticNode = makeNode(
@@ -10865,6 +10901,21 @@ private func firstTextNode(in node: ViewNode) -> ViewNode? {
     for child in node.children {
         if let textNode = firstTextNode(in: child) {
             return textNode
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
+    if node.bitmapSurface != nil {
+        return node
+    }
+
+    for child in node.children {
+        if let bitmapNode = firstBitmapNode(in: child) {
+            return bitmapNode
         }
     }
 

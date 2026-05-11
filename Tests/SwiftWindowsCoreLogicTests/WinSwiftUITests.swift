@@ -4819,6 +4819,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSelectedListRowsExposeIncreasedBackgroundProminenceToContent() async {
+        await MainActor.run {
+            struct RowProminenceReader: View {
+                @Environment(\.backgroundProminence) var backgroundProminence
+
+                var body: some View {
+                    Text(backgroundProminence == .increased ? "INCREASED" : "STANDARD")
+                }
+            }
+
+            var selected: String? = "one"
+            let selection = Binding<String?>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+
+            let node = makeNode(
+                List(selection: selection) {
+                    RowProminenceReader().tag("one")
+                    RowProminenceReader().tag("two")
+                }
+            )
+
+            XCTAssertEqual(node.children[0].children[0].text, "INCREASED")
+            XCTAssertEqual(node.children[1].children[0].text, "STANDARD")
+        }
+    }
+
     func testListRequiredRangeSelectionWritesIntegerIndex() async {
         await MainActor.run {
             var selected = 1

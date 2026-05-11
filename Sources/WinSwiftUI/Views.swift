@@ -4059,12 +4059,18 @@ public struct List: View {
                 ),
                 isHitTestVisible: false,
                 children: content.map {
-                    var row = $0.makeComponent(context: context).makeNode(runtime: runtime)
-                    if let selectionMode, let tag = $0.selectionTag {
+                    let tag = $0.selectionTag
+                    let isSelected = tag.map { selectionMode?.contains($0) == true } == true
+                    let rowContext = isSelected
+                        ? context.withEnvironmentValue(\.backgroundProminence, .increased)
+                        : context
+                    var row = $0.makeComponent(context: rowContext).makeNode(runtime: runtime)
+                    if let selectionMode, let tag {
                         row = Self.selectableRow(
                             wrapping: row,
                             tag: tag,
                             selectionMode: selectionMode,
+                            isSelected: isSelected,
                             isEditing: isEditing,
                             context: context
                         )
@@ -4115,10 +4121,10 @@ public struct List: View {
         wrapping row: ViewNode,
         tag: AnyHashable,
         selectionMode: ListSelectionMode,
+        isSelected: Bool,
         isEditing: Bool,
         context: ViewBuildContext
     ) -> ViewNode {
-        let isSelected = selectionMode.contains(tag)
         let selectionTint = context.tint
         if isEditing {
             row.layoutPriority = max(row.layoutPriority, 1)

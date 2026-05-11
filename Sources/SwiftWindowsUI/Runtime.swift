@@ -667,6 +667,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var scrollIndicatorInsets: EdgeInsets {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isFocusable: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -897,6 +901,7 @@ public final class ViewNode {
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
+        scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
@@ -966,6 +971,7 @@ public final class ViewNode {
         self.scrollIndicatorHoverColor = scrollIndicatorHoverColor
         self.scrollIndicatorActiveColor = scrollIndicatorActiveColor
         self.scrollIndicatorThickness = scrollIndicatorThickness
+        self.scrollIndicatorInsets = scrollIndicatorInsets
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
@@ -2690,39 +2696,48 @@ public final class ViewNode {
         return setScrollOffset(translatedOffset)
     }
 
+    private var effectiveScrollIndicatorInsets: EdgeInsets {
+        EdgeInsets(
+            top: max(0, scrollIndicatorInsets.top),
+            leading: max(0, scrollIndicatorInsets.leading),
+            bottom: max(0, scrollIndicatorInsets.bottom),
+            trailing: max(0, scrollIndicatorInsets.trailing)
+        )
+    }
+
     func scrollIndicatorRect(in absoluteFrame: Rect) -> Rect? {
         guard showsScrollIndicator, isScrollable, maxScrollOffset > 0, scrollIndicatorColor.alpha > 0 else {
             return nil
         }
 
-        let indicatorInset = 6.0
+        let indicatorInsets = effectiveScrollIndicatorInsets
         let indicatorThickness = max(4, scrollIndicatorThickness)
 
         switch scrollAxis {
         case .vertical:
-            let trackHeight = max(0, absoluteFrame.size.height - indicatorInset * 2)
+            let trackHeight = max(0, absoluteFrame.size.height - indicatorInsets.top - indicatorInsets.bottom)
             guard trackHeight > 0 else { return nil }
             let visibleRatio = max(0.08, absoluteFrame.size.height / max(resolvedContentSize.height, absoluteFrame.size.height))
             let indicatorHeight = max(24, trackHeight * visibleRatio)
             let travel = max(0, trackHeight - indicatorHeight)
             let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
             return Rect(
-                x: absoluteFrame.maxX - indicatorInset - indicatorThickness,
-                y: absoluteFrame.origin.y + indicatorInset + travel * progress,
+                x: absoluteFrame.maxX - indicatorInsets.trailing - indicatorThickness,
+                y: absoluteFrame.origin.y + indicatorInsets.top + travel * progress,
                 width: indicatorThickness,
                 height: indicatorHeight
             )
 
         case .horizontal:
-            let trackWidth = max(0, absoluteFrame.size.width - indicatorInset * 2)
+            let trackWidth = max(0, absoluteFrame.size.width - indicatorInsets.leading - indicatorInsets.trailing)
             guard trackWidth > 0 else { return nil }
             let visibleRatio = max(0.08, absoluteFrame.size.width / max(resolvedContentSize.width, absoluteFrame.size.width))
             let indicatorWidth = max(24, trackWidth * visibleRatio)
             let travel = max(0, trackWidth - indicatorWidth)
             let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
             return Rect(
-                x: absoluteFrame.origin.x + indicatorInset + travel * progress,
-                y: absoluteFrame.maxY - indicatorInset - indicatorThickness,
+                x: absoluteFrame.origin.x + indicatorInsets.leading + travel * progress,
+                y: absoluteFrame.maxY - indicatorInsets.bottom - indicatorThickness,
                 width: indicatorWidth,
                 height: indicatorThickness
             )
@@ -2737,23 +2752,23 @@ public final class ViewNode {
             return nil
         }
 
-        let inset = 6.0
+        let indicatorInsets = effectiveScrollIndicatorInsets
 
         switch scrollAxis {
         case .vertical:
-            let trackLength = max(0, absoluteFrame.size.height - inset * 2)
+            let trackLength = max(0, absoluteFrame.size.height - indicatorInsets.top - indicatorInsets.bottom)
             return ScrollIndicatorTrack(
                 axis: .vertical,
-                origin: absoluteFrame.origin.y + inset,
+                origin: absoluteFrame.origin.y + indicatorInsets.top,
                 travel: max(0, trackLength - indicatorRect.size.height),
                 indicatorRect: indicatorRect
             )
 
         case .horizontal:
-            let trackLength = max(0, absoluteFrame.size.width - inset * 2)
+            let trackLength = max(0, absoluteFrame.size.width - indicatorInsets.leading - indicatorInsets.trailing)
             return ScrollIndicatorTrack(
                 axis: .horizontal,
-                origin: absoluteFrame.origin.x + inset,
+                origin: absoluteFrame.origin.x + indicatorInsets.leading,
                 travel: max(0, trackLength - indicatorRect.size.width),
                 indicatorRect: indicatorRect
             )

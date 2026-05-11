@@ -310,6 +310,7 @@ public enum Controls {
         scrollIndicatorHoverColor: Color = Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.45),
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
+        scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
         isHitTestVisible: Bool = true,
         children: [ViewNode] = []
     ) -> ViewNode {
@@ -337,6 +338,7 @@ public enum Controls {
             node.scrollIndicatorHoverColor = scrollIndicatorHoverColor
             node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
             node.scrollIndicatorThickness = scrollIndicatorThickness
+            node.scrollIndicatorInsets = scrollIndicatorInsets
         }
     }
 

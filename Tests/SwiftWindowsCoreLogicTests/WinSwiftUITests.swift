@@ -4215,6 +4215,18 @@ final class WinSwiftUITests: XCTestCase {
                 plainSectionLayout,
                 .vertical(spacing: 16, padding: baseInsets, alignment: .leading)
             )
+            XCTAssertEqual(
+                scrollNode.scrollIndicatorInsets,
+                EdgeInsets(top: 6, leading: 12, bottom: 24, trailing: 12)
+            )
+            XCTAssertEqual(
+                listNode.scrollIndicatorInsets,
+                EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+            )
+            XCTAssertEqual(
+                scrollingSectionNode.scrollIndicatorInsets,
+                EdgeInsets(top: 9, leading: 6, bottom: 9, trailing: 6)
+            )
         }
     }
 

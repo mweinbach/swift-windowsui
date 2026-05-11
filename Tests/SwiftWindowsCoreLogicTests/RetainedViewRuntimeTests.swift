@@ -1305,6 +1305,54 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testScrollIndicatorInsetsAffectRetainedIndicatorGeometry() async {
+        await MainActor.run {
+            let verticalContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 120),
+                backgroundColor: .white
+            )
+            let vertical = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                scrollAxis: .vertical,
+                scrollOffset: 0,
+                showsScrollIndicator: true,
+                scrollIndicatorThickness: 5,
+                scrollIndicatorInsets: EdgeInsets(top: 10, leading: 4, bottom: 14, trailing: 8),
+                children: [verticalContent]
+            )
+            let horizontalContent = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 200, height: 50),
+                backgroundColor: .black
+            )
+            let horizontal = ViewNode(
+                frame: Rect(x: 0, y: 70, width: 80, height: 50),
+                scrollAxis: .horizontal,
+                scrollOffset: 0,
+                showsScrollIndicator: true,
+                scrollIndicatorThickness: 5,
+                scrollIndicatorInsets: EdgeInsets(top: 3, leading: 7, bottom: 9, trailing: 11),
+                children: [horizontalContent]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 90, height: 130),
+                isHitTestVisible: false,
+                children: [vertical, horizontal]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(
+                vertical.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)),
+                Rect(x: 67, y: 10, width: 5, height: 24)
+            )
+            XCTAssertEqual(
+                horizontal.scrollIndicatorRect(in: Rect(x: 0, y: 70, width: 80, height: 50)),
+                Rect(x: 7, y: 106, width: 24.8, height: 5)
+            )
+        }
+    }
+
     func testDeferredPhaseChildPaintsAfterBaseSiblings() async {
         await MainActor.run {
             let base = ViewNode(

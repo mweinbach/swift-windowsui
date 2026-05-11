@@ -4,6 +4,8 @@ import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsUI
 
+private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+
 public struct GeometryProxy {
     public let size: Size
 
@@ -3761,6 +3763,10 @@ public struct ScrollView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
+            let scrollIndicatorInsets = context.contentInsets(
+                for: .scrollIndicators,
+                defaultInsets: defaultRetainedScrollIndicatorInsets
+            )
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground ? nil : style.backgroundColor,
@@ -3779,6 +3785,7 @@ public struct ScrollView: View {
                 scrollIndicatorHoverColor: style.indicatorHoverColor,
                 scrollIndicatorActiveColor: style.indicatorActiveColor,
                 scrollIndicatorThickness: style.indicatorThickness,
+                scrollIndicatorInsets: scrollIndicatorInsets,
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
@@ -3982,6 +3989,10 @@ public struct List: View {
                     }
                     return row
                 }
+            )
+            node.scrollIndicatorInsets = context.contentInsets(
+                for: .scrollIndicators,
+                defaultInsets: defaultRetainedScrollIndicatorInsets
             )
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
@@ -4343,6 +4354,10 @@ public struct Section: View {
                 node.scrollAxis = axis.scrollAxis
                 node.scrollStep = style.scrollStep
                 node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
+                node.scrollIndicatorInsets = context.contentInsets(
+                    for: .scrollIndicators,
+                    defaultInsets: defaultRetainedScrollIndicatorInsets
+                )
                 node.scrollIndicatorColor = style.indicatorColor
                 node.scrollIndicatorIdleColor = style.indicatorColor
                 node.scrollIndicatorHoverColor = style.indicatorHoverColor

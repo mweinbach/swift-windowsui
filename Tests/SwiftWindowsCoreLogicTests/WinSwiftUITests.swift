@@ -5859,6 +5859,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testWindowSceneActionsCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct WindowActionReaderView: View {
+                @Environment(\.openWindow) var openWindow
+                @Environment(\.dismissWindow) var dismissWindow
+
+                var body: some View {
+                    VStack {
+                        Button("OPEN") {
+                            openWindow(id: "inspector")
+                            openWindow(id: "detail", value: 7)
+                            openWindow(value: "payload")
+                        }
+                        Button("DISMISS") {
+                            dismissWindow()
+                            dismissWindow(id: "inspector")
+                            dismissWindow(id: "detail", value: 7)
+                            dismissWindow(value: "payload")
+                        }
+                    }
+                }
+            }
+
+            var opened: [String?] = []
+            var dismissed: [String?] = []
+            let node = makeNode(
+                WindowActionReaderView()
+                    .environment(
+                        \.openWindow,
+                        OpenWindowAction { id in
+                            opened.append(id)
+                        }
+                    )
+                    .environment(
+                        \.dismissWindow,
+                        DismissWindowAction { id in
+                            dismissed.append(id)
+                        }
+                    )
+            )
+
+            let focusableNodes = focusableNodes(in: node)
+            XCTAssertEqual(allTexts(in: node), ["OPEN", "DISMISS"])
+            XCTAssertEqual(focusableNodes.count, 2)
+
+            focusableNodes[0].onActivate?()
+            focusableNodes[1].onActivate?()
+
+            XCTAssertEqual(opened, ["inspector", "detail", nil])
+            XCTAssertEqual(dismissed, [nil, "inspector", "detail", nil])
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {
@@ -6685,6 +6738,17 @@ private func allTexts(in node: ViewNode) -> [String] {
     }
 
     return texts
+}
+
+@MainActor
+private func focusableNodes(in node: ViewNode) -> [ViewNode] {
+    var nodes: [ViewNode] = node.isFocusable ? [node] : []
+
+    for child in node.children {
+        nodes.append(contentsOf: focusableNodes(in: child))
+    }
+
+    return nodes
 }
 
 @MainActor

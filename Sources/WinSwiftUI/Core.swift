@@ -667,6 +667,61 @@ public struct RefreshAction: @unchecked Sendable {
     }
 }
 
+public struct OpenWindowAction: @unchecked Sendable {
+    private let handler: @MainActor (_ id: String?) -> Void
+
+    public init(handler: @escaping @MainActor (_ id: String?) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction(id: String) {
+        handler(id)
+    }
+
+    @MainActor
+    public func callAsFunction<Value>(id: String, value: Value) where Value: Codable, Value: Hashable {
+        handler(id)
+    }
+
+    @MainActor
+    public func callAsFunction<Value>(value: Value) where Value: Codable, Value: Hashable {
+        handler(nil)
+    }
+
+    public static let noop = OpenWindowAction { _ in }
+}
+
+public struct DismissWindowAction: @unchecked Sendable {
+    private let handler: @MainActor (_ id: String?) -> Void
+
+    public init(handler: @escaping @MainActor (_ id: String?) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler(nil)
+    }
+
+    @MainActor
+    public func callAsFunction(id: String) {
+        handler(id)
+    }
+
+    @MainActor
+    public func callAsFunction<Value>(id: String, value: Value) where Value: Codable, Value: Hashable {
+        handler(id)
+    }
+
+    @MainActor
+    public func callAsFunction<Value>(value: Value) where Value: Codable, Value: Hashable {
+        handler(nil)
+    }
+
+    public static let noop = DismissWindowAction { _ in }
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
@@ -725,6 +780,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var dismiss: DismissAction
     public var refresh: RefreshAction?
     public var undoManager: UndoManager?
+    public var openWindow: OpenWindowAction
+    public var dismissWindow: DismissWindowAction
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -780,7 +837,9 @@ public struct EnvironmentValues: @unchecked Sendable {
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
         refresh: RefreshAction? = nil,
-        undoManager: UndoManager? = nil
+        undoManager: UndoManager? = nil,
+        openWindow: OpenWindowAction = .noop,
+        dismissWindow: DismissWindowAction = .noop
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -841,6 +900,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.dismiss = dismiss
         self.refresh = refresh
         self.undoManager = undoManager
+        self.openWindow = openWindow
+        self.dismissWindow = dismissWindow
         self.customValues = [:]
     }
 

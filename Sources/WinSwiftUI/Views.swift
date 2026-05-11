@@ -4063,16 +4063,21 @@ public struct LazyVStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        _ = pinnedViews
         return Component { runtime in
             let childContext = context.withStackAxis(.vertical)
+            let children = retainedLazyStackChildren(
+                from: content,
+                context: childContext,
+                runtime: runtime,
+                pinnedViews: pinnedViews
+            )
             return Controls.stackPanel(
                 stackLayout: .vertical(
                     spacing: spacing,
                     alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: children
             )
         }
     }
@@ -4104,15 +4109,57 @@ public struct LazyHStack: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        _ = pinnedViews
         return Component { runtime in
             let childContext = context.withStackAxis(.horizontal)
+            let children = retainedLazyStackChildren(
+                from: content,
+                context: childContext,
+                runtime: runtime,
+                pinnedViews: pinnedViews
+            )
             return Controls.stackPanel(
                 stackLayout: .horizontal(spacing: spacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
-                children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
+                children: children
             )
         }
+    }
+}
+
+@MainActor
+private func retainedLazyStackChildren(
+    from content: [AnyView],
+    context: ViewBuildContext,
+    runtime: RetainedViewRuntime,
+    pinnedViews: PinnedScrollableViews
+) -> [ViewNode] {
+    let children = content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+    guard !pinnedViews.isEmpty else {
+        return children
+    }
+
+    for child in children {
+        applyRetainedPinnedSectionHints(to: child, pinnedViews: pinnedViews)
+    }
+    return children
+}
+
+@MainActor
+private func applyRetainedPinnedSectionHints(to node: ViewNode, pinnedViews: PinnedScrollableViews) {
+    if pinnedViews.contains(.sectionHeaders), node.sectionHeaderChildCount > 0 {
+        for child in node.children.prefix(node.sectionHeaderChildCount) {
+            child.paintsInDeferredPhase = true
+        }
+    }
+
+    if pinnedViews.contains(.sectionFooters), node.sectionFooterChildCount > 0 {
+        for child in node.children.suffix(node.sectionFooterChildCount) {
+            child.paintsInDeferredPhase = true
+        }
+    }
+
+    for child in node.children {
+        applyRetainedPinnedSectionHints(to: child, pinnedViews: pinnedViews)
     }
 }
 
@@ -5032,6 +5079,8 @@ public struct Section: View {
             if style.scrollAxis != nil, context.isScrollClipDisabled {
                 node.clipsToBounds = false
             }
+            node.sectionHeaderChildCount = resolvedHeaderNodes.count
+            node.sectionFooterChildCount = footer.count
 
             return node
         }

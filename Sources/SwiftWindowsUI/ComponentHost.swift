@@ -187,6 +187,8 @@ public final class ComponentHost {
         if target.presentationChrome != source.presentationChrome { target.presentationChrome = source.presentationChrome }
         if target.isToolbarContainer != source.isToolbarContainer { target.isToolbarContainer = source.isToolbarContainer }
         if target.toolbarPlacementTags != source.toolbarPlacementTags { target.toolbarPlacementTags = source.toolbarPlacementTags }
+        if target.sectionHeaderChildCount != source.sectionHeaderChildCount { target.sectionHeaderChildCount = source.sectionHeaderChildCount }
+        if target.sectionFooterChildCount != source.sectionFooterChildCount { target.sectionFooterChildCount = source.sectionFooterChildCount }
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

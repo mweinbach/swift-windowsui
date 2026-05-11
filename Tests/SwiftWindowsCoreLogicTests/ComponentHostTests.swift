@@ -100,6 +100,8 @@ final class ComponentHostTests: XCTestCase {
                     let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
                     let toolbarPlacementTags: Set<String> = useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
+                    let sectionHeaderChildCount = useSecondState ? 2 : 0
+                    let sectionFooterChildCount = useSecondState ? 1 : 0
                     let matchedGeometryEffect = useSecondState
                         ? RetainedMatchedGeometryEffect(
                             namespaceID: "secondNamespace",
@@ -180,6 +182,8 @@ final class ComponentHostTests: XCTestCase {
                     node.presentationChrome = presentationChrome
                     node.isToolbarContainer = useSecondState
                     node.toolbarPlacementTags = toolbarPlacementTags
+                    node.sectionHeaderChildCount = sectionHeaderChildCount
+                    node.sectionFooterChildCount = sectionFooterChildCount
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -257,6 +261,8 @@ final class ComponentHostTests: XCTestCase {
             )
             XCTAssertEqual(firstNode?.isToolbarContainer, false)
             XCTAssertEqual(firstNode?.toolbarPlacementTags, Set(["bottomBar"]))
+            XCTAssertEqual(firstNode?.sectionHeaderChildCount, 0)
+            XCTAssertEqual(firstNode?.sectionFooterChildCount, 0)
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -324,6 +330,8 @@ final class ComponentHostTests: XCTestCase {
             )
             XCTAssertEqual(reusedNode?.isToolbarContainer, true)
             XCTAssertEqual(reusedNode?.toolbarPlacementTags, Set(["primaryAction", "navigationBar"]))
+            XCTAssertEqual(reusedNode?.sectionHeaderChildCount, 2)
+            XCTAssertEqual(reusedNode?.sectionFooterChildCount, 1)
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

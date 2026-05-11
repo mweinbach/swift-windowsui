@@ -3431,6 +3431,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLazyStackPinnedViewsDeferSectionHeaderAndFooterPainting() async {
+        await MainActor.run {
+            let headerPinnedNode = makeNode(
+                LazyVStack(pinnedViews: [.sectionHeaders]) {
+                    Section {
+                        Text("ROW")
+                    } header: {
+                        Text("HEADER")
+                    } footer: {
+                        Text("FOOTER")
+                    }
+                }
+            )
+            let footerPinnedNode = makeNode(
+                LazyHStack(pinnedViews: [.sectionFooters]) {
+                    Section {
+                        Text("ROW")
+                    } header: {
+                        Text("HEADER")
+                    } footer: {
+                        Text("FOOTER")
+                    }
+                }
+            )
+
+            let headerSection = headerPinnedNode.children[0]
+            let footerSection = footerPinnedNode.children[0]
+
+            XCTAssertEqual(headerSection.sectionHeaderChildCount, 1)
+            XCTAssertEqual(headerSection.sectionFooterChildCount, 1)
+            XCTAssertTrue(headerSection.children[0].paintsInDeferredPhase)
+            XCTAssertFalse(headerSection.children[1].paintsInDeferredPhase)
+            XCTAssertFalse(headerSection.children[2].paintsInDeferredPhase)
+
+            XCTAssertFalse(footerSection.children[0].paintsInDeferredPhase)
+            XCTAssertFalse(footerSection.children[1].paintsInDeferredPhase)
+            XCTAssertTrue(footerSection.children[2].paintsInDeferredPhase)
+        }
+    }
+
     func testGridAndGridRowMapToRetainedStackPanels() async {
         await MainActor.run {
             let node = makeNode(

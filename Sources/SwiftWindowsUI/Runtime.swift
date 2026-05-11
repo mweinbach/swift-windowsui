@@ -921,6 +921,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var sectionHeaderChildCount: Int {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var sectionFooterChildCount: Int {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -1059,6 +1067,8 @@ public final class ViewNode {
         presentationChrome: RetainedPresentationChrome = .empty,
         isToolbarContainer: Bool = false,
         toolbarPlacementTags: Set<String> = [],
+        sectionHeaderChildCount: Int = 0,
+        sectionFooterChildCount: Int = 0,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -1134,6 +1144,8 @@ public final class ViewNode {
         self.presentationChrome = presentationChrome
         self.isToolbarContainer = isToolbarContainer
         self.toolbarPlacementTags = toolbarPlacementTags
+        self.sectionHeaderChildCount = max(0, sectionHeaderChildCount)
+        self.sectionFooterChildCount = max(0, sectionFooterChildCount)
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil

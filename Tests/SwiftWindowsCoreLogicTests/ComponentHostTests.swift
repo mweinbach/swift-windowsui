@@ -72,6 +72,7 @@ final class ComponentHostTests: XCTestCase {
                         ? Transform2D.translation(x: 24, y: 36)
                         : Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1)
                     let scrollOffset = useSecondState ? 48.0 : 12.0
+                    let submitLabel: RetainedSubmitLabel = useSecondState ? .search : .return
 
                     node.text = label
                     node.opacity = opacity
@@ -80,6 +81,7 @@ final class ComponentHostTests: XCTestCase {
                     node.fixedSizeAxes = fixedSizeAxes
                     node.transform = transform
                     node.scrollOffset = scrollOffset
+                    node.textInputSubmitLabel = submitLabel
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -105,6 +107,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
             XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
+            XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -120,6 +123,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
             XCTAssertEqual(reusedNode?.scrollOffset, 48)
+            XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

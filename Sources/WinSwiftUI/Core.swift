@@ -933,6 +933,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var labelStyle: LabelStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
+    public var submitLabel: SubmitLabel
     public var listStyle: ListStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
@@ -1029,6 +1030,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         labelStyle: LabelStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
+        submitLabel: SubmitLabel = .return,
         listStyle: ListStyle = .automatic,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
@@ -1121,6 +1123,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
+        self.submitLabel = submitLabel
         self.listStyle = listStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
@@ -1478,6 +1481,10 @@ public struct ViewBuildContext {
 
     public var textFieldStyle: TextFieldStyle {
         environmentValuesProvider().textFieldStyle
+    }
+
+    public var submitLabel: SubmitLabel {
+        environmentValuesProvider().submitLabel
     }
 
     public var listStyle: ListStyle {
@@ -2955,6 +2962,29 @@ public enum SubmitLabel: Sendable, Equatable {
     case search
     case next
     case `continue`
+
+    var retainedSubmitLabel: RetainedSubmitLabel {
+        switch self {
+        case .return:
+            return .return
+        case .done:
+            return .done
+        case .go:
+            return .go
+        case .send:
+            return .send
+        case .join:
+            return .join
+        case .route:
+            return .route
+        case .search:
+            return .search
+        case .next:
+            return .next
+        case .continue:
+            return .continue
+        }
+    }
 }
 
 public struct Font: Sendable, Equatable {
@@ -5932,9 +5962,8 @@ public extension View {
     }
 
     func submitLabel(_ submitLabel: SubmitLabel) -> some View {
-        _ = submitLabel
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            content.makeComponent(context: context.withEnvironmentValue(\.submitLabel, submitLabel))
         }
     }
 

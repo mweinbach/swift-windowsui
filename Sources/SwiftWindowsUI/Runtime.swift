@@ -174,6 +174,18 @@ public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case disabled
 }
 
+public enum RetainedSubmitLabel: Sendable, Equatable {
+    case `return`
+    case done
+    case go
+    case send
+    case join
+    case route
+    case search
+    case next
+    case `continue`
+}
+
 public struct RetainedRedactionReasons: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -593,6 +605,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textInputSubmitLabel: RetainedSubmitLabel {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var hoverEffect: RetainedHoverEffect? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -728,6 +744,7 @@ public final class ViewNode {
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
+        textInputSubmitLabel: RetainedSubmitLabel = .return,
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
@@ -782,6 +799,7 @@ public final class ViewNode {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
         self.keyboardShortcuts = keyboardShortcuts
+        self.textInputSubmitLabel = textInputSubmitLabel
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled

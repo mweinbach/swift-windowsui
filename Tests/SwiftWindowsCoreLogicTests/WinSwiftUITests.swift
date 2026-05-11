@@ -604,6 +604,14 @@ final class WinSwiftUITests: XCTestCase {
 
     func testSubmitLabelModifierAcceptsSwiftUIReturnKeyLabels() async {
         await MainActor.run {
+            struct SubmitLabelReaderView: View {
+                @Environment(\.submitLabel) var submitLabel
+
+                var body: some View {
+                    Text(submitLabel == .send ? "SEND" : submitLabel == .next ? "NEXT" : "RETURN")
+                }
+            }
+
             var value = ""
             let binding = Binding(
                 get: { value },
@@ -618,11 +626,20 @@ final class WinSwiftUITests: XCTestCase {
                 SecureField("PASSWORD", text: .constant(""))
                     .submitLabel(.continue)
             )
+            let readerNode = makeNode(SubmitLabelReaderView().submitLabel(.send))
+            let environmentReaderNode = makeNode(
+                SubmitLabelReaderView()
+                    .environment(\.submitLabel, .next)
+            )
 
             searchNode.onKeyDown?(KeyboardEvent(keyCode: 0x51))
 
             XCTAssertEqual(value, "q")
+            XCTAssertEqual(searchNode.textInputSubmitLabel, .search)
+            XCTAssertEqual(continueNode.textInputSubmitLabel, .continue)
             XCTAssertTrue(continueNode.isFocusable)
+            XCTAssertEqual(readerNode.text, "SEND")
+            XCTAssertEqual(environmentReaderNode.text, "NEXT")
         }
     }
 

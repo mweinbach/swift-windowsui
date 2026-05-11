@@ -3866,6 +3866,7 @@ private func textInputComponent(
             isHitTestVisible: context.isEnabled,
             children: [labelNode]
         )
+        node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
 
         guard context.isEnabled else {
             return node

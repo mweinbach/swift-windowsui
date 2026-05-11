@@ -7268,6 +7268,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGaugeBinaryFloatingPointInitializersMapToRetainedProgressBar() async {
+        await MainActor.run {
+            let builderNode = makeNode(
+                Gauge(value: Float(0.25), in: Float(0)...Float(1)) {
+                    Text("FLOAT")
+                } currentValueLabel: {
+                    Text("25%")
+                }
+            )
+            let titleNode = makeNode(Gauge("TEMPERATURE", value: Float(2.5), in: Float(0)...Float(5)))
+            let keyNode = makeNode(Gauge(LocalizedStringKey("LOAD"), value: Float(3), in: Float(0)...Float(6)))
+            let boundsNode = makeNode(
+                Gauge(value: Float(2), in: Float(0)...Float(4)) {
+                    Text("CAPACITY")
+                } currentValueLabel: {
+                    Text("HALF")
+                } minimumValueLabel: {
+                    Text("EMPTY")
+                } maximumValueLabel: {
+                    Text("FULL")
+                }
+            )
+
+            XCTAssertEqual(firstText(in: builderNode.children[0].children[0]), "FLOAT")
+            XCTAssertEqual(firstText(in: builderNode.children[0].children[1]), "25%")
+            XCTAssertEqual(builderNode.children[1].children[1].frame.size.width, 50)
+
+            XCTAssertTrue(allTexts(in: titleNode.children[0]).contains("TEMPERATURE"))
+            XCTAssertEqual(titleNode.children[1].children[1].frame.size.width, 100)
+
+            XCTAssertTrue(allTexts(in: keyNode.children[0]).contains("LOAD"))
+            XCTAssertEqual(keyNode.children[1].children[1].frame.size.width, 100)
+
+            XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("CAPACITY"))
+            XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("HALF"))
+            XCTAssertEqual(boundsNode.children[1].children[1].frame.size.width, 100)
+            XCTAssertEqual(firstText(in: boundsNode.children[2].children[0]), "EMPTY")
+            XCTAssertEqual(firstText(in: boundsNode.children[2].children[2]), "FULL")
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true

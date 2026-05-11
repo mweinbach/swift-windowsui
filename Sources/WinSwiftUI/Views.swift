@@ -6825,6 +6825,19 @@ public struct Gauge: View {
         self.maximumValueLabel = []
     }
 
+    public init<V: BinaryFloatingPoint>(
+        value: V,
+        in bounds: ClosedRange<V> = 0...1,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.value = Double(value)
+        self.bounds = Self.doubleBounds(bounds)
+        self.label = label()
+        self.currentValueLabel = []
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
     public init(_ title: String, value: Double, in bounds: ClosedRange<Double> = 0...1) {
         self.value = value
         self.bounds = bounds
@@ -6841,12 +6854,32 @@ public struct Gauge: View {
         self.maximumValueLabel = []
     }
 
+    public init<V: BinaryFloatingPoint>(_ title: String, value: V, in bounds: ClosedRange<V> = 0...1) {
+        self.init(title, value: Double(value), in: Self.doubleBounds(bounds))
+    }
+
     public init<S: StringProtocol>(_ title: S, value: Double, in bounds: ClosedRange<Double> = 0...1) {
         self.init(String(title), value: value, in: bounds)
     }
 
+    public init<S: StringProtocol, V: BinaryFloatingPoint>(
+        _ title: S,
+        value: V,
+        in bounds: ClosedRange<V> = 0...1
+    ) {
+        self.init(String(title), value: Double(value), in: Self.doubleBounds(bounds))
+    }
+
     public init(_ titleKey: LocalizedStringKey, value: Double, in bounds: ClosedRange<Double> = 0...1) {
         self.init(titleKey.resolvedString, value: value, in: bounds)
+    }
+
+    public init<V: BinaryFloatingPoint>(
+        _ titleKey: LocalizedStringKey,
+        value: V,
+        in bounds: ClosedRange<V> = 0...1
+    ) {
+        self.init(titleKey.resolvedString, value: Double(value), in: Self.doubleBounds(bounds))
     }
 
     public init(
@@ -6863,6 +6896,20 @@ public struct Gauge: View {
         self.maximumValueLabel = []
     }
 
+    public init<V: BinaryFloatingPoint>(
+        value: V,
+        in bounds: ClosedRange<V> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.value = Double(value)
+        self.bounds = Self.doubleBounds(bounds)
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
     public init(
         value: Double,
         in bounds: ClosedRange<Double> = 0...1,
@@ -6873,6 +6920,22 @@ public struct Gauge: View {
     ) {
         self.value = value
         self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+    }
+
+    public init<V: BinaryFloatingPoint>(
+        value: V,
+        in bounds: ClosedRange<V> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView]
+    ) {
+        self.value = Double(value)
+        self.bounds = Self.doubleBounds(bounds)
         self.label = label()
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = minimumValueLabel()
@@ -6973,6 +7036,10 @@ public struct Gauge: View {
                 children: children
             )
         }
+    }
+
+    private static func doubleBounds<V: BinaryFloatingPoint>(_ bounds: ClosedRange<V>) -> ClosedRange<Double> {
+        Double(bounds.lowerBound)...Double(bounds.upperBound)
     }
 }
 

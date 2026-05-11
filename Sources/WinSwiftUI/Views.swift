@@ -3510,6 +3510,19 @@ public struct Menu: View {
         fatalError("Menu has no body")
     }
 
+    private func attachMenuDismiss(to node: ViewNode, dismiss: @escaping @MainActor () -> Void) {
+        if let activate = node.onActivate {
+            node.onActivate = {
+                activate()
+                dismiss()
+            }
+        }
+
+        for child in node.children {
+            attachMenuDismiss(to: child, dismiss: dismiss)
+        }
+    }
+
     public func makeComponent(context: ViewBuildContext) -> Component {
         let menuState = state
         let menuItems = content
@@ -3555,10 +3568,25 @@ public struct Menu: View {
                 children: [headerContent]
             )
 
+            let dismissMenu: @MainActor () -> Void = {
+                guard menuState.isOpen else {
+                    return
+                }
+
+                menuState.isOpen = false
+                context.invalidate()
+            }
             var children: [ViewNode] = [menuButton]
             if menuState.isOpen {
-                let itemContext = context.withButtonStyle(.plain)
-                let itemNodes = menuItems.map { $0.makeComponent(context: itemContext).makeNode(runtime: runtime) }
+                let itemContext = context
+                    .withButtonStyle(.plain)
+                    .withEnvironmentValue(\.dismiss, DismissAction(handler: dismissMenu))
+                    .withEnvironmentValue(\.isPresented, true)
+                let itemNodes = menuItems.map { item -> ViewNode in
+                    let node = item.makeComponent(context: itemContext).makeNode(runtime: runtime)
+                    attachMenuDismiss(to: node, dismiss: dismissMenu)
+                    return node
+                }
                 let menuPanel = Controls.stackPanel(
                     backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.96),
                     borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.14),
@@ -3574,11 +3602,44 @@ public struct Menu: View {
                 children.append(menuPanel)
             }
 
-            return Controls.stackPanel(
-                stackLayout: .vertical(spacing: 4, alignment: .stretch),
+            let root = Controls.panel(
+                preferredSize: menuButton.intrinsicContentSize(),
+                layoutMode: .absolute,
                 isHitTestVisible: false,
                 children: children
             )
+            root.onLayout = { bounds in
+                let buttonSize = menuButton.intrinsicContentSize()
+                let buttonFrame = Rect(origin: .zero, size: buttonSize)
+                if menuButton.frame != buttonFrame {
+                    menuButton.frame = buttonFrame
+                }
+
+                guard children.count > 1 else {
+                    return
+                }
+
+                let panel = children[1]
+                let panelSize = panel.intrinsicContentSize()
+                let x: Double
+                switch context.layoutDirection {
+                case .leftToRight:
+                    x = 0
+                case .rightToLeft:
+                    x = max(0, buttonSize.width - panelSize.width)
+                }
+                let panelFrame = Rect(
+                    x: x,
+                    y: min(bounds.size.height, buttonSize.height + 4),
+                    width: panelSize.width,
+                    height: panelSize.height
+                )
+                if panel.frame != panelFrame {
+                    panel.frame = panelFrame
+                }
+            }
+
+            return root
         }
     }
 }

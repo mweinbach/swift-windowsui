@@ -3919,14 +3919,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testMenuRevealsInlineContentAndPreservesActions() async {
+    func testMenuRevealsOverlayContentDismissesAfterActionAndProvidesEnvironment() async {
         await MainActor.run {
+            struct MenuPresentationProbe: View {
+                @Environment(\.isPresented) var isPresented
+
+                var body: some View {
+                    Text(isPresented ? "PRESENTED" : "HIDDEN")
+                }
+            }
+
             var didInvalidate = false
             var activationCount = 0
             let menu = Menu("ACTIONS") {
                 Button("EXPORT") {
                     activationCount += 1
                 }
+                MenuPresentationProbe()
                 Button("ARCHIVE") {}
             }
 
@@ -3939,6 +3948,7 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(collapsedNode.children.count, 1)
             XCTAssertTrue(allTexts(in: collapsedNode.children[0]).contains("ACTIONS"))
+            XCTAssertFalse(allTexts(in: collapsedNode).contains("EXPORT"))
 
             collapsedNode.children[0].onActivate?()
 
@@ -3946,13 +3956,22 @@ final class WinSwiftUITests: XCTestCase {
 
             let expandedNode = makeNode(menu)
 
+            guard case .absolute = expandedNode.layoutMode else {
+                return XCTFail("Expected Menu to use retained absolute overlay layout")
+            }
             XCTAssertEqual(expandedNode.children.count, 2)
             XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("EXPORT"))
+            XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("PRESENTED"))
             XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("ARCHIVE"))
 
-            expandedNode.children[1].children[0].onActivate?()
+            let exportButton = focusableNodes(in: expandedNode.children[1]).first { allTexts(in: $0).contains("EXPORT") }
+            exportButton?.onActivate?()
 
             XCTAssertEqual(activationCount, 1)
+
+            let dismissedNode = makeNode(menu)
+            XCTAssertTrue(allTexts(in: dismissedNode).contains("ACTIONS"))
+            XCTAssertFalse(allTexts(in: dismissedNode).contains("EXPORT"))
         }
     }
 

@@ -3966,6 +3966,56 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDismissEnvironmentActionPopsNavigationPathBinding() async {
+        await MainActor.run {
+            struct DismissValueView: View {
+                @Environment(\.dismiss) var dismiss
+                let value: String
+
+                var body: some View {
+                    Button("DONE \(value)") {
+                        dismiss()
+                    }
+                }
+            }
+
+            var path = ["detail"]
+            var didInvalidate = false
+            let stack = NavigationStack(
+                path: Binding(
+                    get: { path },
+                    set: { path = $0 }
+                )
+            ) {
+                Text("ROOT")
+                    .navigationTitle("ROOT TITLE")
+            }
+            .navigationDestination(for: String.self) { value in
+                DismissValueView(value: value)
+                    .navigationTitle("VALUE TITLE")
+            }
+
+            let detailNode = makeNode(
+                stack,
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("VALUE TITLE"))
+            XCTAssertTrue(allTexts(in: detailNode.children[1]).contains("DONE detail"))
+
+            firstFocusable(in: detailNode.children[1])?.onActivate?()
+
+            XCTAssertTrue(path.isEmpty)
+            XCTAssertTrue(didInvalidate)
+
+            let rootNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: rootNode.children[0]).contains("ROOT TITLE"))
+            XCTAssertEqual(rootNode.children[1].text, "ROOT")
+        }
+    }
+
     func testNavigationDestinationItemShowsAndClearsRetainedDestination() async {
         await MainActor.run {
             var selectedItem: NavigationDestinationItem? = NavigationDestinationItem(id: "selected")

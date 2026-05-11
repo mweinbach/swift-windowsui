@@ -3097,6 +3097,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollViewAxisSetInitializerControlsAxisAndIndicators() async {
+        await MainActor.run {
+            let hiddenHorizontalNode = makeNode(
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text("A")
+                }
+            )
+            let visibleVerticalNode = makeNode(
+                ScrollView(Axis.Set.vertical, showsIndicators: true) {
+                    Text("A")
+                }
+            )
+            let allAxesNode = makeNode(
+                ScrollView(.all) {
+                    Text("A")
+                }
+            )
+
+            XCTAssertEqual(hiddenHorizontalNode.scrollAxis, .horizontal)
+            XCTAssertFalse(hiddenHorizontalNode.showsScrollIndicator)
+            XCTAssertEqual(visibleVerticalNode.scrollAxis, .vertical)
+            XCTAssertTrue(visibleVerticalNode.showsScrollIndicator)
+            XCTAssertEqual(allAxesNode.scrollAxis, .vertical)
+            XCTAssertTrue(allAxesNode.showsScrollIndicator)
+        }
+    }
+
+    func testScrollViewShowsIndicatorsInitializerRespectsScrollIndicatorModifier() async {
+        await MainActor.run {
+            let hiddenByModifierNode = makeNode(
+                ScrollView(Axis.Set.vertical, showsIndicators: true) {
+                    Text("A")
+                }
+                .scrollIndicators(.hidden)
+            )
+            let hiddenByInitializerNode = makeNode(
+                ScrollView(Axis.Set.vertical, showsIndicators: false) {
+                    Text("A")
+                }
+                .scrollIndicators(.visible)
+            )
+
+            XCTAssertFalse(hiddenByModifierNode.showsScrollIndicator)
+            XCTAssertFalse(hiddenByInitializerNode.showsScrollIndicator)
+        }
+    }
+
     func testScrollDisabledPropagatesToRetainedScrollContainers() async {
         await MainActor.run {
             struct ScrollEnvironmentReader: View {

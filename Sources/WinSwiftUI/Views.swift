@@ -2957,11 +2957,21 @@ public struct ScrollView: View {
 
     private let axis: Axis
     private let style: ScrollViewStyle
+    private let showsIndicators: Bool?
     private let content: [AnyView]
 
+    @_disfavoredOverload
     public init(_ axis: Axis = .vertical, style: ScrollViewStyle = .default, @ViewBuilder content: () -> [AnyView]) {
         self.axis = axis
         self.style = style
+        self.showsIndicators = nil
+        self.content = content()
+    }
+
+    public init(_ axes: Axis.Set, showsIndicators: Bool = true, @ViewBuilder content: () -> [AnyView]) {
+        self.axis = axes.preferredRetainedAxis
+        self.style = .default
+        self.showsIndicators = showsIndicators
         self.content = content()
     }
 
@@ -2993,7 +3003,8 @@ public struct ScrollView: View {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
             } else {
-                node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
+                node.showsScrollIndicator = (showsIndicators ?? true)
+                    && context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
             }
             if context.isScrollClipDisabled {
                 node.clipsToBounds = false

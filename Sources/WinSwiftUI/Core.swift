@@ -4557,6 +4557,12 @@ extension Axis {
     }
 }
 
+extension Axis.Set {
+    var preferredRetainedAxis: Axis {
+        contains(.horizontal) && !contains(.vertical) ? .horizontal : .vertical
+    }
+}
+
 extension Font.Weight {
     var textWeight: TextWeight {
         switch self {

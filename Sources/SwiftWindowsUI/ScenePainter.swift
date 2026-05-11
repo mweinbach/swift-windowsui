@@ -187,7 +187,9 @@ public enum ScenePainter {
             opacity: opacity,
             displayScale: displayScale,
             isHovered: node.isHovered,
-            hoverEffect: resolvedHoverEffect
+            hoverEffect: resolvedHoverEffect,
+            isFocused: node.isFocused,
+            isFocusEffectDisabled: node.isFocusEffectDisabled
         )
         guard opacity > 0 else {
             node.cachedSceneKey = cacheKey
@@ -252,6 +254,17 @@ public enum ScenePainter {
                     clipHeight: shadowClip.3
                 ), toLayer: layerIndex)
             }
+        }
+
+        if let focusEffect = node.focusEffectCommand(
+            for: absoluteFrame,
+            inheritedClip: inheritedClip,
+            opacity: opacity
+        ) {
+            scene.addQuad(
+                quad(for: focusEffect, surfaceSize: surfaceSize, displayScale: displayScale),
+                toLayer: layerIndex
+            )
         }
 
         // Outline (drawn outside the border)

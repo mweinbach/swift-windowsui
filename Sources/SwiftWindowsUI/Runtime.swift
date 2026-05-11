@@ -28,6 +28,8 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var displayScale: Double
     var isHovered: Bool
     var hoverEffect: RetainedHoverEffect?
+    var isFocused: Bool
+    var isFocusEffectDisabled: Bool
 }
 
 struct ViewMeasureCacheKey: Equatable, Sendable {
@@ -672,6 +674,14 @@ public final class ViewNode {
 
     public var isFocusEffectDisabled: Bool {
         didSet { invalidateRuntime(.paint) }
+    }
+
+    public internal(set) var isFocused: Bool = false {
+        didSet {
+            if oldValue != isFocused, isFocusable, !isFocusEffectDisabled {
+                invalidateRuntime(.paint)
+            }
+        }
     }
 
     public var contentShapes: [RetainedContentShape] {
@@ -1352,7 +1362,9 @@ public final class ViewNode {
             opacity: effectiveOpacity,
             displayScale: displayScale,
             isHovered: isHovered,
-            hoverEffect: resolvedHoverEffect
+            hoverEffect: resolvedHoverEffect,
+            isFocused: isFocused,
+            isFocusEffectDisabled: isFocusEffectDisabled
         )
 
         if
@@ -1654,7 +1666,9 @@ public final class ViewNode {
             opacity: effectiveOpacity,
             displayScale: displayScale,
             isHovered: isHovered,
-            hoverEffect: resolvedHoverEffect
+            hoverEffect: resolvedHoverEffect,
+            isFocused: isFocused,
+            isFocusEffectDisabled: isFocusEffectDisabled
         )
         guard effectiveOpacity > 0 else {
             cachedFrameKey = cacheKey
@@ -1715,6 +1729,14 @@ public final class ViewNode {
                     )
                 )
             }
+        }
+
+        if let focusEffect = focusEffectCommand(
+            for: absoluteFrame,
+            inheritedClip: inheritedClip,
+            opacity: effectiveOpacity
+        ) {
+            commands.append(.fillRect(focusEffect))
         }
 
         let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
@@ -2010,6 +2032,37 @@ public final class ViewNode {
             color: color,
             cornerRadius: cornerRadius,
             clipRect: clipRect
+        )
+    }
+
+    func focusEffectCommand(
+        for absoluteFrame: Rect,
+        inheritedClip: Rect?,
+        opacity: Float
+    ) -> FillRectCommand? {
+        guard isFocused, isFocusable, !isFocusEffectDisabled else {
+            return nil
+        }
+
+        let width = 2.0
+        let ringRect = absoluteFrame.outset(by: width)
+        guard ringRect.size.width > 0, ringRect.size.height > 0 else {
+            return nil
+        }
+        guard baseClipAllowsDrawing(baseClip: inheritedClip, rect: ringRect) else {
+            return nil
+        }
+
+        let color = Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75).multipliedAlpha(by: opacity)
+        guard color.alpha > 0 else {
+            return nil
+        }
+
+        return FillRectCommand(
+            rect: ringRect,
+            color: color,
+            cornerRadius: cornerRadius + width,
+            clipRect: inheritedClip
         )
     }
 
@@ -3565,8 +3618,11 @@ public final class RetainedViewRuntime {
             return
         }
 
-        focusedNode?.onFocusExit?()
+        let previousNode = focusedNode
+        previousNode?.isFocused = false
+        previousNode?.onFocusExit?()
         focusedNode = nextFocusedNode
+        focusedNode?.isFocused = true
         focusedNode?.onFocusEnter?()
         invalidate()
     }

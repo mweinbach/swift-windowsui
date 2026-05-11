@@ -404,6 +404,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 chrome: SurfaceChrome(),
                 animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0)
             )
+            button.isFocusEffectDisabled = true
             root.addChild(button)
 
             XCTAssertEqual(
@@ -514,6 +515,48 @@ final class RetainedViewRuntimeTests: XCTestCase {
             )
             XCTAssertTrue(sceneQuadColors(in: scene).contains(Color(red: 0, green: 0, blue: 0, alpha: 0.18)))
             XCTAssertTrue(sceneQuadColors(in: scene).contains(Color(red: 1, green: 1, blue: 1, alpha: 0.07)))
+        }
+    }
+
+    func testFocusedNodeRendersFocusEffectOnFrameAndScenePaths() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 80, height: 40),
+                backgroundColor: .black,
+                isFocusable: true
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerDown(at: Point(x: 20, y: 20))
+            let frame = runtime.renderFrame()
+            let scene = runtime.renderScene()
+
+            let focusColor = Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75)
+            XCTAssertTrue(node.isFocused)
+            XCTAssertTrue(fillRectCommands(in: frame).contains { $0.color == focusColor })
+            XCTAssertTrue(sceneQuadColors(in: scene).contains(focusColor))
+        }
+    }
+
+    func testFocusEffectDisabledSuppressesFocusRing() async {
+        await MainActor.run {
+            let node = ViewNode(
+                frame: Rect(x: 4, y: 4, width: 80, height: 40),
+                backgroundColor: .black,
+                isFocusable: true,
+                isFocusEffectDisabled: true
+            )
+            let runtime = RetainedViewRuntime(root: node)
+
+            runtime.pointerDown(at: Point(x: 20, y: 20))
+            let frame = runtime.renderFrame()
+
+            XCTAssertTrue(node.isFocused)
+            XCTAssertFalse(
+                fillRectCommands(in: frame).contains {
+                    $0.color == Color(red: 0.25, green: 0.55, blue: 1, alpha: 0.75)
+                }
+            )
         }
     }
 

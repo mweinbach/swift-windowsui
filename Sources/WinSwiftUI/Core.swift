@@ -1205,6 +1205,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var allowsTightening: Bool
     public var textCase: Text.Case?
     public var imageScale: Image.Scale
+    public var symbolRenderingMode: SymbolRenderingMode?
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
     public var labeledContentStyle: LabeledContentStyle
@@ -1315,6 +1316,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
         imageScale: Image.Scale = .medium,
+        symbolRenderingMode: SymbolRenderingMode? = nil,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
         labeledContentStyle: LabeledContentStyle = .automatic,
@@ -1421,6 +1423,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.imageScale = imageScale
+        self.symbolRenderingMode = symbolRenderingMode
         self.controlSize = controlSize
         self.labelStyle = labelStyle
         self.labeledContentStyle = labeledContentStyle
@@ -2038,6 +2041,10 @@ public struct ViewBuildContext {
 
     public var imageScale: Image.Scale {
         environmentValuesProvider().imageScale
+    }
+
+    public var symbolRenderingMode: SymbolRenderingMode? {
+        environmentValuesProvider().symbolRenderingMode
     }
 
     public var font: Font {
@@ -4697,6 +4704,41 @@ public struct BorderlessButtonMenuStyle: Sendable, Equatable {
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
     case linearGradient(LinearGradient)
+}
+
+public struct SymbolRenderingMode: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case monochrome
+        case hierarchical
+        case palette
+        case multicolor
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let monochrome = SymbolRenderingMode(kind: .monochrome)
+    public static let hierarchical = SymbolRenderingMode(kind: .hierarchical)
+    public static let palette = SymbolRenderingMode(kind: .palette)
+    public static let multicolor = SymbolRenderingMode(kind: .multicolor)
+}
+
+extension SymbolRenderingMode {
+    var retainedSymbolRenderingMode: RetainedSymbolRenderingMode {
+        switch kind {
+        case .monochrome:
+            return .monochrome
+        case .hierarchical:
+            return .hierarchical
+        case .palette:
+            return .palette
+        case .multicolor:
+            return .multicolor
+        }
+    }
 }
 
 public enum ControlSize: Sendable, Equatable {
@@ -7526,6 +7568,12 @@ public extension View {
     func imageScale(_ scale: Image.Scale) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.imageScale, scale))
+        }
+    }
+
+    func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.symbolRenderingMode, mode))
         }
     }
 

@@ -62,6 +62,13 @@ public enum RetainedImageResizingMode: Sendable, Equatable {
     case tile
 }
 
+public enum RetainedSymbolRenderingMode: Sendable, Equatable {
+    case monochrome
+    case hierarchical
+    case palette
+    case multicolor
+}
+
 public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
     public var namespaceID: String
     public var elementID: String
@@ -665,6 +672,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var symbolRenderingMode: RetainedSymbolRenderingMode? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var imageResizingMode: RetainedImageResizingMode? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -847,6 +858,7 @@ public final class ViewNode {
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
+        symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
         imageResizingMode: RetainedImageResizingMode? = nil,
         imageCapInsets: EdgeInsets? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
@@ -910,6 +922,7 @@ public final class ViewNode {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
+        self.symbolRenderingMode = symbolRenderingMode
         self.imageResizingMode = imageResizingMode
         self.imageCapInsets = imageCapInsets
         self.keyboardShortcuts = keyboardShortcuts

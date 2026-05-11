@@ -2071,7 +2071,7 @@ public struct Image: View {
                     scale: resolvedScale,
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
-                applyImageMetadata(to: node)
+                applyImageMetadata(to: node, context: context)
                 return node
             }
         case .bitmap(let bitmap):
@@ -2079,12 +2079,12 @@ public struct Image: View {
             return Component { _ in
                 guard let bitmap else {
                     let node = Controls.panel(preferredSize: preferredSize, isHitTestVisible: false)
-                    applyImageMetadata(to: node)
+                    applyImageMetadata(to: node, context: context)
                     return node
                 }
 
                 let node = Controls.image(bitmap, preferredSize: preferredSize)
-                applyImageMetadata(to: node)
+                applyImageMetadata(to: node, context: context)
                 return node
             }
         }
@@ -2206,9 +2206,10 @@ public struct Image: View {
         node.isAccessibilityHidden = isAccessibilityHidden
     }
 
-    private func applyImageMetadata(to node: ViewNode) {
+    private func applyImageMetadata(to node: ViewNode, context: ViewBuildContext) {
         applyAccessibility(to: node)
         node.symbolVariableValue = symbolVariableValue
+        node.symbolRenderingMode = context.symbolRenderingMode?.retainedSymbolRenderingMode
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
         node.imageCapInsets = isResizable ? capInsets : nil
     }

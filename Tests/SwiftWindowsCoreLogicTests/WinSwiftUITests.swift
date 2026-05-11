@@ -2295,6 +2295,57 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSymbolRenderingModePropagatesThroughEnvironmentAndRetainedImageMetadata() async {
+        await MainActor.run {
+            struct SymbolRenderingModeReaderView: View {
+                @Environment(\.symbolRenderingMode) var symbolRenderingMode
+
+                var body: some View {
+                    Text(
+                        symbolRenderingMode == .palette ? "PALETTE"
+                            : symbolRenderingMode == .hierarchical ? "HIERARCHICAL"
+                            : symbolRenderingMode == .multicolor ? "MULTICOLOR"
+                            : symbolRenderingMode == .monochrome ? "MONOCHROME"
+                            : "NONE"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(Image(systemName: "gear"))
+            let paletteNode = makeNode(Image(systemName: "gear").symbolRenderingMode(.palette))
+            let inheritedNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                    Label("SETTINGS", systemImage: "gear")
+                }
+                .symbolRenderingMode(.hierarchical)
+            )
+            let resetNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                        .symbolRenderingMode(nil)
+                }
+                .symbolRenderingMode(.multicolor)
+            )
+            let readerNode = makeNode(SymbolRenderingModeReaderView().symbolRenderingMode(.monochrome))
+            let resetReaderNode = makeNode(
+                VStack {
+                    SymbolRenderingModeReaderView()
+                        .symbolRenderingMode(nil)
+                }
+                .symbolRenderingMode(.palette)
+            )
+
+            XCTAssertNil(defaultNode.symbolRenderingMode)
+            XCTAssertEqual(paletteNode.symbolRenderingMode, .palette)
+            XCTAssertEqual(inheritedNode.children[0].symbolRenderingMode, .hierarchical)
+            XCTAssertEqual(inheritedNode.children[1].children[0].symbolRenderingMode, .hierarchical)
+            XCTAssertNil(resetNode.children[0].symbolRenderingMode)
+            XCTAssertEqual(readerNode.text, "MONOCHROME")
+            XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
+        }
+    }
+
     func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
         await MainActor.run {
             let constrainedNode = makeNode(

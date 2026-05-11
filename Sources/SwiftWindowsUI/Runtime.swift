@@ -3683,6 +3683,7 @@ public final class RetainedViewRuntime {
             focusedNode?.onActivate?()
 
         case .escape:
+            focusedNode?.onKeyDown?(event)
             updateFocusTarget(to: nil)
             return
 

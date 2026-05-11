@@ -5394,6 +5394,13 @@ public struct KeyboardShortcut: Sendable, Equatable, Hashable {
     }
 }
 
+public enum MoveCommandDirection: Sendable, Equatable, Hashable {
+    case up
+    case down
+    case left
+    case right
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -12080,6 +12087,74 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.keyboardShortcuts = shortcut.map { [$0.retainedBinding] } ?? []
+                return childNode
+            }
+        }
+    }
+
+    func onDeleteCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            switch event.key {
+            case .backspace, .deleteForward:
+                action?()
+                return true
+
+            default:
+                return false
+            }
+        }
+    }
+
+    func onMoveCommand(perform action: ((MoveCommandDirection) -> Void)?) -> some View {
+        keyCommandModifier { event in
+            let direction: MoveCommandDirection
+            switch event.key {
+            case .upArrow:
+                direction = .up
+            case .downArrow:
+                direction = .down
+            case .leftArrow:
+                direction = .left
+            case .rightArrow:
+                direction = .right
+            default:
+                return false
+            }
+
+            action?(direction)
+            return true
+        }
+    }
+
+    func onExitCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.key == .escape else {
+                return false
+            }
+
+            action?()
+            return true
+        }
+    }
+
+    private func keyCommandModifier(
+        perform handler: @escaping (KeyboardEvent) -> Bool
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                childNode.isHitTestVisible = true
+
+                let existingOnKeyDown = childNode.onKeyDown
+                childNode.onKeyDown = { event in
+                    if handler(event) {
+                        return
+                    }
+
+                    existingOnKeyDown?(event)
+                }
                 return childNode
             }
         }

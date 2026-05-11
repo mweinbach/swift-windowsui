@@ -15,6 +15,7 @@ private struct PointerHandlerProbe: View {
     var onDown: (() -> Void)? = nil
     var onUpInside: (() -> Void)? = nil
     var onUpOutside: (() -> Void)? = nil
+    var onKeyDown: ((KeyboardEvent) -> Void)? = nil
 
     var body: Never {
         fatalError("PointerHandlerProbe has no body")
@@ -28,6 +29,7 @@ private struct PointerHandlerProbe: View {
             node.onPointerDown = onDown
             node.onPointerUpInside = onUpInside
             node.onPointerUpOutside = onUpOutside
+            node.onKeyDown = onKeyDown
             return node
         }
     }
@@ -11954,6 +11956,83 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(modifiedActivations, 1)
             XCTAssertEqual(defaultActivations, 1)
+        }
+    }
+
+    func testOnDeleteCommandHandlesBackspaceAndForwardDelete() async {
+        await MainActor.run {
+            var deleteCount = 0
+            var forwardedKeys: [KeyboardKey?] = []
+            let node = makeNode(
+                PointerHandlerProbe(onKeyDown: { event in
+                    forwardedKeys.append(event.key)
+                })
+                .onDeleteCommand {
+                    deleteCount += 1
+                }
+            )
+
+            XCTAssertTrue(node.isFocusable)
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.backspace.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.deleteForward.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(deleteCount, 2)
+            XCTAssertEqual(forwardedKeys, [.enter])
+        }
+    }
+
+    func testOnMoveCommandMapsArrowKeysAndPreservesOtherKeys() async {
+        await MainActor.run {
+            var directions: [MoveCommandDirection] = []
+            var forwardedKeys: [KeyboardKey?] = []
+            let node = makeNode(
+                PointerHandlerProbe(onKeyDown: { event in
+                    forwardedKeys.append(event.key)
+                })
+                .onMoveCommand { direction in
+                    directions.append(direction)
+                }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.upArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.leftArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.rightArrow.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.space.rawValue))
+
+            XCTAssertEqual(directions, [.up, .down, .left, .right])
+            XCTAssertEqual(forwardedKeys, [.space])
+        }
+    }
+
+    func testOnExitCommandHandlesEscapeAndPreservesOtherKeys() async {
+        await MainActor.run {
+            var exitCount = 0
+            var forwardedKeys: [KeyboardKey?] = []
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let node = makeNode(
+                PointerHandlerProbe(onKeyDown: { event in
+                    forwardedKeys.append(event.key)
+                })
+                .onExitCommand {
+                    exitCount += 1
+                }
+            )
+
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.escape.rawValue))
+            node.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(exitCount, 1)
+            XCTAssertEqual(forwardedKeys, [.enter])
+
+            runtime.root.addChild(node)
+            runtime.requestFocus(node)
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.escape.rawValue))
+
+            XCTAssertEqual(exitCount, 2)
         }
     }
 

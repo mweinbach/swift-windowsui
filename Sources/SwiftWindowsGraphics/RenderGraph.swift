@@ -234,19 +234,23 @@ public struct StrokeStyle: Equatable, Sendable {
     public var dashOffset: Double
     public var lineCap: LineCap
     public var lineJoin: LineJoin
+    public var miterLimit: Double
 
+    @_disfavoredOverload
     public init(
         lineWidth: Double = 1,
         dashPattern: [Double] = [],
         dashOffset: Double = 0,
         lineCap: LineCap = .butt,
-        lineJoin: LineJoin = .miter
+        lineJoin: LineJoin = .miter,
+        miterLimit: Double = 10
     ) {
         self.lineWidth = lineWidth
         self.dashPattern = dashPattern
         self.dashOffset = dashOffset
         self.lineCap = lineCap
         self.lineJoin = lineJoin
+        self.miterLimit = miterLimit
     }
 
     public enum LineCap: Equatable, Sendable {

@@ -2941,13 +2941,13 @@ public extension StrokeStyle {
         dash: [Double] = [],
         dashPhase: Double = 0
     ) {
-        _ = miterLimit
         self.init(
             lineWidth: lineWidth,
             dashPattern: dash,
             dashOffset: dashPhase,
             lineCap: lineCap,
-            lineJoin: lineJoin
+            lineJoin: lineJoin,
+            miterLimit: miterLimit
         )
     }
 }

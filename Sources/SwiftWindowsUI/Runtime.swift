@@ -459,6 +459,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var borderStrokeStyle: StrokeStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var outlineColor: Color {
         didSet { invalidateRuntime(.paint) }
     }
@@ -733,6 +737,7 @@ public final class ViewNode {
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
         borderWidth: Double = 0,
+        borderStrokeStyle: StrokeStyle? = nil,
         outlineColor: Color = .clear,
         outlineWidth: Double = 0,
         shadowColor: Color = .clear,
@@ -793,6 +798,7 @@ public final class ViewNode {
         self.textStyle = textStyle
         self.borderColor = borderColor
         self.borderWidth = borderWidth
+        self.borderStrokeStyle = borderStrokeStyle
         self.outlineColor = outlineColor
         self.outlineWidth = outlineWidth
         self.shadowColor = shadowColor

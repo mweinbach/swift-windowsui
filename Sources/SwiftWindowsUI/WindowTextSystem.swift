@@ -7,6 +7,7 @@ final class WindowTextSystem {
         var fontFamily: String
         var resolvedNativeFontSize: Double
         var weight: TextWeight
+        var isItalic: Bool
         var letterSpacing: Double
         var lineSpacing: Double
         var lineBreakMode: TextLineBreakMode
@@ -25,6 +26,7 @@ final class WindowTextSystem {
             self.fontFamily = style.fontFamily
             self.resolvedNativeFontSize = style.nativeFontPixelSize
             self.weight = style.weight
+            self.isItalic = style.isItalic
             self.letterSpacing = style.letterSpacing
             self.lineSpacing = style.lineSpacing
             self.lineBreakMode = style.lineBreakMode

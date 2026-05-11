@@ -408,7 +408,7 @@ enum GDIRasterTextRenderer {
                 0,
                 0,
                 Int32(style.weight.gdiWeight),
-                0,
+                DWORD(style.isItalic ? 1 : 0),
                 0,
                 0,
                 DWORD(DEFAULT_CHARSET),

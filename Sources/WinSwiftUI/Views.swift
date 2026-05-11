@@ -1686,6 +1686,7 @@ public struct Text: View {
     private var color: Color?
     private var font: Font??
     private var fontDesign: Font.Design?
+    private var isItalic: Bool
     private var alignment: TextAlignment?
     private var lineLimit: Int??
     private var lineLimitReservesSpace: Bool?
@@ -1705,6 +1706,7 @@ public struct Text: View {
         self.color = nil
         self.font = nil
         self.fontDesign = nil
+        self.isItalic = false
         self.alignment = nil
         self.lineLimit = nil
         self.lineLimitReservesSpace = nil
@@ -1725,6 +1727,7 @@ public struct Text: View {
         color: Color?,
         font: Font??,
         fontDesign: Font.Design?,
+        isItalic: Bool,
         alignment: TextAlignment?,
         lineLimit: Int??,
         lineLimitReservesSpace: Bool?,
@@ -1743,6 +1746,7 @@ public struct Text: View {
         self.color = color
         self.font = font
         self.fontDesign = fontDesign
+        self.isItalic = isItalic
         self.alignment = alignment
         self.lineLimit = lineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
@@ -1910,6 +1914,7 @@ public struct Text: View {
             color: lhs.color ?? rhs.color,
             font: lhs.font != nil ? lhs.font : rhs.font,
             fontDesign: lhs.fontDesign ?? rhs.fontDesign,
+            isItalic: lhs.isItalic || rhs.isItalic,
             alignment: lhs.alignment ?? rhs.alignment,
             lineLimit: lhs.lineLimit != nil ? lhs.lineLimit : rhs.lineLimit,
             lineLimitReservesSpace: lhs.lineLimitReservesSpace ?? rhs.lineLimitReservesSpace,
@@ -1958,6 +1963,7 @@ public struct Text: View {
                 color: resolvedColor,
                 scale: resolvedFont.resolvedScale,
                 weight: resolvedFont.weight.textWeight,
+                isItalic: isItalic || context.isFontItalic,
                 fontFamily: resolvedFont.resolvedFamily,
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
@@ -2039,6 +2045,12 @@ public struct Text: View {
 
     public func bold() -> Text {
         fontWeight(.bold)
+    }
+
+    public func italic() -> Text {
+        var copy = self
+        copy.isItalic = true
+        return copy
     }
 
     public func multilineTextAlignment(_ alignment: TextAlignment) -> Text {

@@ -51,6 +51,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var fontFamily: String
     public var nativeFontSize: Double?
     public var weight: TextWeight
+    public var isItalic: Bool
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
     public var minimumScaleFactor: Double
@@ -73,6 +74,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         fontFamily: String = "Segoe UI",
         nativeFontSize: Double? = nil,
         weight: TextWeight = .regular,
+        isItalic: Bool = false,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
         minimumScaleFactor: Double = 1,
@@ -94,6 +96,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.fontFamily = fontFamily
         self.nativeFontSize = nativeFontSize
         self.weight = weight
+        self.isItalic = isItalic
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)

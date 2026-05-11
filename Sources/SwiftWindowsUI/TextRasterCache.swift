@@ -8,6 +8,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var scale: Double
     var nativeFontSize: Double?
     var weight: TextWeight
+    var isItalic: Bool
     var alignment: TextHorizontalAlignment
     var verticalAlignment: TextVerticalAlignment
     var lineSpacing: Double
@@ -44,6 +45,7 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.scale = style.scale
         self.nativeFontSize = style.nativeFontSize
         self.weight = style.weight
+        self.isItalic = style.isItalic
         self.alignment = style.alignment
         self.verticalAlignment = style.verticalAlignment
         self.lineSpacing = style.lineSpacing

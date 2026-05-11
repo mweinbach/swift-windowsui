@@ -1276,6 +1276,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
     public var font: Font?
+    var fontItalic: Bool
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
     var lineLimitReservesSpace: Bool
@@ -1496,6 +1497,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.foregroundStyle = foregroundStyle
         self.tint = tint
         self.font = font
+        self.fontItalic = false
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
@@ -2148,6 +2150,10 @@ public struct ViewBuildContext {
 
     public var fontWeight: Font.Weight? {
         fontWeightProvider() ?? environmentValuesProvider().legibilityWeight?.retainedFontWeight
+    }
+
+    public var isFontItalic: Bool {
+        environmentValuesProvider().fontItalic
     }
 
     public var textAlignment: TextAlignment {
@@ -8461,6 +8467,12 @@ public extension View {
 
     func bold() -> some View {
         fontWeight(.bold)
+    }
+
+    func italic() -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.fontItalic, true))
+        }
     }
 
     func multilineTextAlignment(_ alignment: TextAlignment) -> some View {

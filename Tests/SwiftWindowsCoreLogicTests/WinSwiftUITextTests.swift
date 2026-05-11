@@ -17,6 +17,23 @@ private struct TestAttributedStringFormatStyle: FormatStyle {
 }
 
 final class WinSwiftUITextTests: XCTestCase {
+    func testItalicModifierMapsToRetainedTextStyle() async {
+        await MainActor.run {
+            let directNode = makeNode(Text("ITALIC").italic())
+            let combinedNode = makeNode(Text("A").italic() + Text("B"))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INNER")
+                }
+                .italic()
+            )
+
+            XCTAssertTrue(directNode.textStyle.isItalic)
+            XCTAssertTrue(combinedNode.textStyle.isItalic)
+            XCTAssertTrue(inheritedNode.children[0].textStyle.isItalic)
+        }
+    }
+
     func testAttributedStringInitializerFlattensToRetainedText() async {
         await MainActor.run {
             var attributed = AttributedString("HELLO")

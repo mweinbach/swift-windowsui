@@ -15311,6 +15311,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGeometryProxyFrameAndSafeAreaInsetsUseCanvasBounds() async {
+        await MainActor.run {
+            let rootSize = Size(width: 240, height: 160)
+            let context = ViewBuildContext(canvasSizeProvider: { rootSize }, invalidateHandler: {})
+            var localFrame: Rect?
+            var globalFrame: Rect?
+            var namedFrame: Rect?
+            var safeAreaInsets: EdgeInsets?
+
+            let node = GeometryReader { proxy in
+                localFrame = proxy.frame(in: .local)
+                globalFrame = proxy.frame(in: .global)
+                namedFrame = proxy.frame(in: .named("reader"))
+                safeAreaInsets = proxy.safeAreaInsets
+                Text("GEOMETRY")
+            }
+            .makeComponent(context: context)
+            .makeNode(runtime: RetainedViewRuntime(root: ViewNode()))
+
+            XCTAssertTrue(allTexts(in: node).contains("GEOMETRY"))
+            XCTAssertEqual(localFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(globalFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(namedFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(safeAreaInsets, .zero)
+        }
+    }
+
     func testGeometryReaderRebuildsAfterCanvasSizeChange() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

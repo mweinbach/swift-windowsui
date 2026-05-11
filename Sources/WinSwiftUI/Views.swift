@@ -32,9 +32,16 @@ private func stackCrossAlignment(from value: Double) -> StackCrossAlignment {
 
 public struct GeometryProxy {
     public let size: Size
+    public let safeAreaInsets: EdgeInsets
 
-    public init(size: Size) {
+    public init(size: Size, safeAreaInsets: EdgeInsets = .zero) {
         self.size = size
+        self.safeAreaInsets = safeAreaInsets
+    }
+
+    public func frame(in coordinateSpace: CoordinateSpace) -> Rect {
+        let _ = coordinateSpace
+        return Rect(x: 0, y: 0, width: size.width, height: size.height)
     }
 }
 

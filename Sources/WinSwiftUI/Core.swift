@@ -1896,6 +1896,42 @@ public struct ViewBuildContext {
         )
     }
 
+    func withTransformedEnvironmentValue<Value>(
+        _ keyPath: WritableKeyPath<EnvironmentValues, Value>,
+        _ transform: @escaping (inout Value) -> Void
+    ) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                transform(&values[keyPath: keyPath])
+                return values
+            },
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
     func withNavigationDestinationHandler(_ handler: @escaping ([AnyView]) -> Void) -> ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
@@ -4361,6 +4397,15 @@ public extension View {
     func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(keyPath, value))
+        }
+    }
+
+    func transformEnvironment<Value>(
+        _ keyPath: WritableKeyPath<EnvironmentValues, Value>,
+        transform: @escaping (inout Value) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTransformedEnvironmentValue(keyPath, transform))
         }
     }
 

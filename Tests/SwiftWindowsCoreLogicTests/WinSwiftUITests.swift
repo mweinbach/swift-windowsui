@@ -5975,6 +5975,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTransformEnvironmentMutatesInheritedValuesForSubtree() async {
+        await MainActor.run {
+            struct TransformEnvironmentReaderView: View {
+                @Environment(\.lineLimit) var lineLimit
+                @Environment(\.testEnvironmentLabel) var label
+
+                var body: some View {
+                    Text("\(label)-\(lineLimit ?? 0)")
+                }
+            }
+
+            let node = makeNode(
+                VStack {
+                    TransformEnvironmentReaderView()
+                    TransformEnvironmentReaderView()
+                        .transformEnvironment(\.lineLimit) { limit in
+                            limit = (limit ?? 0) + 1
+                        }
+                        .transformEnvironment(\.testEnvironmentLabel) { label in
+                            label += "-INNER"
+                        }
+                }
+                .environment(\.lineLimit, 2)
+                .environment(\.testEnvironmentLabel, "OUTER")
+            )
+
+            XCTAssertEqual(node.children[0].text, "OUTER-2")
+            XCTAssertEqual(node.children[1].text, "OUTER-INNER-3")
+        }
+    }
+
     func testTintAndControlSizeBridgeThroughEnvironmentValues() async {
         await MainActor.run {
             struct InheritedControlEnvironmentReaderView: View {

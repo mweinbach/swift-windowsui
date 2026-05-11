@@ -55,6 +55,7 @@ final class ComponentHostTests: XCTestCase {
             let host = ComponentHost(runtime: runtime)
             var useSecondState = false
             var pointerDownEvents: [String] = []
+            var contextMenuEvents: [String] = []
 
             host.setContent {
                 Component { _ in
@@ -132,6 +133,9 @@ final class ComponentHostTests: XCTestCase {
                     node.onPointerDown = {
                         pointerDownEvents.append(eventLabel)
                     }
+                    node.onContextMenu = { _ in
+                        contextMenuEvents.append(eventLabel)
+                    }
                     return node
                 }
             }
@@ -201,6 +205,8 @@ final class ComponentHostTests: XCTestCase {
 
             reusedNode?.onPointerDown?()
             XCTAssertEqual(pointerDownEvents, ["second"])
+            reusedNode?.onContextMenu?(Point(x: 4, y: 8))
+            XCTAssertEqual(contextMenuEvents, ["second"])
         }
     }
 }

@@ -3982,6 +3982,83 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContextMenuRightClickRevealsRetainedOverlayAndDismissesFromEnvironment() async {
+        await MainActor.run {
+            struct DismissContextMenuButton: View {
+                @Environment(\.dismiss) var dismiss
+                let onClose: @MainActor () -> Void
+
+                var body: some View {
+                    Button("CLOSE") {
+                        onClose()
+                        dismiss()
+                    }
+                }
+            }
+
+            var didInvalidate = false
+            var closeCount = 0
+            let view = Text("ROOT")
+                .frame(width: 220, height: 120)
+                .contextMenu {
+                    Button("COPY") {}
+                    DismissContextMenuButton {
+                        closeCount += 1
+                    }
+                }
+
+            let (runtime, closedNode) = makeRuntimeNode(
+                view,
+                size: Size(width: 320, height: 240),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+            XCTAssertTrue(allTexts(in: closedNode).contains("ROOT"))
+
+            runtime.contextClick(at: Point(x: 24, y: 32))
+
+            XCTAssertTrue(didInvalidate)
+
+            let openedNode = makeNode(view, size: Size(width: 320, height: 240))
+            guard case .absolute = openedNode.layoutMode else {
+                return XCTFail("Expected contextMenu to use retained absolute overlay layout while open")
+            }
+            XCTAssertTrue(allTexts(in: openedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: openedNode).contains("COPY"))
+            XCTAssertTrue(allTexts(in: openedNode).contains("CLOSE"))
+
+            let closeButton = focusableNodes(in: openedNode).first { allTexts(in: $0).contains("CLOSE") }
+            closeButton?.onActivate?()
+
+            XCTAssertEqual(closeCount, 1)
+
+            let dismissedNode = makeNode(view, size: Size(width: 320, height: 240))
+            XCTAssertTrue(allTexts(in: dismissedNode).contains("ROOT"))
+            XCTAssertFalse(allTexts(in: dismissedNode).contains("COPY"))
+        }
+    }
+
+    func testContextMenuPreviewOverloadComposesPreviewContent() async {
+        await MainActor.run {
+            let view = Text("ROOT")
+                .frame(width: 220, height: 120)
+                .contextMenu {
+                    Button("OPEN") {}
+                } preview: {
+                    Text("PREVIEW")
+                }
+
+            let (runtime, _) = makeRuntimeNode(view, size: Size(width: 320, height: 240))
+            runtime.contextClick(at: Point(x: 24, y: 32))
+
+            let openedNode = makeNode(view, size: Size(width: 320, height: 240))
+            XCTAssertTrue(allTexts(in: openedNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: openedNode).contains("OPEN"))
+            XCTAssertTrue(allTexts(in: openedNode).contains("PREVIEW"))
+        }
+    }
+
     func testControlGroupComposesCompactControlsAndPreservesActions() async {
         await MainActor.run {
             var activationCount = 0
@@ -9184,6 +9261,22 @@ private func makeNode<V: View>(
     let runtime = RetainedViewRuntime(root: ViewNode())
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
+}
+
+@MainActor
+private func makeRuntimeNode<V: View>(
+    _ view: V,
+    size: Size = Size(width: 800, height: 600),
+    onInvalidate: @escaping () -> Void = {}
+) -> (runtime: RetainedViewRuntime, node: ViewNode) {
+    let runtime = RetainedViewRuntime(root: ViewNode())
+    let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
+    let node = view.makeComponent(context: context).makeNode(runtime: runtime)
+    node.frame = Rect(origin: .zero, size: size)
+    runtime.root.addChild(node)
+    runtime.setRootSize(IntSize(width: Int32(size.width), height: Int32(size.height)))
+    _ = runtime.renderFrame()
+    return (runtime, node)
 }
 
 @MainActor

@@ -901,6 +901,28 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
+    func testRightClickConvertsCoordinatesAndRoutesContextClick() async {
+        await MainActor.run {
+            let (host, window, recorder) = makeInputRoutingHost(
+                pixelSize: IntSize(width: 640, height: 480),
+                scaleFactor: 2.0
+            )
+
+            host.windowDidReceiveRightClick(
+                window,
+                event: MouseEvent(button: .right, position: Point(x: 100, y: 200))
+            )
+
+            XCTAssertEqual(recorder.events.count, 1, "Right-click should be recorded after real host delegation")
+            guard case let .contextClick(point, scaleFactor) = recorder.events[0] else {
+                return XCTFail("Expected a contextClick event from WinSwiftUIWindowHost")
+            }
+            XCTAssertEqual(point.x, 50.0, accuracy: 0.001, "Right-click X should be converted (100/2=50)")
+            XCTAssertEqual(point.y, 100.0, accuracy: 0.001, "Right-click Y should be converted (200/2=100)")
+            XCTAssertEqual(scaleFactor, 2.0, "Context click should record the active scale factor")
+        }
+    }
+
     /// VAL-CROSS-004: Pointer leave routes correctly through the host.
     func testPointerLeaveRoutesToRuntime() async {
         await MainActor.run {

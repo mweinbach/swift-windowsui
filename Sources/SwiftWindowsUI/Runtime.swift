@@ -759,6 +759,7 @@ public final class ViewNode {
     public var onPointerDown: (() -> Void)?
     public var onPointerUpInside: (() -> Void)?
     public var onPointerUpOutside: (() -> Void)?
+    public var onContextMenu: ((Point) -> Void)?
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
@@ -929,6 +930,7 @@ public final class ViewNode {
         self.onPointerDown = nil
         self.onPointerUpInside = nil
         self.onPointerUpOutside = nil
+        self.onContextMenu = nil
         self.onFocusEnter = nil
         self.onFocusExit = nil
         self.onKeyDown = nil
@@ -3110,6 +3112,16 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: hitNode)
     }
 
+    public func contextClick(at point: Point) {
+        let hitNode = hitTest(at: point)
+        updateHoverTarget(to: hitNode)
+        guard let contextNode = nearestContextMenuNode(from: hitNode) else {
+            return
+        }
+
+        contextNode.onContextMenu?(point)
+    }
+
     public func keyDown(_ event: KeyboardEvent) {
         switch event.key {
         case .tab:
@@ -3528,6 +3540,10 @@ public final class RetainedViewRuntime {
 
     private func nearestDraggableNode(from node: ViewNode?) -> ViewNode? {
         self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.isDraggable }))
+    }
+
+    private func nearestContextMenuNode(from node: ViewNode?) -> ViewNode? {
+        self.node(for: nearestDispatchIndex(from: dispatchIndex(for: node), where: { $0.onContextMenu != nil }))
     }
 
     private func activateKeyboardShortcut(for event: KeyboardEvent) -> Bool {

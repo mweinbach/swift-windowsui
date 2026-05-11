@@ -97,6 +97,7 @@ enum WindowHostInputEvent {
     case mouseWheel(point: Point, delta: Double, axis: ScrollAxis?, scaleFactor: Double)
     case pointerDown(point: Point, scaleFactor: Double)
     case pointerUp(point: Point, scaleFactor: Double)
+    case contextClick(point: Point, scaleFactor: Double)
     case keyDown(KeyboardEvent)
     case keyboardFocusDidLeaveWindow
 }
@@ -327,6 +328,14 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         let logicalPoint = logicalPoint(point, scaleFactor: scaleFactor)
         runtime.pointerUp(at: logicalPoint)
         onInputEventRouted?(.pointerUp(point: logicalPoint, scaleFactor: scaleFactor))
+        commitRuntimeState(in: window, interactive: true)
+    }
+
+    func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {
+        let scaleFactor = window.scaleFactor
+        let logicalPoint = logicalPoint(event.position, scaleFactor: scaleFactor)
+        runtime.contextClick(at: logicalPoint)
+        onInputEventRouted?(.contextClick(point: logicalPoint, scaleFactor: scaleFactor))
         commitRuntimeState(in: window, interactive: true)
     }
 

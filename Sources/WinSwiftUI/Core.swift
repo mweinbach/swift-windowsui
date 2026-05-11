@@ -5401,6 +5401,123 @@ private func retainedActionSheetPresentation(
     )
 }
 
+@MainActor
+private final class RetainedContextMenuState {
+    var isPresented = false
+    var anchor = Point.zero
+}
+
+@MainActor
+private func installRetainedContextMenuHandler(
+    on node: ViewNode,
+    state: RetainedContextMenuState,
+    context: ViewBuildContext
+) {
+    let previousHandler = node.onContextMenu
+    node.isHitTestVisible = true
+    node.onContextMenu = { point in
+        previousHandler?(point)
+        state.anchor = point
+        state.isPresented = true
+        context.invalidate()
+    }
+}
+
+@MainActor
+private func retainedContextMenuPresentation(
+    base: Component,
+    menuItems: [AnyView],
+    preview: [AnyView],
+    state: RetainedContextMenuState,
+    context: ViewBuildContext
+) -> Component {
+    let dismiss: @MainActor () -> Void = {
+        guard state.isPresented else {
+            return
+        }
+
+        state.isPresented = false
+        context.invalidate()
+    }
+    let menuContext = context
+        .withButtonStyle(.plain)
+        .withControlSize(.small)
+        .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+        .withEnvironmentValue(\.isPresented, true)
+    let previewComponent = preview.isEmpty ? nil : composeComponent(
+        from: preview,
+        context: menuContext,
+        fallbackLayout: .stack(.vertical(spacing: 4, alignment: .stretch)),
+        isHitTestVisible: false
+    )
+    let itemComponent = composeComponent(
+        from: menuItems,
+        context: menuContext,
+        fallbackLayout: .stack(.vertical(spacing: 2, alignment: .stretch)),
+        isHitTestVisible: false
+    )
+
+    return Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        installRetainedContextMenuHandler(on: baseNode, state: state, context: context)
+        guard state.isPresented else {
+            return baseNode
+        }
+
+        var panelChildren: [ViewNode] = []
+        if let previewComponent {
+            panelChildren.append(previewComponent.makeNode(runtime: runtime))
+        }
+        panelChildren.append(itemComponent.makeNode(runtime: runtime))
+
+        let menuPanel = Controls.stackPanel(
+            preferredSize: Size(width: 220, height: 0),
+            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.17, alpha: 0.97),
+            borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.16),
+            borderWidth: 1,
+            shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
+            shadowOffset: Point(x: 0, y: 10),
+            shadowSpread: 12,
+            cornerRadius: 10,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 6,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: panelChildren
+        )
+        let root = Controls.panel(
+            preferredSize: baseNode.intrinsicContentSize(),
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, menuPanel]
+        )
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+
+            let panelSize = menuPanel.intrinsicContentSize()
+            let maxX = max(0, bounds.size.width - panelSize.width)
+            let maxY = max(0, bounds.size.height - panelSize.height)
+            let origin = Point(
+                x: min(max(0, state.anchor.x), maxX),
+                y: min(max(0, state.anchor.y), maxY)
+            )
+            let panelFrame = Rect(origin: origin, size: panelSize)
+            if menuPanel.frame != panelFrame {
+                menuPanel.frame = panelFrame
+            }
+        }
+
+        return root
+    }
+}
+
 public extension View {
     func modifier<Modifier: ViewModifier>(_ modifier: Modifier) -> ModifiedContent<Self, Modifier> {
         ModifiedContent(content: self, modifier: modifier)
@@ -5595,6 +5712,44 @@ public extension View {
                     children: children
                 )
             }
+        }
+    }
+
+    func contextMenu(@ViewBuilder menuItems: @escaping () -> [AnyView]) -> some View {
+        retainedContextMenu(menuItems: menuItems)
+    }
+
+    func contextMenu(
+        @ViewBuilder menuItems: @escaping () -> [AnyView],
+        @ViewBuilder preview: @escaping () -> [AnyView]
+    ) -> some View {
+        retainedContextMenu(menuItems: menuItems, preview: preview)
+    }
+
+    private func retainedContextMenu(
+        menuItems: @escaping () -> [AnyView],
+        preview: (() -> [AnyView])? = nil
+    ) -> some View {
+        let state = RetainedContextMenuState()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let items = menuItems()
+            let previewViews = preview?() ?? []
+            guard !items.isEmpty || !previewViews.isEmpty else {
+                return Component { runtime in
+                    let baseNode = base.makeNode(runtime: runtime)
+                    installRetainedContextMenuHandler(on: baseNode, state: state, context: context)
+                    return baseNode
+                }
+            }
+
+            return retainedContextMenuPresentation(
+                base: base,
+                menuItems: items,
+                preview: previewViews,
+                state: state,
+                context: context
+            )
         }
     }
 

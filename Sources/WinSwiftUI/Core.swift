@@ -905,6 +905,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
     public var buttonRepeatBehavior: ButtonRepeatBehavior
+    public var buttonSizing: ButtonSizing
     public var menuIndicatorVisibility: Visibility
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
@@ -996,6 +997,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
         buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
+        buttonSizing: ButtonSizing = .automatic,
         menuIndicatorVisibility: Visibility = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
@@ -1083,6 +1085,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
         self.buttonRepeatBehavior = buttonRepeatBehavior
+        self.buttonSizing = buttonSizing
         self.menuIndicatorVisibility = menuIndicatorVisibility
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
@@ -3096,6 +3099,28 @@ public struct ButtonRepeatBehavior: Sendable, Equatable, Hashable {
     public static let disabled = ButtonRepeatBehavior(.disabled)
 }
 
+public struct ButtonSizing: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case fitted
+        case flexible
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ButtonSizing(.automatic)
+    public static let fitted = ButtonSizing(.fitted)
+    public static let flexible = ButtonSizing(.flexible)
+
+    var retainedLayoutPriority: Double {
+        kind == .flexible ? 1 : 0
+    }
+}
+
 public struct PickerStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -4527,6 +4552,12 @@ public extension View {
     func buttonRepeatBehavior(_ behavior: ButtonRepeatBehavior) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.buttonRepeatBehavior, behavior))
+        }
+    }
+
+    func buttonSizing(_ sizing: ButtonSizing) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.buttonSizing, sizing))
         }
     }
 

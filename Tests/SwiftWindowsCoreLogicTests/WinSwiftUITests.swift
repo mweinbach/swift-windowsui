@@ -6512,6 +6512,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonSizingBridgesThroughEnvironmentValuesAndFlexibleButtonsGrow() async {
+        await MainActor.run {
+            struct ButtonSizingReaderView: View {
+                @Environment(\.buttonSizing) var buttonSizing
+
+                var body: some View {
+                    Text(buttonSizing == .flexible ? "FLEXIBLE" : buttonSizing == .fitted ? "FITTED" : "AUTOMATIC")
+                }
+            }
+
+            let defaultNode = makeNode(ButtonSizingReaderView())
+            let modifierNode = makeNode(
+                ButtonSizingReaderView()
+                    .buttonSizing(.flexible)
+            )
+            let environmentNode = makeNode(
+                ButtonSizingReaderView()
+                    .environment(\.buttonSizing, .fitted)
+            )
+            let flexibleButtonNode = makeNode(
+                Button("SAVE") {}
+                    .buttonSizing(.flexible)
+            )
+            let fittedButtonNode = makeNode(
+                Button("SAVE") {}
+                    .buttonSizing(.fitted)
+            )
+
+            XCTAssertEqual(defaultNode.text, "AUTOMATIC")
+            XCTAssertEqual(modifierNode.text, "FLEXIBLE")
+            XCTAssertEqual(environmentNode.text, "FITTED")
+            XCTAssertEqual(flexibleButtonNode.layoutPriority, 1)
+            XCTAssertEqual(fittedButtonNode.layoutPriority, 0)
+        }
+    }
+
     func testAdditionalControlAndScrollEnvironmentValuesCanBeReadAndOverridden() async {
         await MainActor.run {
             struct ControlScrollEnvironmentReaderView: View {

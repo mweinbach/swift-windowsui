@@ -5808,6 +5808,7 @@ public struct Button: View {
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle)
             return Controls.button(
                 runtime: runtime,
+                layoutPriority: context.environmentValues.buttonSizing.retainedLayoutPriority,
                 cornerRadius: surfaceStyle.cornerRadius,
                 palette: surfaceStyle.palette,
                 chrome: surfaceStyle.chrome,

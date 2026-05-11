@@ -12,6 +12,57 @@ public struct GeometryProxy {
     }
 }
 
+@MainActor
+public struct ViewThatFits: View {
+    public typealias Body = Never
+
+    private let axes: Axis.Set
+    private let content: [AnyView]
+
+    public init(in axes: Axis.Set = .all, @ViewBuilder content: () -> [AnyView]) {
+        self.axes = axes
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ViewThatFits has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let axes = axes
+        let components = content.map { $0.makeComponent(context: context) }
+
+        return Component { runtime in
+            guard !components.isEmpty else {
+                return Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+            }
+
+            let availableSize = context.canvasSize
+            var fallbackNode: ViewNode?
+            for component in components {
+                let candidateNode = component.makeNode(runtime: runtime)
+                fallbackNode = candidateNode
+                let candidateSize = candidateNode.intrinsicContentSize()
+                if Self.fits(candidateSize, in: availableSize, axes: axes) {
+                    return candidateNode
+                }
+            }
+
+            return fallbackNode ?? Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+
+    private static func fits(_ candidateSize: Size, in availableSize: Size, axes: Axis.Set) -> Bool {
+        if axes.contains(.horizontal), candidateSize.width > availableSize.width {
+            return false
+        }
+        if axes.contains(.vertical), candidateSize.height > availableSize.height {
+            return false
+        }
+        return true
+    }
+}
+
 extension SwiftWindowsCore.Color: View {
     public typealias Body = Never
 

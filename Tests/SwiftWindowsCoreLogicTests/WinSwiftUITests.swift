@@ -5052,6 +5052,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testViewThatFitsSelectsFirstCandidateMatchingRequestedAxes() async {
+        await MainActor.run {
+            let horizontalNode = makeNode(
+                ViewThatFits(in: .horizontal) {
+                    Text("WIDE").frame(width: 120, height: 12)
+                    Text("NARROW").frame(width: 40, height: 80)
+                },
+                size: Size(width: 50, height: 20)
+            )
+            let verticalNode = makeNode(
+                ViewThatFits(in: .vertical) {
+                    Text("TALL").frame(width: 120, height: 80)
+                    Text("SHORT").frame(width: 120, height: 12)
+                },
+                size: Size(width: 50, height: 20)
+            )
+            let fallbackNode = makeNode(
+                ViewThatFits {
+                    Text("TOO WIDE").frame(width: 120, height: 12)
+                    Text("TOO TALL").frame(width: 40, height: 80)
+                },
+                size: Size(width: 50, height: 20)
+            )
+
+            XCTAssertEqual(firstText(in: horizontalNode), "NARROW")
+            XCTAssertEqual(firstText(in: verticalNode), "SHORT")
+            XCTAssertEqual(firstText(in: fallbackNode), "TOO TALL")
+        }
+    }
+
     func testGeometryReaderAndZStackUseBuildContextSizing() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

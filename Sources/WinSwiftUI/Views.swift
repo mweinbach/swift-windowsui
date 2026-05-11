@@ -5752,6 +5752,7 @@ public struct Picker<SelectionValue: Hashable>: View {
 
     private let selection: Binding<SelectionValue>
     private let label: [AnyView]
+    private let currentValueLabel: [AnyView]
     private let content: [AnyView]
 
     private struct Option {
@@ -5773,6 +5774,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                     .lineLimit(1)
             )
         ]
+        self.currentValueLabel = []
         self.content = content()
     }
 
@@ -5799,6 +5801,7 @@ public struct Picker<SelectionValue: Hashable>: View {
     ) {
         self.selection = selection
         self.label = [AnyView(label)]
+        self.currentValueLabel = []
         self.content = content()
     }
 
@@ -5809,6 +5812,19 @@ public struct Picker<SelectionValue: Hashable>: View {
     ) {
         self.selection = selection
         self.label = label()
+        self.currentValueLabel = []
+        self.content = content()
+    }
+
+    public init(
+        selection: Binding<SelectionValue>,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
         self.content = content()
     }
 
@@ -5819,10 +5835,19 @@ public struct Picker<SelectionValue: Hashable>: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let selection = selection
         let labelViews = label
+        let currentValueLabelViews = currentValueLabel
         let contentViews = content
         let labelComponent = composeComponent(
             from: labelViews,
             context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+        let currentValueLabelComponent = composeComponent(
+            from: currentValueLabelViews,
+            context: context
+                .withTextAlignment(.trailing)
+                .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
             isHitTestVisible: false
         )
@@ -5857,15 +5882,35 @@ public struct Picker<SelectionValue: Hashable>: View {
                 )
             }
 
-            guard !context.labelsHidden && !labelViews.isEmpty else {
+            guard !context.labelsHidden && (!labelViews.isEmpty || !currentValueLabelViews.isEmpty) else {
                 return pickerNode
             }
 
-            let labelNode = labelComponent.makeNode(runtime: runtime)
+            guard !currentValueLabelViews.isEmpty else {
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    stackLayout: .vertical(spacing: 8, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [labelNode, pickerNode]
+                )
+            }
+
+            var headerChildren: [ViewNode] = []
+            if !labelViews.isEmpty {
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+                headerChildren.append(labelNode)
+            }
+            headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
+            let headerNode = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 8, alignment: .center),
+                isHitTestVisible: false,
+                children: headerChildren
+            )
             return Controls.stackPanel(
                 stackLayout: .vertical(spacing: 8, alignment: .stretch),
                 isHitTestVisible: false,
-                children: [labelNode, pickerNode]
+                children: [headerNode, pickerNode]
             )
         }
     }

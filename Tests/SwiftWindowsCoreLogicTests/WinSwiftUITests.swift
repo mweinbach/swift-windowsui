@@ -6345,6 +6345,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerCurrentValueLabelInitializerComposesHeaderAndKeepsSelectionBehavior() async {
+        await MainActor.run {
+            var selection = "compact"
+            var didInvalidate = false
+
+            let node = makeNode(
+                Picker(
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                } label: {
+                    Text("MODE")
+                } currentValueLabel: {
+                    Text("COMPACT")
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0].children[0]), "MODE")
+            XCTAssertEqual(firstText(in: node.children[0].children[1]), "COMPACT")
+            XCTAssertTrue(allTexts(in: node.children[1].children[0]).contains("COMPACT"))
+
+            node.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, "expanded")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testCustomViewModifierPreservesTaggedPickerMetadata() async {
         await MainActor.run {
             var selection = "one"

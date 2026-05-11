@@ -934,6 +934,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var isFindDisabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isReplaceDisabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isSubmitScopeBoundary: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1138,6 +1146,8 @@ public final class ViewNode {
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
+        isFindDisabled: Bool = false,
+        isReplaceDisabled: Bool = false,
         isSubmitScopeBoundary: Bool = false,
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
@@ -1220,6 +1230,8 @@ public final class ViewNode {
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
+        self.isFindDisabled = isFindDisabled
+        self.isReplaceDisabled = isReplaceDisabled
         self.isSubmitScopeBoundary = isSubmitScopeBoundary
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled

@@ -92,6 +92,8 @@ final class ComponentHostTests: XCTestCase {
                     let submitLabel: RetainedSubmitLabel = useSecondState ? .search : .return
                     let caretOffset = useSecondState ? 4 : 1
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
+                    let isFindDisabled = useSecondState
+                    let isReplaceDisabled = !useSecondState
                     let symbolVariableValue = useSecondState ? 0.75 : 0.25
                     let imageResizingMode: RetainedImageResizingMode = useSecondState ? .tile : .stretch
                     let imageCapInsets = useSecondState
@@ -179,6 +181,8 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputSubmitLabel = submitLabel
                     node.textInputCaretOffset = caretOffset
                     node.textSelectability = textSelectability
+                    node.isFindDisabled = isFindDisabled
+                    node.isReplaceDisabled = isReplaceDisabled
                     node.symbolVariableValue = symbolVariableValue
                     node.imageResizingMode = imageResizingMode
                     node.imageCapInsets = imageCapInsets
@@ -234,6 +238,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
+            XCTAssertFalse(firstNode?.isFindDisabled ?? true)
+            XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
             XCTAssertEqual(firstNode?.symbolVariableValue, 0.25)
             XCTAssertEqual(firstNode?.imageResizingMode, .stretch)
             XCTAssertEqual(firstNode?.imageCapInsets, EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
@@ -314,6 +320,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
+            XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
+            XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)
             XCTAssertEqual(reusedNode?.symbolVariableValue, 0.75)
             XCTAssertEqual(reusedNode?.imageResizingMode, .tile)
             XCTAssertEqual(reusedNode?.imageCapInsets, EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8))

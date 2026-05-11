@@ -181,6 +181,8 @@ public final class ComponentHost {
         if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }
         if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
+        if target.isFindDisabled != source.isFindDisabled { target.isFindDisabled = source.isFindDisabled }
+        if target.isReplaceDisabled != source.isReplaceDisabled { target.isReplaceDisabled = source.isReplaceDisabled }
         if target.isSubmitScopeBoundary != source.isSubmitScopeBoundary { target.isSubmitScopeBoundary = source.isSubmitScopeBoundary }
         if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }

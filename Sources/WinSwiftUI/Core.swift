@@ -1656,6 +1656,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var listStyle: ListStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
+    var isFindDisabled: Bool
+    var isReplaceDisabled: Bool
     public var isScrollEnabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
@@ -1888,6 +1890,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.listStyle = listStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
+        self.isFindDisabled = false
+        self.isReplaceDisabled = false
         self.isScrollEnabled = isScrollEnabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
@@ -2680,6 +2684,14 @@ public struct ViewBuildContext {
 
     public var isAutocorrectionDisabled: Bool {
         environmentValuesProvider().isAutocorrectionDisabled
+    }
+
+    var isFindDisabled: Bool {
+        environmentValuesProvider().isFindDisabled
+    }
+
+    var isReplaceDisabled: Bool {
+        environmentValuesProvider().isReplaceDisabled
     }
 
     public var isScrollEnabled: Bool {
@@ -10081,6 +10093,18 @@ public extension View {
 
     func disableAutocorrection(_ disable: Bool?) -> some View {
         autocorrectionDisabled(disable ?? false)
+    }
+
+    func findDisabled(_ isDisabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isFindDisabled, isDisabled))
+        }
+    }
+
+    func replaceDisabled(_ isDisabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isReplaceDisabled, isDisabled))
+        }
     }
 
     func navigationTitle<S: StringProtocol>(_ title: S) -> some View {

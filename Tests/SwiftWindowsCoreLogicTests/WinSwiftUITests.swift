@@ -770,6 +770,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextEditorFindAndReplaceModifiersRetainMetadata() async {
+        await MainActor.run {
+            var value = "Find me"
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let disabledNode = makeNode(
+                TextEditor(text: binding)
+                    .findDisabled()
+                    .replaceDisabled()
+            )
+            let resetNode = makeNode(
+                TextEditor(text: binding)
+                    .findDisabled(false)
+                    .replaceDisabled(false)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    TextEditor(text: binding)
+                    TextEditor(text: binding)
+                        .findDisabled(false)
+                        .replaceDisabled(false)
+                }
+                .findDisabled()
+                .replaceDisabled()
+            )
+
+            XCTAssertTrue(disabledNode.isFindDisabled)
+            XCTAssertTrue(disabledNode.isReplaceDisabled)
+            XCTAssertFalse(resetNode.isFindDisabled)
+            XCTAssertFalse(resetNode.isReplaceDisabled)
+            XCTAssertTrue(inheritedNode.children[0].isFindDisabled)
+            XCTAssertTrue(inheritedNode.children[0].isReplaceDisabled)
+            XCTAssertFalse(inheritedNode.children[1].isFindDisabled)
+            XCTAssertFalse(inheritedNode.children[1].isReplaceDisabled)
+        }
+    }
+
     func testDisabledTextFieldDoesNotAcceptKeyboardInput() async {
         await MainActor.run {
             var value = "LOCKED"

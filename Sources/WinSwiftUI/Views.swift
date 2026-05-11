@@ -6484,6 +6484,8 @@ private func textInputComponent(
         )
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
         node.textInputCaretOffset = currentText.count
+        node.isFindDisabled = context.isFindDisabled
+        node.isReplaceDisabled = context.isReplaceDisabled
 
         guard context.isEnabled else {
             return node

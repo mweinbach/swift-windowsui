@@ -9553,6 +9553,92 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToggleImageAndSystemImageInitializersComposeLabel() async {
+        await MainActor.run {
+            let imageResource = ImageResource(name: "wifi", bundle: .main)
+            let namedImageNode = makeNode(
+                Toggle("AIRPLANE", image: "plane", isOn: .constant(false))
+            )
+            let resourceImageNode = makeNode(
+                Toggle(LocalizedStringKey("HOTSPOT"), image: imageResource, isOn: .constant(true))
+            )
+            let systemImageNode = makeNode(
+                Toggle("WIFI", systemImage: "wifi", isOn: .constant(true))
+            )
+
+            XCTAssertTrue(allTexts(in: namedImageNode).contains("AIRPLANE"))
+            XCTAssertTrue(allTexts(in: resourceImageNode).contains("HOTSPOT"))
+            XCTAssertTrue(allTexts(in: systemImageNode).contains("WIFI"))
+            XCTAssertGreaterThanOrEqual(namedImageNode.children[0].children.count, 2)
+            XCTAssertGreaterThanOrEqual(resourceImageNode.children[0].children.count, 2)
+            XCTAssertGreaterThanOrEqual(systemImageNode.children[0].children.count, 2)
+        }
+    }
+
+    func testToggleSourcesInitializerWritesAllSourceBindings() async {
+        await MainActor.run {
+            struct ToggleSource {
+                var isOn: Binding<Bool>
+            }
+
+            var first = true
+            var second = false
+            var third = false
+            var didInvalidate = false
+            let sources = [
+                ToggleSource(
+                    isOn: Binding(
+                        get: { first },
+                        set: { first = $0 }
+                    )
+                ),
+                ToggleSource(
+                    isOn: Binding(
+                        get: { second },
+                        set: { second = $0 }
+                    )
+                ),
+                ToggleSource(
+                    isOn: Binding(
+                        get: { third },
+                        set: { third = $0 }
+                    )
+                )
+            ]
+
+            let mixedNode = makeNode(
+                Toggle("ALARMS", sources: sources, isOn: \.isOn),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: mixedNode).contains("ALARMS"))
+
+            firstFocusable(in: mixedNode)?.onActivate?()
+
+            XCTAssertTrue(first)
+            XCTAssertTrue(second)
+            XCTAssertTrue(third)
+            XCTAssertTrue(didInvalidate)
+
+            let allOnNode = makeNode(
+                Toggle(sources: sources, isOn: \.isOn) {
+                    Label("ALL", systemImage: "bell")
+                }
+                .toggleStyle(ButtonToggleStyle())
+            )
+
+            XCTAssertTrue(allTexts(in: allOnNode).contains("ALL"))
+
+            firstFocusable(in: allOnNode)?.onActivate?()
+
+            XCTAssertFalse(first)
+            XCTAssertFalse(second)
+            XCTAssertFalse(third)
+        }
+    }
+
     func testToggleStyleModifierMapsToRetainedToggleChrome() async {
         await MainActor.run {
             struct ToggleStyleReaderView: View {

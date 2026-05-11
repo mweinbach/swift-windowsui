@@ -8070,6 +8070,152 @@ public struct Toggle: View {
         self.init(titleKey.resolvedString, isOn: isOn)
     }
 
+    public init(_ title: String, image name: String, isOn: Binding<Bool>) {
+        self.isOn = isOn
+        self.label = [
+            AnyView(Label(title, image: name))
+        ]
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String, isOn: Binding<Bool>) {
+        self.init(String(title), image: name, isOn: isOn)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String, isOn: Binding<Bool>) {
+        self.init(titleKey.resolvedString, image: name, isOn: isOn)
+    }
+
+    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, isOn: Binding<Bool>) {
+        self.isOn = isOn
+        self.label = [
+            AnyView(Label(title, image: resource))
+        ]
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, isOn: Binding<Bool>) {
+        self.init(titleKey.resolvedString, image: resource, isOn: isOn)
+    }
+
+    public init(_ title: String, systemImage: String, isOn: Binding<Bool>) {
+        self.isOn = isOn
+        self.label = [
+            AnyView(Label(title, systemImage: systemImage))
+        ]
+    }
+
+    public init<S: StringProtocol>(_ title: S, systemImage: String, isOn: Binding<Bool>) {
+        self.init(String(title), systemImage: systemImage, isOn: isOn)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, systemImage: String, isOn: Binding<Bool>) {
+        self.init(titleKey.resolvedString, systemImage: systemImage, isOn: isOn)
+    }
+
+    public init<C>(
+        _ title: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(title, isOn: Self.aggregateBinding(sources: sources, isOn: isOn))
+    }
+
+    public init<S: StringProtocol, C>(
+        _ title: S,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(String(title), sources: sources, isOn: isOn)
+    }
+
+    public init<C>(
+        _ titleKey: LocalizedStringKey,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(titleKey.resolvedString, sources: sources, isOn: isOn)
+    }
+
+    public init<C>(
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>,
+        @ViewBuilder label: () -> [AnyView]
+    ) where C: RandomAccessCollection {
+        self.isOn = Self.aggregateBinding(sources: sources, isOn: isOn)
+        self.label = label()
+    }
+
+    public init<C>(
+        _ title: String,
+        image name: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(title, image: name, isOn: Self.aggregateBinding(sources: sources, isOn: isOn))
+    }
+
+    public init<S: StringProtocol, C>(
+        _ title: S,
+        image name: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(String(title), image: name, sources: sources, isOn: isOn)
+    }
+
+    public init<C>(
+        _ titleKey: LocalizedStringKey,
+        image name: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(titleKey.resolvedString, image: name, sources: sources, isOn: isOn)
+    }
+
+    public init<S: StringProtocol, C>(
+        _ title: S,
+        image resource: ImageResource,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(title, image: resource, isOn: Self.aggregateBinding(sources: sources, isOn: isOn))
+    }
+
+    public init<C>(
+        _ titleKey: LocalizedStringKey,
+        image resource: ImageResource,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(titleKey.resolvedString, image: resource, sources: sources, isOn: isOn)
+    }
+
+    public init<C>(
+        _ title: String,
+        systemImage: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(title, systemImage: systemImage, isOn: Self.aggregateBinding(sources: sources, isOn: isOn))
+    }
+
+    public init<S: StringProtocol, C>(
+        _ title: S,
+        systemImage: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(String(title), systemImage: systemImage, sources: sources, isOn: isOn)
+    }
+
+    public init<C>(
+        _ titleKey: LocalizedStringKey,
+        systemImage: String,
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) where C: RandomAccessCollection {
+        self.init(titleKey.resolvedString, systemImage: systemImage, sources: sources, isOn: isOn)
+    }
+
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> [AnyView]) {
         self.isOn = isOn
         self.label = label()
@@ -8285,6 +8431,27 @@ public struct Toggle: View {
                 context.invalidate()
             },
             children: children
+        )
+    }
+
+    private static func aggregateBinding<C>(
+        sources: C,
+        isOn: KeyPath<C.Element, Binding<Bool>>
+    ) -> Binding<Bool> where C: RandomAccessCollection {
+        Binding<Bool>(
+            get: {
+                guard !sources.isEmpty else {
+                    return false
+                }
+                return sources.allSatisfy { source in
+                    source[keyPath: isOn].wrappedValue
+                }
+            },
+            set: { newValue in
+                for source in sources {
+                    source[keyPath: isOn].wrappedValue = newValue
+                }
+            }
         )
     }
 }

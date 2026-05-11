@@ -802,6 +802,32 @@ public enum Visibility: Sendable, Equatable {
     }
 }
 
+public struct PresentationDetent: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case medium
+        case large
+        case height(Double)
+        case fraction(Double)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let medium = PresentationDetent(kind: .medium)
+    public static let large = PresentationDetent(kind: .large)
+
+    public static func height(_ height: Double) -> PresentationDetent {
+        PresentationDetent(kind: .height(height))
+    }
+
+    public static func fraction(_ fraction: Double) -> PresentationDetent {
+        PresentationDetent(kind: .fraction(fraction))
+    }
+}
+
 public struct HoverEffect: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -7265,6 +7291,38 @@ public extension View {
                 context: context,
                 arrowEdge: arrowEdge
             )
+        }
+    }
+
+    func presentationDetents(_ detents: Set<PresentationDetent>) -> some View {
+        _ = detents
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationDetents(
+        _ detents: Set<PresentationDetent>,
+        selection: Binding<PresentationDetent>
+    ) -> some View {
+        _ = detents
+        _ = selection
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func presentationDragIndicator(_ visibility: Visibility) -> some View {
+        _ = visibility
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func interactiveDismissDisabled(_ isDisabled: Bool = true) -> some View {
+        _ = isDisabled
+        return ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
         }
     }
 

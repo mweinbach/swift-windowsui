@@ -6825,6 +6825,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPresentationDetentAndDismissModifiersPreserveRetainedSheetContent() async {
+        await MainActor.run {
+            struct SheetContent: View {
+                @Environment(\.dismiss) var dismiss
+
+                var body: some View {
+                    VStack {
+                        Text("DETENT SHEET")
+                        Button("DONE") {
+                            dismiss()
+                        }
+                    }
+                    .presentationDetents([.medium, .large, .height(320), .fraction(0.4)])
+                    .presentationDragIndicator(.visible)
+                    .interactiveDismissDisabled()
+                }
+            }
+
+            var isPresented = true
+            var selectedDetent = PresentationDetent.medium
+            var didDismiss = false
+            let view = Text("ROOT")
+                .sheet(
+                    isPresented: Binding(
+                        get: { isPresented },
+                        set: { isPresented = $0 }
+                    ),
+                    onDismiss: {
+                        didDismiss = true
+                    }
+                ) {
+                    SheetContent()
+                        .presentationDetents(
+                            [.medium, .large],
+                            selection: Binding(
+                                get: { selectedDetent },
+                                set: { selectedDetent = $0 }
+                            )
+                        )
+                }
+
+            let presentedNode = makeNode(view)
+
+            XCTAssertEqual(Set<PresentationDetent>([.medium, .large, .height(320), .fraction(0.4)]).count, 4)
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DETENT SHEET"))
+            XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+
+            firstFocusable(in: presentedNode)?.onActivate?()
+
+            XCTAssertFalse(isPresented)
+            XCTAssertTrue(didDismiss)
+            XCTAssertEqual(selectedDetent, .medium)
+        }
+    }
+
     func testFullScreenCoverIsPresentedComposesRetainedCoverAndDismisses() async {
         await MainActor.run {
             struct FullScreenCoverContent: View {

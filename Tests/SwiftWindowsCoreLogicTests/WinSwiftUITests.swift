@@ -7234,6 +7234,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct ProgressViewStyleReaderView: View {
+                @Environment(\.progressViewStyle) var progressViewStyle
+
+                var body: some View {
+                    Text(progressViewStyle == .circular ? "CIRCULAR" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(ProgressViewStyleReaderView().progressViewStyle(.circular))
+            let inheritedNode = makeNode(
+                VStack {
+                    ProgressView(value: 0.25, total: 1.0)
+                    ProgressView(value: 0.75, total: 1.0)
+                }
+                .progressViewStyle(.linear)
+            )
+
+            XCTAssertEqual(readerNode.text, "CIRCULAR")
+            XCTAssertEqual(inheritedNode.children[0].children[1].frame.size.width, 50)
+            XCTAssertEqual(inheritedNode.children[1].children[1].frame.size.width, 150)
+        }
+    }
+
     func testGaugeMapsToRetainedProgressBarWithSwiftUIShapedLabels() async {
         await MainActor.run {
             let stringNode = makeNode(Gauge("BATTERY", value: 0.75, in: 0...1))

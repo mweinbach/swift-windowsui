@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
@@ -1276,6 +1277,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
@@ -1371,6 +1373,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
@@ -2047,6 +2050,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var progressViewStyle: ProgressViewStyle {
+        environmentValuesProvider().progressViewStyle
     }
 
     public var gaugeStyle: GaugeStyle {
@@ -4038,6 +4045,24 @@ public struct GaugeStyle: Sendable, Equatable {
     public static let circular = GaugeStyle(kind: .circular)
     public static let accessoryCircular = GaugeStyle(kind: .accessoryCircular)
     public static let accessoryCircularCapacity = GaugeStyle(kind: .accessoryCircularCapacity)
+}
+
+public struct ProgressViewStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case linear
+        case circular
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ProgressViewStyle(kind: .automatic)
+    public static let linear = ProgressViewStyle(kind: .linear)
+    public static let circular = ProgressViewStyle(kind: .circular)
 }
 
 public enum ForegroundStyle: Sendable, Equatable {
@@ -6814,6 +6839,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func progressViewStyle(_ style: ProgressViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.progressViewStyle, style))
         }
     }
 

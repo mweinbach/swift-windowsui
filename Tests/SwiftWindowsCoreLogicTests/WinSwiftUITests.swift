@@ -1796,6 +1796,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGenericAspectRatioMapsToRetainedPreferredSizeWrapper() async {
+        await MainActor.run {
+            let fitNode = makeNode(
+                Text("FIT")
+                    .frame(width: 100, height: 50)
+                    .aspectRatio(1, contentMode: .fit)
+            )
+            let fillNode = makeNode(
+                Text("FILL")
+                    .frame(width: 100, height: 50)
+                    .aspectRatio(1, contentMode: .fill)
+            )
+            let scaledToFitNode = makeNode(
+                Text("SCALE")
+                    .frame(width: 100, height: 50)
+                    .scaledToFit()
+            )
+
+            XCTAssertEqual(fitNode.preferredSize, Size(width: 50, height: 50))
+            XCTAssertEqual(fillNode.preferredSize, Size(width: 100, height: 100))
+            XCTAssertEqual(scaledToFitNode.preferredSize, Size(width: 100, height: 50))
+            XCTAssertEqual(fitNode.children.count, 1)
+            XCTAssertEqual(fitNode.children[0].preferredSize, Size(width: 100, height: 50))
+        }
+    }
+
     func testNamedImageLoadsBitmapAndAppliesAspectSizing() async {
         await MainActor.run {
             let url = FileManager.default.temporaryDirectory

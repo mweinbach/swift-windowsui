@@ -4129,6 +4129,28 @@ private func normalizedFrameIdeal(_ value: Double?) -> Double? {
     return max(0, value)
 }
 
+private func aspectRatioPreferredSize(
+    baseSize: Size,
+    requestedAspectRatio: Double?,
+    contentMode: ContentMode
+) -> Size {
+    let nativeRatio = baseSize.width > 0 && baseSize.height > 0 ? baseSize.width / baseSize.height : 1
+    let requestedRatio = requestedAspectRatio ?? nativeRatio
+    let ratio = requestedRatio.isFinite && requestedRatio > 0 ? requestedRatio : 1
+    let baseRatio = nativeRatio.isFinite && nativeRatio > 0 ? nativeRatio : 1
+
+    switch contentMode {
+    case .fit:
+        return ratio >= baseRatio
+            ? Size(width: baseSize.width, height: baseSize.width / ratio)
+            : Size(width: baseSize.height * ratio, height: baseSize.height)
+    case .fill:
+        return ratio >= baseRatio
+            ? Size(width: baseSize.height * ratio, height: baseSize.height)
+            : Size(width: baseSize.width, height: baseSize.width / ratio)
+    }
+}
+
 @MainActor
 private final class OnChangeObservationRegistry {
     static let shared = OnChangeObservationRegistry()
@@ -4264,7 +4286,24 @@ public extension View {
     }
 
     func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {
-        self
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let baseSize = childNode.intrinsicContentSize()
+                let preferredSize = aspectRatioPreferredSize(
+                    baseSize: baseSize,
+                    requestedAspectRatio: aspectRatio,
+                    contentMode: contentMode
+                )
+                return Controls.stackPanel(
+                    preferredSize: preferredSize,
+                    stackLayout: .vertical(padding: .zero, alignment: .center, mainAlignment: .center),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
     }
 
     func scaledToFit() -> some View {

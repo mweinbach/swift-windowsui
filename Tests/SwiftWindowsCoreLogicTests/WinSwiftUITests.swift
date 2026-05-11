@@ -4230,6 +4230,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDefaultScrollAnchorMapsToRetainedScrollAnchors() async {
+        await MainActor.run {
+            let roles: Set<ScrollAnchorRole> = [.initialOffset, .sizeChanges, .alignment]
+            let defaultNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .defaultScrollAnchor(.bottom)
+            )
+            let roleNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(.top, for: .initialOffset)
+                .defaultScrollAnchor(nil, for: .sizeChanges)
+                .defaultScrollAnchor(.center, for: .alignment)
+            )
+
+            XCTAssertEqual(roles.count, 3)
+            XCTAssertEqual(defaultNode.initialScrollAnchor, RetainedScrollAnchor(x: 0.5, y: 1))
+            XCTAssertEqual(defaultNode.scrollSizeChangeAnchor, RetainedScrollAnchor(x: 0.5, y: 1))
+            XCTAssertEqual(roleNode.initialScrollAnchor, RetainedScrollAnchor(x: 0.5, y: 0))
+            XCTAssertNil(roleNode.scrollSizeChangeAnchor)
+            XCTAssertEqual(roleNode.scrollAxis, .vertical)
+        }
+    }
+
     func testListMapsToVerticalRetainedScrollPanel() async {
         await MainActor.run {
             let node = makeNode(

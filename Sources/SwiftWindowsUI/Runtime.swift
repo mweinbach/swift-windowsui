@@ -260,6 +260,16 @@ public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case disabled
 }
 
+public struct RetainedScrollAnchor: Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
+
 public enum RetainedSubmitLabel: Sendable, Equatable {
     case `return`
     case done
@@ -671,6 +681,17 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var initialScrollAnchor: RetainedScrollAnchor? {
+        didSet {
+            hasAppliedInitialScrollAnchor = false
+            invalidateRuntime(.layout)
+        }
+    }
+
+    public var scrollSizeChangeAnchor: RetainedScrollAnchor? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var isFocusable: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -861,6 +882,9 @@ public final class ViewNode {
     internal var cachedFrameCommandRange: Range<Int>?
     internal var cachedSceneKey: ViewPaintCacheKey?
     internal var cachedScenePaintRange: Range<Int>?
+    private var hasAppliedInitialScrollAnchor: Bool
+    private var lastAnchoredScrollContentSize: Size
+    private var lastAnchoredScrollFrameSize: Size
 
     public init(
         frame: Rect = .zero,
@@ -902,6 +926,8 @@ public final class ViewNode {
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
         scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+        initialScrollAnchor: RetainedScrollAnchor? = nil,
+        scrollSizeChangeAnchor: RetainedScrollAnchor? = nil,
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
         isHidden: Bool = false,
@@ -972,6 +998,8 @@ public final class ViewNode {
         self.scrollIndicatorActiveColor = scrollIndicatorActiveColor
         self.scrollIndicatorThickness = scrollIndicatorThickness
         self.scrollIndicatorInsets = scrollIndicatorInsets
+        self.initialScrollAnchor = initialScrollAnchor
+        self.scrollSizeChangeAnchor = scrollSizeChangeAnchor
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
         self.isHidden = isHidden
@@ -1022,6 +1050,9 @@ public final class ViewNode {
         self.resolvedFrame = frame
         self.resolvedContentSize = frame.size
         self.resolvedScrollOffset = 0
+        self.hasAppliedInitialScrollAnchor = false
+        self.lastAnchoredScrollContentSize = frame.size
+        self.lastAnchoredScrollFrameSize = frame.size
 
         for child in children {
             addChild(child)
@@ -1398,8 +1429,46 @@ public final class ViewNode {
             resolvedContentSize = resolvedFrame.size
         }
 
+        applyDefaultScrollAnchorAfterLayout()
         cachedLayoutKey = layoutKey
         resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+    }
+
+    private func applyDefaultScrollAnchorAfterLayout() {
+        let contentSizeChanged = resolvedContentSize != lastAnchoredScrollContentSize
+        let frameSizeChanged = resolvedFrame.size != lastAnchoredScrollFrameSize
+
+        defer {
+            lastAnchoredScrollContentSize = resolvedContentSize
+            lastAnchoredScrollFrameSize = resolvedFrame.size
+        }
+
+        guard isScrollable else {
+            return
+        }
+
+        if !hasAppliedInitialScrollAnchor {
+            if let initialScrollAnchor {
+                scrollOffset = anchoredScrollOffset(for: initialScrollAnchor)
+            }
+            hasAppliedInitialScrollAnchor = true
+            return
+        }
+
+        if (contentSizeChanged || frameSizeChanged), let scrollSizeChangeAnchor {
+            scrollOffset = anchoredScrollOffset(for: scrollSizeChangeAnchor)
+        }
+    }
+
+    private func anchoredScrollOffset(for anchor: RetainedScrollAnchor) -> Double {
+        switch scrollAxis {
+        case .horizontal:
+            return clampedScrollOffset(for: maxScrollOffset * anchor.x)
+        case .vertical:
+            return clampedScrollOffset(for: maxScrollOffset * anchor.y)
+        case nil:
+            return 0
+        }
     }
 
     fileprivate func orderedChildrenForPaint() -> [ViewNode] {

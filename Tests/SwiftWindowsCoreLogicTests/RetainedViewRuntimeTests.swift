@@ -768,6 +768,38 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testDefaultScrollAnchorsResolveToRetainedScrollOffsetsAfterLayout() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 40, height: 40))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 40, height: 40))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 40, height: 40)
+            )
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 50),
+                layoutMode: .stack(.vertical(alignment: .stretch)),
+                scrollAxis: .vertical,
+                initialScrollAnchor: RetainedScrollAnchor(x: 0.5, y: 1),
+                scrollSizeChangeAnchor: RetainedScrollAnchor(x: 0.5, y: 1),
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let runtime = RetainedViewRuntime(root: scrollPanel)
+
+            _ = runtime.renderFrame()
+            XCTAssertEqual(scrollPanel.scrollOffset, 70)
+
+            scrollPanel.scrollOffset = 10
+            _ = runtime.renderFrame()
+            XCTAssertEqual(scrollPanel.scrollOffset, 10)
+
+            itemC.preferredSize = Size(width: 40, height: 80)
+            _ = runtime.renderFrame()
+            XCTAssertEqual(scrollPanel.scrollOffset, 110)
+        }
+    }
+
     func testScrollIndicatorHoverAndDragUpdateColorAndOffset() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

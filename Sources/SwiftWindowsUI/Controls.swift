@@ -311,6 +311,8 @@ public enum Controls {
         scrollIndicatorActiveColor: Color = Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.72),
         scrollIndicatorThickness: Double = 6,
         scrollIndicatorInsets: EdgeInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+        initialScrollAnchor: RetainedScrollAnchor? = nil,
+        scrollSizeChangeAnchor: RetainedScrollAnchor? = nil,
         isHitTestVisible: Bool = true,
         children: [ViewNode] = []
     ) -> ViewNode {
@@ -339,6 +341,8 @@ public enum Controls {
             node.scrollIndicatorActiveColor = scrollIndicatorActiveColor
             node.scrollIndicatorThickness = scrollIndicatorThickness
             node.scrollIndicatorInsets = scrollIndicatorInsets
+            node.initialScrollAnchor = initialScrollAnchor
+            node.scrollSizeChangeAnchor = scrollSizeChangeAnchor
         }
     }
 

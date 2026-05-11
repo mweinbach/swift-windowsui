@@ -885,6 +885,82 @@ struct ContentMarginValues: Sendable, Equatable {
     }
 }
 
+public struct ScrollAnchorRole: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case initialOffset
+        case sizeChanges
+        case alignment
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let initialOffset = ScrollAnchorRole(kind: .initialOffset)
+    public static let sizeChanges = ScrollAnchorRole(kind: .sizeChanges)
+    public static let alignment = ScrollAnchorRole(kind: .alignment)
+}
+
+private enum ScrollAnchorAssignment: Sendable, Equatable {
+    case inherited
+    case assigned(UnitPoint?)
+
+    var assignedAnchor: UnitPoint?? {
+        switch self {
+        case .inherited:
+            return nil
+        case .assigned(let anchor):
+            return .some(anchor)
+        }
+    }
+}
+
+struct DefaultScrollAnchorValues: Sendable, Equatable {
+    private var all: ScrollAnchorAssignment = .inherited
+    private var initialOffset: ScrollAnchorAssignment = .inherited
+    private var sizeChanges: ScrollAnchorAssignment = .inherited
+    private var alignment: ScrollAnchorAssignment = .inherited
+
+    static let empty = DefaultScrollAnchorValues()
+
+    mutating func set(_ anchor: UnitPoint?) {
+        all = .assigned(anchor)
+    }
+
+    mutating func set(_ anchor: UnitPoint?, for role: ScrollAnchorRole) {
+        switch role.kind {
+        case .initialOffset:
+            initialOffset = .assigned(anchor)
+        case .sizeChanges:
+            sizeChanges = .assigned(anchor)
+        case .alignment:
+            alignment = .assigned(anchor)
+        }
+    }
+
+    func anchor(for role: ScrollAnchorRole) -> UnitPoint? {
+        let roleAssignment: ScrollAnchorAssignment
+        switch role.kind {
+        case .initialOffset:
+            roleAssignment = initialOffset
+        case .sizeChanges:
+            roleAssignment = sizeChanges
+        case .alignment:
+            roleAssignment = alignment
+        }
+
+        if let anchor = roleAssignment.assignedAnchor {
+            return anchor
+        }
+        if let anchor = all.assignedAnchor {
+            return anchor
+        }
+        return nil
+    }
+}
+
 public struct PresentationDetent: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case medium
@@ -1541,6 +1617,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var contentMargins: ContentMarginValues
+    var defaultScrollAnchors: DefaultScrollAnchorValues
     var listRowSpacing: Double?
     var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
@@ -1770,6 +1847,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.contentMargins = .empty
+        self.defaultScrollAnchors = .empty
         self.listRowSpacing = nil
         self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
@@ -2549,6 +2627,10 @@ public struct ViewBuildContext {
 
     func contentInsets(for placement: ContentMarginPlacement, defaultInsets: EdgeInsets) -> EdgeInsets {
         environmentValuesProvider().contentMargins.insets(for: placement, defaultInsets: defaultInsets)
+    }
+
+    func defaultScrollAnchor(for role: ScrollAnchorRole) -> UnitPoint? {
+        environmentValuesProvider().defaultScrollAnchors.anchor(for: role)
     }
 
     var listRowSpacing: Double? {
@@ -9965,6 +10047,26 @@ public extension View {
             content.makeComponent(
                 context: context.withTransformedEnvironmentValue(\.contentMargins) { margins in
                     margins.set(edges, to: length, for: placement)
+                }
+            )
+        }
+    }
+
+    func defaultScrollAnchor(_ anchor: UnitPoint?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withTransformedEnvironmentValue(\.defaultScrollAnchors) { anchors in
+                    anchors.set(anchor)
+                }
+            )
+        }
+    }
+
+    func defaultScrollAnchor(_ anchor: UnitPoint?, for role: ScrollAnchorRole) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withTransformedEnvironmentValue(\.defaultScrollAnchors) { anchors in
+                    anchors.set(anchor, for: role)
                 }
             )
         }

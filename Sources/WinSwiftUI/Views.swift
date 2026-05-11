@@ -6,6 +6,10 @@ import SwiftWindowsUI
 
 private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
 
+private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnchor? {
+    anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
+}
+
 public struct GeometryProxy {
     public let size: Size
 
@@ -3767,6 +3771,8 @@ public struct ScrollView: View {
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
             )
+            let initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
+            let scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground ? nil : style.backgroundColor,
@@ -3786,6 +3792,8 @@ public struct ScrollView: View {
                 scrollIndicatorActiveColor: style.indicatorActiveColor,
                 scrollIndicatorThickness: style.indicatorThickness,
                 scrollIndicatorInsets: scrollIndicatorInsets,
+                initialScrollAnchor: initialScrollAnchor,
+                scrollSizeChangeAnchor: scrollSizeChangeAnchor,
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
@@ -3994,6 +4002,8 @@ public struct List: View {
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
             )
+            node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
+            node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
@@ -4358,6 +4368,8 @@ public struct Section: View {
                     for: .scrollIndicators,
                     defaultInsets: defaultRetainedScrollIndicatorInsets
                 )
+                node.initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
+                node.scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
                 node.scrollIndicatorColor = style.indicatorColor
                 node.scrollIndicatorIdleColor = style.indicatorColor
                 node.scrollIndicatorHoverColor = style.indicatorHoverColor

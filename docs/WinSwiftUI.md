@@ -354,6 +354,7 @@ Modifiers:
 - `scrollContentBackground`
 - `scrollIndicators`
 - `contentMargins`
+- `defaultScrollAnchor`
 - `scrollDismissesKeyboard`
 - `defaultWheelPickerItemHeight`
 - `listRowBackground`
@@ -588,6 +589,7 @@ Surface direction:
 - `scrollContentBackground(_:)` accepts SwiftUI `Visibility` values. `.hidden` clears retained scroll-container background chrome for `ScrollView` and scrolling `Section` nodes; `.automatic` and `.visible` preserve the current retained style background. Non-scroll `Section` panels keep their normal background.
 - `scrollIndicators(_:axes:)` propagates horizontal and vertical `ScrollIndicatorVisibility` environment values. `.hidden` and `.never` suppress retained indicators for matching axes, while `.automatic` and `.visible` keep the current retained indicator behavior.
 - `contentMargins(_:,for:)` and `contentMargins(_:_:for:)` accept SwiftUI-shaped content-margin placement metadata. Retained `ScrollView`, `List`, and scrolling `Section` nodes resolve `.automatic` and `.scrollContent` margins into stack padding, while `.automatic` and `.scrollIndicators` margins feed retained scroll indicator inset geometry for drawing, hit testing, and dragging.
+- `defaultScrollAnchor(_:)` and `defaultScrollAnchor(_:for:)` accept SwiftUI-shaped `UnitPoint` anchors. Retained scroll containers use the initial-offset anchor to seed `scrollOffset` after layout and the size-changes anchor when their content or frame size changes; alignment anchors are retained as source-compatible metadata until small-content alignment is modeled separately.
 - `scrollDismissesKeyboard(_:)` propagates `EnvironmentValues.scrollDismissesKeyboardMode` with `.automatic`, `.immediately`, `.interactively`, and `.never` for source-compatible scroll/input code. It is metadata today because the Windows retained text input path does not host a software keyboard.
 - `defaultWheelPickerItemHeight(_:)` propagates `EnvironmentValues.defaultWheelPickerItemHeight`, defaulting to `32`. WinSwiftUI does not yet implement wheel-style picker chrome, so this value is readable/overrideable compatibility metadata.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime. The SwiftUI-shaped `Axis.Set` / `showsIndicators:` initializer is accepted for source compatibility; the retained runtime scrolls one primary axis today, so `.all` resolves to the vertical retained path until two-axis scrolling is modeled.

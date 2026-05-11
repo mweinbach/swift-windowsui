@@ -155,6 +155,8 @@ public final class ComponentHost {
         if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor { target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor }
         if target.scrollIndicatorThickness != source.scrollIndicatorThickness { target.scrollIndicatorThickness = source.scrollIndicatorThickness }
         if target.scrollIndicatorInsets != source.scrollIndicatorInsets { target.scrollIndicatorInsets = source.scrollIndicatorInsets }
+        if target.initialScrollAnchor != source.initialScrollAnchor { target.initialScrollAnchor = source.initialScrollAnchor }
+        if target.scrollSizeChangeAnchor != source.scrollSizeChangeAnchor { target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }

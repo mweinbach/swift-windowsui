@@ -174,6 +174,9 @@ final class WinSwiftUITests: XCTestCase {
                     Menu(title, systemImage: "ellipsis.circle") {
                         Button(title) {}
                     }
+                    ControlGroup(title) {
+                        Button(title) {}
+                    }
                     Toggle(title, isOn: .constant(true))
                     ProgressView(title, value: 0.5, total: 1.0)
                     Button(title) {}
@@ -184,7 +187,7 @@ final class WinSwiftUITests: XCTestCase {
                 }
             )
 
-            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 11)
+            XCTAssertGreaterThanOrEqual(allTexts(in: node).filter { $0 == "SAVE" }.count, 13)
         }
     }
 
@@ -2948,6 +2951,36 @@ final class WinSwiftUITests: XCTestCase {
             expandedNode.children[1].children[0].onActivate?()
 
             XCTAssertEqual(activationCount, 1)
+        }
+    }
+
+    func testControlGroupComposesCompactControlsAndPreservesActions() async {
+        await MainActor.run {
+            var activationCount = 0
+            let node = makeNode(
+                ControlGroup {
+                    Button("EXPORT") {
+                        activationCount += 1
+                    }
+                    Button("ARCHIVE") {}
+                } label: {
+                    Text("TOOLS")
+                }
+            )
+            let titleNode = makeNode(
+                ControlGroup(LocalizedStringKey("ACTIONS")) {
+                    Button("SYNC") {}
+                }
+            )
+
+            XCTAssertEqual(allTexts(in: node), ["TOOLS", "EXPORT", "ARCHIVE"])
+            XCTAssertEqual(node.children[0].layoutPriority, 1)
+            XCTAssertEqual(node.cornerRadius, 10)
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(activationCount, 1)
+            XCTAssertEqual(allTexts(in: titleNode), ["ACTIONS", "SYNC"])
         }
     }
 

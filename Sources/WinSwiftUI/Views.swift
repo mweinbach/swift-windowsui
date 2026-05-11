@@ -3113,6 +3113,74 @@ public struct Menu: View {
 }
 
 @MainActor
+public struct ControlGroup: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.label = []
+        self.content = content()
+    }
+
+    public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
+        self.label = label()
+        self.content = content()
+    }
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.init(content: content) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
+        self.init(String(title), content: content)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
+        self.init(titleKey.resolvedString, content: content)
+    }
+
+    public var body: Never {
+        fatalError("ControlGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelComponents = label.map { $0.makeComponent(context: context) }
+        let controlComponents = content.map { $0.makeComponent(context: context.withButtonStyle(.borderless)) }
+
+        return Component { runtime in
+            var children = labelComponents.map { component in
+                let node = component.makeNode(runtime: runtime)
+                node.layoutPriority = max(node.layoutPriority, 1)
+                return node
+            }
+            children += controlComponents.map { $0.makeNode(runtime: runtime) }
+
+            return Controls.stackPanel(
+                backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.72),
+                borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+                borderWidth: 1,
+                cornerRadius: 10,
+                stackLayout: .horizontal(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
+                    alignment: .center
+                ),
+                isHitTestVisible: false,
+                children: children
+            )
+        }
+    }
+}
+
+@MainActor
 public struct TextField: View {
     public typealias Body = Never
 

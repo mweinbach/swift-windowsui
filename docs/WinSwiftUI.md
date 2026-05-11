@@ -119,6 +119,7 @@ Views and containers:
   - `StringProtocol` title inputs
   - `Section(_:isExpanded:content:)`
   - `Section(isExpanded:content:header:)`
+  - `Section { content } footer: { footer }`
   - `Section { content } header: { header } footer: { footer }`
 - `GroupBox`
   - `StringProtocol` title inputs

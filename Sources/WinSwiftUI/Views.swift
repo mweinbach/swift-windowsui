@@ -3189,6 +3189,17 @@ public struct Section: View {
     }
 
     public init(
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder footer: () -> [AnyView]
+    ) {
+        self.header = []
+        self.footer = footer()
+        self.style = .default
+        self.isExpanded = nil
+        self.content = content()
+    }
+
+    public init(
         isExpanded: Binding<Bool>,
         @ViewBuilder content: () -> [AnyView],
         @ViewBuilder header: () -> [AnyView]

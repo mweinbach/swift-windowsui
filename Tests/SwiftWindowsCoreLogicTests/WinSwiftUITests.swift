@@ -3689,6 +3689,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSectionSupportsFooterOnlyBuilderSyntax() async {
+        await MainActor.run {
+            let node = makeNode(
+                Section {
+                    Text("ROW")
+                } footer: {
+                    Text("FOOTER")
+                }
+            )
+
+            guard case .stack(let stackLayout) = node.layoutMode else {
+                return XCTFail("Expected Section to use retained stack layout")
+            }
+
+            XCTAssertEqual(stackLayout, .vertical(spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18), alignment: .leading))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].text, "ROW")
+            XCTAssertEqual(node.children[1].text, "FOOTER")
+            XCTAssertEqual(node.children[1].textStyle.color, .secondary)
+            XCTAssertEqual(node.children[1].textStyle.scale, Font.caption.resolvedScale)
+        }
+    }
+
     func testSectionExpandedBindingControlsRetainedContentAndHeaderActivation() async {
         await MainActor.run {
             var isExpanded = false

@@ -2100,9 +2100,27 @@ final class WinSwiftUITests: XCTestCase {
             }
 
             XCTAssertEqual(gridLayout, .vertical(spacing: 9, alignment: .leading))
-            XCTAssertEqual(firstRowLayout, .horizontal(spacing: 0, alignment: .trailing))
-            XCTAssertEqual(secondRowLayout, .horizontal(spacing: 0, alignment: .center))
+            XCTAssertEqual(firstRowLayout, .horizontal(spacing: 12, alignment: .trailing))
+            XCTAssertEqual(secondRowLayout, .horizontal(spacing: 12, alignment: .center))
             XCTAssertEqual(allTexts(in: node), ["A1", "A2", "B1", "B2"])
+        }
+    }
+
+    func testStandaloneGridRowUsesDefaultRetainedHorizontalSpacing() async {
+        await MainActor.run {
+            let node = makeNode(
+                GridRow {
+                    Text("A")
+                    Text("B")
+                }
+            )
+
+            guard case .stack(let layout) = node.layoutMode else {
+                return XCTFail("Expected GridRow to use retained horizontal stack layout")
+            }
+
+            XCTAssertEqual(layout, .horizontal(spacing: 0, alignment: .center))
+            XCTAssertEqual(allTexts(in: node), ["A", "B"])
         }
     }
 

@@ -424,6 +424,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var listRowSpacing: Double?
+    var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
     public var defaultMinListHeaderHeight: CGFloat?
     public var headerProminence: Prominence
@@ -485,6 +486,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.listRowSpacing = nil
+        self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
         self.headerProminence = headerProminence
@@ -779,6 +781,10 @@ public struct ViewBuildContext {
 
     var listRowSpacing: Double? {
         environmentValuesProvider().listRowSpacing
+    }
+
+    var gridHorizontalSpacing: Double? {
+        environmentValuesProvider().gridHorizontalSpacing
     }
 
     public var defaultMinListRowHeight: Double {

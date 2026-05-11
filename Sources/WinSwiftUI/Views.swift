@@ -2548,6 +2548,7 @@ public struct Grid: View {
     public typealias Body = Never
 
     private let alignment: Alignment
+    private let horizontalSpacing: Double
     private let verticalSpacing: Double
     private let content: [AnyView]
 
@@ -2557,8 +2558,8 @@ public struct Grid: View {
         verticalSpacing: Double? = nil,
         @ViewBuilder content: () -> [AnyView]
     ) {
-        _ = horizontalSpacing
         self.alignment = alignment
+        self.horizontalSpacing = horizontalSpacing ?? 0
         self.verticalSpacing = verticalSpacing ?? 0
         self.content = content()
     }
@@ -2569,7 +2570,10 @@ public struct Grid: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let verticalSpacing = verticalSpacing
-        let childContext = context.withStackAxis(.vertical)
+        let horizontalSpacing = horizontalSpacing
+        let childContext = context
+            .withStackAxis(.vertical)
+            .withEnvironmentValue(\.gridHorizontalSpacing, horizontalSpacing)
         let content = content
 
         return Component { runtime in
@@ -2603,9 +2607,10 @@ public struct GridRow: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let childContext = context.withStackAxis(.horizontal)
+        let horizontalSpacing = context.gridHorizontalSpacing ?? 0
         return Component { runtime in
             Controls.stackPanel(
-                stackLayout: .horizontal(spacing: 0, alignment: alignment.stackAlignment),
+                stackLayout: .horizontal(spacing: horizontalSpacing, alignment: alignment.stackAlignment),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )

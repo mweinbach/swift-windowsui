@@ -1253,6 +1253,7 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.truncationMode) var truncationMode
                 @Environment(\.allowsTightening) var allowsTightening
                 @Environment(\.textCase) var textCase
+                @Environment(\.legibilityWeight) var legibilityWeight
 
                 var body: some View {
                     Text(
@@ -1261,6 +1262,7 @@ final class WinSwiftUITests: XCTestCase {
                             && truncationMode == .middle
                             && allowsTightening
                             && textCase == .uppercase
+                            && legibilityWeight == .bold
                             ? "ENV"
                             : "DEFAULT"
                     )
@@ -1274,6 +1276,7 @@ final class WinSwiftUITests: XCTestCase {
                     .environment(\.truncationMode, .middle)
                     .environment(\.allowsTightening, true)
                     .environment(\.textCase, .uppercase)
+                    .environment(\.legibilityWeight, .bold)
             )
             let resetNode = makeNode(
                 VStack {
@@ -1288,6 +1291,14 @@ final class WinSwiftUITests: XCTestCase {
                 .allowsTightening(true)
                 .textCase(.uppercase)
             )
+            let legibilityNode = makeNode(
+                VStack {
+                    Text("BOLD")
+                    Text("REGULAR")
+                        .fontWeight(.regular)
+                }
+                .legibilityWeight(.bold)
+            )
             let readerNode = makeNode(
                 TextEnvironmentReaderView()
                     .multilineTextAlignment(.trailing)
@@ -1295,6 +1306,7 @@ final class WinSwiftUITests: XCTestCase {
                     .truncationMode(.middle)
                     .allowsTightening(true)
                     .textCase(.uppercase)
+                    .legibilityWeight(.bold)
             )
 
             XCTAssertEqual(environmentNode.text, "MIXED")
@@ -1306,6 +1318,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNil(resetNode.children[0].textStyle.maximumNumberOfLines)
             XCTAssertEqual(resetNode.children[0].textStyle.lineBreakMode, .wrap)
             XCTAssertFalse(resetNode.children[0].textStyle.enableKerning)
+            XCTAssertEqual(legibilityNode.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(legibilityNode.children[1].textStyle.weight, .regular)
             XCTAssertEqual(readerNode.text, "ENV")
         }
     }

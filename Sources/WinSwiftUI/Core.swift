@@ -335,6 +335,20 @@ public enum ColorSchemeContrast: Sendable, Equatable {
     case increased
 }
 
+public enum LegibilityWeight: Sendable, Equatable {
+    case regular
+    case bold
+
+    var retainedFontWeight: Font.Weight {
+        switch self {
+        case .regular:
+            return .regular
+        case .bold:
+            return .bold
+        }
+    }
+}
+
 public enum LayoutDirection: Sendable, Equatable {
     case leftToRight
     case rightToLeft
@@ -512,6 +526,7 @@ public struct OpenURLAction: @unchecked Sendable {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
+    public var legibilityWeight: LegibilityWeight?
     public var layoutDirection: LayoutDirection
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
@@ -553,6 +568,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public init(
         colorScheme: ColorScheme = .dark,
         colorSchemeContrast: ColorSchemeContrast = .standard,
+        legibilityWeight: LegibilityWeight? = nil,
         layoutDirection: LayoutDirection = .leftToRight,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
@@ -588,6 +604,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
+        self.legibilityWeight = legibilityWeight
         self.layoutDirection = layoutDirection
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
@@ -827,7 +844,7 @@ public struct ViewBuildContext {
     }
 
     public var fontWeight: Font.Weight? {
-        fontWeightProvider()
+        fontWeightProvider() ?? environmentValuesProvider().legibilityWeight?.retainedFontWeight
     }
 
     public var textAlignment: TextAlignment {
@@ -4078,6 +4095,12 @@ public extension View {
     func dynamicTypeSize(_ size: DynamicTypeSize) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.dynamicTypeSize, size))
+        }
+    }
+
+    func legibilityWeight(_ weight: LegibilityWeight?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.legibilityWeight, weight))
         }
     }
 

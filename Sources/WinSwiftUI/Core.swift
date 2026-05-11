@@ -3263,6 +3263,27 @@ public enum Edge {
     }
 }
 
+public enum VerticalEdge: Sendable, Equatable {
+    case top
+    case bottom
+}
+
+public enum HorizontalEdge: Sendable, Equatable {
+    case leading
+    case trailing
+
+    func resolved(for layoutDirection: LayoutDirection) -> HorizontalEdge {
+        switch (self, layoutDirection) {
+        case (.leading, .rightToLeft):
+            return .trailing
+        case (.trailing, .rightToLeft):
+            return .leading
+        case (.leading, .leftToRight), (.trailing, .leftToRight):
+            return self
+        }
+    }
+}
+
 public struct SafeAreaRegions: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -4849,6 +4870,90 @@ public extension View {
 
     func safeAreaPadding(_ insets: EdgeInsets) -> some View {
         padding(insets)
+    }
+
+    func safeAreaInset(
+        edge: VerticalEdge,
+        alignment: HorizontalAlignment = .center,
+        spacing: Double? = nil,
+        @ViewBuilder content insetContent: () -> [AnyView]
+    ) -> some View {
+        let insetViews = insetContent()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let inset = composeComponent(
+                from: insetViews,
+                context: context,
+                fallbackLayout: .stack(.vertical(
+                    spacing: 0,
+                    alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                )),
+                isHitTestVisible: false
+            )
+
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let insetNode = inset.makeNode(runtime: runtime)
+                let children: [ViewNode]
+                switch edge {
+                case .top:
+                    children = [insetNode, baseNode]
+                case .bottom:
+                    children = [baseNode, insetNode]
+                }
+
+                return Controls.stackPanel(
+                    stackLayout: .vertical(
+                        spacing: spacing ?? 0,
+                        alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                    ),
+                    isHitTestVisible: false,
+                    children: children
+                )
+            }
+        }
+    }
+
+    func safeAreaInset(
+        edge: HorizontalEdge,
+        alignment: VerticalAlignment = .center,
+        spacing: Double? = nil,
+        @ViewBuilder content insetContent: () -> [AnyView]
+    ) -> some View {
+        let insetViews = insetContent()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let inset = composeComponent(
+                from: insetViews,
+                context: context,
+                fallbackLayout: .stack(.horizontal(
+                    spacing: 0,
+                    alignment: alignment.stackAlignment
+                )),
+                isHitTestVisible: false
+            )
+
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let insetNode = inset.makeNode(runtime: runtime)
+                let children: [ViewNode]
+                switch edge.resolved(for: context.layoutDirection) {
+                case .leading:
+                    children = [insetNode, baseNode]
+                case .trailing:
+                    children = [baseNode, insetNode]
+                }
+
+                return Controls.stackPanel(
+                    stackLayout: .horizontal(
+                        spacing: spacing ?? 0,
+                        alignment: alignment.stackAlignment
+                    ),
+                    isHitTestVisible: false,
+                    children: children
+                )
+            }
+        }
     }
 
     func aspectRatio(_ aspectRatio: Double? = nil, contentMode: ContentMode) -> some View {

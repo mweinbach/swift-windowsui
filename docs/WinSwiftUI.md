@@ -171,6 +171,7 @@ Modifiers:
 - `ignoresSafeArea`
 - `edgesIgnoringSafeArea`
 - `safeAreaPadding`
+- `safeAreaInset`
 - `aspectRatio`
 - `scaledToFit`
 - `scaledToFill`
@@ -375,7 +376,7 @@ Surface direction:
 - `frame(minWidth:idealWidth:maxWidth:minHeight:idealHeight:maxHeight:alignment:)` maps finite constraints into retained `LayoutConstraints`; infinite maximum values are accepted for call-site compatibility, with expansion still depending on the surrounding retained layout mode.
 - `fixedSize()` and `fixedSize(horizontal:vertical:)` map to retained measurement axes that ignore incoming maximum constraints on selected axes; final placement can still be limited by the parent layout mode.
 - `padding` accepts SwiftUI-style optional lengths; `nil` resolves to the retained default of `16`.
-- `ignoresSafeArea` and `edgesIgnoringSafeArea` are accepted for source compatibility but currently pass through unchanged because the Win32 host renders into a client-area surface with no derived unsafe insets. `safeAreaPadding` maps onto the retained padding wrapper, so shared-source layouts that request safe-area padding still get deterministic retained spacing on Windows.
+- `ignoresSafeArea` and `edgesIgnoringSafeArea` are accepted for source compatibility but currently pass through unchanged because the Win32 host renders into a client-area surface with no derived unsafe insets. `safeAreaPadding` maps onto the retained padding wrapper, so shared-source layouts that request safe-area padding still get deterministic retained spacing on Windows. `safeAreaInset(edge:alignment:spacing:content:)` accepts `VerticalEdge` and `HorizontalEdge` call sites and composes the inset content before or after the base view with retained stacks, resolving leading/trailing through `layoutDirection`; it does not yet reserve platform-derived unsafe regions.
 - `EnvironmentValues.scenePhase` accepts `.active`, `.inactive`, and `.background`, defaults to `.active`, and can be overridden with `.environment(\.scenePhase, ...)` for shared-source app logic. Hosted Win32 windows update this value from app activation and visibility events, mapping visible active windows to `.active`, visible inactive windows to `.inactive`, and hidden windows to `.background`.
 - `EnvironmentValues.controlActiveState` accepts `.key`, `.active`, and `.inactive`, while `EnvironmentValues.appearsActive` provides the newer Boolean active-appearance hint. Hosted Win32 windows map the single live window to `.key` while active and visible, `.inactive` while inactive or hidden, and update `appearsActive` from the same active/visible state.
 - `EnvironmentValues.isLuminanceReduced`, `EnvironmentValues.isSceneCaptured`, and `EnvironmentValues.isTabBarShowingSections` are readable and overrideable compatibility values. They default to `false`; the Win32 host does not yet derive them from display power/luminance policy, capture/recording state, or adaptive tab layout.

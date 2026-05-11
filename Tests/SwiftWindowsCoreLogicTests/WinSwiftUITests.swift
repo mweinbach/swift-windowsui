@@ -2310,6 +2310,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSafeAreaInsetComposesEdgeContentAroundBase() async {
+        await MainActor.run {
+            let topNode = makeNode(
+                Text("BASE")
+                    .safeAreaInset(edge: .top, alignment: .leading, spacing: 6) {
+                        Text("TOP")
+                    }
+            )
+            let trailingNode = makeNode(
+                Text("BASE")
+                    .safeAreaInset(edge: .trailing, alignment: .bottom, spacing: 4) {
+                        Text("TRAILING")
+                    }
+            )
+            let rtlLeadingNode = makeNode(
+                Text("BASE")
+                    .safeAreaInset(edge: .leading, alignment: .top) {
+                        Text("LEADING")
+                    }
+                    .environment(\.layoutDirection, .rightToLeft)
+            )
+
+            guard case .stack(let topLayout) = topNode.layoutMode else {
+                return XCTFail("Expected vertical safeAreaInset to wrap content in a stack layout")
+            }
+            guard case .stack(let trailingLayout) = trailingNode.layoutMode else {
+                return XCTFail("Expected horizontal safeAreaInset to wrap content in a stack layout")
+            }
+            guard case .stack(let rtlLeadingLayout) = rtlLeadingNode.layoutMode else {
+                return XCTFail("Expected RTL horizontal safeAreaInset to wrap content in a stack layout")
+            }
+
+            XCTAssertEqual(topLayout, .vertical(spacing: 6, alignment: .leading))
+            XCTAssertEqual(topNode.children.map(\.text), ["TOP", "BASE"])
+
+            XCTAssertEqual(trailingLayout, .horizontal(spacing: 4, alignment: .trailing))
+            XCTAssertEqual(trailingNode.children.map(\.text), ["BASE", "TRAILING"])
+
+            XCTAssertEqual(rtlLeadingLayout, .horizontal(spacing: 0, alignment: .leading))
+            XCTAssertEqual(rtlLeadingNode.children.map(\.text), ["BASE", "LEADING"])
+        }
+    }
+
     func testOverlayAlignsContentWithoutExpandingBaseLayout() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

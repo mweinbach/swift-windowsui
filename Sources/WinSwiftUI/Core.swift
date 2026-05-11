@@ -4164,6 +4164,18 @@ public struct ProgressViewStyle: Sendable, Equatable {
     public static let circular = ProgressViewStyle(kind: .circular)
 }
 
+public struct DefaultProgressViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct LinearProgressViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CircularProgressViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct DatePickerStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -7318,6 +7330,18 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.progressViewStyle, style))
         }
+    }
+
+    func progressViewStyle(_ style: DefaultProgressViewStyle) -> some View {
+        progressViewStyle(.automatic)
+    }
+
+    func progressViewStyle(_ style: LinearProgressViewStyle) -> some View {
+        progressViewStyle(.linear)
+    }
+
+    func progressViewStyle(_ style: CircularProgressViewStyle) -> some View {
+        progressViewStyle(.circular)
     }
 
     func gaugeStyle(_ style: GaugeStyle) -> some View {

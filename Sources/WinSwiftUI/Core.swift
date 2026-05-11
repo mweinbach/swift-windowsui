@@ -6200,8 +6200,7 @@ public extension SwiftWindowsCore.Color {
     }
 
     init(_ resource: ColorResource) {
-        _ = resource
-        self = SwiftWindowsCore.Color.accentColor
+        self = resolvedColorResource(resource) ?? SwiftWindowsCore.Color.accentColor
     }
 
     func opacity(_ value: Double) -> SwiftWindowsCore.Color {
@@ -6383,6 +6382,58 @@ extension ViewBuildContext {
         badgeNode.layoutConstraints = LayoutConstraints(minWidth: 18, minHeight: 18)
         return badgeNode
     }
+}
+
+private func resolvedColorResource(_ resource: ColorResource) -> SwiftWindowsCore.Color? {
+    parsedHexColor(resource.name)
+}
+
+private func parsedHexColor(_ value: String) -> SwiftWindowsCore.Color? {
+    var hex = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    if hex.hasPrefix("#") {
+        hex.removeFirst()
+    } else if hex.lowercased().hasPrefix("0x") {
+        hex.removeFirst(2)
+    }
+    hex.removeAll { $0 == "_" || $0 == "-" }
+
+    let expanded: String
+    switch hex.count {
+    case 3, 4:
+        expanded = hex.map { "\($0)\($0)" }.joined()
+    case 6, 8:
+        expanded = hex
+    default:
+        return nil
+    }
+
+    guard expanded.allSatisfy(\.isHexDigit),
+          let rawValue = UInt32(expanded, radix: 16) else {
+        return nil
+    }
+
+    let red: UInt32
+    let green: UInt32
+    let blue: UInt32
+    let alpha: UInt32
+    if expanded.count == 8 {
+        red = (rawValue >> 24) & 0xFF
+        green = (rawValue >> 16) & 0xFF
+        blue = (rawValue >> 8) & 0xFF
+        alpha = rawValue & 0xFF
+    } else {
+        red = (rawValue >> 16) & 0xFF
+        green = (rawValue >> 8) & 0xFF
+        blue = rawValue & 0xFF
+        alpha = 0xFF
+    }
+
+    return SwiftWindowsCore.Color(
+        red: Float(red) / 255.0,
+        green: Float(green) / 255.0,
+        blue: Float(blue) / 255.0,
+        alpha: Float(alpha) / 255.0
+    )
 }
 
 private func resolvedStyleColor(from style: ForegroundStyle) -> Color {

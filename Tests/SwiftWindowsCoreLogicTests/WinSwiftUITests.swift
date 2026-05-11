@@ -159,7 +159,7 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
-    func testColorResourceInitializersUseDeterministicCompatibilityFallback() async {
+    func testColorResourceInitializersResolveHexNamesAndFallbackDeterministically() async {
         await MainActor.run {
             let resource = ColorResource(name: "BrandColor", bundle: .main)
             let sameResource = ColorResource(name: "BrandColor", bundle: .main)
@@ -171,6 +171,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Color(resource), .accentColor)
             XCTAssertEqual(Color("BrandColor", bundle: .main), .accentColor)
             XCTAssertEqual(Color("BrandColor"), .accentColor)
+            assertColor(Color("#33669980"), red: 51.0 / 255.0, green: 102.0 / 255.0, blue: 153.0 / 255.0, alpha: 128.0 / 255.0)
+            assertColor(Color("0xF80"), red: 1, green: 136.0 / 255.0, blue: 0, alpha: 1)
+            assertColor(Color(ColorResource(name: "0F08", bundle: .main)), red: 0, green: 1, blue: 0, alpha: 136.0 / 255.0)
         }
     }
 

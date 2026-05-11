@@ -2210,6 +2210,7 @@ public struct Image: View {
         applyAccessibility(to: node)
         node.symbolVariableValue = symbolVariableValue
         node.symbolRenderingMode = context.symbolRenderingMode?.retainedSymbolRenderingMode
+        node.symbolVariants = context.symbolVariants.retainedSymbolVariants
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
         node.imageCapInsets = isResizable ? capInsets : nil
     }

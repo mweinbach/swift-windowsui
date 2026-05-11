@@ -2346,6 +2346,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSymbolVariantPropagatesThroughEnvironmentAndRetainedImageMetadata() async {
+        await MainActor.run {
+            struct SymbolVariantReaderView: View {
+                @Environment(\.symbolVariants) var symbolVariants
+
+                var body: some View {
+                    Text(
+                        symbolVariants.contains([.fill, .slash]) ? "FILL_SLASH"
+                            : symbolVariants.contains(.circle) ? "CIRCLE"
+                            : symbolVariants.isEmpty ? "NONE"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(Image(systemName: "gear"))
+            let fillNode = makeNode(Image(systemName: "gear").symbolVariant(.fill))
+            let combinedNode = makeNode(Image(systemName: "gear").symbolVariant([.fill, .slash]))
+            let inheritedNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                    Label("SETTINGS", systemImage: "gear")
+                }
+                .symbolVariant(.circle)
+            )
+            let resetNode = makeNode(
+                VStack {
+                    Image(systemName: "gear")
+                        .symbolVariant(.none)
+                }
+                .symbolVariant(.fill)
+            )
+            let readerNode = makeNode(SymbolVariantReaderView().symbolVariant([.fill, .slash]))
+            let resetReaderNode = makeNode(
+                VStack {
+                    SymbolVariantReaderView()
+                        .symbolVariant(.none)
+                }
+                .symbolVariant(.circle)
+            )
+
+            XCTAssertEqual(defaultNode.symbolVariants, .none)
+            XCTAssertEqual(fillNode.symbolVariants, .fill)
+            XCTAssertEqual(combinedNode.symbolVariants, [.fill, .slash])
+            XCTAssertEqual(inheritedNode.children[0].symbolVariants, .circle)
+            XCTAssertEqual(inheritedNode.children[1].children[0].symbolVariants, .circle)
+            XCTAssertEqual(resetNode.children[0].symbolVariants, .none)
+            XCTAssertEqual(readerNode.text, "FILL_SLASH")
+            XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
+        }
+    }
+
     func testFrameConstraintOverloadMapsToRetainedLayoutConstraints() async {
         await MainActor.run {
             let constrainedNode = makeNode(

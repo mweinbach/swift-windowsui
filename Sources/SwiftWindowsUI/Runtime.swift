@@ -69,6 +69,21 @@ public enum RetainedSymbolRenderingMode: Sendable, Equatable {
     case multicolor
 }
 
+public struct RetainedSymbolVariants: OptionSet, Sendable, Equatable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let none: RetainedSymbolVariants = []
+    public static let circle = RetainedSymbolVariants(rawValue: 1 << 0)
+    public static let square = RetainedSymbolVariants(rawValue: 1 << 1)
+    public static let rectangle = RetainedSymbolVariants(rawValue: 1 << 2)
+    public static let fill = RetainedSymbolVariants(rawValue: 1 << 3)
+    public static let slash = RetainedSymbolVariants(rawValue: 1 << 4)
+}
+
 public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
     public var namespaceID: String
     public var elementID: String
@@ -676,6 +691,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var symbolVariants: RetainedSymbolVariants {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var imageResizingMode: RetainedImageResizingMode? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -859,6 +878,7 @@ public final class ViewNode {
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
         symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
+        symbolVariants: RetainedSymbolVariants = .none,
         imageResizingMode: RetainedImageResizingMode? = nil,
         imageCapInsets: EdgeInsets? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
@@ -923,6 +943,7 @@ public final class ViewNode {
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
         self.symbolRenderingMode = symbolRenderingMode
+        self.symbolVariants = symbolVariants
         self.imageResizingMode = imageResizingMode
         self.imageCapInsets = imageCapInsets
         self.keyboardShortcuts = keyboardShortcuts

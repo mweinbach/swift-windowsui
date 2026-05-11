@@ -1206,6 +1206,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textCase: Text.Case?
     public var imageScale: Image.Scale
     public var symbolRenderingMode: SymbolRenderingMode?
+    public var symbolVariants: SymbolVariants
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
     public var labeledContentStyle: LabeledContentStyle
@@ -1317,6 +1318,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         textCase: Text.Case? = nil,
         imageScale: Image.Scale = .medium,
         symbolRenderingMode: SymbolRenderingMode? = nil,
+        symbolVariants: SymbolVariants = .none,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
         labeledContentStyle: LabeledContentStyle = .automatic,
@@ -1424,6 +1426,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textCase = textCase
         self.imageScale = imageScale
         self.symbolRenderingMode = symbolRenderingMode
+        self.symbolVariants = symbolVariants
         self.controlSize = controlSize
         self.labelStyle = labelStyle
         self.labeledContentStyle = labeledContentStyle
@@ -2045,6 +2048,10 @@ public struct ViewBuildContext {
 
     public var symbolRenderingMode: SymbolRenderingMode? {
         environmentValuesProvider().symbolRenderingMode
+    }
+
+    public var symbolVariants: SymbolVariants {
+        environmentValuesProvider().symbolVariants
     }
 
     public var font: Font {
@@ -4738,6 +4745,27 @@ extension SymbolRenderingMode {
         case .multicolor:
             return .multicolor
         }
+    }
+}
+
+public struct SymbolVariants: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let none: SymbolVariants = []
+    public static let circle = SymbolVariants(rawValue: 1 << 0)
+    public static let square = SymbolVariants(rawValue: 1 << 1)
+    public static let rectangle = SymbolVariants(rawValue: 1 << 2)
+    public static let fill = SymbolVariants(rawValue: 1 << 3)
+    public static let slash = SymbolVariants(rawValue: 1 << 4)
+}
+
+extension SymbolVariants {
+    var retainedSymbolVariants: RetainedSymbolVariants {
+        RetainedSymbolVariants(rawValue: rawValue)
     }
 }
 
@@ -7574,6 +7602,12 @@ public extension View {
     func symbolRenderingMode(_ mode: SymbolRenderingMode?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.symbolRenderingMode, mode))
+        }
+    }
+
+    func symbolVariant(_ variant: SymbolVariants) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.symbolVariants, variant))
         }
     }
 

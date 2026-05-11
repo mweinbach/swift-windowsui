@@ -3879,10 +3879,14 @@ public enum ButtonRole: Sendable, Equatable {
 public struct ButtonStyle: Sendable, Equatable {
     private enum Kind: Sendable, Equatable {
         case automatic
+        case accessoryBar
+        case accessoryBarAction
         case plain
         case bordered
         case borderedProminent
         case borderless
+        case card
+        case link
     }
 
     private let kind: Kind
@@ -3892,19 +3896,67 @@ public struct ButtonStyle: Sendable, Equatable {
     }
 
     public static let automatic = ButtonStyle(kind: .automatic)
+    public static let accessoryBar = ButtonStyle(kind: .accessoryBar)
+    public static let accessoryBarAction = ButtonStyle(kind: .accessoryBarAction)
     public static let plain = ButtonStyle(kind: .plain)
     public static let bordered = ButtonStyle(kind: .bordered)
     public static let borderedProminent = ButtonStyle(kind: .borderedProminent)
     public static let borderless = ButtonStyle(kind: .borderless)
+    public static let card = ButtonStyle(kind: .card)
+    public static let link = ButtonStyle(kind: .link)
 
     var surfaceStyle: ButtonSurfaceStyle {
         switch kind {
-        case .automatic, .bordered, .borderedProminent:
+        case .automatic, .accessoryBar, .accessoryBarAction, .bordered, .borderedProminent, .card:
             return .default
-        case .plain, .borderless:
+        case .plain, .borderless, .link:
             return .plain
         }
     }
+}
+
+public struct DefaultButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AccessoryBarButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AccessoryBarActionButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PlainButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderedButtonStyle: Sendable, Equatable {
+    public var tint: Color?
+
+    public init() {
+        self.tint = nil
+    }
+
+    public init(tint: Color) {
+        self.tint = tint
+    }
+}
+
+public struct BorderedProminentButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderlessButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CardButtonStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct LinkButtonStyle: Sendable, Equatable {
+    public init() {}
 }
 
 public struct ToolbarItemPlacement: Sendable, Equatable {
@@ -7299,6 +7351,48 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withButtonStyle(style))
         }
+    }
+
+    func buttonStyle(_ style: DefaultButtonStyle) -> some View {
+        buttonStyle(.automatic)
+    }
+
+    func buttonStyle(_ style: AccessoryBarButtonStyle) -> some View {
+        buttonStyle(.accessoryBar)
+    }
+
+    func buttonStyle(_ style: AccessoryBarActionButtonStyle) -> some View {
+        buttonStyle(.accessoryBarAction)
+    }
+
+    func buttonStyle(_ style: PlainButtonStyle) -> some View {
+        buttonStyle(.plain)
+    }
+
+    func buttonStyle(_ style: BorderedButtonStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let styledContext = context.withButtonStyle(.bordered)
+            if let tint = style.tint {
+                return content.makeComponent(context: styledContext.withTint(tint))
+            }
+            return content.makeComponent(context: styledContext)
+        }
+    }
+
+    func buttonStyle(_ style: BorderedProminentButtonStyle) -> some View {
+        buttonStyle(.borderedProminent)
+    }
+
+    func buttonStyle(_ style: BorderlessButtonStyle) -> some View {
+        buttonStyle(.borderless)
+    }
+
+    func buttonStyle(_ style: CardButtonStyle) -> some View {
+        buttonStyle(.card)
+    }
+
+    func buttonStyle(_ style: LinkButtonStyle) -> some View {
+        buttonStyle(.link)
     }
 
     func buttonRepeatBehavior(_ behavior: ButtonRepeatBehavior) -> some View {

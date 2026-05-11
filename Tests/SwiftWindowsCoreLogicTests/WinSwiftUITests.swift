@@ -3169,20 +3169,37 @@ final class WinSwiftUITests: XCTestCase {
                 VStack {
                     Button("QUIET") {}
                     Button("LOUD") {}
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(BorderedProminentButtonStyle())
+                    Button("LINK") {}
+                        .buttonStyle(LinkButtonStyle())
+                    Button("CARD") {}
+                        .buttonStyle(CardButtonStyle())
+                    Button("ACCESSORY") {}
+                        .buttonStyle(AccessoryBarButtonStyle())
+                    Button("BORDERED") {}
+                        .buttonStyle(BorderedButtonStyle(tint: customColor))
                     Button("CUSTOM") {}
                         .buttonSurface(customStyle)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(BorderlessButtonStyle())
             )
 
             let inheritedButton = node.children[0]
             let overriddenButton = node.children[1]
-            let customButton = node.children[2]
+            let linkButton = node.children[2]
+            let cardButton = node.children[3]
+            let accessoryButton = node.children[4]
+            let borderedButton = node.children[5]
+            let customButton = node.children[6]
 
             XCTAssertEqual(inheritedButton.backgroundColor, .clear)
             XCTAssertEqual(inheritedButton.borderColor, .clear)
             XCTAssertEqual(overriddenButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(linkButton.backgroundColor, .clear)
+            XCTAssertEqual(linkButton.borderColor, .clear)
+            XCTAssertEqual(cardButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(accessoryButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(borderedButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
             XCTAssertEqual(customButton.backgroundColor, customColor)
         }
     }

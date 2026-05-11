@@ -1800,6 +1800,10 @@ public struct Text: View {
         )
     }
 
+    public init<Subject>(_ subject: Subject, formatter: Formatter) {
+        self.init(formatter.string(for: subject) ?? String(describing: subject))
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }

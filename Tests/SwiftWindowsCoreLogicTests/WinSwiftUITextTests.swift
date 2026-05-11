@@ -5,6 +5,40 @@ import SwiftWindowsCore
 @testable import WinSwiftUI
 
 final class WinSwiftUITextTests: XCTestCase {
+    func testFormatterInitializerUsesFoundationFormatterOutput() async {
+        await MainActor.run {
+            let numberFormatter = NumberFormatter()
+            numberFormatter.locale = Locale(identifier: "en_US_POSIX")
+            numberFormatter.numberStyle = .decimal
+            numberFormatter.maximumFractionDigits = 1
+
+            let dateFormatter = DateFormatter()
+            dateFormatter.calendar = Calendar(identifier: .gregorian)
+            dateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+            dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+            dateFormatter.dateFormat = "yyyy-MM-dd HH:mm"
+
+            let numberNode = makeNode(
+                Text(NSNumber(value: 1234.5), formatter: numberFormatter)
+            )
+            let dateNode = makeNode(
+                Text(Date(timeIntervalSince1970: 90_061), formatter: dateFormatter)
+            )
+
+            XCTAssertEqual(numberNode.text, "1,234.5")
+            XCTAssertEqual(dateNode.text, "1970-01-02 01:01")
+        }
+    }
+
+    func testFormatterInitializerFallsBackToStringDescription() async {
+        await MainActor.run {
+            let numberFormatter = NumberFormatter()
+            let node = makeNode(Text("RAW", formatter: numberFormatter))
+
+            XCTAssertEqual(node.text, "RAW")
+        }
+    }
+
     func testTimerCountdownText() async {
         await MainActor.run {
             let start = Date(timeIntervalSince1970: 0)

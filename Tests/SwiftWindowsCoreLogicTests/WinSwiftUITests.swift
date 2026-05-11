@@ -5770,6 +5770,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSizeClassEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct SizeClassReaderView: View {
+                @Environment(\.horizontalSizeClass) var horizontalSizeClass
+                @Environment(\.verticalSizeClass) var verticalSizeClass
+
+                var body: some View {
+                    Text(
+                        "\(horizontalSizeClass == .compact ? "HC" : horizontalSizeClass == .regular ? "HR" : "HN") "
+                            + "\(verticalSizeClass == .compact ? "VC" : verticalSizeClass == .regular ? "VR" : "VN")"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(SizeClassReaderView())
+            let overrideNode = makeNode(
+                SizeClassReaderView()
+                    .environment(\.horizontalSizeClass, .compact)
+                    .environment(\.verticalSizeClass, .regular)
+            )
+
+            XCTAssertEqual(defaultNode.text, "HN VN")
+            XCTAssertEqual(overrideNode.text, "HC VR")
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {

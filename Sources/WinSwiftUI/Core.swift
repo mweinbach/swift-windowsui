@@ -376,6 +376,11 @@ public enum LayoutDirection: Sendable, Equatable {
     case rightToLeft
 }
 
+public enum UserInterfaceSizeClass: Sendable, Equatable, Hashable {
+    case compact
+    case regular
+}
+
 public enum DynamicTypeSize: Int, CaseIterable, Comparable, Sendable {
     case xSmall
     case small
@@ -590,6 +595,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var timeZone: TimeZone
     public var locale: Locale
     public var layoutDirection: LayoutDirection
+    public var horizontalSizeClass: UserInterfaceSizeClass?
+    public var verticalSizeClass: UserInterfaceSizeClass?
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
@@ -647,6 +654,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
         locale: Locale = .current,
         layoutDirection: LayoutDirection = .leftToRight,
+        horizontalSizeClass: UserInterfaceSizeClass? = nil,
+        verticalSizeClass: UserInterfaceSizeClass? = nil,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
@@ -700,6 +709,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.timeZone = timeZone
         self.locale = locale
         self.layoutDirection = layoutDirection
+        self.horizontalSizeClass = horizontalSizeClass
+        self.verticalSizeClass = verticalSizeClass
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle

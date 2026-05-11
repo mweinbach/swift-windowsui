@@ -3660,6 +3660,242 @@ private func textInputComponent(
     }
 }
 
+public struct DatePickerComponents: OptionSet, Sendable, Equatable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let hourAndMinute = DatePickerComponents(rawValue: 1 << 0)
+    public static let date = DatePickerComponents(rawValue: 1 << 1)
+    public static let all: DatePickerComponents = [.date, .hourAndMinute]
+}
+
+@MainActor
+public struct DatePicker: View {
+    public typealias Body = Never
+
+    private let selection: Binding<Date>
+    private let displayedComponents: DatePickerComponents
+    private let label: [AnyView]
+
+    public init(
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = .all,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.displayedComponents = displayedComponents
+        self.label = label()
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(selection: selection, displayedComponents: displayedComponents) {
+            Text(String(title))
+        }
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        in range: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = .all,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        _ = range
+        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in range: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        _ = range
+        self.init(title, selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Date>,
+        in range: ClosedRange<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, in: range, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        in range: PartialRangeFrom<Date>,
+        displayedComponents: DatePickerComponents = .all,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        _ = range
+        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in range: PartialRangeFrom<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        _ = range
+        self.init(title, selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Date>,
+        in range: PartialRangeFrom<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, in: range, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        in range: PartialRangeThrough<Date>,
+        displayedComponents: DatePickerComponents = .all,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        _ = range
+        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in range: PartialRangeThrough<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        _ = range
+        self.init(title, selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Date>,
+        in range: PartialRangeThrough<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, in: range, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        selection: Binding<Date>,
+        in range: PartialRangeUpTo<Date>,
+        displayedComponents: DatePickerComponents = .all,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        _ = range
+        self.init(selection: selection, displayedComponents: displayedComponents, label: label)
+    }
+
+    public init<S: StringProtocol>(
+        _ title: S,
+        selection: Binding<Date>,
+        in range: PartialRangeUpTo<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        _ = range
+        self.init(title, selection: selection, displayedComponents: displayedComponents)
+    }
+
+    public init(
+        _ titleKey: LocalizedStringKey,
+        selection: Binding<Date>,
+        in range: PartialRangeUpTo<Date>,
+        displayedComponents: DatePickerComponents = .all
+    ) {
+        self.init(titleKey.resolvedString, selection: selection, in: range, displayedComponents: displayedComponents)
+    }
+
+    public var body: Never {
+        fatalError("DatePicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let labelViews = label
+        let selection = selection
+        let displayedComponents = displayedComponents
+        let labelComponent = composeComponent(
+            from: labelViews,
+            context: context
+                .withForegroundColor(.secondary)
+                .withTextAlignment(.leading)
+                .withLineLimit(1),
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+            isHitTestVisible: false
+        )
+
+        return Component { runtime in
+            let valueNode = Text(Self.formattedValue(selection.wrappedValue, components: displayedComponents))
+                .monospaced()
+                .lineLimit(1)
+                .makeComponent(
+                    context: context
+                        .withTextAlignment(.trailing)
+                        .withLineLimit(1)
+                )
+                .makeNode(runtime: runtime)
+
+            guard !context.labelsHidden, !labelViews.isEmpty else {
+                return valueNode
+            }
+
+            let labelNode = labelComponent.makeNode(runtime: runtime)
+            labelNode.layoutPriority = max(labelNode.layoutPriority, 1)
+            return Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 12, alignment: .center),
+                isHitTestVisible: false,
+                children: [labelNode, valueNode]
+            )
+        }
+    }
+
+    private static func formattedValue(_ date: Date, components: DatePickerComponents) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let dateComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let dateText = String(
+            format: "%04d-%02d-%02d",
+            dateComponents.year ?? 0,
+            dateComponents.month ?? 1,
+            dateComponents.day ?? 1
+        )
+        let timeText = String(
+            format: "%02d:%02d",
+            dateComponents.hour ?? 0,
+            dateComponents.minute ?? 0
+        )
+
+        if components.contains(.date), components.contains(.hourAndMinute) {
+            return "\(dateText) \(timeText)"
+        }
+        if components.contains(.date) {
+            return dateText
+        }
+        if components.contains(.hourAndMinute) {
+            return timeText
+        }
+        return dateText
+    }
+}
+
 @MainActor
 public struct Toggle: View {
     public typealias Body = Never

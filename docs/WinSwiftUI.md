@@ -136,6 +136,9 @@ Views and containers:
 - `SecureField`
   - `prompt: Text?` overloads
 - `TextEditor`
+- `DatePicker`
+  - date/time displayed component options
+  - closed and partial-range initializer overloads
 - `Toggle`
   - `StringProtocol` title inputs
 - `Picker`
@@ -365,6 +368,7 @@ Surface direction:
 - `Menu` maps to a retained menu button and an inline retained action stack. It preserves SwiftUI-shaped menu syntax and button actions, but does not yet present as a native popup overlay.
 - `ControlGroup` maps to compact retained horizontal group chrome, accepts title and builder-label forms, and preserves nested control actions while applying borderless button style to grouped buttons.
 - `TextField`, `SecureField`, and `TextEditor` map a `Binding<String>` to a retained focusable input surface with basic virtual-key text insertion/backspace. `TextField` and `SecureField` provide placeholder rendering from the title or SwiftUI-style `prompt: Text?` overloads, `TextField(axis: .vertical)` maps to the retained multiline input path, `SecureField` masks the displayed value, and `TextEditor` enables multiline wrapping/newline insertion. `textInputAutocapitalization(_:)` propagates through `EnvironmentValues` and transforms inserted retained keyboard text for `.characters`, `.words`, and `.sentences`; `autocorrectionDisabled(_:)` propagates for source compatibility but has no spelling engine behind it yet. These controls do not yet provide caret movement, selection, IME composition, or full text-editing commands.
+- `DatePicker` accepts SwiftUI-shaped date, time, closed-range, and partial-range initializer labels and maps the selected `Date` into retained label/value text. It is display-only today: calendar popovers, text entry, locale-specific formatting, and binding writes from user interaction are not implemented yet.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
 - `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.

@@ -3918,6 +3918,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDatePickerMapsToRetainedLabelValueRow() async {
+        await MainActor.run {
+            let date = Date(timeIntervalSince1970: 1_778_423_880)
+            let dateNode = makeNode(
+                DatePicker("START", selection: .constant(date), displayedComponents: .date)
+            )
+            let timeNode = makeNode(
+                DatePicker(selection: .constant(date), displayedComponents: .hourAndMinute) {
+                    Label("WINDOW", systemImage: "calendar")
+                }
+            )
+            let rangedNode = makeNode(
+                DatePicker(
+                    LocalizedStringKey("DUE"),
+                    selection: .constant(date),
+                    in: date...date,
+                    displayedComponents: .all
+                )
+            )
+            let partialRangeNode = makeNode(
+                DatePicker("AFTER", selection: .constant(date), in: date..., displayedComponents: .date)
+            )
+            let throughRangeNode = makeNode(
+                DatePicker("BEFORE", selection: .constant(date), in: ...date, displayedComponents: .hourAndMinute)
+            )
+            let upToRangeNode = makeNode(
+                DatePicker(selection: .constant(date), in: ..<date, displayedComponents: .date) {
+                    Text("UNTIL")
+                }
+            )
+
+            XCTAssertEqual(allTexts(in: dateNode), ["START", "2026-05-10"])
+            XCTAssertTrue(allTexts(in: timeNode).contains("WINDOW"))
+            XCTAssertTrue(allTexts(in: timeNode).contains("14:38"))
+            XCTAssertEqual(allTexts(in: rangedNode), ["DUE", "2026-05-10 14:38"])
+            XCTAssertEqual(allTexts(in: partialRangeNode), ["AFTER", "2026-05-10"])
+            XCTAssertEqual(allTexts(in: throughRangeNode), ["BEFORE", "14:38"])
+            XCTAssertEqual(allTexts(in: upToRangeNode), ["UNTIL", "2026-05-10"])
+            XCTAssertEqual(dateNode.children[0].layoutPriority, 1)
+        }
+    }
+
     func testLabelsHiddenSuppressesControlLabels() async {
         await MainActor.run {
             let toggleNode = makeNode(
@@ -3966,6 +4008,10 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .labelsHidden()
             )
+            let datePickerNode = makeNode(
+                DatePicker("START", selection: .constant(Date(timeIntervalSince1970: 1_778_423_880)))
+                    .labelsHidden()
+            )
 
             XCTAssertFalse(allTexts(in: toggleNode).contains("ENABLED"))
             XCTAssertNotNil(firstFocusable(in: toggleNode))
@@ -3984,6 +4030,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertFalse(gaugeNode.children.isEmpty)
             XCTAssertTrue(allTexts(in: gaugeNode).isEmpty)
+
+            XCTAssertFalse(allTexts(in: datePickerNode).contains("START"))
+            XCTAssertEqual(allTexts(in: datePickerNode), ["2026-05-10 14:38"])
         }
     }
 

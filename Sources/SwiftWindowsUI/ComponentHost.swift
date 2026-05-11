@@ -165,6 +165,8 @@ public final class ComponentHost {
         if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
         if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
         if target.accessibilityTraits != source.accessibilityTraits { target.accessibilityTraits = source.accessibilityTraits }
+        if target.accessibilityChildBehavior != source.accessibilityChildBehavior { target.accessibilityChildBehavior = source.accessibilityChildBehavior }
+        if target.accessibilitySortPriority != source.accessibilitySortPriority { target.accessibilitySortPriority = source.accessibilitySortPriority }
         if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
         if target.symbolVariableValue != source.symbolVariableValue { target.symbolVariableValue = source.symbolVariableValue }
         if target.symbolRenderingMode != source.symbolRenderingMode { target.symbolRenderingMode = source.symbolRenderingMode }

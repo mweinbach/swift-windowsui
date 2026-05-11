@@ -10877,6 +10877,8 @@ final class WinSwiftUITests: XCTestCase {
                     .accessibilityIdentifier("save-button")
                     .accessibilityAddTraits([.isButton, .isHeader, .isSelected])
                     .accessibilityRemoveTraits(.isHeader)
+                    .accessibilityElement(children: .combine)
+                    .accessibilitySortPriority(4.5)
                     .accessibilityHidden(true)
             )
 
@@ -10885,7 +10887,12 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(node.accessibilityHint, "Writes the current document")
             XCTAssertEqual(node.accessibilityIdentifier, "save-button")
             XCTAssertEqual(node.accessibilityTraits, [.isButton, .isSelected])
+            XCTAssertEqual(node.accessibilityChildBehavior, .combine)
+            XCTAssertEqual(node.accessibilitySortPriority, 4.5)
             XCTAssertTrue(node.isAccessibilityHidden)
+
+            let defaultElementNode = makeNode(Text("ROW").accessibilityElement())
+            XCTAssertEqual(defaultElementNode.accessibilityChildBehavior, .ignore)
         }
     }
 

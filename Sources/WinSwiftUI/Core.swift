@@ -4152,6 +4152,23 @@ public struct AccessibilityTraits: OptionSet, Sendable, Equatable, Hashable {
     }
 }
 
+public enum AccessibilityChildBehavior: Sendable, Equatable, Hashable {
+    case ignore
+    case combine
+    case contain
+
+    var retainedBehavior: RetainedAccessibilityChildBehavior {
+        switch self {
+        case .ignore:
+            return .ignore
+        case .combine:
+            return .combine
+        case .contain:
+            return .contain
+        }
+    }
+}
+
 public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: Int
 
@@ -10990,6 +11007,28 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityTraits.subtract(traits.retainedTraits)
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityElement(children: AccessibilityChildBehavior = .ignore) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityChildBehavior = children.retainedBehavior
+                return childNode
+            }
+        }
+    }
+
+    func accessibilitySortPriority(_ priority: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilitySortPriority = priority
                 return childNode
             }
         }

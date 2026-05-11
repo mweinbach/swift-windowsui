@@ -167,6 +167,12 @@ public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
     public static let isModal = RetainedAccessibilityTraits(rawValue: 1 << 14)
 }
 
+public enum RetainedAccessibilityChildBehavior: Sendable, Equatable {
+    case ignore
+    case combine
+    case contain
+}
+
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
@@ -835,6 +841,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var accessibilityChildBehavior: RetainedAccessibilityChildBehavior? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilitySortPriority: Double {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isAccessibilityHidden: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1071,6 +1085,8 @@ public final class ViewNode {
         accessibilityHint: String? = nil,
         accessibilityIdentifier: String? = nil,
         accessibilityTraits: RetainedAccessibilityTraits = [],
+        accessibilityChildBehavior: RetainedAccessibilityChildBehavior? = nil,
+        accessibilitySortPriority: Double = 0,
         isAccessibilityHidden: Bool = false,
         symbolVariableValue: Double? = nil,
         symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
@@ -1149,6 +1165,8 @@ public final class ViewNode {
         self.accessibilityHint = accessibilityHint
         self.accessibilityIdentifier = accessibilityIdentifier
         self.accessibilityTraits = accessibilityTraits
+        self.accessibilityChildBehavior = accessibilityChildBehavior
+        self.accessibilitySortPriority = accessibilitySortPriority
         self.isAccessibilityHidden = isAccessibilityHidden
         self.symbolVariableValue = symbolVariableValue
         self.symbolRenderingMode = symbolRenderingMode

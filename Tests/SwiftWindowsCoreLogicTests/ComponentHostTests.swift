@@ -102,6 +102,8 @@ final class ComponentHostTests: XCTestCase {
                     let accessibilityTraits: RetainedAccessibilityTraits = useSecondState
                         ? [.isSelected, .isImage]
                         : [.isButton, .isHeader]
+                    let accessibilityChildBehavior: RetainedAccessibilityChildBehavior = useSecondState ? .contain : .combine
+                    let accessibilitySortPriority = useSecondState ? 9.5 : 1.25
                     let toolbarPlacementTags: Set<String> = useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
                     let sectionHeaderChildCount = useSecondState ? 2 : 0
                     let sectionFooterChildCount = useSecondState ? 1 : 0
@@ -182,6 +184,8 @@ final class ComponentHostTests: XCTestCase {
                     node.imageAntialiased = imageAntialiased
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.accessibilityTraits = accessibilityTraits
+                    node.accessibilityChildBehavior = accessibilityChildBehavior
+                    node.accessibilitySortPriority = accessibilitySortPriority
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.presentationChrome = presentationChrome
                     node.isToolbarContainer = useSecondState
@@ -229,6 +233,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.imageAntialiased, false)
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
             XCTAssertEqual(firstNode?.accessibilityTraits, [.isButton, .isHeader])
+            XCTAssertEqual(firstNode?.accessibilityChildBehavior, .combine)
+            XCTAssertEqual(firstNode?.accessibilitySortPriority, 1.25)
             XCTAssertEqual(
                 firstNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(
@@ -303,6 +309,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.imageAntialiased, true)
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
             XCTAssertEqual(reusedNode?.accessibilityTraits, [.isSelected, .isImage])
+            XCTAssertEqual(reusedNode?.accessibilityChildBehavior, .contain)
+            XCTAssertEqual(reusedNode?.accessibilitySortPriority, 9.5)
             XCTAssertEqual(
                 reusedNode?.matchedGeometryEffect,
                 RetainedMatchedGeometryEffect(

@@ -6095,6 +6095,118 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationLinkTagSelectionPushesAndClearsOnBack() async {
+        await MainActor.run {
+            var selection: String? = nil
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink(
+                        destination: Text("DETAIL").navigationTitle("DETAIL TITLE"),
+                        tag: "detail",
+                        selection: Binding(
+                            get: { selection },
+                            set: { selection = $0 }
+                        )
+                    ) {
+                        Text("OPEN")
+                    }
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+
+            XCTAssertNil(selection)
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("OPEN"))
+
+            rootNode.children[1].children[0].onActivate?()
+
+            XCTAssertEqual(selection, "detail")
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+
+            detailNode.children[0].children[0].onActivate?()
+
+            XCTAssertNil(selection)
+        }
+    }
+
+    func testNavigationLinkTagSelectionTitleOverloadsRenderLabelsAndPush() async {
+        await MainActor.run {
+            var selection: Int? = nil
+            let title: Substring = "TWO"[...]
+            let stack = NavigationStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    NavigationLink(
+                        LocalizedStringKey("ONE"),
+                        destination: Text("DETAIL ONE").navigationTitle("ONE TITLE"),
+                        tag: 1,
+                        selection: Binding(
+                            get: { selection },
+                            set: { selection = $0 }
+                        )
+                    )
+                    NavigationLink(
+                        title,
+                        destination: Text("DETAIL TWO").navigationTitle("TWO TITLE"),
+                        tag: 2,
+                        selection: Binding(
+                            get: { selection },
+                            set: { selection = $0 }
+                        )
+                    )
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("ONE"))
+            XCTAssertTrue(allTexts(in: rootNode.children[1]).contains("TWO"))
+
+            rootNode.children[1].children[1].onActivate?()
+
+            XCTAssertEqual(selection, 2)
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("TWO TITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL TWO")
+        }
+    }
+
+    func testNavigationLinkTagSelectionDismissKeepsExternalSelectionChange() async {
+        await MainActor.run {
+            var selection: String? = nil
+            let stack = NavigationStack {
+                NavigationLink(
+                    destination: Text("DETAIL").navigationTitle("DETAIL TITLE"),
+                    tag: "detail",
+                    selection: Binding(
+                        get: { selection },
+                        set: { selection = $0 }
+                    )
+                ) {
+                    Text("OPEN")
+                }
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+            rootNode.children[1].onActivate?()
+
+            XCTAssertEqual(selection, "detail")
+
+            selection = "external"
+
+            let detailNode = makeNode(stack)
+            detailNode.children[0].children[0].onActivate?()
+
+            XCTAssertEqual(selection, "external")
+        }
+    }
+
     func testNavigationLinkValueResolvesNavigationDestination() async {
         await MainActor.run {
             var didInvalidate = false

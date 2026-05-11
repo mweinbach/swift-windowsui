@@ -1302,6 +1302,8 @@ public struct NavigationLink: View {
     private let destination: [AnyView]
     private let value: AnyHashable?
     private let isActive: Binding<Bool>?
+    private let activateSelection: (@MainActor () -> Void)?
+    private let dismissSelection: (@MainActor () -> Void)?
 
     public init<Destination: View>(
         destination: Destination,
@@ -1311,6 +1313,8 @@ public struct NavigationLink: View {
         self.destination = [AnyView(destination)]
         self.value = nil
         self.isActive = nil
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init(
@@ -1321,6 +1325,8 @@ public struct NavigationLink: View {
         self.destination = destination()
         self.value = nil
         self.isActive = nil
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init<Destination: View>(
@@ -1332,6 +1338,8 @@ public struct NavigationLink: View {
         self.destination = [AnyView(destination)]
         self.value = nil
         self.isActive = isActive
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init(
@@ -1343,6 +1351,48 @@ public struct NavigationLink: View {
         self.destination = destination()
         self.value = nil
         self.isActive = isActive
+        self.activateSelection = nil
+        self.dismissSelection = nil
+    }
+
+    public init<Destination: View, Selection: Hashable>(
+        destination: Destination,
+        tag: Selection,
+        selection: Binding<Selection?>,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = [AnyView(destination)]
+        self.value = nil
+        self.isActive = nil
+        self.activateSelection = {
+            selection.wrappedValue = tag
+        }
+        self.dismissSelection = {
+            if selection.wrappedValue == tag {
+                selection.wrappedValue = nil
+            }
+        }
+    }
+
+    public init<Selection: Hashable>(
+        tag: Selection,
+        selection: Binding<Selection?>,
+        @ViewBuilder destination: () -> [AnyView],
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.label = label()
+        self.destination = destination()
+        self.value = nil
+        self.isActive = nil
+        self.activateSelection = {
+            selection.wrappedValue = tag
+        }
+        self.dismissSelection = {
+            if selection.wrappedValue == tag {
+                selection.wrappedValue = nil
+            }
+        }
     }
 
     public init<Destination: View>(
@@ -1353,6 +1403,8 @@ public struct NavigationLink: View {
         self.destination = [AnyView(destination)]
         self.value = nil
         self.isActive = nil
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init<S: StringProtocol, Destination: View>(
@@ -1378,6 +1430,8 @@ public struct NavigationLink: View {
         self.destination = [AnyView(destination)]
         self.value = nil
         self.isActive = isActive
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init<S: StringProtocol, Destination: View>(
@@ -1396,6 +1450,35 @@ public struct NavigationLink: View {
         self.init(titleKey.resolvedString, destination: destination, isActive: isActive)
     }
 
+    public init<Destination: View, Selection: Hashable>(
+        _ title: String,
+        destination: Destination,
+        tag: Selection,
+        selection: Binding<Selection?>
+    ) {
+        self.init(destination: destination, tag: tag, selection: selection) {
+            Text(title)
+        }
+    }
+
+    public init<S: StringProtocol, Destination: View, Selection: Hashable>(
+        _ title: S,
+        destination: Destination,
+        tag: Selection,
+        selection: Binding<Selection?>
+    ) {
+        self.init(String(title), destination: destination, tag: tag, selection: selection)
+    }
+
+    public init<Destination: View, Selection: Hashable>(
+        _ titleKey: LocalizedStringKey,
+        destination: Destination,
+        tag: Selection,
+        selection: Binding<Selection?>
+    ) {
+        self.init(titleKey.resolvedString, destination: destination, tag: tag, selection: selection)
+    }
+
     public init<Value: Hashable>(
         value: Value,
         @ViewBuilder label: () -> [AnyView]
@@ -1404,6 +1487,8 @@ public struct NavigationLink: View {
         self.destination = []
         self.value = AnyHashable(value)
         self.isActive = nil
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init<Value: Hashable>(
@@ -1414,6 +1499,8 @@ public struct NavigationLink: View {
         self.destination = []
         self.value = AnyHashable(value)
         self.isActive = nil
+        self.activateSelection = nil
+        self.dismissSelection = nil
     }
 
     public init<S: StringProtocol, Value: Hashable>(
@@ -1448,6 +1535,8 @@ public struct NavigationLink: View {
         let destinationViews = destination
         let navigationValue = value
         let activeBinding = isActive
+        let activateSelection = activateSelection
+        let dismissSelection = dismissSelection
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
             return Controls.button(
@@ -1469,6 +1558,9 @@ public struct NavigationLink: View {
                         _ = context.pushNavigationDestination(destinationViews) {
                             activeBinding.wrappedValue = false
                         }
+                    } else if let activateSelection {
+                        activateSelection()
+                        _ = context.pushNavigationDestination(destinationViews, onDismiss: dismissSelection)
                     } else {
                         _ = context.pushNavigationDestination(destinationViews)
                     }

@@ -12868,6 +12868,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToolbarItemPlacementOrdersRetainedCommandRow() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("SAVE") {}
+                        }
+                        ToolbarItem(placement: .navigation) {
+                            Button("BACK") {}
+                        }
+                        ToolbarItem(placement: .bottomBar) {
+                            Button("BOTTOM") {}
+                        }
+                        ToolbarItem(placement: .principal) {
+                            Text("TITLE")
+                        }
+                        ToolbarItem(placement: .status) {
+                            Text("READY")
+                        }
+                        ToolbarItem(placement: .destructiveAction) {
+                            Button("DELETE") {}
+                        }
+                    }
+            )
+
+            XCTAssertEqual(allTexts(in: node.children[0]), ["BACK", "TITLE", "READY", "SAVE", "DELETE", "BOTTOM"])
+            XCTAssertEqual(node.children[1].text, "DETAIL")
+        }
+    }
+
     func testToolbarConfigurationModifiersPreserveRetainedToolbarRow() async {
         await MainActor.run {
             let gradient = LinearGradient(

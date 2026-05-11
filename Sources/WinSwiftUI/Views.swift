@@ -3495,7 +3495,7 @@ public struct LabeledContent: View {
 }
 
 @MainActor
-public struct ToolbarItem: View {
+public struct ToolbarItem: View, TaggedViewMetadata {
     public typealias Body = Never
 
     public let id: String?
@@ -3529,6 +3529,10 @@ public struct ToolbarItem: View {
         fatalError("ToolbarItem has no body")
     }
 
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        placement
+    }
+
     public func makeComponent(context: ViewBuildContext) -> Component {
         let item = composeComponent(
             from: content,
@@ -3549,7 +3553,7 @@ public struct ToolbarItem: View {
 }
 
 @MainActor
-public struct ToolbarItemGroup: View {
+public struct ToolbarItemGroup: View, TaggedViewMetadata {
     public typealias Body = Never
 
     public let id: String?
@@ -3581,6 +3585,10 @@ public struct ToolbarItemGroup: View {
 
     public var body: Never {
         fatalError("ToolbarItemGroup has no body")
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        placement
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {

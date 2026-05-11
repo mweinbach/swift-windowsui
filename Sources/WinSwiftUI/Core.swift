@@ -3637,6 +3637,10 @@ public struct ViewModifierContent: View, TaggedViewMetadata {
         content.navigationBarHidden
     }
 
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        content.toolbarItemPlacement
+    }
+
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         content.navigationDestinationRegistrations
     }
@@ -3694,6 +3698,10 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
         (content as? any TaggedViewMetadata)?.anyNavigationBarHidden
     }
 
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        (content as? any TaggedViewMetadata)?.anyToolbarItemPlacement
+    }
+
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         (content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
     }
@@ -3749,6 +3757,10 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
 
     var anyNavigationBarHidden: Bool? {
         (content as? any TaggedViewMetadata)?.anyNavigationBarHidden
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        (content as? any TaggedViewMetadata)?.anyToolbarItemPlacement
     }
 
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -3853,6 +3865,7 @@ public struct AnyView: View {
     let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     let navigationBarBackButtonHidden: Bool?
     let navigationBarHidden: Bool?
+    let toolbarItemPlacement: ToolbarItemPlacement?
     let navigationDestinationRegistrations: [NavigationDestinationRegistration]
     let navigationPresentedDestinations: [NavigationPresentedDestination]
 
@@ -3864,6 +3877,7 @@ public struct AnyView: View {
         self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
         self.navigationBarBackButtonHidden = (view as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
         self.navigationBarHidden = (view as? any TaggedViewMetadata)?.anyNavigationBarHidden
+        self.toolbarItemPlacement = (view as? any TaggedViewMetadata)?.anyToolbarItemPlacement
         self.navigationDestinationRegistrations = (view as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
         self.navigationPresentedDestinations = (view as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
         self.buildComponent = { context in
@@ -5891,6 +5905,10 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
         navigationBarHidden ?? (content as? any TaggedViewMetadata)?.anyNavigationBarHidden
     }
 
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        (content as? any TaggedViewMetadata)?.anyToolbarItemPlacement
+    }
+
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         ((content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []) + navigationDestinationRegistrations
     }
@@ -5928,11 +5946,16 @@ protocol TaggedViewMetadata {
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
     var anyNavigationBarBackButtonHidden: Bool? { get }
     var anyNavigationBarHidden: Bool? { get }
+    var anyToolbarItemPlacement: ToolbarItemPlacement? { get }
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] { get }
     var anyNavigationPresentedDestinations: [NavigationPresentedDestination] { get }
 }
 
 extension TaggedViewMetadata {
+    var anySelectionTag: AnyHashable? {
+        nil
+    }
+
     var anyTabItem: [AnyView]? {
         nil
     }
@@ -5954,6 +5977,10 @@ extension TaggedViewMetadata {
     }
 
     var anyNavigationBarHidden: Bool? {
+        nil
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
         nil
     }
 
@@ -6395,6 +6422,50 @@ private func linearSRGBChannelToDisplaySRGB(_ value: Double) -> Double {
     }
 
     return 1.055 * pow(channel, 1.0 / 2.4) - 0.055
+}
+
+private func orderedRetainedToolbarViews(_ views: [AnyView]) -> [AnyView] {
+    views.enumerated()
+        .sorted { lhs, rhs in
+            let leftKey = retainedToolbarPlacementOrder(lhs.element.toolbarItemPlacement)
+            let rightKey = retainedToolbarPlacementOrder(rhs.element.toolbarItemPlacement)
+            if leftKey != rightKey {
+                return leftKey < rightKey
+            }
+            return lhs.offset < rhs.offset
+        }
+        .map(\.element)
+}
+
+private func retainedToolbarPlacementOrder(_ placement: ToolbarItemPlacement?) -> Int {
+    guard let placement else {
+        return 20
+    }
+
+    switch placement {
+    case .navigation, .topBarLeading, .navigationBarLeading:
+        return 0
+    case .principal:
+        return 10
+    case .status:
+        return 15
+    case .automatic:
+        return 20
+    case .primaryAction, .confirmationAction, .destructiveAction, .cancellationAction, .topBarTrailing, .navigationBarTrailing:
+        return 30
+    case .bottomBar:
+        return 40
+    case .tabBar:
+        return 50
+    case .keyboard:
+        return 60
+    case .navigationBar:
+        return 70
+    case .windowToolbar:
+        return 80
+    default:
+        return 20
+    }
 }
 
 private func normalizedHueUnit(_ hue: Double) -> Double {
@@ -7994,6 +8065,7 @@ public extension View {
 
     private func toolbar(id: String?, @ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
         let toolbarViews = toolbarContent()
+        let orderedToolbarViews = orderedRetainedToolbarViews(toolbarViews)
         return ModifiedView(content: self) { content, context in
             guard !toolbarViews.isEmpty else {
                 return content.makeComponent(context: context)
@@ -8004,7 +8076,7 @@ public extension View {
                 .withButtonStyle(.borderless)
                 .withControlSize(.small)
             let toolbar = composeComponent(
-                from: toolbarViews,
+                from: orderedToolbarViews,
                 context: toolbarContext,
                 fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
                 isHitTestVisible: false

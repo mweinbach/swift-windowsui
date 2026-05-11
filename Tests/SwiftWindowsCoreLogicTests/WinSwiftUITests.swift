@@ -978,6 +978,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].children[0].text, "needle")
+            XCTAssertEqual(node.children[0].nodeTag, "search-field-toolbar")
+            XCTAssertEqual(node.children[0].cornerRadius, 12)
+            XCTAssertEqual(node.children[0].borderColor, ViewBuildContext.defaultTint.opacity(0.26))
             XCTAssertTrue(allTexts(in: node.children[1]).contains("SEARCHING"))
 
             node.children[1].onActivate?()
@@ -1044,6 +1047,9 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(visibleNode.children.count, 2)
             XCTAssertEqual(visibleNode.children[0].children[0].text, "needle")
+            XCTAssertEqual(visibleNode.children[0].nodeTag, "search-field-navigation-drawer")
+            XCTAssertEqual(visibleNode.children[0].cornerRadius, 10)
+            XCTAssertEqual(visibleNode.children[0].preferredSize, Size(width: 280, height: 36))
             XCTAssertTrue(allTexts(in: visibleNode.children[1]).contains("SEARCHING"))
             XCTAssertEqual(
                 SearchFieldPlacement.navigationBarDrawer(displayMode: .always),

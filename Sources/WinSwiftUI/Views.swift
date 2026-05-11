@@ -6064,8 +6064,6 @@ private func searchableComponent<Content: View>(
     prompt: String,
     placement: SearchFieldPlacement
 ) -> Component {
-    _ = placement
-
     let isSearching = isPresented?.wrappedValue ?? !text.wrappedValue.isEmpty
     let title = prompt.isEmpty ? "Search" : prompt
     let dismissSearch = DismissSearchAction {
@@ -6096,6 +6094,7 @@ private func searchableComponent<Content: View>(
         let showsSearchField = isPresented?.wrappedValue ?? true
         if showsSearchField {
             let searchNode = searchField.makeNode(runtime: runtime)
+            applySearchPlacementChrome(to: searchNode, placement: placement, context: context)
             let existingOnFocusEnter = searchNode.onFocusEnter
             searchNode.onFocusEnter = {
                 existingOnFocusEnter?()
@@ -6106,6 +6105,11 @@ private func searchableComponent<Content: View>(
                 isPresented.wrappedValue = true
                 context.invalidate()
             }
+            let existingOnFocusExit = searchNode.onFocusExit
+            searchNode.onFocusExit = {
+                existingOnFocusExit?()
+                applySearchPlacementChrome(to: searchNode, placement: placement, context: context)
+            }
             children.append(searchNode)
         }
 
@@ -6115,6 +6119,77 @@ private func searchableComponent<Content: View>(
             children: children
         )
     }
+}
+
+private struct RetainedSearchChrome {
+    var nodeTag: String
+    var preferredSize: Size?
+    var backgroundColor: Color
+    var borderColor: Color
+    var borderWidth: Double
+    var cornerRadius: Double
+}
+
+@MainActor
+private func applySearchPlacementChrome(
+    to node: ViewNode,
+    placement: SearchFieldPlacement,
+    context: ViewBuildContext
+) {
+    guard let chrome = retainedSearchChrome(for: placement, context: context) else {
+        return
+    }
+
+    node.nodeTag = chrome.nodeTag
+    node.preferredSize = chrome.preferredSize ?? node.preferredSize
+    node.backgroundColor = chrome.backgroundColor
+    node.borderColor = chrome.borderColor
+    node.borderWidth = chrome.borderWidth
+    node.cornerRadius = chrome.cornerRadius
+}
+
+@MainActor
+private func retainedSearchChrome(
+    for placement: SearchFieldPlacement,
+    context: ViewBuildContext
+) -> RetainedSearchChrome? {
+    if placement == .toolbar {
+        return RetainedSearchChrome(
+            nodeTag: "search-field-toolbar",
+            preferredSize: Size(width: 240, height: context.controlSize.singleLineTextInputSize.height),
+            backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.92),
+            borderColor: context.tint.opacity(0.26),
+            borderWidth: 1,
+            cornerRadius: 12
+        )
+    }
+
+    if placement == .sidebar {
+        return RetainedSearchChrome(
+            nodeTag: "search-field-sidebar",
+            preferredSize: Size(width: 210, height: context.controlSize.singleLineTextInputSize.height),
+            backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.72),
+            borderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+            borderWidth: 1,
+            cornerRadius: 8
+        )
+    }
+
+    let isNavigationDrawer = placement == .navigationBarDrawer
+        || placement == .navigationBarDrawer(displayMode: .automatic)
+        || placement == .navigationBarDrawer(displayMode: .always)
+    if isNavigationDrawer {
+        return RetainedSearchChrome(
+            nodeTag: "search-field-navigation-drawer",
+            preferredSize: Size(width: 280, height: context.controlSize.singleLineTextInputSize.height),
+            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.84),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderWidth: 1,
+            cornerRadius: 10
+        )
+    }
+
+    return nil
 }
 
 private extension ControlSize {

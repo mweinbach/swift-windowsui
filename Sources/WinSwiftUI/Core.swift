@@ -526,6 +526,31 @@ public protocol EnvironmentKey {
     static var defaultValue: Value { get }
 }
 
+public protocol FocusedValueKey {
+    associatedtype Value
+}
+
+public struct FocusedValues: @unchecked Sendable {
+    private var values: [ObjectIdentifier: Any]
+
+    public init() {
+        self.values = [:]
+    }
+
+    public subscript<Key: FocusedValueKey>(_ key: Key.Type) -> Key.Value? {
+        get {
+            values[ObjectIdentifier(key)] as? Key.Value
+        }
+        set {
+            if let newValue {
+                values[ObjectIdentifier(key)] = newValue
+            } else {
+                values.removeValue(forKey: ObjectIdentifier(key))
+            }
+        }
+    }
+}
+
 @MainActor
 public final class UndoManager: @unchecked Sendable {
     private struct UndoAction {
@@ -873,6 +898,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var openWindow: OpenWindowAction
     public var dismissWindow: DismissWindowAction
     public var openSettings: OpenSettingsAction
+    public var focusedValues: FocusedValues
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -939,7 +965,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         undoManager: UndoManager? = nil,
         openWindow: OpenWindowAction = .noop,
         dismissWindow: DismissWindowAction = .noop,
-        openSettings: OpenSettingsAction = .noop
+        openSettings: OpenSettingsAction = .noop,
+        focusedValues: FocusedValues = FocusedValues()
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -1011,6 +1038,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.openWindow = openWindow
         self.dismissWindow = dismissWindow
         self.openSettings = openSettings
+        self.focusedValues = focusedValues
         self.customValues = [:]
     }
 
@@ -1036,6 +1064,52 @@ public struct Environment<Value> {
     public var wrappedValue: Value {
         let values = ViewBuildContextScope.current?.environmentValues ?? EnvironmentValues()
         return values[keyPath: keyPath]
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct FocusedValue<Value> {
+    private let keyPath: KeyPath<FocusedValues, Value>
+
+    public init(_ keyPath: KeyPath<FocusedValues, Value>) {
+        self.keyPath = keyPath
+    }
+
+    public var wrappedValue: Value {
+        let values = ViewBuildContextScope.current?.environmentValues.focusedValues ?? FocusedValues()
+        return values[keyPath: keyPath]
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct FocusedBinding<Value> {
+    private let keyPath: KeyPath<FocusedValues, Binding<Value>?>
+
+    public init(_ keyPath: KeyPath<FocusedValues, Binding<Value>?>) {
+        self.keyPath = keyPath
+    }
+
+    private var binding: Binding<Value>? {
+        let values = ViewBuildContextScope.current?.environmentValues.focusedValues ?? FocusedValues()
+        return values[keyPath: keyPath]
+    }
+
+    public var wrappedValue: Value? {
+        get {
+            binding?.wrappedValue
+        }
+        nonmutating set {
+            guard let newValue else {
+                return
+            }
+            binding?.wrappedValue = newValue
+        }
+    }
+
+    public var projectedValue: Binding<Value>? {
+        binding
     }
 }
 
@@ -4504,6 +4578,18 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTransformedEnvironmentValue(keyPath, transform))
         }
+    }
+
+    func focusedValue<Value>(_ keyPath: WritableKeyPath<FocusedValues, Value?>, _ value: Value?) -> some View {
+        ModifiedView(content: self) { content, context in
+            var focusedValues = context.environmentValues.focusedValues
+            focusedValues[keyPath: keyPath] = value
+            return content.makeComponent(context: context.withEnvironmentValue(\.focusedValues, focusedValues))
+        }
+    }
+
+    func focusedSceneValue<Value>(_ keyPath: WritableKeyPath<FocusedValues, Value?>, _ value: Value?) -> some View {
+        focusedValue(keyPath, value)
     }
 
     func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View {

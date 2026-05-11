@@ -46,6 +46,26 @@ private extension EnvironmentValues {
     }
 }
 
+private struct TestFocusedLabelKey: FocusedValueKey {
+    typealias Value = String
+}
+
+private struct TestFocusedBindingKey: FocusedValueKey {
+    typealias Value = Binding<String>
+}
+
+private extension FocusedValues {
+    var testFocusedLabel: String? {
+        get { self[TestFocusedLabelKey.self] }
+        set { self[TestFocusedLabelKey.self] = newValue }
+    }
+
+    var testFocusedBinding: Binding<String>? {
+        get { self[TestFocusedBindingKey.self] }
+        set { self[TestFocusedBindingKey.self] = newValue }
+    }
+}
+
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -6236,6 +6256,63 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.children[0].text, "OUTER-2")
             XCTAssertEqual(node.children[1].text, "OUTER-INNER-3")
+        }
+    }
+
+    func testFocusedValuesPropagateThroughViewContext() async {
+        await MainActor.run {
+            struct FocusedValueReaderView: View {
+                @FocusedValue(\.testFocusedLabel) var label
+
+                var body: some View {
+                    Text(label ?? "NONE")
+                }
+            }
+
+            let defaultNode = makeNode(FocusedValueReaderView())
+            let focusedNode = makeNode(
+                VStack {
+                    FocusedValueReaderView()
+                    FocusedValueReaderView()
+                        .focusedValue(\.testFocusedLabel, "INNER")
+                    FocusedValueReaderView()
+                        .focusedSceneValue(\.testFocusedLabel, "SCENE")
+                }
+                .focusedValue(\.testFocusedLabel, "OUTER")
+            )
+
+            XCTAssertEqual(defaultNode.text, "NONE")
+            XCTAssertEqual(focusedNode.children[0].text, "OUTER")
+            XCTAssertEqual(focusedNode.children[1].text, "INNER")
+            XCTAssertEqual(focusedNode.children[2].text, "SCENE")
+        }
+    }
+
+    func testFocusedBindingReadsAndWritesFocusedBindingValues() async {
+        await MainActor.run {
+            struct FocusedBindingReaderView: View {
+                @FocusedBinding(\.testFocusedBinding) var label
+
+                var body: some View {
+                    Button(label ?? "NONE") {
+                        label = "UPDATED"
+                    }
+                }
+            }
+
+            var storedValue = "BOUND"
+            let binding = Binding<String>(
+                get: { storedValue },
+                set: { storedValue = $0 }
+            )
+            let node = makeNode(
+                FocusedBindingReaderView()
+                    .focusedValue(\.testFocusedBinding, binding)
+            )
+
+            XCTAssertTrue(allTexts(in: node).contains("BOUND"))
+            node.onActivate?()
+            XCTAssertEqual(storedValue, "UPDATED")
         }
     }
 

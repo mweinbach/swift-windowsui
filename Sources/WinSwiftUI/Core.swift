@@ -4046,8 +4046,14 @@ public struct ButtonBorderShape: Sendable, Equatable, Hashable {
 public struct PickerStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
+        case inline
         case segmented
         case menu
+        case navigationLink
+        case palette
+        case radioGroup
+        case wheel
+        case popUpButton
     }
 
     let kind: Kind
@@ -4057,8 +4063,52 @@ public struct PickerStyle: Sendable, Equatable {
     }
 
     public static let automatic = PickerStyle(kind: .automatic)
+    public static let inline = PickerStyle(kind: .inline)
     public static let segmented = PickerStyle(kind: .segmented)
     public static let menu = PickerStyle(kind: .menu)
+    public static let navigationLink = PickerStyle(kind: .navigationLink)
+    public static let palette = PickerStyle(kind: .palette)
+    public static let radioGroup = PickerStyle(kind: .radioGroup)
+    public static let wheel = PickerStyle(kind: .wheel)
+    @available(*, deprecated, message: "Use MenuPickerStyle instead.")
+    public static let popUpButton = PickerStyle(kind: .popUpButton)
+}
+
+public struct DefaultPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct InlinePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SegmentedPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct MenuPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct NavigationLinkPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PalettePickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RadioGroupPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct WheelPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+@available(*, deprecated, message: "Use MenuPickerStyle instead.")
+public struct PopUpButtonPickerStyle: Sendable, Equatable {
+    public init() {}
 }
 
 public struct GaugeStyle: Sendable, Equatable {
@@ -7038,6 +7088,43 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withPickerStyle(style))
         }
+    }
+
+    func pickerStyle(_ style: DefaultPickerStyle) -> some View {
+        pickerStyle(.automatic)
+    }
+
+    func pickerStyle(_ style: InlinePickerStyle) -> some View {
+        pickerStyle(.inline)
+    }
+
+    func pickerStyle(_ style: SegmentedPickerStyle) -> some View {
+        pickerStyle(.segmented)
+    }
+
+    func pickerStyle(_ style: MenuPickerStyle) -> some View {
+        pickerStyle(.menu)
+    }
+
+    func pickerStyle(_ style: NavigationLinkPickerStyle) -> some View {
+        pickerStyle(.navigationLink)
+    }
+
+    func pickerStyle(_ style: PalettePickerStyle) -> some View {
+        pickerStyle(.palette)
+    }
+
+    func pickerStyle(_ style: RadioGroupPickerStyle) -> some View {
+        pickerStyle(.radioGroup)
+    }
+
+    func pickerStyle(_ style: WheelPickerStyle) -> some View {
+        pickerStyle(.wheel)
+    }
+
+    @available(*, deprecated, message: "Use MenuPickerStyle instead.")
+    func pickerStyle(_ style: PopUpButtonPickerStyle) -> some View {
+        pickerStyle(.popUpButton)
     }
 
     func labelStyle(_ style: LabelStyle) -> some View {

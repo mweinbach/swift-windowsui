@@ -6633,6 +6633,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPickerStyleSupportingTypesMapToRetainedPickerChrome() async {
+        await MainActor.run {
+            var selection = "compact"
+            let binding = Binding(
+                get: { selection },
+                set: { selection = $0 }
+            )
+
+            @MainActor
+            func picker() -> Picker<String> {
+                Picker("MODE", selection: binding) {
+                    Text("COMPACT").tag("compact")
+                    Text("EXPANDED").tag("expanded")
+                }
+            }
+
+            let inlineNode = makeNode(VStack { picker().pickerStyle(InlinePickerStyle()) })
+            let wheelNode = makeNode(VStack { picker().pickerStyle(.wheel) })
+            let paletteNode = makeNode(VStack { picker().pickerStyle(PalettePickerStyle()) })
+            let radioNode = makeNode(VStack { picker().pickerStyle(RadioGroupPickerStyle()) })
+            let navigationNode = makeNode(VStack { picker().pickerStyle(NavigationLinkPickerStyle()) })
+            let menuNode = makeNode(VStack { picker().pickerStyle(MenuPickerStyle()) })
+
+            XCTAssertEqual(allTexts(in: inlineNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(allTexts(in: wheelNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(allTexts(in: paletteNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(allTexts(in: radioNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(allTexts(in: navigationNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
+            XCTAssertEqual(firstText(in: menuNode.children[0].children[1].children[0]), "COMPACT")
+        }
+    }
+
     func testDatePickerMapsToRetainedLabelValueRow() async {
         await MainActor.run {
             struct DateEnvironmentReaderView: View {

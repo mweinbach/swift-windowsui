@@ -5879,7 +5879,7 @@ public struct Picker<SelectionValue: Hashable>: View {
 
             let pickerNode: ViewNode
             switch context.pickerStyle.kind {
-            case .automatic, .segmented:
+            case .automatic, .inline, .segmented, .navigationLink, .palette, .radioGroup, .wheel:
                 pickerNode = Self.segmentedPickerNode(
                     runtime: runtime,
                     context: context,
@@ -5888,7 +5888,7 @@ public struct Picker<SelectionValue: Hashable>: View {
                     selectedAnyValue: selectedAnyValue,
                     options: options
                 )
-            case .menu:
+            case .menu, .popUpButton:
                 pickerNode = Self.menuPickerNode(
                     runtime: runtime,
                     context: context,

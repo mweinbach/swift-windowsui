@@ -5462,6 +5462,56 @@ public struct TapGesture: Gesture {
     }
 }
 
+public struct SpatialTapGesture: Gesture {
+    public struct Value: Sendable, Equatable {
+        public var location: CGPoint
+
+        public init(location: CGPoint) {
+            self.location = location
+        }
+    }
+
+    public var count: Int
+    public var coordinateSpace: CoordinateSpace
+    private let endedAction: (@MainActor (Value) -> Void)?
+
+    public init(count: Int = 1, coordinateSpace: CoordinateSpace = .local) {
+        self.count = count
+        self.coordinateSpace = coordinateSpace
+        self.endedAction = nil
+    }
+
+    private init(
+        count: Int,
+        coordinateSpace: CoordinateSpace,
+        endedAction: (@MainActor (Value) -> Void)?
+    ) {
+        self.count = count
+        self.coordinateSpace = coordinateSpace
+        self.endedAction = endedAction
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> SpatialTapGesture {
+        SpatialTapGesture(
+            count: count,
+            coordinateSpace: coordinateSpace,
+            endedAction: action
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            view.onTapGesture(count: count, coordinateSpace: coordinateSpace) { location in
+                endedAction?(Value(location: location))
+            }
+        )
+    }
+}
+
 public struct LongPressGesture: Gesture {
     public typealias Value = Bool
 
@@ -13207,6 +13257,42 @@ public extension View {
 
                     tapProgress = 0
                     action()
+                }
+
+                let existingOnPointerUpOutside = childNode.onPointerUpOutside
+                childNode.onPointerUpOutside = {
+                    existingOnPointerUpOutside?()
+                    tapProgress = 0
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onTapGesture(
+        count: Int = 1,
+        coordinateSpace: CoordinateSpace = .local,
+        perform action: @escaping (CGPoint) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let requiredTapCount = max(1, count)
+            let _ = coordinateSpace
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHitTestVisible = true
+                var tapProgress = 0
+
+                let existingOnPointerUpInsideAt = childNode.onPointerUpInsideAt
+                childNode.onPointerUpInsideAt = { point in
+                    existingOnPointerUpInsideAt?(point)
+                    tapProgress += 1
+                    guard tapProgress >= requiredTapCount else {
+                        return
+                    }
+
+                    tapProgress = 0
+                    action(point)
                 }
 
                 let existingOnPointerUpOutside = childNode.onPointerUpOutside

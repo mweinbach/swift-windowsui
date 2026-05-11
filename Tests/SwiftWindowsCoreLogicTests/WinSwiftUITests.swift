@@ -14158,6 +14158,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSpatialOnTapGestureReportsLocationAndRequiresConsecutiveTaps() async {
+        await MainActor.run {
+            var locations: [Point] = []
+            let node = makeNode(
+                Text("TAP")
+                    .onTapGesture(count: 2, coordinateSpace: .named("surface")) { location in
+                        locations.append(location)
+                    }
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInsideAt?(Point(x: 4, y: 5))
+            XCTAssertEqual(locations, [])
+
+            node.onPointerUpOutside?()
+            node.onPointerUpInsideAt?(Point(x: 6, y: 7))
+            node.onPointerUpInsideAt?(Point(x: 8, y: 9))
+
+            XCTAssertEqual(locations, [Point(x: 8, y: 9)])
+        }
+    }
+
     func testOnTapGesturePreservesExistingPointerUpHandler() async {
         await MainActor.run {
             var buttonActionCount = 0
@@ -14389,6 +14412,52 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(changes, [true, false])
             XCTAssertEqual(endings, [true])
             XCTAssertEqual(simultaneousTapCount, 1)
+        }
+    }
+
+    func testSpatialTapGestureObjectMapsThroughGestureModifier() async {
+        await MainActor.run {
+            var values: [SpatialTapGesture.Value] = []
+            let node = makeNode(
+                Text("TAP")
+                    .gesture(
+                        SpatialTapGesture(count: 2, coordinateSpace: .global)
+                            .onEnded { value in
+                                values.append(value)
+                            }
+                    )
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInsideAt?(Point(x: 11, y: 12))
+            XCTAssertEqual(values, [])
+
+            node.onPointerUpInsideAt?(Point(x: 13, y: 14))
+            XCTAssertEqual(values.map(\.location), [Point(x: 13, y: 14)])
+        }
+    }
+
+    func testSpatialTapGestureReceivesRuntimePointerUpLocation() async {
+        await MainActor.run {
+            var locations: [Point] = []
+            let (runtime, node) = makeRuntimeNode(
+                Text("TAP")
+                    .frame(width: 80, height: 24)
+                    .gesture(
+                        SpatialTapGesture().onEnded { value in
+                            locations.append(value.location)
+                        }
+                    ),
+                size: Size(width: 200, height: 100)
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            runtime.pointerDown(at: Point(x: 20, y: 12))
+            runtime.pointerUp(at: Point(x: 22, y: 14))
+
+            XCTAssertEqual(locations, [Point(x: 22, y: 14)])
         }
     }
 

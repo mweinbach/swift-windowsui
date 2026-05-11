@@ -271,12 +271,14 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             var pointerDownCount = 0
             var insideCount = 0
+            var insideLocations: [Point] = []
             var outsideCount = 0
             var activationCount = 0
 
             let target = ViewNode(frame: Rect(x: 10, y: 10, width: 20, height: 20))
             target.onPointerDown = { pointerDownCount += 1 }
             target.onPointerUpInside = { insideCount += 1 }
+            target.onPointerUpInsideAt = { insideLocations.append($0) }
             target.onPointerUpOutside = { outsideCount += 1 }
             target.onActivate = { activationCount += 1 }
 
@@ -294,6 +296,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             XCTAssertEqual(pointerDownCount, 2)
             XCTAssertEqual(insideCount, 1)
+            XCTAssertEqual(insideLocations, [Point(x: 16, y: 16)])
             XCTAssertEqual(outsideCount, 1)
             XCTAssertEqual(activationCount, 1)
         }

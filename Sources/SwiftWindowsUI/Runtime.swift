@@ -1154,6 +1154,7 @@ public final class ViewNode {
     public var onPointerExit: (() -> Void)?
     public var onPointerDown: (() -> Void)?
     public var onPointerUpInside: (() -> Void)?
+    public var onPointerUpInsideAt: ((Point) -> Void)?
     public var onPointerUpOutside: (() -> Void)?
     public var onContextMenu: ((Point) -> Void)?
     public var onFocusEnter: (() -> Void)?
@@ -1390,6 +1391,7 @@ public final class ViewNode {
         self.onPointerExit = nil
         self.onPointerDown = nil
         self.onPointerUpInside = nil
+        self.onPointerUpInsideAt = nil
         self.onPointerUpOutside = nil
         self.onContextMenu = nil
         self.onFocusEnter = nil
@@ -3641,6 +3643,7 @@ public final class RetainedViewRuntime {
             let didRepeat = endButtonRepeat(for: pressedNode)
             if pressedNode === hitNode {
                 pressedNode.onPointerUpInside?()
+                pressedNode.onPointerUpInsideAt?(point)
                 if !didRepeat {
                     pressedNode.onActivate?()
                 }

@@ -2575,6 +2575,11 @@ final class WinSwiftUITests: XCTestCase {
             let defaultNode = makeNode(Image(systemName: "gear"))
             let templateNode = makeNode(Image(systemName: "gear").renderingMode(.template))
             let originalBitmapNode = makeNode(Image(url.path).renderingMode(.original))
+            let templateBitmapNode = makeNode(
+                Image(url.path)
+                    .foregroundColor(Color(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+                    .renderingMode(.template)
+            )
             let resetNode = makeNode(
                 Image(systemName: "gear")
                     .renderingMode(.template)
@@ -2584,6 +2589,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertNil(defaultNode.imageRenderingMode)
             XCTAssertEqual(templateNode.imageRenderingMode, .template)
             XCTAssertEqual(originalBitmapNode.imageRenderingMode, .original)
+            XCTAssertEqual(templateBitmapNode.imageRenderingMode, .template)
+            XCTAssertEqual(templateBitmapNode.bitmapSurface?.pixels[0], 153)
+            XCTAssertEqual(templateBitmapNode.bitmapSurface?.pixels[1], 102)
+            XCTAssertEqual(templateBitmapNode.bitmapSurface?.pixels[2], 51)
+            XCTAssertEqual(templateBitmapNode.bitmapSurface?.pixels[3], 255)
             XCTAssertNil(resetNode.imageRenderingMode)
         }
     }

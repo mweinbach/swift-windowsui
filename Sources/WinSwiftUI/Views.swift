@@ -2701,7 +2701,8 @@ public struct Image: View {
                     return node
                 }
 
-                let node = Controls.image(bitmap, preferredSize: preferredSize)
+                let renderedBitmap = resolvedBitmapSurface(bitmap, context: context)
+                let node = Controls.image(renderedBitmap, preferredSize: preferredSize)
                 applyImageMetadata(to: node, context: context)
                 return node
             }
@@ -2840,6 +2841,45 @@ public struct Image: View {
     private func applyAccessibility(to node: ViewNode) {
         node.accessibilityLabel = accessibilityLabel
         node.isAccessibilityHidden = isAccessibilityHidden
+    }
+
+    private func resolvedBitmapSurface(_ bitmap: BitmapSurface, context: ViewBuildContext) -> BitmapSurface {
+        guard renderingMode == .template else {
+            return bitmap
+        }
+
+        let tint = (color ?? context.foregroundColor)
+            .resolvedForContrast(context.colorSchemeContrast)
+        let tintChannels = tint.rgba
+        let tintRed = templateByte(tintChannels.0)
+        let tintGreen = templateByte(tintChannels.1)
+        let tintBlue = templateByte(tintChannels.2)
+        let tintAlpha = max(0, min(1, tintChannels.3))
+        let width = max(0, Int(bitmap.width))
+        let height = max(0, Int(bitmap.height))
+        let bytesPerRow = max(width * 4, Int(bitmap.bytesPerRow))
+        var pixels = bitmap.pixels
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let offset = y * bytesPerRow + x * 4
+                guard offset + 3 < pixels.count else {
+                    continue
+                }
+
+                let sourceAlpha = Float(pixels[offset + 3]) / 255
+                pixels[offset] = tintBlue
+                pixels[offset + 1] = tintGreen
+                pixels[offset + 2] = tintRed
+                pixels[offset + 3] = templateByte(sourceAlpha * tintAlpha)
+            }
+        }
+
+        return BitmapSurface(width: bitmap.width, height: bitmap.height, bytesPerRow: bitmap.bytesPerRow, pixels: pixels)
+    }
+
+    private func templateByte(_ value: Float) -> UInt8 {
+        UInt8((max(0, min(1, value)) * 255).rounded())
     }
 
     private func applyImageMetadata(to node: ViewNode, context: ViewBuildContext) {

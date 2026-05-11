@@ -6207,6 +6207,51 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationBarBackButtonHiddenSuppressesRetainedBackControl() async {
+        await MainActor.run {
+            let stack = NavigationStack {
+                NavigationLink(
+                    "OPEN",
+                    destination: Text("DETAIL")
+                        .navigationTitle("DETAIL TITLE")
+                        .navigationBarBackButtonHidden()
+                )
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+            rootNode.children[1].onActivate?()
+
+            let detailNode = makeNode(stack)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+            XCTAssertEqual(detailNode.children[0].children.count, 1)
+            XCTAssertFalse(allTexts(in: detailNode.children[0]).contains("<"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+        }
+    }
+
+    func testNavigationBarBackButtonHiddenFalseKeepsRetainedBackControl() async {
+        await MainActor.run {
+            let stack = NavigationStack {
+                NavigationLink(
+                    "OPEN",
+                    destination: Text("DETAIL")
+                        .navigationTitle("DETAIL TITLE")
+                        .navigationBarBackButtonHidden(false)
+                )
+                .navigationTitle("ROOT TITLE")
+            }
+
+            let rootNode = makeNode(stack)
+            rootNode.children[1].onActivate?()
+
+            let detailNode = makeNode(stack)
+            XCTAssertEqual(detailNode.children[0].children.count, 2)
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("<"))
+            XCTAssertTrue(allTexts(in: detailNode.children[0]).contains("DETAIL TITLE"))
+        }
+    }
+
     func testNavigationLinkValueResolvesNavigationDestination() async {
         await MainActor.run {
             var didInvalidate = false

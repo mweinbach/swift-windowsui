@@ -3260,6 +3260,10 @@ public struct ViewModifierContent: View, TaggedViewMetadata {
         content.navigationTitleDisplayMode
     }
 
+    var anyNavigationBarBackButtonHidden: Bool? {
+        content.navigationBarBackButtonHidden
+    }
+
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         content.navigationDestinationRegistrations
     }
@@ -3309,6 +3313,10 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
         (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
     }
 
+    var anyNavigationBarBackButtonHidden: Bool? {
+        (content as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
+    }
+
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
         (content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
     }
@@ -3356,6 +3364,10 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
         (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
+        (content as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
     }
 
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -3458,6 +3470,7 @@ public struct AnyView: View {
     let badge: [AnyView]?
     let navigationTitle: [AnyView]?
     let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
+    let navigationBarBackButtonHidden: Bool?
     let navigationDestinationRegistrations: [NavigationDestinationRegistration]
     let navigationPresentedDestinations: [NavigationPresentedDestination]
 
@@ -3467,6 +3480,7 @@ public struct AnyView: View {
         self.badge = (view as? any TaggedViewMetadata)?.anyBadge
         self.navigationTitle = (view as? any TaggedViewMetadata)?.anyNavigationTitle
         self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+        self.navigationBarBackButtonHidden = (view as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
         self.navigationDestinationRegistrations = (view as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
         self.navigationPresentedDestinations = (view as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
         self.buildComponent = { context in
@@ -5394,6 +5408,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     var badge: [AnyView]?
     var navigationTitle: [AnyView]?
     var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
+    var navigationBarBackButtonHidden: Bool?
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] = []
     var navigationPresentedDestinations: [NavigationPresentedDestination] = []
 
@@ -5415,6 +5430,10 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
         navigationTitleDisplayMode ?? (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
+        navigationBarBackButtonHidden ?? (content as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
     }
 
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -5452,6 +5471,7 @@ protocol TaggedViewMetadata {
     var anyBadge: [AnyView]? { get }
     var anyNavigationTitle: [AnyView]? { get }
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
+    var anyNavigationBarBackButtonHidden: Bool? { get }
     var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] { get }
     var anyNavigationPresentedDestinations: [NavigationPresentedDestination] { get }
 }
@@ -5470,6 +5490,10 @@ extension TaggedViewMetadata {
     }
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        nil
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
         nil
     }
 
@@ -8396,6 +8420,14 @@ public extension View {
             content.makeComponent(context: context)
         }
         modified.navigationTitleDisplayMode = displayMode
+        return modified
+    }
+
+    func navigationBarBackButtonHidden(_ hidesBackButton: Bool = true) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.navigationBarBackButtonHidden = hidesBackButton
         return modified
     }
 

@@ -1072,6 +1072,7 @@ private func navigationContainerComponent(
         return body
     }
 
+    let hidesBackButton = navigationBarBackButtonHidden(in: visibleContent) ?? false
     let displayMode = navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
     let titleFont: Font = displayMode == .inline
         ? .system(size: 2, weight: .semibold)
@@ -1090,7 +1091,7 @@ private func navigationContainerComponent(
         let titleNode = titleComponent.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
         var headerChildren: [ViewNode] = []
-        if !combinedDestinationStack.isEmpty {
+        if !combinedDestinationStack.isEmpty && !hidesBackButton {
             let backLabel = Controls.label(
                 "<",
                 preferredSize: Size(width: 22, height: 26),
@@ -1150,6 +1151,11 @@ private func navigationTitle(in content: [AnyView]) -> [AnyView]? {
 @MainActor
 private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarItem.TitleDisplayMode? {
     content.lazy.compactMap(\.navigationTitleDisplayMode).first
+}
+
+@MainActor
+private func navigationBarBackButtonHidden(in content: [AnyView]) -> Bool? {
+    content.lazy.compactMap(\.navigationBarBackButtonHidden).first
 }
 
 @MainActor

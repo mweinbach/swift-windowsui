@@ -54,6 +54,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
     public var minimumScaleFactor: Double
+    public var reservesLineLimitSpace: Bool
     public var underline: Bool
     public var strikethrough: Bool
     public var enableKerning: Bool
@@ -73,6 +74,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
         minimumScaleFactor: Double = 1,
+        reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
         strikethrough: Bool = false,
         enableKerning: Bool = true,
@@ -91,6 +93,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)
+        self.reservesLineLimitSpace = reservesLineLimitSpace
         self.underline = underline
         self.strikethrough = strikethrough
         self.enableKerning = enableKerning
@@ -180,10 +183,13 @@ enum PixelFont {
         )
         let width = contentWidth + effectiveStyle.insets.leading + effectiveStyle.insets.trailing
         let lineCount = max(layout.lines.count, 1)
-        let height = (
-            Double(lineCount * PixelFontAtlas.glyphHeight) +
-            Double(max(lineCount - 1, 0)) * effectiveStyle.lineSpacing
-        ) * scale + effectiveStyle.insets.top + effectiveStyle.insets.bottom
+        let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
+        let measuredLineCount = max(lineCount, reservedLineCount ?? 0)
+        let height = pixelTextContentHeight(
+            lineCount: measuredLineCount,
+            style: effectiveStyle,
+            scale: scale
+        ) + effectiveStyle.insets.top + effectiveStyle.insets.bottom
 
         return Size(width: width, height: height)
     }
@@ -213,10 +219,13 @@ enum PixelFont {
             measureLine: { line in rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let lines = layout.lines
-        let totalTextHeight = (
-            Double(max(lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(lines.count - 1, 0)) * effectiveStyle.lineSpacing
-        ) * scale
+        let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
+        let verticalLineCount = max(max(lines.count, 1), reservedLineCount ?? 0)
+        let totalTextHeight = pixelTextContentHeight(
+            lineCount: verticalLineCount,
+            style: effectiveStyle,
+            scale: scale
+        )
         var y = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
 
         for line in lines {
@@ -270,10 +279,13 @@ enum PixelFont {
             measureLine: { line in rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
         let lines = layout.lines
-        let totalTextHeight = (
-            Double(max(lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(lines.count - 1, 0)) * effectiveStyle.lineSpacing
-        ) * scale
+        let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
+        let verticalLineCount = max(max(lines.count, 1), reservedLineCount ?? 0)
+        let totalTextHeight = pixelTextContentHeight(
+            lineCount: verticalLineCount,
+            style: effectiveStyle,
+            scale: scale
+        )
         var y = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
 
         for line in lines {
@@ -458,6 +470,25 @@ enum PixelFont {
     static func glyphRows(for character: Character) -> [String] {
         PixelFontAtlas.pattern(for: character)
     }
+}
+
+func reservedTextLineCount(for style: PixelTextStyle) -> Int? {
+    guard
+        style.reservesLineLimitSpace,
+        let maximumNumberOfLines = style.maximumNumberOfLines,
+        maximumNumberOfLines > 0
+    else {
+        return nil
+    }
+
+    return maximumNumberOfLines
+}
+
+func pixelTextContentHeight(lineCount: Int, style: PixelTextStyle, scale: Double) -> Double {
+    (
+        Double(max(lineCount, 1) * PixelFontAtlas.glyphHeight) +
+        Double(max(lineCount - 1, 0)) * style.lineSpacing
+    ) * scale
 }
 
 func minimumTextScaleFactor(

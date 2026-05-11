@@ -12,6 +12,7 @@ final class WindowTextSystem {
         var lineBreakMode: TextLineBreakMode
         var maximumNumberOfLines: Int?
         var minimumScaleFactor: Double
+        var reservesLineLimitSpace: Bool
         var insetsTop: Double
         var insetsLeading: Double
         var insetsBottom: Double
@@ -29,6 +30,7 @@ final class WindowTextSystem {
             self.lineBreakMode = style.lineBreakMode
             self.maximumNumberOfLines = style.maximumNumberOfLines
             self.minimumScaleFactor = style.minimumScaleFactor
+            self.reservesLineLimitSpace = style.reservesLineLimitSpace
             self.insetsTop = style.insets.top
             self.insetsLeading = style.insets.leading
             self.insetsBottom = style.insets.bottom

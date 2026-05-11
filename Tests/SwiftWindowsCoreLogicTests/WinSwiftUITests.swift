@@ -1389,8 +1389,11 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertEqual(textNode.textStyle.maximumNumberOfLines, 2)
+            XCTAssertTrue(textNode.textStyle.reservesLineLimitSpace)
             XCTAssertEqual(inheritedNode.children[0].textStyle.maximumNumberOfLines, 3)
+            XCTAssertTrue(inheritedNode.children[0].textStyle.reservesLineLimitSpace)
             XCTAssertEqual(inheritedNode.children[1].textStyle.maximumNumberOfLines, 1)
+            XCTAssertFalse(inheritedNode.children[1].textStyle.reservesLineLimitSpace)
         }
     }
 

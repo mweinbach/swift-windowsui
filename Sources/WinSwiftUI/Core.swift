@@ -904,6 +904,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var font: Font?
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
+    var lineLimitReservesSpace: Bool
     public var lineSpacing: Double?
     public var truncationMode: Text.TruncationMode?
     public var minimumScaleFactor: CGFloat
@@ -999,6 +1000,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         font: Font? = nil,
         multilineTextAlignment: TextAlignment = .center,
         lineLimit: Int? = nil,
+        lineLimitReservesSpace: Bool = false,
         lineSpacing: Double? = nil,
         truncationMode: Text.TruncationMode? = nil,
         minimumScaleFactor: CGFloat = 1,
@@ -1090,6 +1092,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.font = font
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
+        self.lineLimitReservesSpace = lineLimitReservesSpace
         self.lineSpacing = lineSpacing
         self.truncationMode = truncationMode
         self.minimumScaleFactor = Self.clampedMinimumScaleFactor(minimumScaleFactor)
@@ -1401,6 +1404,10 @@ public struct ViewBuildContext {
 
     public var lineLimit: Int? {
         environmentValuesProvider().lineLimit ?? lineLimitProvider()
+    }
+
+    public var lineLimitReservesSpace: Bool {
+        environmentValuesProvider().lineLimitReservesSpace
     }
 
     public var lineSpacing: Double? {
@@ -1865,7 +1872,7 @@ public struct ViewBuildContext {
         )
     }
 
-    func withLineLimit(_ lineLimit: Int?) -> ViewBuildContext {
+    func withLineLimit(_ lineLimit: Int?, reservesSpace: Bool = false) -> ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: canvasSizeProvider,
             invalidateHandler: invalidateHandler,
@@ -1889,6 +1896,7 @@ public struct ViewBuildContext {
             environmentValuesProvider: {
                 var values = environmentValuesProvider()
                 values.lineLimit = lineLimit
+                values.lineLimitReservesSpace = reservesSpace && lineLimit != nil
                 return values
             },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
@@ -4957,8 +4965,9 @@ public extension View {
     }
 
     func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> some View {
-        _ = reservesSpace
-        return self.lineLimit(lineLimit)
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withLineLimit(lineLimit, reservesSpace: reservesSpace))
+        }
     }
 
     func lineSpacing(_ lineSpacing: Double) -> some View {

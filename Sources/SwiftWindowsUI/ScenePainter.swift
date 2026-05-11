@@ -604,10 +604,13 @@ public enum ScenePainter {
             maxContentWidth: max(0, contentRect.size.width),
             measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
         )
-        let totalTextHeight = (
-            Double(max(layout.lines.count, 1) * PixelFontAtlas.glyphHeight) +
-            Double(max(layout.lines.count - 1, 0)) * effectiveStyle.lineSpacing
-        ) * scale
+        let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
+        let verticalLineCount = max(max(layout.lines.count, 1), reservedLineCount ?? 0)
+        let totalTextHeight = pixelTextContentHeight(
+            lineCount: verticalLineCount,
+            style: effectiveStyle,
+            scale: scale
+        )
 
         let startY: Double
         switch effectiveStyle.verticalAlignment {

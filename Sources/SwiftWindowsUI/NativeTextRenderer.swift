@@ -168,13 +168,22 @@ enum GDIRasterTextRenderer {
 
         let contentWidth = Double(measureRect.right - measureRect.left) / scaleFactor
         let measuredHeight = Double(measureRect.bottom - measureRect.top) / scaleFactor
+        let reservedHeight: Double
+        if let reservedLineCount = reservedTextLineCount(for: style) {
+            let lineHeight = style.nativeFontPixelSize
+            reservedHeight =
+                Double(reservedLineCount) * lineHeight +
+                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+        } else {
+            reservedHeight = 0
+        }
         let measuredWidth = clampedMeasuredWidth(
             contentWidth,
             style: style,
             maxWidth: maxWidth
         )
         let width = measuredWidth + style.insets.leading + style.insets.trailing
-        let height = measuredHeight + style.insets.top + style.insets.bottom
+        let height = max(measuredHeight, reservedHeight) + style.insets.top + style.insets.bottom
         return Size(width: max(1, width), height: max(1, height))
     }
 

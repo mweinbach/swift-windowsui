@@ -266,6 +266,14 @@ private final class DirectWriteSystem {
             }
         }
 
+        if let reservedLineCount = reservedTextLineCount(for: style) {
+            let reservedLineHeight = lines.first?.height ?? max(style.nativeFontPixelSize, 1)
+            let reservedContentHeight =
+                Double(reservedLineCount) * reservedLineHeight +
+                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+            contentHeight = max(contentHeight, reservedContentHeight)
+        }
+
         let measuredWidth = clampedMeasuredWidth(contentWidth, style: style, maxWidth: maxWidth)
         let measuredSize = snapLogicalTextSize(
             Size(
@@ -1000,14 +1008,23 @@ private final class DirectWriteSystem {
 
     private func textOrigin(size: Size, style: PixelTextStyle, bounds: TextBounds) -> Point {
         let contentHeight = max(0, size.height - style.insets.top - style.insets.bottom)
+        let reservedHeight: Double
+        if let reservedLineCount = reservedTextLineCount(for: style) {
+            reservedHeight =
+                Double(reservedLineCount) * style.nativeFontPixelSize +
+                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+        } else {
+            reservedHeight = 0
+        }
+        let alignmentHeight = max(bounds.height, reservedHeight)
         let verticalOffset: Double
         switch style.verticalAlignment {
         case .top:
             verticalOffset = 0
         case .center:
-            verticalOffset = max(0, (contentHeight - bounds.height) * 0.5)
+            verticalOffset = max(0, (contentHeight - alignmentHeight) * 0.5)
         case .bottom:
-            verticalOffset = max(0, contentHeight - bounds.height)
+            verticalOffset = max(0, contentHeight - alignmentHeight)
         }
         return Point(
             x: style.insets.leading + bounds.overhangLeft,

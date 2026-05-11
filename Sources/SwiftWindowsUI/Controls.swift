@@ -736,6 +736,7 @@ public enum Controls {
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
         minimumScaleFactor: Double = 1,
+        reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
         strikethrough: Bool = false,
         enableKerning: Bool = true
@@ -759,6 +760,7 @@ public enum Controls {
                 lineBreakMode: lineBreakMode,
                 maximumNumberOfLines: maximumNumberOfLines,
                 minimumScaleFactor: minimumScaleFactor,
+                reservesLineLimitSpace: reservesLineLimitSpace,
                 underline: underline,
                 strikethrough: strikethrough,
                 enableKerning: enableKerning

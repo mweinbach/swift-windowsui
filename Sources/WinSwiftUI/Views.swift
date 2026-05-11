@@ -1576,6 +1576,7 @@ public struct Text: View {
     private var fontDesign: Font.Design?
     private var alignment: TextAlignment?
     private var lineLimit: Int??
+    private var lineLimitReservesSpace: Bool?
     private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
     private var lineSpacing: Double?
@@ -1592,6 +1593,7 @@ public struct Text: View {
         self.fontDesign = nil
         self.alignment = nil
         self.lineLimit = nil
+        self.lineLimitReservesSpace = nil
         self.truncationMode = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
@@ -1609,6 +1611,7 @@ public struct Text: View {
         fontDesign: Font.Design?,
         alignment: TextAlignment?,
         lineLimit: Int??,
+        lineLimitReservesSpace: Bool?,
         truncationMode: TruncationMode?,
         letterSpacing: Double?,
         lineSpacing: Double?,
@@ -1624,6 +1627,7 @@ public struct Text: View {
         self.fontDesign = fontDesign
         self.alignment = alignment
         self.lineLimit = lineLimit
+        self.lineLimitReservesSpace = lineLimitReservesSpace
         self.truncationMode = truncationMode
         self.letterSpacing = letterSpacing
         self.lineSpacing = lineSpacing
@@ -1658,6 +1662,7 @@ public struct Text: View {
             fontDesign: lhs.fontDesign ?? rhs.fontDesign,
             alignment: lhs.alignment ?? rhs.alignment,
             lineLimit: lhs.lineLimit != nil ? lhs.lineLimit : rhs.lineLimit,
+            lineLimitReservesSpace: lhs.lineLimitReservesSpace ?? rhs.lineLimitReservesSpace,
             truncationMode: lhs.truncationMode ?? rhs.truncationMode,
             letterSpacing: lhs.letterSpacing ?? rhs.letterSpacing,
             lineSpacing: lhs.lineSpacing ?? rhs.lineSpacing,
@@ -1712,6 +1717,7 @@ public struct Text: View {
                 ),
                 maximumNumberOfLines: resolvedLineLimit,
                 minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
+                reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace) && resolvedLineLimit != nil,
                 underline: underline,
                 strikethrough: strikethrough,
                 enableKerning: allowsTightening ?? context.allowsTightening
@@ -1787,12 +1793,15 @@ public struct Text: View {
     public func lineLimit(_ lineLimit: Int?) -> Text {
         var copy = self
         copy.lineLimit = .some(lineLimit)
+        copy.lineLimitReservesSpace = false
         return copy
     }
 
     public func lineLimit(_ lineLimit: Int, reservesSpace: Bool) -> Text {
-        _ = reservesSpace
-        return self.lineLimit(lineLimit)
+        var copy = self
+        copy.lineLimit = .some(lineLimit)
+        copy.lineLimitReservesSpace = reservesSpace
+        return copy
     }
 
     public func truncationMode(_ mode: TruncationMode) -> Text {

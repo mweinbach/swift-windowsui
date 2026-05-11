@@ -676,6 +676,29 @@ final class TextSystemTests: XCTestCase {
         XCTAssertNotEqual(unscaledLayout.lines, [text])
     }
 
+    func testPixelTextMeasurementReservesLineLimitSpaceWhenRequested() {
+        let baseStyle = PixelTextStyle(
+            color: .white,
+            scale: 2,
+            alignment: .leading,
+            lineBreakMode: .wrap,
+            maximumNumberOfLines: 3
+        )
+        var reservedStyle = baseStyle
+        reservedStyle.reservesLineLimitSpace = true
+
+        let unreserved = PixelFont.measure("ONE", style: baseStyle, maxWidth: nil)
+        let reserved = PixelFont.measure("ONE", style: reservedStyle, maxWidth: nil)
+        let expectedReservedContentHeight = pixelTextContentHeight(
+            lineCount: 3,
+            style: reservedStyle,
+            scale: reservedStyle.scale
+        )
+
+        XCTAssertGreaterThan(reserved.height, unreserved.height)
+        XCTAssertEqual(reserved.height, expectedReservedContentHeight, accuracy: 0.0001)
+    }
+
     func testDirectWriteMinimumScaleFactorShrinksConstrainedLayoutWhenAvailable() async throws {
         let capabilities = await MainActor.run {
             TextSystem.capabilities()
@@ -720,6 +743,40 @@ final class TextSystemTests: XCTestCase {
             constrainedLayout.lines.first?.glyphs.first?.fontSize ?? 24,
             naturalLayout.lines.first?.glyphs.first?.fontSize ?? 0
         )
+    }
+
+    func testDirectWriteMeasurementReservesLineLimitSpaceWhenAvailable() async throws {
+        let capabilities = await MainActor.run {
+            TextSystem.capabilities()
+        }
+
+        guard capabilities.dwriteFactoryCreationSucceeded else {
+            throw XCTSkip("DirectWrite is not available on this environment")
+        }
+
+        let result = await MainActor.run { () -> (Size?, Size?) in
+            let baseStyle = PixelTextStyle(
+                color: .white,
+                alignment: .leading,
+                verticalAlignment: .top,
+                nativeFontSize: 18,
+                lineBreakMode: .wrap,
+                maximumNumberOfLines: 3
+            )
+            var reservedStyle = baseStyle
+            reservedStyle.reservesLineLimitSpace = true
+
+            return (
+                NativeTextRenderer.measure("One", style: baseStyle, scaleFactor: 1.0, maxWidth: nil),
+                NativeTextRenderer.measure("One", style: reservedStyle, scaleFactor: 1.0, maxWidth: nil)
+            )
+        }
+
+        guard let unreserved = result.0, let reserved = result.1 else {
+            return XCTFail("Expected native text measurements")
+        }
+
+        XCTAssertGreaterThan(reserved.height, unreserved.height)
     }
 }
 

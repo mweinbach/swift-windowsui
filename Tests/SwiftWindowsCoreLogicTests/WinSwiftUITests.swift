@@ -6482,6 +6482,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testButtonRepeatBehaviorBridgesThroughEnvironmentValues() async {
+        await MainActor.run {
+            struct ButtonRepeatBehaviorReaderView: View {
+                @Environment(\.buttonRepeatBehavior) var buttonRepeatBehavior
+
+                var body: some View {
+                    Text(
+                        buttonRepeatBehavior == .enabled
+                            ? "ENABLED"
+                            : buttonRepeatBehavior == .disabled ? "DISABLED" : "AUTOMATIC"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ButtonRepeatBehaviorReaderView())
+            let modifierNode = makeNode(
+                ButtonRepeatBehaviorReaderView()
+                    .buttonRepeatBehavior(.enabled)
+            )
+            let environmentNode = makeNode(
+                ButtonRepeatBehaviorReaderView()
+                    .environment(\.buttonRepeatBehavior, .disabled)
+            )
+
+            XCTAssertEqual(defaultNode.text, "AUTOMATIC")
+            XCTAssertEqual(modifierNode.text, "ENABLED")
+            XCTAssertEqual(environmentNode.text, "DISABLED")
+        }
+    }
+
     func testDisabledToggleAndSliderDoNotMutateBindings() async {
         await MainActor.run {
             var isEnabled = false

@@ -904,6 +904,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
+    public var buttonRepeatBehavior: ButtonRepeatBehavior
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
@@ -991,6 +992,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
+        buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
@@ -1074,6 +1076,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
+        self.buttonRepeatBehavior = buttonRepeatBehavior
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
@@ -3066,6 +3069,24 @@ public struct ButtonStyle: Sendable, Equatable {
     }
 }
 
+public struct ButtonRepeatBehavior: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case enabled
+        case disabled
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ButtonRepeatBehavior(.automatic)
+    public static let enabled = ButtonRepeatBehavior(.enabled)
+    public static let disabled = ButtonRepeatBehavior(.disabled)
+}
+
 public struct PickerStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -4471,6 +4492,12 @@ public extension View {
     func buttonStyle(_ style: ButtonStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withButtonStyle(style))
+        }
+    }
+
+    func buttonRepeatBehavior(_ behavior: ButtonRepeatBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.buttonRepeatBehavior, behavior))
         }
     }
 

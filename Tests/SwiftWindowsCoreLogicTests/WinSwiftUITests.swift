@@ -6021,6 +6021,20 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .navigationViewStyle(.stack)
             )
+            let doubleColumnNavigationNode = makeNode(
+                NavigationView {
+                    Text("DOUBLE ROOT")
+                        .navigationTitle("DOUBLE TITLE")
+                }
+                .navigationViewStyle(.doubleColumn)
+            )
+            let columnsNavigationNode = makeNode(
+                NavigationView {
+                    Text("COLUMNS ROOT")
+                        .navigationTitle("COLUMNS TITLE")
+                }
+                .navigationViewStyle(ColumnsNavigationViewStyle())
+            )
 
             XCTAssertEqual(stackReaderNode.text, "STACK")
             XCTAssertEqual(doubleReaderNode.text, "DOUBLE")
@@ -6028,6 +6042,15 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT TITLE"))
+            XCTAssertEqual(navigationNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96))
+            XCTAssertEqual(navigationNode.children[0].cornerRadius, 10)
+            XCTAssertEqual(doubleColumnNavigationNode.backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28))
+            XCTAssertEqual(doubleColumnNavigationNode.borderWidth, 1)
+            XCTAssertEqual(doubleColumnNavigationNode.cornerRadius, 12)
+            XCTAssertEqual(doubleColumnNavigationNode.children[0].cornerRadius, 8)
+            XCTAssertEqual(columnsNavigationNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24))
+            XCTAssertEqual(columnsNavigationNode.cornerRadius, 14)
+            XCTAssertEqual(columnsNavigationNode.children[0].cornerRadius, 12)
         }
     }
 

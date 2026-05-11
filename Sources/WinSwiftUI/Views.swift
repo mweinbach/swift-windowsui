@@ -983,7 +983,79 @@ public struct NavigationView: View {
             state: state,
             pathBinding: pathBinding,
             context: context,
+            navigationViewStyle: context.navigationViewStyle,
             fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+}
+
+private struct RetainedNavigationViewChrome {
+    var containerBackground: Color?
+    var containerBorderColor: Color
+    var containerBorderWidth: Double
+    var containerCornerRadius: Double
+    var headerBackground: Color
+    var headerBorderColor: Color
+    var headerBorderWidth: Double
+    var headerCornerRadius: Double
+    var spacing: Double
+}
+
+private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> RetainedNavigationViewChrome {
+    let defaultChrome = RetainedNavigationViewChrome(
+        containerBackground: nil,
+        containerBorderColor: .clear,
+        containerBorderWidth: 0,
+        containerCornerRadius: 0,
+        headerBackground: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
+        headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+        headerBorderWidth: 1,
+        headerCornerRadius: 10,
+        spacing: 10
+    )
+
+    guard let style else {
+        return defaultChrome
+    }
+
+    switch style.kind {
+    case .automatic:
+        return defaultChrome
+    case .stack:
+        return RetainedNavigationViewChrome(
+            containerBackground: nil,
+            containerBorderColor: .clear,
+            containerBorderWidth: 0,
+            containerCornerRadius: 0,
+            headerBackground: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96),
+            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+            headerBorderWidth: 1,
+            headerCornerRadius: 10,
+            spacing: 10
+        )
+    case .doubleColumn:
+        return RetainedNavigationViewChrome(
+            containerBackground: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28),
+            containerBorderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08),
+            containerBorderWidth: 1,
+            containerCornerRadius: 12,
+            headerBackground: Color(red: 0.06, green: 0.09, blue: 0.14, alpha: 0.94),
+            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            headerBorderWidth: 1,
+            headerCornerRadius: 8,
+            spacing: 12
+        )
+    case .columns:
+        return RetainedNavigationViewChrome(
+            containerBackground: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24),
+            containerBorderColor: Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10),
+            containerBorderWidth: 1,
+            containerCornerRadius: 14,
+            headerBackground: Color(red: 0.09, green: 0.13, blue: 0.19, alpha: 0.90),
+            headerBorderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
+            headerBorderWidth: 1,
+            headerCornerRadius: 12,
+            spacing: 12
         )
     }
 }
@@ -994,6 +1066,7 @@ private func navigationContainerComponent(
     state: NavigationContainerState,
     pathBinding: NavigationPathBinding?,
     context: ViewBuildContext,
+    navigationViewStyle: NavigationViewStyle? = nil,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
     navigationContainerComponent(
@@ -1002,6 +1075,7 @@ private func navigationContainerComponent(
         setDestinationStack: { state.destinationStack = $0 },
         pathBinding: pathBinding,
         context: context,
+        navigationViewStyle: navigationViewStyle,
         fallbackLayout: fallbackLayout
     )
 }
@@ -1013,6 +1087,7 @@ private func navigationContainerComponent(
     setDestinationStack: @escaping ([NavigationStackEntry]) -> Void,
     pathBinding: NavigationPathBinding?,
     context: ViewBuildContext,
+    navigationViewStyle: NavigationViewStyle? = nil,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
     let rootDestinationRegistrations = context.navigationDestinationRegistrations
@@ -1108,6 +1183,7 @@ private func navigationContainerComponent(
     let titleFont: Font = displayMode == .inline
         ? .system(size: 2, weight: .semibold)
         : .system(size: 3, weight: .bold)
+    let chrome = retainedNavigationViewChrome(for: navigationViewStyle)
     let titleContext = context
         .withForegroundColor(Color(red: 0.92, green: 0.96, blue: 1.0))
         .withFont(titleFont)
@@ -1153,10 +1229,10 @@ private func navigationContainerComponent(
         headerChildren.append(titleNode)
 
         let headerNode = Controls.stackPanel(
-            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
-            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
-            borderWidth: 1,
-            cornerRadius: 10,
+            backgroundColor: chrome.headerBackground,
+            borderColor: chrome.headerBorderColor,
+            borderWidth: chrome.headerBorderWidth,
+            cornerRadius: chrome.headerCornerRadius,
             stackLayout: .horizontal(
                 spacing: 8,
                 padding: EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14),
@@ -1167,7 +1243,11 @@ private func navigationContainerComponent(
         )
 
         return Controls.stackPanel(
-            stackLayout: .vertical(spacing: 10, alignment: .stretch),
+            backgroundColor: chrome.containerBackground,
+            borderColor: chrome.containerBorderColor,
+            borderWidth: chrome.containerBorderWidth,
+            cornerRadius: chrome.containerCornerRadius,
+            stackLayout: .vertical(spacing: chrome.spacing, alignment: .stretch),
             isHitTestVisible: false,
             children: [headerNode, bodyNode]
         )

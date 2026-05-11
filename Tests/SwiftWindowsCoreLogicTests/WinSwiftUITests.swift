@@ -9335,16 +9335,16 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertTrue(allTexts(in: markedNode.children[0]).contains("CPU"))
             XCTAssertTrue(allTexts(in: markedNode.children[0]).contains("50%"))
-            XCTAssertFalse(allTexts(in: markedNode).contains("25%"))
-            XCTAssertFalse(allTexts(in: markedNode).contains("75%"))
+            XCTAssertTrue(allTexts(in: markedNode.children[2]).contains("25%"))
+            XCTAssertTrue(allTexts(in: markedNode.children[2]).contains("75%"))
             XCTAssertEqual(markedNode.children[1].children[1].frame.size.width, 100)
 
             XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("MEMORY"))
             XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("75%"))
             XCTAssertEqual(boundsNode.children[1].children[1].frame.size.width, 150)
-            XCTAssertEqual(firstText(in: boundsNode.children[2].children[0]), "LOW")
-            XCTAssertEqual(firstText(in: boundsNode.children[2].children[2]), "HIGH")
-            XCTAssertFalse(allTexts(in: boundsNode).contains("MID"))
+            XCTAssertTrue(allTexts(in: boundsNode.children[2]).contains("MID"))
+            XCTAssertEqual(firstText(in: boundsNode.children[3].children[0]), "LOW")
+            XCTAssertEqual(firstText(in: boundsNode.children[3].children[2]), "HIGH")
         }
     }
 

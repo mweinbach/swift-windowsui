@@ -7742,6 +7742,7 @@ public struct Gauge: View {
     private let currentValueLabel: [AnyView]
     private let minimumValueLabel: [AnyView]
     private let maximumValueLabel: [AnyView]
+    private let markedValueLabels: [AnyView]
 
     public init(value: Double, in bounds: ClosedRange<Double> = 0...1, @ViewBuilder label: () -> [AnyView]) {
         self.value = value
@@ -7750,6 +7751,7 @@ public struct Gauge: View {
         self.currentValueLabel = []
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = []
     }
 
     public init<V: BinaryFloatingPoint>(
@@ -7763,6 +7765,7 @@ public struct Gauge: View {
         self.currentValueLabel = []
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = []
     }
 
     public init(_ title: String, value: Double, in bounds: ClosedRange<Double> = 0...1) {
@@ -7779,6 +7782,7 @@ public struct Gauge: View {
         self.currentValueLabel = []
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = []
     }
 
     public init<V: BinaryFloatingPoint>(_ title: String, value: V, in bounds: ClosedRange<V> = 0...1) {
@@ -7821,6 +7825,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = []
     }
 
     public init<V: BinaryFloatingPoint>(
@@ -7835,6 +7840,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = []
     }
 
     public init<V: BinaryFloatingPoint>(
@@ -7850,6 +7856,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = []
         self.maximumValueLabel = []
+        self.markedValueLabels = markedValueLabels()
     }
 
     public init(
@@ -7866,6 +7873,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = minimumValueLabel()
         self.maximumValueLabel = maximumValueLabel()
+        self.markedValueLabels = []
     }
 
     public init<V: BinaryFloatingPoint>(
@@ -7883,6 +7891,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = minimumValueLabel()
         self.maximumValueLabel = maximumValueLabel()
+        self.markedValueLabels = markedValueLabels()
     }
 
     public init<V: BinaryFloatingPoint>(
@@ -7899,6 +7908,7 @@ public struct Gauge: View {
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = minimumValueLabel()
         self.maximumValueLabel = maximumValueLabel()
+        self.markedValueLabels = []
     }
 
     public var body: Never {
@@ -7930,6 +7940,12 @@ public struct Gauge: View {
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .trailing)),
             isHitTestVisible: false
         )
+        let markedValueLabelsComponent = composeComponent(
+            from: markedValueLabels,
+            context: context.withFont(.caption).withForegroundColor(.secondary),
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
+            isHitTestVisible: false
+        )
 
         return Component { runtime in
             let rangeTotal = max(0, bounds.upperBound - bounds.lowerBound)
@@ -7945,7 +7961,8 @@ public struct Gauge: View {
 
             let hasHeader = !label.isEmpty || !currentValueLabel.isEmpty
             let hasBounds = !minimumValueLabel.isEmpty || !maximumValueLabel.isEmpty
-            guard hasHeader || hasBounds else {
+            let hasMarkedLabels = !markedValueLabels.isEmpty
+            guard hasHeader || hasBounds || hasMarkedLabels else {
                 return gaugeNode
             }
 
@@ -7969,6 +7986,10 @@ public struct Gauge: View {
             }
 
             children.append(gaugeNode)
+
+            if hasMarkedLabels {
+                children.append(markedValueLabelsComponent.makeNode(runtime: runtime))
+            }
 
             if hasBounds {
                 var boundsChildren: [ViewNode] = []

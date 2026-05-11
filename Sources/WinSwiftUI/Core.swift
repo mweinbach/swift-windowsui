@@ -6208,8 +6208,12 @@ public extension SwiftWindowsCore.Color {
     }
 
     init(_ colorSpace: RGBColorSpace = .sRGB, red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
-        _ = colorSpace
-        self.init(red: red, green: green, blue: blue, opacity: opacity)
+        self.init(
+            red: Float(retainedColorChannel(red, colorSpace: colorSpace)),
+            green: Float(retainedColorChannel(green, colorSpace: colorSpace)),
+            blue: Float(retainedColorChannel(blue, colorSpace: colorSpace)),
+            alpha: Float(opacity)
+        )
     }
 
     init(white: Double, opacity: Double = 1.0) {
@@ -6218,8 +6222,8 @@ public extension SwiftWindowsCore.Color {
     }
 
     init(_ colorSpace: RGBColorSpace = .sRGB, white: Double, opacity: Double = 1.0) {
-        _ = colorSpace
-        self.init(white: white, opacity: opacity)
+        let channel = Float(retainedColorChannel(clampedUnitInterval(white), colorSpace: colorSpace))
+        self.init(red: channel, green: channel, blue: channel, alpha: Float(clampedUnitInterval(opacity)))
     }
 
     init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1.0) {
@@ -6370,6 +6374,27 @@ private func clampedUnitInterval(_ value: Double) -> Double {
     }
 
     return min(max(value, 0), 1)
+}
+
+private func retainedColorChannel(
+    _ value: Double,
+    colorSpace: SwiftWindowsCore.Color.RGBColorSpace
+) -> Double {
+    switch colorSpace {
+    case .sRGB, .displayP3:
+        return value
+    case .sRGBLinear:
+        return linearSRGBChannelToDisplaySRGB(value)
+    }
+}
+
+private func linearSRGBChannelToDisplaySRGB(_ value: Double) -> Double {
+    let channel = clampedUnitInterval(value)
+    if channel <= 0.0031308 {
+        return 12.92 * channel
+    }
+
+    return 1.055 * pow(channel, 1.0 / 2.4) - 0.055
 }
 
 private func normalizedHueUnit(_ hue: Double) -> Double {

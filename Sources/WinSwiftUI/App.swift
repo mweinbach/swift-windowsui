@@ -119,6 +119,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let startupPresentationMode: StartupPresentationMode
     private let startupProbeConfiguration: StartupProbeConfiguration?
     private let inputRateTracker = WindowInputRateTracker()
+    private let undoManager = UndoManager()
 
     private var isRendererReady = false
     private var activeBackend: PresentationBackend = .frame
@@ -403,7 +404,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
                     controlActiveState: self?.resolvedControlActiveState ?? .active,
                     appearsActive: self?.resolvedAppearsActive ?? true,
                     displayScale: displayScale,
-                    pixelLength: Self.pixelLength(for: displayScale)
+                    pixelLength: Self.pixelLength(for: displayScale),
+                    undoManager: self?.undoManager
                 )
             }
         )

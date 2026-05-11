@@ -1106,6 +1106,44 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
+    func testHostedEnvironmentProvidesStableUndoManager() async {
+        await MainActor.run {
+            let frameRenderer = FakeRenderBackend()
+            let recorder = HostEnvironmentRecorder()
+            let expectedSurface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: [AnyView(HostEnvironmentProbeView(recorder: recorder))]
+            )
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: nil,
+                surfaceDescriptorProvider: { _ in expectedSurface }
+            )
+            let window = Win32Window(title: "Test", clientSize: expectedSurface.pixelSize)
+
+            host.windowDidCreate(window)
+
+            guard let hostedUndoManager = recorder.snapshots.last?.undoManager else {
+                return XCTFail("Expected hosted windows to provide a default undo manager")
+            }
+
+            host.windowDidChangeActiveState(window, isActive: false)
+
+            XCTAssertTrue(
+                recorder.snapshots.last?.undoManager === hostedUndoManager,
+                "The hosted undo manager should remain stable across environment reloads"
+            )
+        }
+    }
+
     // MARK: - VAL-CROSS-009: Host Refresh-Rate Pacing and Timer Behavior Tests
 
     /// VAL-CROSS-009: Host refresh-rate updates control runtime pacing and timer behavior.

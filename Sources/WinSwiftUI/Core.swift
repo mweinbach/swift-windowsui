@@ -4282,6 +4282,26 @@ public struct ControlGroupStyle: Sendable, Equatable {
     public static let palette = ControlGroupStyle(kind: .palette)
 }
 
+public struct AutomaticControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct CompactMenuControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct MenuControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct NavigationControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PaletteControlGroupStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct GroupBoxStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -7360,6 +7380,26 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.controlGroupStyle, style))
         }
+    }
+
+    func controlGroupStyle(_ style: AutomaticControlGroupStyle) -> some View {
+        controlGroupStyle(.automatic)
+    }
+
+    func controlGroupStyle(_ style: CompactMenuControlGroupStyle) -> some View {
+        controlGroupStyle(.compactMenu)
+    }
+
+    func controlGroupStyle(_ style: MenuControlGroupStyle) -> some View {
+        controlGroupStyle(.menu)
+    }
+
+    func controlGroupStyle(_ style: NavigationControlGroupStyle) -> some View {
+        controlGroupStyle(.navigation)
+    }
+
+    func controlGroupStyle(_ style: PaletteControlGroupStyle) -> some View {
+        controlGroupStyle(.palette)
     }
 
     func progressViewStyle(_ style: ProgressViewStyle) -> some View {

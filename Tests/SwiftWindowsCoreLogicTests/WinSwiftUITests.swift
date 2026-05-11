@@ -4715,11 +4715,26 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.controlGroupStyle) var controlGroupStyle
 
                 var body: some View {
-                    Text(controlGroupStyle == .palette ? "PALETTE" : "OTHER")
+                    Text(
+                        controlGroupStyle == .palette ? "PALETTE"
+                            : controlGroupStyle == .compactMenu ? "COMPACT"
+                            : controlGroupStyle == .navigation ? "NAVIGATION"
+                            : controlGroupStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
                 }
             }
 
-            let readerNode = makeNode(ControlGroupStyleReaderView().controlGroupStyle(.palette))
+            let readerNode = makeNode(ControlGroupStyleReaderView().controlGroupStyle(PaletteControlGroupStyle()))
+            let compactReaderNode = makeNode(
+                ControlGroupStyleReaderView().controlGroupStyle(CompactMenuControlGroupStyle())
+            )
+            let navigationReaderNode = makeNode(
+                ControlGroupStyleReaderView().controlGroupStyle(NavigationControlGroupStyle())
+            )
+            let automaticReaderNode = makeNode(
+                ControlGroupStyleReaderView().controlGroupStyle(AutomaticControlGroupStyle())
+            )
             let inheritedNode = makeNode(
                 VStack {
                     ControlGroup {
@@ -4727,10 +4742,13 @@ final class WinSwiftUITests: XCTestCase {
                         Button("ARCHIVE") {}
                     }
                 }
-                .controlGroupStyle(.menu)
+                .controlGroupStyle(MenuControlGroupStyle())
             )
 
             XCTAssertEqual(readerNode.text, "PALETTE")
+            XCTAssertEqual(compactReaderNode.text, "COMPACT")
+            XCTAssertEqual(navigationReaderNode.text, "NAVIGATION")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 10)
         }

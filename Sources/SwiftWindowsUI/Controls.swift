@@ -743,7 +743,9 @@ public enum Controls {
         minimumScaleFactor: Double = 1,
         reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
+        underlineColor: Color? = nil,
         strikethrough: Bool = false,
+        strikethroughColor: Color? = nil,
         enableKerning: Bool = true
     ) -> ViewNode {
         panel(
@@ -767,7 +769,9 @@ public enum Controls {
                 minimumScaleFactor: minimumScaleFactor,
                 reservesLineLimitSpace: reservesLineLimitSpace,
                 underline: underline,
+                underlineColor: underlineColor,
                 strikethrough: strikethrough,
+                strikethroughColor: strikethroughColor,
                 enableKerning: enableKerning
             ),
             isHitTestVisible: false

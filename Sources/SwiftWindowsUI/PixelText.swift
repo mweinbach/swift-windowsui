@@ -56,7 +56,9 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var minimumScaleFactor: Double
     public var reservesLineLimitSpace: Bool
     public var underline: Bool
+    public var underlineColor: Color?
     public var strikethrough: Bool
+    public var strikethroughColor: Color?
     public var enableKerning: Bool
     public var spans: [TextSpan]?
 
@@ -76,7 +78,9 @@ public struct PixelTextStyle: Sendable, Equatable {
         minimumScaleFactor: Double = 1,
         reservesLineLimitSpace: Bool = false,
         underline: Bool = false,
+        underlineColor: Color? = nil,
         strikethrough: Bool = false,
+        strikethroughColor: Color? = nil,
         enableKerning: Bool = true,
         spans: [TextSpan]? = nil
     ) {
@@ -95,7 +99,9 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)
         self.reservesLineLimitSpace = reservesLineLimitSpace
         self.underline = underline
+        self.underlineColor = underline ? underlineColor : nil
         self.strikethrough = strikethrough
+        self.strikethroughColor = strikethrough ? strikethroughColor : nil
         self.enableKerning = enableKerning
         self.spans = spans
     }
@@ -109,6 +115,8 @@ extension PixelTextStyle {
 
         var copy = self
         copy.color = copy.color.multipliedAlpha(by: opacity)
+        copy.underlineColor = copy.underlineColor?.multipliedAlpha(by: opacity)
+        copy.strikethroughColor = copy.strikethroughColor?.multipliedAlpha(by: opacity)
         copy.spans = copy.spans?.map { span in
             var span = span
             span.style = span.style.multipliedOpacity(by: opacity)

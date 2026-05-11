@@ -1634,7 +1634,7 @@ final class WinSwiftUITests: XCTestCase {
             let decoratedNode = makeNode(
                 Text("LINK")
                     .underline(color: .blue)
-                    .strikethrough()
+                    .strikethrough(color: .red)
             )
             let disabledNode = makeNode(
                 Text("PLAIN")
@@ -1643,9 +1643,13 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             XCTAssertTrue(decoratedNode.textStyle.underline)
+            XCTAssertEqual(decoratedNode.textStyle.underlineColor, .blue)
             XCTAssertTrue(decoratedNode.textStyle.strikethrough)
+            XCTAssertEqual(decoratedNode.textStyle.strikethroughColor, .red)
             XCTAssertFalse(disabledNode.textStyle.underline)
+            XCTAssertNil(disabledNode.textStyle.underlineColor)
             XCTAssertFalse(disabledNode.textStyle.strikethrough)
+            XCTAssertNil(disabledNode.textStyle.strikethroughColor)
         }
     }
 

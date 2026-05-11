@@ -1657,7 +1657,9 @@ public struct Text: View {
     private var allowsTightening: Bool?
     private var textCase: Case??
     private var underline: Bool
+    private var underlineColor: Color?
     private var strikethrough: Bool
+    private var strikethroughColor: Color?
 
     public init(_ content: String) {
         self.content = content
@@ -1674,7 +1676,9 @@ public struct Text: View {
         self.allowsTightening = nil
         self.textCase = nil
         self.underline = false
+        self.underlineColor = nil
         self.strikethrough = false
+        self.strikethroughColor = nil
     }
 
     private init(
@@ -1692,7 +1696,9 @@ public struct Text: View {
         allowsTightening: Bool?,
         textCase: Case??,
         underline: Bool,
-        strikethrough: Bool
+        underlineColor: Color?,
+        strikethrough: Bool,
+        strikethroughColor: Color?
     ) {
         self.content = content
         self.color = color
@@ -1708,7 +1714,9 @@ public struct Text: View {
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.underline = underline
+        self.underlineColor = underline ? underlineColor : nil
         self.strikethrough = strikethrough
+        self.strikethroughColor = strikethrough ? strikethroughColor : nil
     }
 
     public init(_ key: LocalizedStringKey) {
@@ -1743,7 +1751,9 @@ public struct Text: View {
             allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
             textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
             underline: lhs.underline || rhs.underline,
-            strikethrough: lhs.strikethrough || rhs.strikethrough
+            underlineColor: lhs.underline ? lhs.underlineColor : rhs.underlineColor,
+            strikethrough: lhs.strikethrough || rhs.strikethrough,
+            strikethroughColor: lhs.strikethrough ? lhs.strikethroughColor : rhs.strikethroughColor
         )
     }
 
@@ -1792,7 +1802,9 @@ public struct Text: View {
                 minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
                 reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace) && resolvedLineLimit != nil,
                 underline: underline,
+                underlineColor: underlineColor,
                 strikethrough: strikethrough,
+                strikethroughColor: strikethroughColor,
                 enableKerning: allowsTightening ?? context.allowsTightening
             )
             node.redactionReasons = redactionReasons
@@ -1921,16 +1933,16 @@ public struct Text: View {
     }
 
     public func underline(_ active: Bool = true, color: Color? = nil) -> Text {
-        _ = color
         var copy = self
         copy.underline = active
+        copy.underlineColor = active ? color : nil
         return copy
     }
 
     public func strikethrough(_ active: Bool = true, color: Color? = nil) -> Text {
-        _ = color
         var copy = self
         copy.strikethrough = active
+        copy.strikethroughColor = active ? color : nil
         return copy
     }
 

@@ -12607,6 +12607,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToolbarVisibilityModifierMapsToRetainedToolbarRowVisibility() async {
+        await MainActor.run {
+            let hiddenNode = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("SAVE") {}
+                        }
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+            )
+            let visibleNode = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("SAVE") {}
+                        }
+                    }
+                    .toolbar(.hidden, for: .navigationBar)
+                    .toolbar(.visible, for: .navigationBar)
+            )
+            let automaticNode = makeNode(
+                Text("DETAIL")
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button("SAVE") {}
+                        }
+                    }
+                    .toolbar(.automatic, for: .navigationBar)
+            )
+
+            XCTAssertTrue(hiddenNode.children[0].isHidden)
+            XCTAssertEqual(hiddenNode.children[1].text, "DETAIL")
+            XCTAssertFalse(visibleNode.children[0].isHidden)
+            XCTAssertFalse(automaticNode.children[0].isHidden)
+        }
+    }
+
     func testNavigationBarItemsBridgeToRetainedToolbarRow() async {
         await MainActor.run {
             var leadingActivations = 0

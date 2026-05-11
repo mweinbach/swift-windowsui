@@ -6512,6 +6512,24 @@ private func applyToolbarBackgroundStyle(to node: ViewNode, color: Color?, gradi
 }
 
 @MainActor
+private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility) {
+    if node.isToolbarContainer {
+        switch visibility {
+        case .hidden:
+            node.isHidden = true
+        case .visible:
+            node.isHidden = false
+        case .automatic:
+            break
+        }
+    }
+
+    for child in node.children {
+        applyToolbarVisibility(to: child, visibility: visibility)
+    }
+}
+
+@MainActor
 private func applyToolbarColorScheme(to node: ViewNode, colorScheme: ColorScheme?) {
     guard let colorScheme else {
         return
@@ -7771,10 +7789,14 @@ public extension View {
     }
 
     func toolbar(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
-        _ = visibility
         _ = bars
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarVisibility(to: node, visibility: visibility)
+                return node
+            }
         }
     }
 

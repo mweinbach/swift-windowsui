@@ -1276,7 +1276,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
     public var font: Font?
-    var fontItalic: Bool
+    var fontItalic: Bool?
+    var fontMonospacedDigits: Bool
     public var multilineTextAlignment: TextAlignment
     public var lineLimit: Int?
     var lineLimitReservesSpace: Bool
@@ -1497,7 +1498,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.foregroundStyle = foregroundStyle
         self.tint = tint
         self.font = font
-        self.fontItalic = false
+        self.fontItalic = nil
+        self.fontMonospacedDigits = false
         self.multilineTextAlignment = multilineTextAlignment
         self.lineLimit = lineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
@@ -2153,7 +2155,11 @@ public struct ViewBuildContext {
     }
 
     public var isFontItalic: Bool {
-        environmentValuesProvider().fontItalic
+        environmentValuesProvider().fontItalic == true
+    }
+
+    public var usesMonospacedDigits: Bool {
+        environmentValuesProvider().fontMonospacedDigits
     }
 
     public var textAlignment: TextAlignment {
@@ -3916,7 +3922,11 @@ public struct Font: Sendable, Equatable {
     }
 
     public func monospaced() -> Font {
-        withDesign(.monospaced)
+        monospaced(true)
+    }
+
+    public func monospaced(_ isActive: Bool) -> Font {
+        withDesign(isActive ? .monospaced : .default)
     }
 
     private static func defaultFont(for style: TextStyle) -> Font {
@@ -8466,12 +8476,26 @@ public extension View {
     }
 
     func bold() -> some View {
-        fontWeight(.bold)
+        bold(true)
     }
 
-    func italic() -> some View {
+    func bold(_ isActive: Bool) -> some View {
+        fontWeight(isActive ? .bold : .regular)
+    }
+
+    func italic(_ isActive: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withEnvironmentValue(\.fontItalic, true))
+            content.makeComponent(context: context.withEnvironmentValue(\.fontItalic, isActive))
+        }
+    }
+
+    func monospaced(_ isActive: Bool = true) -> some View {
+        fontDesign(isActive ? .monospaced : .default)
+    }
+
+    func monospacedDigit() -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.fontMonospacedDigits, true))
         }
     }
 

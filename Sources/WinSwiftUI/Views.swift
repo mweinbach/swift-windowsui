@@ -1686,7 +1686,8 @@ public struct Text: View {
     private var color: Color?
     private var font: Font??
     private var fontDesign: Font.Design?
-    private var isItalic: Bool
+    private var isItalic: Bool?
+    private var monospacedDigits: Bool
     private var alignment: TextAlignment?
     private var lineLimit: Int??
     private var lineLimitReservesSpace: Bool?
@@ -1706,7 +1707,8 @@ public struct Text: View {
         self.color = nil
         self.font = nil
         self.fontDesign = nil
-        self.isItalic = false
+        self.isItalic = nil
+        self.monospacedDigits = false
         self.alignment = nil
         self.lineLimit = nil
         self.lineLimitReservesSpace = nil
@@ -1727,7 +1729,8 @@ public struct Text: View {
         color: Color?,
         font: Font??,
         fontDesign: Font.Design?,
-        isItalic: Bool,
+        isItalic: Bool?,
+        monospacedDigits: Bool,
         alignment: TextAlignment?,
         lineLimit: Int??,
         lineLimitReservesSpace: Bool?,
@@ -1747,6 +1750,7 @@ public struct Text: View {
         self.font = font
         self.fontDesign = fontDesign
         self.isItalic = isItalic
+        self.monospacedDigits = monospacedDigits
         self.alignment = alignment
         self.lineLimit = lineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
@@ -1914,7 +1918,8 @@ public struct Text: View {
             color: lhs.color ?? rhs.color,
             font: lhs.font != nil ? lhs.font : rhs.font,
             fontDesign: lhs.fontDesign ?? rhs.fontDesign,
-            isItalic: lhs.isItalic || rhs.isItalic,
+            isItalic: lhs.isItalic != nil ? lhs.isItalic : rhs.isItalic,
+            monospacedDigits: lhs.monospacedDigits || rhs.monospacedDigits,
             alignment: lhs.alignment ?? rhs.alignment,
             lineLimit: lhs.lineLimit != nil ? lhs.lineLimit : rhs.lineLimit,
             lineLimitReservesSpace: lhs.lineLimitReservesSpace ?? rhs.lineLimitReservesSpace,
@@ -1963,7 +1968,8 @@ public struct Text: View {
                 color: resolvedColor,
                 scale: resolvedFont.resolvedScale,
                 weight: resolvedFont.weight.textWeight,
-                isItalic: isItalic || context.isFontItalic,
+                isItalic: isItalic ?? context.isFontItalic,
+                monospacedDigits: monospacedDigits || context.usesMonospacedDigits,
                 fontFamily: resolvedFont.resolvedFamily,
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
@@ -2013,8 +2019,12 @@ public struct Text: View {
     }
 
     public func monospaced() -> Text {
+        monospaced(true)
+    }
+
+    public func monospaced(_ isActive: Bool) -> Text {
         var copy = self
-        copy.fontDesign = .monospaced
+        copy.fontDesign = isActive ? .monospaced : .default
         return copy
     }
 
@@ -2044,12 +2054,26 @@ public struct Text: View {
     }
 
     public func bold() -> Text {
-        fontWeight(.bold)
+        bold(true)
+    }
+
+    public func bold(_ isActive: Bool) -> Text {
+        fontWeight(isActive ? .bold : .regular)
     }
 
     public func italic() -> Text {
+        italic(true)
+    }
+
+    public func italic(_ isActive: Bool) -> Text {
         var copy = self
-        copy.isItalic = true
+        copy.isItalic = isActive
+        return copy
+    }
+
+    public func monospacedDigit() -> Text {
+        var copy = self
+        copy.monospacedDigits = true
         return copy
     }
 

@@ -890,8 +890,9 @@ private final class DirectWriteSystem {
                 }
             }
 
-            if !style.enableKerning {
-                applyKerningDisabled(layout: layout, textLength: UINT32(utf16.count))
+            let typographyFeatures = style.dwriteTypographyFeatures
+            if !typographyFeatures.isEmpty {
+                applyTypographyFeatures(typographyFeatures, to: layout, startPosition: 0, length: UINT32(utf16.count))
             }
 
             if let spans = style.spans {
@@ -902,8 +903,13 @@ private final class DirectWriteSystem {
         return layout
     }
 
-    private func applyKerningDisabled(layout: UnsafeMutablePointer<IDWriteTextLayout>, textLength: UINT32) {
-        guard let typographyRaw = createTypography() else {
+    private func applyTypographyFeatures(
+        _ features: [DWriteFontFeature],
+        to layout: UnsafeMutablePointer<IDWriteTextLayout>,
+        startPosition: UINT32,
+        length: UINT32
+    ) {
+        guard let typographyRaw = createTypography(features: features) else {
             return
         }
         defer {
@@ -913,11 +919,11 @@ private final class DirectWriteSystem {
 
         if let fn = layout.pointee.lpVtbl!.pointee.SetTypography {
             let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UINT32) -> HRESULT).self)
-            _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, 0, textLength)
+            _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, startPosition, length)
         }
     }
 
-    private func createTypography() -> UnsafeMutableRawPointer? {
+    private func createTypography(features: [DWriteFontFeature]) -> UnsafeMutableRawPointer? {
         let createProc = factory.pointee.lpVtbl!.pointee.CreateTypography
         guard let createProc else {
             return nil
@@ -928,6 +934,16 @@ private final class DirectWriteSystem {
         let hr = createFn(UnsafeMutableRawPointer(factory), &typographyRaw)
         guard isSuccess(hr), let typographyRaw else {
             return nil
+        }
+
+        let typography = typographyRaw.assumingMemoryBound(to: IDWriteTypography.self)
+        for feature in features {
+            let featureHR = typography.pointee.lpVtbl!.pointee.AddFontFeature(typographyRaw, feature.packedValue)
+            guard isSuccess(featureHR) else {
+                let unknown = typographyRaw.assumingMemoryBound(to: IUnknown.self)
+                _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
+                return nil
+            }
         }
 
         return typographyRaw
@@ -964,6 +980,16 @@ private final class DirectWriteSystem {
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontSize {
                 let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UINT32, UINT32) -> HRESULT).self)
                 _ = proc(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), startPosition, length)
+            }
+
+            let typographyFeatures = spanStyle.dwriteTypographyFeatures
+            if !typographyFeatures.isEmpty {
+                applyTypographyFeatures(
+                    typographyFeatures,
+                    to: layout,
+                    startPosition: startPosition,
+                    length: length
+                )
             }
 
             if spanStyle.underline {
@@ -1625,6 +1651,17 @@ private extension TextWeight {
 private extension PixelTextStyle {
     var dwriteFontStyle: DWriteFontStyle {
         isItalic ? dwriteFontStyleItalic : dwriteFontStyleNormal
+    }
+
+    var dwriteTypographyFeatures: [DWriteFontFeature] {
+        var features: [DWriteFontFeature] = []
+        if !enableKerning {
+            features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagKerning, parameter: 0))
+        }
+        if monospacedDigits {
+            features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagTabularFigures, parameter: 1))
+        }
+        return features
     }
 }
 

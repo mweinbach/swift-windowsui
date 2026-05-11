@@ -95,7 +95,8 @@ final class NativeGlyphAtlas {
             fontFamily: style.fontFamily,
             fontSize: Float(style.nativeFontPixelSize * scaleFactor),
             weight: style.weight.glyphAtlasWeight,
-            isItalic: style.isItalic
+            isItalic: style.isItalic,
+            monospacedDigits: style.monospacedDigits
         )
 
         return prepareGlyph(key: key) {
@@ -123,7 +124,8 @@ final class NativeGlyphAtlas {
                 fontFamily: fontFamily,
                 fontSize: Float(fontSize * scaleFactor),
                 weight: weight,
-                isItalic: style.isItalic
+                isItalic: style.isItalic,
+                monospacedDigits: style.monospacedDigits
             )
         } else {
             key = GlyphKey(
@@ -131,7 +133,8 @@ final class NativeGlyphAtlas {
                 fontFamily: fontFamily,
                 fontSize: Float(fontSize * scaleFactor),
                 weight: weight,
-                isItalic: style.isItalic
+                isItalic: style.isItalic,
+                monospacedDigits: style.monospacedDigits
             )
         }
 

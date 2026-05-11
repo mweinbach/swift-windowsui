@@ -21,16 +21,62 @@ final class WinSwiftUITextTests: XCTestCase {
         await MainActor.run {
             let directNode = makeNode(Text("ITALIC").italic())
             let combinedNode = makeNode(Text("A").italic() + Text("B"))
+            let disabledNode = makeNode(Text("PLAIN").italic().italic(false))
             let inheritedNode = makeNode(
                 VStack {
                     Text("INNER")
+                    Text("PLAIN")
+                        .italic(false)
                 }
                 .italic()
             )
 
             XCTAssertTrue(directNode.textStyle.isItalic)
             XCTAssertTrue(combinedNode.textStyle.isItalic)
+            XCTAssertFalse(disabledNode.textStyle.isItalic)
             XCTAssertTrue(inheritedNode.children[0].textStyle.isItalic)
+            XCTAssertFalse(inheritedNode.children[1].textStyle.isItalic)
+        }
+    }
+
+    func testBooleanTextWeightAndMonospacedModifiersMapToRetainedStyle() async {
+        await MainActor.run {
+            let textBoldNode = makeNode(Text("BOLD").bold(false))
+            let textMonospacedNode = makeNode(Text("CODE").monospaced(false))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("CODE")
+                    Text("PLAIN")
+                        .monospaced(false)
+                    Text("BOLD")
+                        .bold(false)
+                }
+                .monospaced()
+                .bold()
+            )
+
+            XCTAssertEqual(textBoldNode.textStyle.weight, .regular)
+            XCTAssertEqual(textMonospacedNode.textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(inheritedNode.children[0].textStyle.fontFamily, "Cascadia Mono")
+            XCTAssertEqual(inheritedNode.children[1].textStyle.fontFamily, "Segoe UI")
+            XCTAssertEqual(inheritedNode.children[2].textStyle.weight, .regular)
+        }
+    }
+
+    func testMonospacedDigitModifierMapsToRetainedTextStyle() async {
+        await MainActor.run {
+            let directNode = makeNode(Text("11:11").monospacedDigit())
+            let combinedNode = makeNode(Text("A").monospacedDigit() + Text("1"))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("12:34")
+                }
+                .monospacedDigit()
+            )
+
+            XCTAssertTrue(directNode.textStyle.monospacedDigits)
+            XCTAssertTrue(combinedNode.textStyle.monospacedDigits)
+            XCTAssertTrue(inheritedNode.children[0].textStyle.monospacedDigits)
         }
     }
 

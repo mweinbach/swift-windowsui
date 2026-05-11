@@ -373,6 +373,9 @@ final class TextSystemTests: XCTestCase {
             var kerningStyle = baseStyle
             kerningStyle.enableKerning = false
 
+            var monospacedDigitsStyle = baseStyle
+            monospacedDigitsStyle.monospacedDigits = true
+
             var spanScaledStyle = baseStyle
             if var scaledSpan = spanScaledStyle.spans?.first {
                 scaledSpan.style.scale = 2.2
@@ -417,13 +420,16 @@ final class TextSystemTests: XCTestCase {
             _ = system.layout(text, style: kerningStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
+            _ = system.layout(text, style: monospacedDigitsStyle, maxWidth: 140, scaleFactor: 1.0)
+            counts.append(system.cachedLayoutCount)
+
             _ = system.layout(text, style: spanScaledStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
             return counts
         }
 
-        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13])
     }
 
     func testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity() {

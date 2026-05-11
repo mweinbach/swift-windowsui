@@ -13,6 +13,7 @@ typealias DWriteMeasuringMode = UINT32
 typealias DWriteReadingDirection = UINT32
 typealias DWriteFlowDirection = UINT32
 typealias DWriteLineSpacingMethod = UINT32
+typealias DWriteFontFeatureTag = UINT32
 
 let dwriteFactoryTypeShared: DWriteFactoryType = 0
 let dwriteFontStyleNormal: DWriteFontStyle = 0
@@ -33,10 +34,21 @@ let dwriteReadingDirectionLeftToRight: DWriteReadingDirection = 0
 let dwriteFlowDirectionTopToBottom: DWriteFlowDirection = 0
 let dwriteLineSpacingMethodDefault: DWriteLineSpacingMethod = 0
 let dwriteLineSpacingMethodProportional: DWriteLineSpacingMethod = 2
+let dwriteFontFeatureTagKerning: DWriteFontFeatureTag = 0x6E72_656B
+let dwriteFontFeatureTagTabularFigures: DWriteFontFeatureTag = 0x6D75_6E74
 
 struct DWRITE_TEXT_RANGE {
     var startPosition: UINT32 = 0
     var length: UINT32 = 0
+}
+
+struct DWriteFontFeature {
+    var nameTag: DWriteFontFeatureTag
+    var parameter: UINT32
+
+    var packedValue: UInt64 {
+        UInt64(nameTag) | (UInt64(parameter) << 32)
+    }
 }
 
 struct DWRITE_MATRIX {
@@ -131,6 +143,7 @@ struct IDWriteGdiInterop { var lpVtbl: UnsafeMutablePointer<IDWriteGdiInteropVtb
 struct IDWriteBitmapRenderTarget { var lpVtbl: UnsafeMutablePointer<IDWriteBitmapRenderTargetVtbl>? }
 struct IDWriteRenderingParams { var lpVtbl: UnsafeMutablePointer<IDWriteRenderingParamsVtbl>? }
 struct IDWriteTextRenderer { var lpVtbl: UnsafeMutablePointer<IDWriteTextRendererVtbl>? }
+struct IDWriteTypography { var lpVtbl: UnsafeMutablePointer<IDWriteTypographyVtbl>? }
 
 typealias DWQueryInterfaceProc = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<GUID>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
 typealias DWAddRefProc = @convention(c) (UnsafeMutableRawPointer?) -> ULONG
@@ -169,6 +182,7 @@ typealias DWDrawGlyphRunProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeM
 typealias DWDrawUnderlineProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWDrawStrikethroughProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWDrawInlineObjectProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, WindowsBool, WindowsBool, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWAddFontFeatureProc = @convention(c) (UnsafeMutableRawPointer?, UInt64) -> HRESULT
 
 struct IDWriteRenderingParamsVtbl {
     var QueryInterface: DWQueryInterfaceProc
@@ -280,6 +294,15 @@ struct IDWriteTextLayoutVtbl {
     var HitTestPoint: UnsafeMutableRawPointer?
     var HitTestTextPosition: UnsafeMutableRawPointer?
     var HitTestTextRange: UnsafeMutableRawPointer?
+}
+
+struct IDWriteTypographyVtbl {
+    var QueryInterface: DWQueryInterfaceProc
+    var AddRef: DWAddRefProc
+    var Release: DWReleaseProc
+    var AddFontFeature: DWAddFontFeatureProc
+    var GetFontFeatureCount: UnsafeMutableRawPointer?
+    var GetFontFeature: UnsafeMutableRawPointer?
 }
 
 struct IDWriteGdiInteropVtbl {

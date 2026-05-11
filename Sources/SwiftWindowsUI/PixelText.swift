@@ -52,6 +52,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var nativeFontSize: Double?
     public var weight: TextWeight
     public var isItalic: Bool
+    public var monospacedDigits: Bool
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
     public var minimumScaleFactor: Double
@@ -75,6 +76,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         nativeFontSize: Double? = nil,
         weight: TextWeight = .regular,
         isItalic: Bool = false,
+        monospacedDigits: Bool = false,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
         minimumScaleFactor: Double = 1,
@@ -97,6 +99,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.nativeFontSize = nativeFontSize
         self.weight = weight
         self.isItalic = isItalic
+        self.monospacedDigits = monospacedDigits
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
         self.minimumScaleFactor = min(max(minimumScaleFactor, 0), 1)

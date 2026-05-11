@@ -11,8 +11,16 @@ public struct GlyphKey: Hashable, Sendable {
     public var fontSize: Float
     public var weight: GlyphWeight
     public var isItalic: Bool
+    public var monospacedDigits: Bool
 
-    public init(character: Character, fontFamily: String, fontSize: Float, weight: GlyphWeight, isItalic: Bool = false) {
+    public init(
+        character: Character,
+        fontFamily: String,
+        fontSize: Float,
+        weight: GlyphWeight,
+        isItalic: Bool = false,
+        monospacedDigits: Bool = false
+    ) {
         self.character = character
         self.glyphID = nil
         self.fontFaceID = nil
@@ -20,6 +28,7 @@ public struct GlyphKey: Hashable, Sendable {
         self.fontSize = fontSize
         self.weight = weight
         self.isItalic = isItalic
+        self.monospacedDigits = monospacedDigits
     }
 
     public init(
@@ -29,7 +38,8 @@ public struct GlyphKey: Hashable, Sendable {
         fontFamily: String,
         fontSize: Float,
         weight: GlyphWeight,
-        isItalic: Bool = false
+        isItalic: Bool = false,
+        monospacedDigits: Bool = false
     ) {
         self.character = character
         self.glyphID = glyphID
@@ -38,6 +48,7 @@ public struct GlyphKey: Hashable, Sendable {
         self.fontSize = fontSize
         self.weight = weight
         self.isItalic = isItalic
+        self.monospacedDigits = monospacedDigits
     }
 
     public enum GlyphWeight: Hashable, Sendable {

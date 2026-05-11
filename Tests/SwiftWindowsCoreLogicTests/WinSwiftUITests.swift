@@ -14463,6 +14463,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDragGestureAcceptsCoordinateSpaceInitializers() async {
+        await MainActor.run {
+            var globalChanges: [DragGesture.Value] = []
+            var namedEndings: [DragGesture.Value] = []
+            let globalNode = makeNode(
+                Text("GLOBAL")
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                            .onChanged { value in
+                                globalChanges.append(value)
+                            }
+                    )
+            )
+            let namedNode = makeNode(
+                Text("NAMED")
+                    .gesture(
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named("canvas"))
+                            .onEnded { value in
+                                namedEndings.append(value)
+                            }
+                    )
+            )
+
+            globalNode.onDragStart?(Point(x: 1, y: 2))
+            namedNode.onDragStart?(Point(x: 3, y: 4))
+            namedNode.onDragEnd?(Point(x: 8, y: 10), Point(x: 5, y: 6))
+
+            XCTAssertEqual(globalChanges.map(\.location), [Point(x: 1, y: 2)])
+            XCTAssertEqual(namedEndings.map(\.startLocation), [Point(x: 3, y: 4)])
+            XCTAssertEqual(namedEndings.map(\.translation), [Size(width: 5, height: 6)])
+        }
+    }
+
     func testViewThatFitsSelectsFirstCandidateMatchingRequestedAxes() async {
         await MainActor.run {
             let horizontalNode = makeNode(

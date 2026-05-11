@@ -5421,6 +5421,12 @@ public protocol Gesture {
     func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView
 }
 
+public enum CoordinateSpace: Sendable, Equatable, Hashable {
+    case global
+    case local
+    case named(String)
+}
+
 public struct TapGesture: Gesture {
     public typealias Value = Void
 
@@ -5548,21 +5554,25 @@ public struct DragGesture: Gesture {
     }
 
     public var minimumDistance: CGFloat
+    public var coordinateSpace: CoordinateSpace
     private let changedAction: (@MainActor (Value) -> Void)?
     private let endedAction: (@MainActor (Value) -> Void)?
 
-    public init(minimumDistance: CGFloat = 10) {
+    public init(minimumDistance: CGFloat = 10, coordinateSpace: CoordinateSpace = .local) {
         self.minimumDistance = minimumDistance
+        self.coordinateSpace = coordinateSpace
         self.changedAction = nil
         self.endedAction = nil
     }
 
     private init(
         minimumDistance: CGFloat,
+        coordinateSpace: CoordinateSpace,
         changedAction: (@MainActor (Value) -> Void)?,
         endedAction: (@MainActor (Value) -> Void)?
     ) {
         self.minimumDistance = minimumDistance
+        self.coordinateSpace = coordinateSpace
         self.changedAction = changedAction
         self.endedAction = endedAction
     }
@@ -5570,6 +5580,7 @@ public struct DragGesture: Gesture {
     public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
         DragGesture(
             minimumDistance: minimumDistance,
+            coordinateSpace: coordinateSpace,
             changedAction: action,
             endedAction: endedAction
         )
@@ -5578,6 +5589,7 @@ public struct DragGesture: Gesture {
     public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
         DragGesture(
             minimumDistance: minimumDistance,
+            coordinateSpace: coordinateSpace,
             changedAction: changedAction,
             endedAction: action
         )

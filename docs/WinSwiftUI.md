@@ -182,7 +182,7 @@ Views and containers:
 - `Gauge`
   - `BinaryFloatingPoint` value and range overloads
   - `StringProtocol` title inputs
-  - label, current-value, minimum-value, and maximum-value label overloads
+  - label, current-value, minimum-value, maximum-value, and marked-value label overloads
 
 Modifiers:
 
@@ -483,7 +483,7 @@ Surface direction:
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle. Current SwiftUI builder-label overloads, plus minimum, maximum, and main label overloads, wrap the retained slider in small retained stacks while preserving the same binding/editing behavior.
 - `ProgressView(value:total:)` maps into the retained progress bar control; title, builder-label, and current-value label overloads wrap that retained bar in small retained stacks. `ProgressView(timerInterval:countsDown:)` overloads compute retained progress from the current `Date` at build time and accept custom label/current-value label builders; automatic ticking updates and SwiftUI's default date-progress label text are not modeled yet.
-- `Gauge(value:in:)` maps SwiftUI-shaped scalar gauges onto the retained progress bar control. BinaryFloatingPoint values and ranges are converted into the retained `Double` progress path. Title, current-value, minimum-value, and maximum-value label builders compose retained label chrome around the same renderer-neutral fill primitive, with `.tint` driving the filled segment.
+- `Gauge(value:in:)` maps SwiftUI-shaped scalar gauges onto the retained progress bar control. BinaryFloatingPoint values and ranges are converted into the retained `Double` progress path. Title, current-value, minimum-value, and maximum-value label builders compose retained label chrome around the same renderer-neutral fill primitive, with `.tint` driving the filled segment. `markedValueLabels` overloads are accepted for source compatibility but are not rendered by the current retained linear gauge chrome.
 - Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, and hidden state) so the tree has stable semantic data. `help(_:)` maps to the same retained hint metadata for desktop shared-source compatibility. Native Win32 UI Automation exposure is not implemented yet.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper and stores the antialiasing choice as retained clip metadata. The current retained renderer does not visually distinguish antialiased and non-antialiased clips.
 - `clipped(antialiased:)` maps to retained rectangular bounds clipping and stores the antialiasing choice as retained clip metadata. The current retained renderer does not visually distinguish antialiased and non-antialiased clips.

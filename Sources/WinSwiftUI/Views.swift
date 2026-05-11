@@ -6910,6 +6910,21 @@ public struct Gauge: View {
         self.maximumValueLabel = []
     }
 
+    public init<V: BinaryFloatingPoint>(
+        value: V,
+        in bounds: ClosedRange<V> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView],
+        @ViewBuilder markedValueLabels: () -> [AnyView]
+    ) {
+        self.value = Double(value)
+        self.bounds = Self.doubleBounds(bounds)
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
     public init(
         value: Double,
         in bounds: ClosedRange<Double> = 0...1,
@@ -6920,6 +6935,23 @@ public struct Gauge: View {
     ) {
         self.value = value
         self.bounds = bounds
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+    }
+
+    public init<V: BinaryFloatingPoint>(
+        value: V,
+        in bounds: ClosedRange<V> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView],
+        @ViewBuilder markedValueLabels: () -> [AnyView]
+    ) {
+        self.value = Double(value)
+        self.bounds = Self.doubleBounds(bounds)
         self.label = label()
         self.currentValueLabel = currentValueLabel()
         self.minimumValueLabel = minimumValueLabel()

@@ -7309,6 +7309,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGaugeMarkedValueLabelInitializersPreserveRetainedGaugeChrome() async {
+        await MainActor.run {
+            let markedNode = makeNode(
+                Gauge(value: 0.5, in: 0...1) {
+                    Text("CPU")
+                } currentValueLabel: {
+                    Text("50%")
+                } markedValueLabels: {
+                    Text("25%")
+                    Text("75%")
+                }
+            )
+            let boundsNode = makeNode(
+                Gauge(value: Float(0.75), in: Float(0)...Float(1)) {
+                    Text("MEMORY")
+                } currentValueLabel: {
+                    Text("75%")
+                } minimumValueLabel: {
+                    Text("LOW")
+                } maximumValueLabel: {
+                    Text("HIGH")
+                } markedValueLabels: {
+                    Text("MID")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: markedNode.children[0]).contains("CPU"))
+            XCTAssertTrue(allTexts(in: markedNode.children[0]).contains("50%"))
+            XCTAssertFalse(allTexts(in: markedNode).contains("25%"))
+            XCTAssertFalse(allTexts(in: markedNode).contains("75%"))
+            XCTAssertEqual(markedNode.children[1].children[1].frame.size.width, 100)
+
+            XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("MEMORY"))
+            XCTAssertTrue(allTexts(in: boundsNode.children[0]).contains("75%"))
+            XCTAssertEqual(boundsNode.children[1].children[1].frame.size.width, 150)
+            XCTAssertEqual(firstText(in: boundsNode.children[2].children[0]), "LOW")
+            XCTAssertEqual(firstText(in: boundsNode.children[2].children[2]), "HIGH")
+            XCTAssertFalse(allTexts(in: boundsNode).contains("MID"))
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true

@@ -257,6 +257,7 @@ Modifiers:
 - `badge`
 - `badgeProminence`
 - `task`
+- `searchable`
 - `onAppear`
 - `onDisappear`
 - `onChange`
@@ -313,6 +314,8 @@ Compatibility helpers:
 - `ControlActiveState`
 - `EditMode`
 - `RefreshAction`
+- `DismissSearchAction`
+- `SearchFieldPlacement`
 - `OpenWindowAction`
 - `DismissWindowAction`
 - `UndoManager`
@@ -320,7 +323,7 @@ Compatibility helpers:
 - `LocalizedStringKey`
 - `CGFloat`, `CGPoint`, `CGSize`, `CGRect` aliases
 - `EdgeInsets()`
-- minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `OpenURLAction`, `DismissAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
+- minimal `Binding`, `State`, `Environment`, `EnvironmentValues`, `OpenURLAction`, `DismissAction`, `DismissSearchAction`, `RefreshAction`, `OpenWindowAction`, `DismissWindowAction`, `UndoManager`, `EditMode`, `ObservableObject`, `Published`, `ObservedObject`, and `StateObject`
 
 Surface direction:
 
@@ -363,6 +366,7 @@ Surface direction:
 - `TabView` renders retained tab chrome from `.tabItem` labels, shows the first page by default, and shows the page whose `.tag(_:)` matches the `selection:` binding. Activating a tab updates local selection state or writes through a tagged `selection:` binding. Badges applied after `.tabItem` render in the tab chrome instead of the selected page content. Platform-specific tab styling and overflow behavior are still minimal.
 - `task(priority:_:)` launches an async Swift task when the retained node first appears. `task(id:priority:_:)` accepts SwiftUI-shaped id call sites and relaunches when rebuilt with a changed id, but automatic cancellation on disappearance or id replacement is not modeled yet.
 - `refreshable(action:)` propagates `EnvironmentValues.refresh` as a SwiftUI-shaped async `RefreshAction` for descendant views. Native pull-to-refresh gestures and retained scroll chrome are not implemented yet.
+- `searchable(text:placement:prompt:)` and `searchable(text:isPresented:placement:prompt:)` prepend a retained search `TextField` to the modified subtree and propagate `EnvironmentValues.isSearching` plus `EnvironmentValues.dismissSearch` to descendants. `DismissSearchAction` clears the bound text, clears the presentation binding when present, and invalidates the retained runtime. `SearchFieldPlacement` accepts `.automatic`, `.navigationBarDrawer`, `.navigationBarDrawer(displayMode:)`, `.sidebar`, and `.toolbar` for source compatibility; placement-specific native navigation or toolbar integration, token search, scopes, and suggestions are not implemented yet.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
 - `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs; submit scopes and platform keyboard return-key labels are not modeled yet.
 - `submitLabel(_:)` accepts SwiftUI return-key label call sites for source compatibility. It does not alter hardware keyboard behavior on the retained Windows input path today.
@@ -452,7 +456,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `scenePhase`, `controlActiveState`, `appearsActive`, `supportsMultipleWindows`, `editMode`, `legibilityWeight`, `displayScale`, `pixelLength`, `calendar`, `timeZone`, `locale`, `dismiss`, `refresh`, `openWindow`, `dismissWindow`, `undoManager`, `accessibilityDifferentiateWithoutColor`, `accessibilityInvertColors`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityShowButtonShapes`, `accessibilitySwitchControlEnabled`, `accessibilityVoiceOverEnabled`, `layoutDirection`, `horizontalSizeClass`, `verticalSizeClass`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)`, `transformEnvironment(_:_:)`, and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `redactionReasons`, `isPrivacySensitive`, `colorScheme`, `colorSchemeContrast`, `scenePhase`, `controlActiveState`, `appearsActive`, `supportsMultipleWindows`, `editMode`, `legibilityWeight`, `displayScale`, `pixelLength`, `calendar`, `timeZone`, `locale`, `dismiss`, `dismissSearch`, `isSearching`, `refresh`, `openWindow`, `dismissWindow`, `undoManager`, `accessibilityDifferentiateWithoutColor`, `accessibilityInvertColors`, `accessibilityReduceMotion`, `accessibilityReduceTransparency`, `accessibilityShowButtonShapes`, `accessibilitySwitchControlEnabled`, `accessibilityVoiceOverEnabled`, `layoutDirection`, `horizontalSizeClass`, `verticalSizeClass`, `dynamicTypeSize`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)`, `transformEnvironment(_:_:)`, and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

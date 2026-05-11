@@ -655,6 +655,21 @@ public struct DismissAction: @unchecked Sendable {
     public static let noop = DismissAction {}
 }
 
+public struct DismissSearchAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = DismissSearchAction {}
+}
+
 public struct RefreshAction: @unchecked Sendable {
     private let handler: @Sendable () async -> Void
 
@@ -722,6 +737,45 @@ public struct DismissWindowAction: @unchecked Sendable {
     public static let noop = DismissWindowAction { _ in }
 }
 
+public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
+    public struct NavigationBarDrawerDisplayMode: Sendable, Equatable, Hashable {
+        private let rawValue: String
+
+        private init(_ rawValue: String) {
+            self.rawValue = rawValue
+        }
+
+        public static let automatic = NavigationBarDrawerDisplayMode("automatic")
+        public static let always = NavigationBarDrawerDisplayMode("always")
+    }
+
+    private enum Storage: Sendable, Equatable, Hashable {
+        case automatic
+        case navigationBarDrawer(NavigationBarDrawerDisplayMode?)
+        case sidebar
+        case toolbar
+    }
+
+    private let storage: Storage
+
+    private init(_ storage: Storage) {
+        self.storage = storage
+    }
+
+    public static let automatic = SearchFieldPlacement(.automatic)
+    public static let navigationBarDrawer = SearchFieldPlacement(.navigationBarDrawer(nil))
+    public static var sidebar: SearchFieldPlacement {
+        SearchFieldPlacement(.sidebar)
+    }
+    public static let toolbar = SearchFieldPlacement(.toolbar)
+
+    public static func navigationBarDrawer(
+        displayMode: NavigationBarDrawerDisplayMode
+    ) -> SearchFieldPlacement {
+        SearchFieldPlacement(.navigationBarDrawer(displayMode))
+    }
+}
+
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
@@ -780,8 +834,10 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var badgeProminence: BadgeProminence
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
+    public var isSearching: Bool
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
+    public var dismissSearch: DismissSearchAction
     public var refresh: RefreshAction?
     public var undoManager: UndoManager?
     public var openWindow: OpenWindowAction
@@ -842,8 +898,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         badgeProminence: BadgeProminence = .standard,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
+        isSearching: Bool = false,
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
+        dismissSearch: DismissSearchAction = .noop,
         refresh: RefreshAction? = nil,
         undoManager: UndoManager? = nil,
         openWindow: OpenWindowAction = .noop,
@@ -908,8 +966,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.badgeProminence = badgeProminence
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
+        self.isSearching = isSearching
         self.openURL = openURL
         self.dismiss = dismiss
+        self.dismissSearch = dismissSearch
         self.refresh = refresh
         self.undoManager = undoManager
         self.openWindow = openWindow

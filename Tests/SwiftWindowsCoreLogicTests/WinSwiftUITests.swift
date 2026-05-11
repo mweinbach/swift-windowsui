@@ -581,6 +581,110 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSearchableAddsSearchFieldAndDismissSearchEnvironment() async {
+        await MainActor.run {
+            struct SearchEnvironmentReader: View {
+                @Environment(\.isSearching) var isSearching
+                @Environment(\.dismissSearch) var dismissSearch
+
+                var body: some View {
+                    Button(isSearching ? "SEARCHING" : "IDLE") {
+                        dismissSearch()
+                    }
+                }
+            }
+
+            var query = "needle"
+            var invalidationCount = 0
+            let binding = Binding(
+                get: { query },
+                set: { query = $0 }
+            )
+
+            let node = makeNode(
+                SearchEnvironmentReader()
+                    .searchable(text: binding, placement: .toolbar, prompt: "Find"),
+                onInvalidate: {
+                    invalidationCount += 1
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].children[0].text, "needle")
+            XCTAssertTrue(allTexts(in: node.children[1]).contains("SEARCHING"))
+
+            node.children[1].onActivate?()
+
+            XCTAssertEqual(query, "")
+            XCTAssertEqual(invalidationCount, 2)
+
+            let updatedNode = makeNode(
+                SearchEnvironmentReader()
+                    .searchable(text: binding, prompt: LocalizedStringKey("Find"))
+            )
+
+            XCTAssertEqual(updatedNode.children[0].children[0].text, "Find")
+            XCTAssertTrue(allTexts(in: updatedNode.children[1]).contains("IDLE"))
+        }
+    }
+
+    func testSearchableIsPresentedBindingControlsSearchFieldVisibility() async {
+        await MainActor.run {
+            struct SearchPresentedReader: View {
+                @Environment(\.isSearching) var isSearching
+
+                var body: some View {
+                    Text(isSearching ? "SEARCHING" : "IDLE")
+                }
+            }
+
+            var query = "needle"
+            var isPresented = false
+            let queryBinding = Binding(
+                get: { query },
+                set: { query = $0 }
+            )
+            let presentedBinding = Binding(
+                get: { isPresented },
+                set: { isPresented = $0 }
+            )
+
+            let hiddenNode = makeNode(
+                SearchPresentedReader()
+                    .searchable(
+                        text: queryBinding,
+                        isPresented: presentedBinding,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: Text("Find")
+                    )
+            )
+
+            XCTAssertEqual(hiddenNode.children.count, 1)
+            XCTAssertFalse(allTexts(in: hiddenNode).contains("needle"))
+            XCTAssertTrue(allTexts(in: hiddenNode.children[0]).contains("IDLE"))
+
+            isPresented = true
+
+            let visibleNode = makeNode(
+                SearchPresentedReader()
+                    .searchable(
+                        text: queryBinding,
+                        isPresented: presentedBinding,
+                        placement: .navigationBarDrawer(displayMode: .always),
+                        prompt: Text("Find")
+                    )
+            )
+
+            XCTAssertEqual(visibleNode.children.count, 2)
+            XCTAssertEqual(visibleNode.children[0].children[0].text, "needle")
+            XCTAssertTrue(allTexts(in: visibleNode.children[1]).contains("SEARCHING"))
+            XCTAssertEqual(
+                SearchFieldPlacement.navigationBarDrawer(displayMode: .always),
+                SearchFieldPlacement.navigationBarDrawer(displayMode: .always)
+            )
+        }
+    }
+
     func testTextFieldStyleModifierMapsToRetainedInputChrome() async {
         await MainActor.run {
             struct TextFieldStyleReaderView: View {

@@ -3518,6 +3518,154 @@ public struct TextEditor: View {
     }
 }
 
+public extension View {
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: "Search")
+    }
+
+    func searchable<S: StringProtocol>(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: S
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            searchableComponent(
+                content: content,
+                context: context,
+                text: text,
+                isPresented: nil,
+                prompt: String(prompt),
+                placement: placement
+            )
+        }
+    }
+
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: LocalizedStringKey
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: prompt.resolvedString)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: Text
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: prompt.plainContent)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic
+    ) -> some View {
+        searchable(text: text, isPresented: isPresented, placement: placement, prompt: "Search")
+    }
+
+    func searchable<S: StringProtocol>(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: S
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            searchableComponent(
+                content: content,
+                context: context,
+                text: text,
+                isPresented: isPresented,
+                prompt: String(prompt),
+                placement: placement
+            )
+        }
+    }
+
+    func searchable(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: LocalizedStringKey
+    ) -> some View {
+        searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt.resolvedString)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: Text
+    ) -> some View {
+        searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt.plainContent)
+    }
+}
+
+@MainActor
+private func searchableComponent<Content: View>(
+    content: Content,
+    context: ViewBuildContext,
+    text: Binding<String>,
+    isPresented: Binding<Bool>?,
+    prompt: String,
+    placement: SearchFieldPlacement
+) -> Component {
+    _ = placement
+
+    let isSearching = isPresented?.wrappedValue ?? !text.wrappedValue.isEmpty
+    let title = prompt.isEmpty ? "Search" : prompt
+    let dismissSearch = DismissSearchAction {
+        let isCurrentlySearching = isPresented?.wrappedValue ?? !text.wrappedValue.isEmpty
+        guard isCurrentlySearching else {
+            return
+        }
+
+        if !text.wrappedValue.isEmpty {
+            text.wrappedValue = ""
+        }
+        if let isPresented, isPresented.wrappedValue {
+            isPresented.wrappedValue = false
+        }
+        context.invalidate()
+    }
+
+    let searchContext = context
+        .withEnvironmentValue(\.isSearching, isSearching)
+        .withEnvironmentValue(\.dismissSearch, dismissSearch)
+    let searchField = TextField(title, text: text)
+        .submitLabel(.search)
+        .makeComponent(context: searchContext)
+    let child = content.makeComponent(context: searchContext)
+
+    return Component { runtime in
+        var children: [ViewNode] = []
+        let showsSearchField = isPresented?.wrappedValue ?? true
+        if showsSearchField {
+            let searchNode = searchField.makeNode(runtime: runtime)
+            let existingOnFocusEnter = searchNode.onFocusEnter
+            searchNode.onFocusEnter = {
+                existingOnFocusEnter?()
+                guard let isPresented, !isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = true
+                context.invalidate()
+            }
+            children.append(searchNode)
+        }
+
+        children.append(child.makeNode(runtime: runtime))
+        return Controls.stackPanel(
+            stackLayout: .vertical(spacing: 8, alignment: .stretch),
+            children: children
+        )
+    }
+}
+
 private extension ControlSize {
     var singleLineTextInputSize: Size {
         switch self {

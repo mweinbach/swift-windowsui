@@ -176,6 +176,7 @@ Views and containers:
 - `ProgressView`
   - `StringProtocol` title inputs
   - title, label, and current-value label overloads
+  - `timerInterval:countsDown:` overloads
 - `Gauge`
   - `StringProtocol` title inputs
   - label, current-value, minimum-value, and maximum-value label overloads
@@ -478,7 +479,7 @@ Surface direction:
 - `Picker` maps tagged child content into a retained segmented selection group by default and writes through a SwiftUI-shaped `Binding` when an option activates. `.tag(_:)` supplies the SwiftUI-style selection value; untagged options fall back to integer indices for `Binding<Int>` pickers. `.pickerStyle(.menu)` maps the same tagged options into the retained dropdown control using the first retained text node as the option title.
 - `Stepper` maps to a retained horizontal stack with label content and two retained buttons that mutate `Binding<Int>` or `Binding<Double>` values.
 - `Slider(value:in:)` maps into the retained draggable slider and writes through a SwiftUI-shaped `Binding<Double>`. The `step` initializer snaps written values relative to the lower bound and reports drag editing state through the retained control lifecycle. Current SwiftUI builder-label overloads, plus minimum, maximum, and main label overloads, wrap the retained slider in small retained stacks while preserving the same binding/editing behavior.
-- `ProgressView(value:total:)` maps into the retained progress bar control; title, builder-label, and current-value label overloads wrap that retained bar in small retained stacks.
+- `ProgressView(value:total:)` maps into the retained progress bar control; title, builder-label, and current-value label overloads wrap that retained bar in small retained stacks. `ProgressView(timerInterval:countsDown:)` overloads compute retained progress from the current `Date` at build time and accept custom label/current-value label builders; automatic ticking updates and SwiftUI's default date-progress label text are not modeled yet.
 - `Gauge(value:in:)` maps SwiftUI-shaped scalar gauges onto the retained progress bar control. Title, current-value, minimum-value, and maximum-value label builders compose retained label chrome around the same renderer-neutral fill primitive, with `.tint` driving the filled segment.
 - Accessibility modifiers store retained metadata on `ViewNode` (`label`, `value`, `hint`, `identifier`, and hidden state) so the tree has stable semantic data. `help(_:)` maps to the same retained hint metadata for desktop shared-source compatibility. Native Win32 UI Automation exposure is not implemented yet.
 - `cornerRadius(_:antialiased:)` maps to a retained rounded rectangular clipping wrapper and stores the antialiasing choice as retained clip metadata. The current retained renderer does not visually distinguish antialiased and non-antialiased clips.

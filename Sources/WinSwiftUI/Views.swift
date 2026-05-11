@@ -6640,6 +6640,36 @@ public struct ProgressView: View {
         self.currentValueLabel = currentValueLabel()
     }
 
+    public init(timerInterval: ClosedRange<Date>, countsDown: Bool = true) {
+        self.value = Self.timerProgressValue(timerInterval: timerInterval, countsDown: countsDown)
+        self.total = 1.0
+        self.label = []
+        self.currentValueLabel = []
+    }
+
+    public init(
+        timerInterval: ClosedRange<Date>,
+        countsDown: Bool = true,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.value = Self.timerProgressValue(timerInterval: timerInterval, countsDown: countsDown)
+        self.total = 1.0
+        self.label = label()
+        self.currentValueLabel = []
+    }
+
+    public init(
+        timerInterval: ClosedRange<Date>,
+        countsDown: Bool = true,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder currentValueLabel: () -> [AnyView]
+    ) {
+        self.value = Self.timerProgressValue(timerInterval: timerInterval, countsDown: countsDown)
+        self.total = 1.0
+        self.label = label()
+        self.currentValueLabel = currentValueLabel()
+    }
+
     public var body: Never {
         fatalError("ProgressView has no body")
     }
@@ -6700,6 +6730,17 @@ public struct ProgressView: View {
                 children: [headerNode, progressNode]
             )
         }
+    }
+
+    private static func timerProgressValue(timerInterval: ClosedRange<Date>, countsDown: Bool) -> Double {
+        let duration = timerInterval.upperBound.timeIntervalSince(timerInterval.lowerBound)
+        guard duration > 0, duration.isFinite else {
+            return countsDown ? 0 : 1
+        }
+
+        let elapsed = Date().timeIntervalSince(timerInterval.lowerBound)
+        let progress = min(max(elapsed / duration, 0), 1)
+        return countsDown ? 1 - progress : progress
     }
 }
 

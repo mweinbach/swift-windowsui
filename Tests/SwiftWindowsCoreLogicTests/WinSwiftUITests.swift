@@ -7157,6 +7157,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProgressViewTimerIntervalInitializerMapsElapsedProgress() async {
+        await MainActor.run {
+            let pastInterval = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
+            let futureStart = Date(timeIntervalSince1970: 4_102_444_800)
+            let futureInterval = futureStart...futureStart.addingTimeInterval(10)
+
+            let elapsedNode = makeNode(ProgressView(timerInterval: pastInterval, countsDown: false))
+            let elapsedCountdownNode = makeNode(ProgressView(timerInterval: pastInterval))
+            let futureNode = makeNode(ProgressView(timerInterval: futureInterval, countsDown: false))
+            let futureCountdownNode = makeNode(ProgressView(timerInterval: futureInterval))
+
+            XCTAssertEqual(elapsedNode.children[1].frame.size.width, 200)
+            XCTAssertEqual(elapsedCountdownNode.children[1].frame.size.width, 0)
+            XCTAssertEqual(futureNode.children[1].frame.size.width, 0)
+            XCTAssertEqual(futureCountdownNode.children[1].frame.size.width, 200)
+        }
+    }
+
+    func testProgressViewTimerIntervalLabelInitializersComposeLabels() async {
+        await MainActor.run {
+            let interval = Date(timeIntervalSince1970: 0)...Date(timeIntervalSince1970: 10)
+            let labelNode = makeNode(
+                ProgressView(timerInterval: interval, countsDown: false) {
+                    Text("SYNC")
+                }
+            )
+            let currentValueNode = makeNode(
+                ProgressView(timerInterval: interval, countsDown: false) {
+                    Text("SYNC")
+                } currentValueLabel: {
+                    Text("DONE")
+                }
+            )
+
+            XCTAssertEqual(firstText(in: labelNode.children[0]), "SYNC")
+            XCTAssertEqual(labelNode.children[1].children[1].frame.size.width, 200)
+            XCTAssertEqual(firstText(in: currentValueNode.children[0].children[0]), "SYNC")
+            XCTAssertEqual(firstText(in: currentValueNode.children[0].children[1]), "DONE")
+            XCTAssertEqual(currentValueNode.children[1].children[1].frame.size.width, 200)
+        }
+    }
+
     func testGaugeMapsToRetainedProgressBarWithSwiftUIShapedLabels() async {
         await MainActor.run {
             let stringNode = makeNode(Gauge("BATTERY", value: 0.75, in: 0...1))

@@ -1723,6 +1723,10 @@ public struct Text: View {
         self.init(key.resolvedString)
     }
 
+    public init(_ resource: LocalizedStringResource) {
+        self.init(resource.resolvedString)
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }

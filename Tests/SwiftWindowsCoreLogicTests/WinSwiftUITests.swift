@@ -384,6 +384,22 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLocalizedStringResourceInputMapsToLocalizedRetainedText() async {
+        await MainActor.run {
+            let count = 3
+            let resource: LocalizedStringResource = "SYNC \(count)"
+            let sameResource = LocalizedStringResource("SYNC 3")
+            let otherResource = LocalizedStringResource("IDLE")
+            let textNode = makeNode(Text(resource))
+
+            XCTAssertEqual(resource, sameResource)
+            XCTAssertNotEqual(resource, otherResource)
+            XCTAssertTrue(Set([resource]).contains(sameResource))
+            XCTAssertEqual(String(describing: resource), "SYNC 3")
+            XCTAssertEqual(textNode.text, "SYNC 3")
+        }
+    }
+
     func testTextFieldDisplaysPlaceholderAndWritesBindingFromKeyboard() async {
         await MainActor.run {
             var value = ""

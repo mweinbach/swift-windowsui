@@ -56,6 +56,42 @@ public struct LocalizedStringKey: Sendable, Equatable, ExpressibleByStringLitera
     }
 }
 
+public struct LocalizedStringResource: Sendable, Equatable, Hashable, ExpressibleByStringLiteral, ExpressibleByStringInterpolation, CustomStringConvertible {
+    let resolvedString: String
+
+    public init(_ value: String) {
+        self.resolvedString = value
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    public init(stringInterpolation: StringInterpolation) {
+        self.init(stringInterpolation.output)
+    }
+
+    public var description: String {
+        resolvedString
+    }
+
+    public struct StringInterpolation: StringInterpolationProtocol {
+        var output = ""
+
+        public init(literalCapacity: Int, interpolationCount: Int) {
+            output.reserveCapacity(literalCapacity + interpolationCount * 8)
+        }
+
+        public mutating func appendLiteral(_ literal: String) {
+            output += literal
+        }
+
+        public mutating func appendInterpolation<T>(_ value: T) {
+            output += String(describing: value)
+        }
+    }
+}
+
 public struct ImageResource: Equatable, Hashable, @unchecked Sendable {
     public var name: String
     public var bundle: Bundle

@@ -5432,6 +5432,20 @@ public enum CoordinateSpace: Sendable, Equatable, Hashable {
     case named(String)
 }
 
+public struct AnyGesture<Value>: Gesture {
+    private let applyGesture: @MainActor (AnyView, GestureMask) -> AnyView
+
+    public init<T: Gesture>(_ gesture: T) where T.Value == Value {
+        self.applyGesture = { view, mask in
+            gesture._applying(to: view, including: mask)
+        }
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        applyGesture(AnyView(view), mask)
+    }
+}
+
 public struct TapGesture: Gesture {
     public typealias Value = Void
 

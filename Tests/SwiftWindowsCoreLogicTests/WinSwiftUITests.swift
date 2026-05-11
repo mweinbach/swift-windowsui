@@ -14552,6 +14552,61 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAnyGestureTypeErasesTapGestureObject() async {
+        await MainActor.run {
+            var tapCount = 0
+            let erasedGesture = AnyGesture(
+                TapGesture(count: 2).onEnded { _ in
+                    tapCount += 1
+                }
+            )
+            let node = makeNode(
+                Text("TAP")
+                    .gesture(erasedGesture)
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 0)
+
+            node.onPointerUpInside?()
+            XCTAssertEqual(tapCount, 1)
+        }
+    }
+
+    func testAnyGesturePreservesMaskAndTypeErasesDragGestureObject() async {
+        await MainActor.run {
+            var changes: [DragGesture.Value] = []
+            var disabledChanges: [DragGesture.Value] = []
+            let erasedDragGesture = AnyGesture(
+                DragGesture(minimumDistance: 0).onChanged { value in
+                    changes.append(value)
+                }
+            )
+            let disabledErasedDragGesture = AnyGesture(
+                DragGesture(minimumDistance: 0).onChanged { value in
+                    disabledChanges.append(value)
+                }
+            )
+            let node = makeNode(
+                Text("DRAG")
+                    .gesture(erasedDragGesture)
+            )
+            let disabledNode = makeNode(
+                Text("DRAG")
+                    .gesture(disabledErasedDragGesture, including: .none)
+            )
+
+            node.onDragStart?(Point(x: 5, y: 6))
+            disabledNode.onDragStart?(Point(x: 7, y: 8))
+
+            XCTAssertEqual(changes.map(\.location), [Point(x: 5, y: 6)])
+            XCTAssertEqual(disabledChanges, [])
+            XCTAssertNil(disabledNode.onDragStart)
+        }
+    }
+
     func testLongPressGestureObjectMapsThroughPriorityGestureModifiers() async {
         await MainActor.run {
             var endings: [Bool] = []

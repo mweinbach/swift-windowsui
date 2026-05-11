@@ -347,6 +347,16 @@ public enum ControlActiveState: Sendable, Equatable, Hashable, CaseIterable {
     case inactive
 }
 
+public enum EditMode: Sendable, Equatable, Hashable {
+    case inactive
+    case transient
+    case active
+
+    public var isEditing: Bool {
+        self != .inactive
+    }
+}
+
 public enum LegibilityWeight: Sendable, Equatable {
     case regular
     case bold
@@ -568,6 +578,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var scenePhase: ScenePhase
     public var controlActiveState: ControlActiveState
     public var appearsActive: Bool
+    public var editMode: Binding<EditMode>?
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
@@ -624,6 +635,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         scenePhase: ScenePhase = .active,
         controlActiveState: ControlActiveState = .active,
         appearsActive: Bool = true,
+        editMode: Binding<EditMode>? = nil,
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
@@ -674,6 +686,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.scenePhase = scenePhase
         self.controlActiveState = controlActiveState
         self.appearsActive = appearsActive
+        self.editMode = editMode
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength

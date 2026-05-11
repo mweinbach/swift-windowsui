@@ -5657,6 +5657,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEditModeEnvironmentCanBeReadAndEditButtonTogglesBinding() async {
+        await MainActor.run {
+            struct EditModeReaderView: View {
+                @Environment(\.editMode) var editMode
+
+                var body: some View {
+                    Text(
+                        editMode == nil
+                            ? "NO EDIT"
+                            : editMode?.wrappedValue.isEditing == true
+                                ? "EDITING"
+                                : "INACTIVE"
+                    )
+                }
+            }
+
+            var editMode = EditMode.inactive
+            let binding = Binding(
+                get: { editMode },
+                set: { editMode = $0 }
+            )
+            let defaultNode = makeNode(EditModeReaderView())
+            let inactiveNode = makeNode(EditModeReaderView().environment(\.editMode, binding))
+            let editButtonNode = makeNode(EditButton().environment(\.editMode, binding))
+
+            XCTAssertEqual(defaultNode.text, "NO EDIT")
+            XCTAssertEqual(inactiveNode.text, "INACTIVE")
+            XCTAssertTrue(allTexts(in: editButtonNode).contains("Edit"))
+
+            firstFocusable(in: editButtonNode)?.onActivate?()
+            XCTAssertEqual(editMode, .active)
+
+            let activeNode = makeNode(EditModeReaderView().environment(\.editMode, binding))
+            let doneButtonNode = makeNode(EditButton().environment(\.editMode, binding))
+            XCTAssertEqual(activeNode.text, "EDITING")
+            XCTAssertTrue(allTexts(in: doneButtonNode).contains("Done"))
+
+            firstFocusable(in: doneButtonNode)?.onActivate?()
+            XCTAssertEqual(editMode, .inactive)
+        }
+    }
+
     func testDisplayScaleAndPixelLengthEnvironmentValuesCanBeReadAndOverridden() async {
         await MainActor.run {
             struct ScaleReaderView: View {

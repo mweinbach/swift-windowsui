@@ -5651,6 +5651,31 @@ public struct Button: View {
 }
 
 @MainActor
+public struct EditButton: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("EditButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let editMode = context.environmentValues.editMode
+        let isEditing = editMode?.wrappedValue.isEditing == true
+        return Button(isEditing ? "Done" : "Edit") {
+            guard let editMode else {
+                return
+            }
+
+            editMode.wrappedValue = isEditing ? .inactive : .active
+        }
+        .disabled(editMode == nil)
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct HSplitView: View {
     public typealias Body = Never
 

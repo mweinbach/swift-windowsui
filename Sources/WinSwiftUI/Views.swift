@@ -6380,6 +6380,72 @@ public struct Slider: View {
         self.maximumValueLabel = []
     }
 
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = nil
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        step: Double,
+        @ViewBuilder label: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = step
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = []
+        self.maximumValueLabel = []
+    }
+
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = nil
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+    }
+
+    public init(
+        value: Binding<Double>,
+        in bounds: ClosedRange<Double> = 0...1,
+        step: Double,
+        @ViewBuilder label: () -> [AnyView],
+        @ViewBuilder minimumValueLabel: () -> [AnyView],
+        @ViewBuilder maximumValueLabel: () -> [AnyView],
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) {
+        self.value = value
+        self.bounds = bounds
+        self.step = step
+        self.onEditingChanged = onEditingChanged
+        self.label = label()
+        self.minimumValueLabel = minimumValueLabel()
+        self.maximumValueLabel = maximumValueLabel()
+    }
+
     public init<MinimumValueLabel: View, MaximumValueLabel: View>(
         value: Binding<Double>,
         in bounds: ClosedRange<Double> = 0...1,

@@ -7002,6 +7002,76 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSliderCurrentLabelInitializerComposesLabelAndKeepsBindingBehavior() async {
+        await MainActor.run {
+            var value = 0.0
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...10,
+                    step: 2
+                ) {
+                    Label("GAIN", systemImage: "slider.horizontal.3")
+                } onEditingChanged: { isEditing in
+                    editingChanges.append(isEditing)
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: node.children[0]).contains("GAIN"))
+
+            let sliderNode = node.children[1].children[0]
+            sliderNode.onDragStart?(Point(x: 0, y: 0))
+            sliderNode.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            sliderNode.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 6.0, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false])
+        }
+    }
+
+    func testSliderCurrentLabelMinimumMaximumInitializerComposesLabels() async {
+        await MainActor.run {
+            var value = 0.0
+            var editingChanges: [Bool] = []
+
+            let node = makeNode(
+                Slider(
+                    value: Binding(
+                        get: { value },
+                        set: { value = $0 }
+                    ),
+                    in: 0...10,
+                    step: 2
+                ) {
+                    Text("GAIN")
+                } minimumValueLabel: {
+                    Text("LOW")
+                } maximumValueLabel: {
+                    Text("HIGH")
+                } onEditingChanged: { isEditing in
+                    editingChanges.append(isEditing)
+                }
+            )
+
+            XCTAssertEqual(firstText(in: node.children[0]), "GAIN")
+            XCTAssertEqual(firstText(in: node.children[1].children[0]), "LOW")
+            XCTAssertEqual(firstText(in: node.children[1].children[2]), "HIGH")
+
+            let sliderNode = node.children[1].children[1]
+            sliderNode.onDragStart?(Point(x: 0, y: 0))
+            sliderNode.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            sliderNode.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+
+            XCTAssertEqual(value, 6.0, accuracy: 0.001)
+            XCTAssertEqual(editingChanges, [true, false])
+        }
+    }
+
     func testSliderLabelInitializerComposesLabelsAndKeepsBindingBehavior() async {
         await MainActor.run {
             var value = 0.0

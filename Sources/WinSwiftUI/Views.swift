@@ -2172,7 +2172,10 @@ public struct Text: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = (color ?? context.foregroundColor)
-            .resolvedForContrast(context.colorSchemeContrast)
+            .resolvedForVisualEnvironment(
+                contrast: context.colorSchemeContrast,
+                backgroundProminence: context.backgroundProminence
+            )
         let inheritedFont = context.fontWeight.map { context.font.weight($0) } ?? context.font
         var resolvedFont: Font
         if let font {
@@ -2676,7 +2679,10 @@ public struct Image: View {
         case .systemName(let systemName):
             let symbol = resolvedSymbolIcon(for: systemName)
             let resolvedColor = (color ?? context.foregroundColor)
-                .resolvedForContrast(context.colorSchemeContrast)
+                .resolvedForVisualEnvironment(
+                    contrast: context.colorSchemeContrast,
+                    backgroundProminence: context.backgroundProminence
+                )
             let imageScale = context.imageScale.resolvedMultiplier
             let resolvedScale = font.resolvedScale * imageScale
             let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
@@ -2849,7 +2855,10 @@ public struct Image: View {
         }
 
         let tint = (color ?? context.foregroundColor)
-            .resolvedForContrast(context.colorSchemeContrast)
+            .resolvedForVisualEnvironment(
+                contrast: context.colorSchemeContrast,
+                backgroundProminence: context.backgroundProminence
+            )
         let tintChannels = tint.rgba
         let tintRed = templateByte(tintChannels.0)
         let tintGreen = templateByte(tintChannels.1)
@@ -3249,7 +3258,10 @@ public struct Label: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let resolvedColor = (color ?? context.foregroundColor)
-            .resolvedForContrast(context.colorSchemeContrast)
+            .resolvedForVisualEnvironment(
+                contrast: context.colorSchemeContrast,
+                backgroundProminence: context.backgroundProminence
+            )
         let labelContext = context
             .withForegroundColor(resolvedColor)
             .withFont(font)

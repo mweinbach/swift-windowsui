@@ -2170,6 +2170,11 @@ final class WinSwiftUITests: XCTestCase {
                     .foregroundColor(.secondary)
                     .environment(\.colorSchemeContrast, .increased)
             )
+            let prominentSecondaryNode = makeNode(
+                Text("PROMINENT")
+                    .foregroundStyle(.secondary)
+                    .environment(\.backgroundProminence, .increased)
+            )
             let readerNode = makeNode(
                 ContrastEnvironmentReaderView()
                     .environment(\.colorSchemeContrast, .increased)
@@ -2188,6 +2193,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(secondaryNode.textStyle.color, .secondary)
             XCTAssertEqual(increasedSecondaryNode.textStyle.color, .highContrastSecondary)
             XCTAssertEqual(explicitSecondaryNode.textStyle.color, .highContrastSecondary)
+            XCTAssertEqual(prominentSecondaryNode.textStyle.color, .highContrastSecondary)
             XCTAssertEqual(readerNode.text, "INCREASED")
             XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
         }

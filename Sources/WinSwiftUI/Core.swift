@@ -2431,17 +2431,29 @@ public struct ViewBuildContext {
     public var foregroundColor: Color {
         switch environmentValuesProvider().foregroundStyle {
         case .color(let color):
-            return color.resolvedForContrast(colorSchemeContrast)
+            return color.resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
         case .linearGradient(let gradient):
-            return gradient.startColor.resolvedForContrast(colorSchemeContrast)
+            return gradient.startColor.resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
         case nil:
-            return foregroundColorProvider().resolvedForContrast(colorSchemeContrast)
+            return foregroundColorProvider().resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
         }
     }
 
     var foregroundStyle: ForegroundStyle {
         (environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider()))
-            .resolvedForContrast(colorSchemeContrast)
+            .resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
     }
 
     public var tint: Color {
@@ -6202,6 +6214,26 @@ public extension SwiftWindowsCore.Color {
             return self
         }
 
+        return resolvedHighContrastSecondary()
+    }
+
+    func resolvedForBackgroundProminence(_ prominence: BackgroundProminence) -> SwiftWindowsCore.Color {
+        guard prominence == .increased, self == .secondary else {
+            return self
+        }
+
+        return resolvedHighContrastSecondary()
+    }
+
+    func resolvedForVisualEnvironment(
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> SwiftWindowsCore.Color {
+        resolvedForContrast(contrast)
+            .resolvedForBackgroundProminence(backgroundProminence)
+    }
+
+    private func resolvedHighContrastSecondary() -> SwiftWindowsCore.Color {
         let alpha = rgba.3
         let highContrastComponents = SwiftWindowsCore.Color.highContrastSecondary.rgba
         return SwiftWindowsCore.Color(
@@ -6222,6 +6254,28 @@ extension ForegroundStyle {
             return .linearGradient(gradient.resolvedForContrast(contrast))
         }
     }
+
+    func resolvedForVisualEnvironment(
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> ForegroundStyle {
+        switch self {
+        case .color(let color):
+            return .color(
+                color.resolvedForVisualEnvironment(
+                    contrast: contrast,
+                    backgroundProminence: backgroundProminence
+                )
+            )
+        case .linearGradient(let gradient):
+            return .linearGradient(
+                gradient.resolvedForVisualEnvironment(
+                    contrast: contrast,
+                    backgroundProminence: backgroundProminence
+                )
+            )
+        }
+    }
 }
 
 extension LinearGradient {
@@ -6229,6 +6283,23 @@ extension LinearGradient {
         LinearGradient(
             startColor: startColor.resolvedForContrast(contrast),
             endColor: endColor.resolvedForContrast(contrast),
+            axis: axis
+        )
+    }
+
+    func resolvedForVisualEnvironment(
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> LinearGradient {
+        LinearGradient(
+            startColor: startColor.resolvedForVisualEnvironment(
+                contrast: contrast,
+                backgroundProminence: backgroundProminence
+            ),
+            endColor: endColor.resolvedForVisualEnvironment(
+                contrast: contrast,
+                backgroundProminence: backgroundProminence
+            ),
             axis: axis
         )
     }

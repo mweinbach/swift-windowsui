@@ -2045,6 +2045,51 @@ public struct Text: View {
         return copy
     }
 
+    public func foregroundStyle(_ color: Color) -> Text {
+        foregroundColor(color)
+    }
+
+    public func foregroundStyle(_ primary: Color, _ secondary: Color) -> Text {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: Color, _ secondary: Color, _ tertiary: Color) -> Text {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ style: ForegroundStyle) -> Text {
+        foregroundColor(resolvedFill(from: style).color)
+    }
+
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> Text {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Text {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ gradient: LinearGradient) -> Text {
+        foregroundStyle(.linearGradient(gradient))
+    }
+
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient) -> Text {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient) -> Text {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
     public func font(_ font: Font) -> Text {
         var copy = self
         copy.font = .some(font)

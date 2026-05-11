@@ -96,6 +96,35 @@ final class WinSwiftUITextTests: XCTestCase {
         }
     }
 
+    func testTextForegroundStyleOverloadsReturnTextAndMapToRetainedColor() async {
+        await MainActor.run {
+            let primaryColor = Color(red: 0.7, green: 0.1, blue: 0.2, alpha: 1)
+            let secondaryColor = Color(red: 0.1, green: 0.7, blue: 0.2, alpha: 1)
+            let gradient = LinearGradient(
+                startColor: Color(red: 0.2, green: 0.3, blue: 0.9, alpha: 1),
+                endColor: Color(red: 0.9, green: 0.6, blue: 0.1, alpha: 1),
+                axis: .horizontal
+            )
+
+            let colorNode = makeNode(Text("COLOR").foregroundStyle(primaryColor))
+            let combinedNode = makeNode(
+                Text("A").foregroundStyle(primaryColor) + Text("B").foregroundStyle(secondaryColor)
+            )
+            let storedStyleNode = makeNode(Text("STYLE").foregroundStyle(ForegroundStyle.color(secondaryColor)))
+            let gradientNode = makeNode(Text("GRADIENT").foregroundStyle(gradient))
+            let multiNode = makeNode(Text("MULTI").foregroundStyle(primaryColor, secondaryColor, .blue))
+            let multiGradientNode = makeNode(Text("MULTIGRADIENT").foregroundStyle(gradient, gradient))
+
+            XCTAssertEqual(colorNode.textStyle.color, primaryColor)
+            XCTAssertEqual(combinedNode.text, "AB")
+            XCTAssertEqual(combinedNode.textStyle.color, primaryColor)
+            XCTAssertEqual(storedStyleNode.textStyle.color, secondaryColor)
+            XCTAssertEqual(gradientNode.textStyle.color, gradient.startColor)
+            XCTAssertEqual(multiNode.textStyle.color, primaryColor)
+            XCTAssertEqual(multiGradientNode.textStyle.color, gradient.startColor)
+        }
+    }
+
     func testLineStyleDecorationModifiersMapToRetainedTextStyle() async {
         await MainActor.run {
             let directNode = makeNode(

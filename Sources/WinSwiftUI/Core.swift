@@ -1180,6 +1180,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var labeledContentStyle: LabeledContentStyle
     public var formStyle: FormStyle
     public var groupBoxStyle: GroupBoxStyle
+    public var disclosureGroupStyle: DisclosureGroupStyle
     public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
@@ -1284,6 +1285,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         labeledContentStyle: LabeledContentStyle = .automatic,
         formStyle: FormStyle = .automatic,
         groupBoxStyle: GroupBoxStyle = .automatic,
+        disclosureGroupStyle: DisclosureGroupStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
@@ -1384,6 +1386,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.labeledContentStyle = labeledContentStyle
         self.formStyle = formStyle
         self.groupBoxStyle = groupBoxStyle
+        self.disclosureGroupStyle = disclosureGroupStyle
         self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
@@ -2074,6 +2077,10 @@ public struct ViewBuildContext {
 
     public var groupBoxStyle: GroupBoxStyle {
         environmentValuesProvider().groupBoxStyle
+    }
+
+    public var disclosureGroupStyle: DisclosureGroupStyle {
+        environmentValuesProvider().disclosureGroupStyle
     }
 
     public var controlGroupStyle: ControlGroupStyle {
@@ -4188,6 +4195,26 @@ public struct LabeledContentStyle: Sendable, Equatable {
 }
 
 public typealias AutomaticLabeledContentStyle = LabeledContentStyle
+
+public struct DisclosureGroupStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+    }
+
+    let kind: Kind
+
+    public init() {
+        self.kind = .automatic
+    }
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = DisclosureGroupStyle(kind: .automatic)
+}
+
+public typealias AutomaticDisclosureGroupStyle = DisclosureGroupStyle
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
@@ -6993,6 +7020,12 @@ public extension View {
     func groupBoxStyle(_ style: GroupBoxStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.groupBoxStyle, style))
+        }
+    }
+
+    func disclosureGroupStyle(_ style: DisclosureGroupStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.disclosureGroupStyle, style))
         }
     }
 

@@ -4375,6 +4375,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDisclosureGroupStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct DisclosureGroupStyleReaderView: View {
+                @Environment(\.disclosureGroupStyle) var disclosureGroupStyle
+
+                var body: some View {
+                    Text(disclosureGroupStyle == .automatic ? "AUTOMATIC" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(
+                DisclosureGroupStyleReaderView()
+                    .disclosureGroupStyle(AutomaticDisclosureGroupStyle())
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    DisclosureGroup("DETAILS", isExpanded: .constant(true)) {
+                        Text("NESTED")
+                    }
+                }
+                .disclosureGroupStyle(.automatic)
+            )
+
+            XCTAssertEqual(readerNode.text, "AUTOMATIC")
+            XCTAssertEqual(inheritedNode.children[0].children.count, 2)
+            XCTAssertTrue(allTexts(in: inheritedNode.children[0].children[0]).contains("DETAILS"))
+            XCTAssertEqual(firstText(in: inheritedNode.children[0].children[1]), "NESTED")
+        }
+    }
+
     func testMenuRevealsOverlayContentDismissesAfterActionAndProvidesEnvironment() async {
         await MainActor.run {
             struct MenuPresentationProbe: View {

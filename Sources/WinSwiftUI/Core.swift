@@ -1181,6 +1181,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var formStyle: FormStyle
     public var groupBoxStyle: GroupBoxStyle
     public var disclosureGroupStyle: DisclosureGroupStyle
+    public var menuStyle: MenuStyle
     public var controlGroupStyle: ControlGroupStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
@@ -1286,6 +1287,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         formStyle: FormStyle = .automatic,
         groupBoxStyle: GroupBoxStyle = .automatic,
         disclosureGroupStyle: DisclosureGroupStyle = .automatic,
+        menuStyle: MenuStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
@@ -1387,6 +1389,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.formStyle = formStyle
         self.groupBoxStyle = groupBoxStyle
         self.disclosureGroupStyle = disclosureGroupStyle
+        self.menuStyle = menuStyle
         self.controlGroupStyle = controlGroupStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
@@ -2081,6 +2084,10 @@ public struct ViewBuildContext {
 
     public var disclosureGroupStyle: DisclosureGroupStyle {
         environmentValuesProvider().disclosureGroupStyle
+    }
+
+    public var menuStyle: MenuStyle {
+        environmentValuesProvider().menuStyle
     }
 
     public var controlGroupStyle: ControlGroupStyle {
@@ -4215,6 +4222,52 @@ public struct DisclosureGroupStyle: Sendable, Equatable {
 }
 
 public typealias AutomaticDisclosureGroupStyle = DisclosureGroupStyle
+
+public struct MenuStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case button
+        case borderedButtonStyle(showsMenuIndicator: Bool)
+        case borderlessButtonStyle(showsMenuIndicator: Bool)
+    }
+
+    let kind: Kind
+
+    public init() {
+        self.kind = .automatic
+    }
+
+    init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = MenuStyle(kind: .automatic)
+    public static let button = MenuStyle(kind: .button)
+    public static let borderedButton = MenuStyle(kind: .borderedButtonStyle(showsMenuIndicator: true))
+    public static let borderlessButton = MenuStyle(kind: .borderlessButtonStyle(showsMenuIndicator: true))
+}
+
+public typealias DefaultMenuStyle = MenuStyle
+
+public struct ButtonMenuStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderedButtonMenuStyle: Sendable, Equatable {
+    let showsMenuIndicator: Bool
+
+    public init(showsMenuIndicator: Bool = true) {
+        self.showsMenuIndicator = showsMenuIndicator
+    }
+}
+
+public struct BorderlessButtonMenuStyle: Sendable, Equatable {
+    let showsMenuIndicator: Bool
+
+    public init(showsMenuIndicator: Bool = true) {
+        self.showsMenuIndicator = showsMenuIndicator
+    }
+}
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
@@ -7027,6 +7080,24 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.disclosureGroupStyle, style))
         }
+    }
+
+    func menuStyle(_ style: MenuStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.menuStyle, style))
+        }
+    }
+
+    func menuStyle(_ style: ButtonMenuStyle) -> some View {
+        menuStyle(.button)
+    }
+
+    func menuStyle(_ style: BorderedButtonMenuStyle) -> some View {
+        menuStyle(MenuStyle(kind: .borderedButtonStyle(showsMenuIndicator: style.showsMenuIndicator)))
+    }
+
+    func menuStyle(_ style: BorderlessButtonMenuStyle) -> some View {
+        menuStyle(MenuStyle(kind: .borderlessButtonStyle(showsMenuIndicator: style.showsMenuIndicator)))
     }
 
     func controlGroupStyle(_ style: ControlGroupStyle) -> some View {

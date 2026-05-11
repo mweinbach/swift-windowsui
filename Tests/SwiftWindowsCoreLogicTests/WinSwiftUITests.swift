@@ -4527,6 +4527,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMenuStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct MenuStyleReaderView: View {
+                @Environment(\.menuStyle) var menuStyle
+
+                var body: some View {
+                    Text(menuStyle == .button ? "BUTTON" : menuStyle == .automatic ? "AUTOMATIC" : "OTHER")
+                }
+            }
+
+            let buttonReaderNode = makeNode(MenuStyleReaderView().menuStyle(ButtonMenuStyle()))
+            let automaticReaderNode = makeNode(MenuStyleReaderView().menuStyle(DefaultMenuStyle()))
+            let inheritedNode = makeNode(
+                VStack {
+                    Menu("ACTIONS") {
+                        Button("DELETE") {}
+                    }
+                }
+                .menuStyle(BorderlessButtonMenuStyle(showsMenuIndicator: false))
+            )
+
+            XCTAssertEqual(buttonReaderNode.text, "BUTTON")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
+            XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["ACTIONS", ">"])
+        }
+    }
+
     func testContextMenuRightClickRevealsRetainedOverlayAndDismissesFromEnvironment() async {
         await MainActor.run {
             struct DismissContextMenuButton: View {

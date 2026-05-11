@@ -1299,6 +1299,31 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMinimumScaleFactorBridgesToRetainedTextStyleAndEnvironment() async {
+        await MainActor.run {
+            let scaledNode = makeNode(
+                Text("SCALE")
+                    .minimumScaleFactor(0.5)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("EXPLICIT")
+                        .minimumScaleFactor(0.25)
+                }
+                .minimumScaleFactor(0.75)
+            )
+            let clampedLowNode = makeNode(Text("LOW").minimumScaleFactor(-0.25))
+            let clampedHighNode = makeNode(Text("HIGH").minimumScaleFactor(1.25))
+
+            XCTAssertEqual(scaledNode.textStyle.minimumScaleFactor, 0.5)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.minimumScaleFactor, 0.75)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.minimumScaleFactor, 0.25)
+            XCTAssertEqual(clampedLowNode.textStyle.minimumScaleFactor, 0)
+            XCTAssertEqual(clampedHighNode.textStyle.minimumScaleFactor, 1)
+        }
+    }
+
     func testAllowsTighteningMapsToRetainedKerningFlag() async {
         await MainActor.run {
             let defaultNode = makeNode(Text("DEFAULT"))
@@ -1375,6 +1400,7 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.multilineTextAlignment) var alignment
                 @Environment(\.lineLimit) var lineLimit
                 @Environment(\.truncationMode) var truncationMode
+                @Environment(\.minimumScaleFactor) var minimumScaleFactor
                 @Environment(\.allowsTightening) var allowsTightening
                 @Environment(\.textCase) var textCase
                 @Environment(\.legibilityWeight) var legibilityWeight
@@ -1384,6 +1410,7 @@ final class WinSwiftUITests: XCTestCase {
                         alignment == .trailing
                             && lineLimit == 2
                             && truncationMode == .middle
+                            && minimumScaleFactor == 0.5
                             && allowsTightening
                             && textCase == .uppercase
                             && legibilityWeight == .bold
@@ -1398,6 +1425,7 @@ final class WinSwiftUITests: XCTestCase {
                     .environment(\.multilineTextAlignment, .trailing)
                     .environment(\.lineLimit, 2)
                     .environment(\.truncationMode, .middle)
+                    .environment(\.minimumScaleFactor, 0.5)
                     .environment(\.allowsTightening, true)
                     .environment(\.textCase, .uppercase)
                     .environment(\.legibilityWeight, .bold)
@@ -1428,6 +1456,7 @@ final class WinSwiftUITests: XCTestCase {
                     .multilineTextAlignment(.trailing)
                     .lineLimit(2)
                     .truncationMode(.middle)
+                    .minimumScaleFactor(0.5)
                     .allowsTightening(true)
                     .textCase(.uppercase)
                     .legibilityWeight(.bold)
@@ -1437,6 +1466,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(environmentNode.textStyle.alignment, .trailing)
             XCTAssertEqual(environmentNode.textStyle.maximumNumberOfLines, 2)
             XCTAssertEqual(environmentNode.textStyle.lineBreakMode, .truncateMiddle)
+            XCTAssertEqual(environmentNode.textStyle.minimumScaleFactor, 0.5)
             XCTAssertTrue(environmentNode.textStyle.enableKerning)
             XCTAssertEqual(resetNode.children[0].text, "RESET")
             XCTAssertNil(resetNode.children[0].textStyle.maximumNumberOfLines)

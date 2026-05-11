@@ -906,6 +906,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var lineLimit: Int?
     public var lineSpacing: Double?
     public var truncationMode: Text.TruncationMode?
+    public var minimumScaleFactor: CGFloat
     public var allowsTightening: Bool
     public var textCase: Text.Case?
     public var imageScale: Image.Scale
@@ -1000,6 +1001,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         lineLimit: Int? = nil,
         lineSpacing: Double? = nil,
         truncationMode: Text.TruncationMode? = nil,
+        minimumScaleFactor: CGFloat = 1,
         allowsTightening: Bool = true,
         textCase: Text.Case? = nil,
         imageScale: Image.Scale = .medium,
@@ -1090,6 +1092,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.lineLimit = lineLimit
         self.lineSpacing = lineSpacing
         self.truncationMode = truncationMode
+        self.minimumScaleFactor = Self.clampedMinimumScaleFactor(minimumScaleFactor)
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.imageScale = imageScale
@@ -1137,6 +1140,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.requestReview = requestReview
         self.focusedValues = focusedValues
         self.customValues = [:]
+    }
+
+    static func clampedMinimumScaleFactor(_ factor: CGFloat) -> CGFloat {
+        min(max(factor, 0), 1)
     }
 
     public subscript<Key: EnvironmentKey>(_ key: Key.Type) -> Key.Value {
@@ -1402,6 +1409,10 @@ public struct ViewBuildContext {
 
     public var truncationMode: Text.TruncationMode? {
         environmentValuesProvider().truncationMode ?? truncationModeProvider()
+    }
+
+    public var minimumScaleFactor: CGFloat {
+        environmentValuesProvider().minimumScaleFactor
     }
 
     public var allowsTightening: Bool {
@@ -4953,6 +4964,17 @@ public extension View {
     func lineSpacing(_ lineSpacing: Double) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.lineSpacing, lineSpacing))
+        }
+    }
+
+    func minimumScaleFactor(_ factor: CGFloat) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.minimumScaleFactor,
+                    EnvironmentValues.clampedMinimumScaleFactor(factor)
+                )
+            )
         }
     }
 

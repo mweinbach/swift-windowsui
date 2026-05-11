@@ -1579,6 +1579,7 @@ public struct Text: View {
     private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
     private var lineSpacing: Double?
+    private var minimumScaleFactor: CGFloat?
     private var allowsTightening: Bool?
     private var textCase: Case??
     private var underline: Bool
@@ -1594,6 +1595,7 @@ public struct Text: View {
         self.truncationMode = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
+        self.minimumScaleFactor = nil
         self.allowsTightening = nil
         self.textCase = nil
         self.underline = false
@@ -1610,6 +1612,7 @@ public struct Text: View {
         truncationMode: TruncationMode?,
         letterSpacing: Double?,
         lineSpacing: Double?,
+        minimumScaleFactor: CGFloat?,
         allowsTightening: Bool?,
         textCase: Case??,
         underline: Bool,
@@ -1624,6 +1627,7 @@ public struct Text: View {
         self.truncationMode = truncationMode
         self.letterSpacing = letterSpacing
         self.lineSpacing = lineSpacing
+        self.minimumScaleFactor = minimumScaleFactor
         self.allowsTightening = allowsTightening
         self.textCase = textCase
         self.underline = underline
@@ -1657,6 +1661,7 @@ public struct Text: View {
             truncationMode: lhs.truncationMode ?? rhs.truncationMode,
             letterSpacing: lhs.letterSpacing ?? rhs.letterSpacing,
             lineSpacing: lhs.lineSpacing ?? rhs.lineSpacing,
+            minimumScaleFactor: lhs.minimumScaleFactor ?? rhs.minimumScaleFactor,
             allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
             textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
             underline: lhs.underline || rhs.underline,
@@ -1706,6 +1711,7 @@ public struct Text: View {
                     truncationMode: truncationMode ?? context.truncationMode
                 ),
                 maximumNumberOfLines: resolvedLineLimit,
+                minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
                 underline: underline,
                 strikethrough: strikethrough,
                 enableKerning: allowsTightening ?? context.allowsTightening
@@ -1798,6 +1804,12 @@ public struct Text: View {
     public func lineSpacing(_ lineSpacing: Double) -> Text {
         var copy = self
         copy.lineSpacing = lineSpacing
+        return copy
+    }
+
+    public func minimumScaleFactor(_ factor: CGFloat) -> Text {
+        var copy = self
+        copy.minimumScaleFactor = EnvironmentValues.clampedMinimumScaleFactor(factor)
         return copy
     }
 

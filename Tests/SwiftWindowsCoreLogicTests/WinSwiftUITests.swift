@@ -658,6 +658,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextFieldFormatterValueInitializersDisplayAndWriteBinding() async {
+        await MainActor.run {
+            let formatter = NumberFormatter()
+            formatter.numberStyle = .none
+
+            var count = 12
+            let countBinding = Binding(
+                get: { count },
+                set: { count = $0 }
+            )
+            let countNode = makeNode(
+                TextField("COUNT", value: countBinding, formatter: formatter)
+            )
+
+            XCTAssertEqual(countNode.children[0].text, "12")
+
+            countNode.onKeyDown?(KeyboardEvent(keyCode: 0x33))
+
+            XCTAssertEqual(count, 123)
+            XCTAssertEqual(countNode.textInputCaretOffset, 3)
+
+            countNode.onKeyDown?(KeyboardEvent(keyCode: 0x41))
+
+            XCTAssertEqual(count, 123)
+
+            var builderValue = 7
+            let builderNode = makeNode(
+                TextField(
+                    value: Binding(
+                        get: { builderValue },
+                        set: { builderValue = $0 }
+                    ),
+                    formatter: formatter,
+                    prompt: Text("COUNT")
+                ) {
+                    Text("TOTAL")
+                }
+            )
+
+            XCTAssertEqual(builderNode.children[0].text, "7")
+
+            builderNode.onKeyDown?(KeyboardEvent(keyCode: 0x39))
+
+            XCTAssertEqual(builderValue, 79)
+        }
+    }
+
     func testSecureFieldBuilderLabelInitializerMapsLabelAndPromptToPlaceholder() async {
         await MainActor.run {
             let labelNode = makeNode(

@@ -5857,6 +5857,28 @@ public struct TextField: View {
         self.init(titleKey.resolvedString, text: text, prompt: prompt, axis: axis)
     }
 
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value>,
+        formatter: Formatter,
+        prompt: Text? = nil
+    ) {
+        self.init(
+            String(title),
+            text: formatterBackedTextBinding(value: value, formatter: formatter),
+            prompt: prompt
+        )
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value>,
+        formatter: Formatter,
+        prompt: Text? = nil
+    ) {
+        self.init(titleKey.resolvedString, value: value, formatter: formatter, prompt: prompt)
+    }
+
     public init(
         _ title: String,
         text: Binding<String>,
@@ -5906,6 +5928,22 @@ public struct TextField: View {
         self.axis = .horizontal
         self.label = label()
         self.selection = selection
+        self.onEditingChanged = nil
+        self.onCommit = nil
+    }
+
+    public init<Value>(
+        value: Binding<Value>,
+        formatter: Formatter,
+        prompt: Text? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.title = ""
+        self.text = formatterBackedTextBinding(value: value, formatter: formatter)
+        self.prompt = prompt?.plainContent
+        self.axis = .horizontal
+        self.label = label()
+        self.selection = nil
         self.onEditingChanged = nil
         self.onCommit = nil
     }
@@ -6145,6 +6183,83 @@ public struct TextEditor: View {
             onCommit: nil,
             context: context
         )
+    }
+}
+
+@MainActor
+private func formatterBackedTextBinding<Value>(
+    value: Binding<Value>,
+    formatter: Formatter
+) -> Binding<String> {
+    Binding<String>(
+        get: {
+            formatter.string(for: value.wrappedValue) ?? String(describing: value.wrappedValue)
+        },
+        set: { text in
+            if let parsedValue: Value = parsedFormatterValue(text, formatter: formatter) {
+                value.wrappedValue = parsedValue
+            }
+        }
+    )
+}
+
+private func parsedFormatterValue<Value>(_ text: String, formatter: Formatter) -> Value? {
+    if Value.self == String.self {
+        return text as? Value
+    }
+
+    if let numberFormatter = formatter as? NumberFormatter,
+       let number = numberFormatter.number(from: text),
+       let value: Value = convertedFormatterValue(number) {
+        return value
+    }
+
+    if let dateFormatter = formatter as? DateFormatter,
+       let date = dateFormatter.date(from: text) as? Value {
+        return date
+    }
+
+    return nil
+}
+
+private func convertedFormatterValue<Value>(_ object: Any) -> Value? {
+    if let value = object as? Value {
+        return value
+    }
+
+    guard let number = object as? NSNumber else {
+        return nil
+    }
+
+    switch Value.self {
+    case is Int.Type:
+        return number.intValue as? Value
+    case is Int8.Type:
+        return number.int8Value as? Value
+    case is Int16.Type:
+        return number.int16Value as? Value
+    case is Int32.Type:
+        return number.int32Value as? Value
+    case is Int64.Type:
+        return number.int64Value as? Value
+    case is UInt.Type:
+        return number.uintValue as? Value
+    case is UInt8.Type:
+        return number.uint8Value as? Value
+    case is UInt16.Type:
+        return number.uint16Value as? Value
+    case is UInt32.Type:
+        return number.uint32Value as? Value
+    case is UInt64.Type:
+        return number.uint64Value as? Value
+    case is Float.Type:
+        return number.floatValue as? Value
+    case is Double.Type:
+        return number.doubleValue as? Value
+    case is Decimal.Type:
+        return number.decimalValue as? Value
+    default:
+        return nil
     }
 }
 

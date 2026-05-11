@@ -5654,6 +5654,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationViewStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct NavigationViewStyleReader: View {
+                @Environment(\.navigationViewStyle) var navigationViewStyle
+
+                var body: some View {
+                    Text(
+                        navigationViewStyle == .stack ? "STACK"
+                            : navigationViewStyle == .doubleColumn ? "DOUBLE"
+                            : navigationViewStyle == .columns ? "COLUMNS"
+                            : navigationViewStyle == .automatic ? "AUTOMATIC"
+                            : "OTHER"
+                    )
+                }
+            }
+
+            let stackReaderNode = makeNode(
+                NavigationViewStyleReader()
+                    .navigationViewStyle(StackNavigationViewStyle())
+            )
+            let doubleReaderNode = makeNode(
+                NavigationViewStyleReader()
+                    .navigationViewStyle(DoubleColumnNavigationViewStyle())
+            )
+            let columnsReaderNode = makeNode(
+                NavigationViewStyleReader()
+                    .navigationViewStyle(ColumnsNavigationViewStyle())
+            )
+            let automaticReaderNode = makeNode(
+                NavigationViewStyleReader()
+                    .navigationViewStyle(DefaultNavigationViewStyle())
+            )
+            let navigationNode = makeNode(
+                NavigationView {
+                    Text("ROOT")
+                        .navigationTitle("ROOT TITLE")
+                }
+                .navigationViewStyle(.stack)
+            )
+
+            XCTAssertEqual(stackReaderNode.text, "STACK")
+            XCTAssertEqual(doubleReaderNode.text, "DOUBLE")
+            XCTAssertEqual(columnsReaderNode.text, "COLUMNS")
+            XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
+            XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT"))
+            XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT TITLE"))
+        }
+    }
+
     func testNavigationSplitViewStyleModifierPropagatesThroughEnvironment() async {
         await MainActor.run {
             struct NavigationSplitViewStyleReader: View {

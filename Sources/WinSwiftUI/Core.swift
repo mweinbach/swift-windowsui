@@ -444,6 +444,42 @@ public enum NavigationSplitViewVisibility: Sendable, Equatable {
     case detailOnly
 }
 
+public struct NavigationViewStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case stack
+        case doubleColumn
+        case columns
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = NavigationViewStyle(kind: .automatic)
+    public static let stack = NavigationViewStyle(kind: .stack)
+    public static let doubleColumn = NavigationViewStyle(kind: .doubleColumn)
+    public static let columns = NavigationViewStyle(kind: .columns)
+}
+
+public struct DefaultNavigationViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct StackNavigationViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DoubleColumnNavigationViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ColumnsNavigationViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct NavigationSplitViewStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -1325,6 +1361,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var buttonSizing: ButtonSizing
     public var buttonBorderShape: ButtonBorderShape
     public var menuIndicatorVisibility: Visibility
+    public var navigationViewStyle: NavigationViewStyle
     public var navigationSplitViewStyle: NavigationSplitViewStyle
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
@@ -1438,6 +1475,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         buttonSizing: ButtonSizing = .automatic,
         buttonBorderShape: ButtonBorderShape = .automatic,
         menuIndicatorVisibility: Visibility = .automatic,
+        navigationViewStyle: NavigationViewStyle = .automatic,
         navigationSplitViewStyle: NavigationSplitViewStyle = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
@@ -1551,6 +1589,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.buttonSizing = buttonSizing
         self.buttonBorderShape = buttonBorderShape
         self.menuIndicatorVisibility = menuIndicatorVisibility
+        self.navigationViewStyle = navigationViewStyle
         self.navigationSplitViewStyle = navigationSplitViewStyle
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
@@ -2268,6 +2307,10 @@ public struct ViewBuildContext {
 
     public var controlGroupStyle: ControlGroupStyle {
         environmentValuesProvider().controlGroupStyle
+    }
+
+    public var navigationViewStyle: NavigationViewStyle {
+        environmentValuesProvider().navigationViewStyle
     }
 
     public var navigationSplitViewStyle: NavigationSplitViewStyle {
@@ -8552,6 +8595,28 @@ public extension View {
         }
         modified.navigationPresentedDestinations = [presentedDestination]
         return modified
+    }
+
+    func navigationViewStyle(_ style: NavigationViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.navigationViewStyle, style))
+        }
+    }
+
+    func navigationViewStyle(_ style: DefaultNavigationViewStyle) -> some View {
+        navigationViewStyle(.automatic)
+    }
+
+    func navigationViewStyle(_ style: StackNavigationViewStyle) -> some View {
+        navigationViewStyle(.stack)
+    }
+
+    func navigationViewStyle(_ style: DoubleColumnNavigationViewStyle) -> some View {
+        navigationViewStyle(.doubleColumn)
+    }
+
+    func navigationViewStyle(_ style: ColumnsNavigationViewStyle) -> some View {
+        navigationViewStyle(.columns)
     }
 
     func navigationSplitViewStyle(_ style: NavigationSplitViewStyle) -> some View {

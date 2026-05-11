@@ -53,6 +53,12 @@ public enum RetainedHoverEffect: Sendable, Equatable {
     case lift
 }
 
+public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
+    case automatic
+    case enabled
+    case disabled
+}
+
 public struct RetainedRedactionReasons: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -92,6 +98,14 @@ struct DeferredSubtreePayload {
     var inheritedClip: Rect?
     var inheritedOpacity: Float
     var inheritedInverseTransform: Transform2D?
+}
+
+@MainActor
+private struct ButtonRepeatState {
+    weak var node: ViewNode?
+    var startTime: Double?
+    var nextActivationTime: Double?
+    var didRepeat: Bool
 }
 
 @MainActor
@@ -470,6 +484,8 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var buttonRepeatBehavior: RetainedButtonRepeatBehavior
+
     public var redactionReasons: RetainedRedactionReasons {
         didSet { invalidateRuntime(.paint) }
     }
@@ -506,6 +522,7 @@ public final class ViewNode {
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
     public var onActivate: (() -> Void)?
+    public var onRepeatActivate: (() -> Void)?
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
@@ -585,6 +602,7 @@ public final class ViewNode {
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
+        buttonRepeatBehavior: RetainedButtonRepeatBehavior = .automatic,
         redactionReasons: RetainedRedactionReasons = [],
         isPrivacySensitive: Bool = false,
         paintsInDeferredPhase: Bool = false,
@@ -637,6 +655,7 @@ public final class ViewNode {
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled
+        self.buttonRepeatBehavior = buttonRepeatBehavior
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
         self.paintsInDeferredPhase = paintsInDeferredPhase
@@ -649,6 +668,7 @@ public final class ViewNode {
         self.onFocusExit = nil
         self.onKeyDown = nil
         self.onActivate = nil
+        self.onRepeatActivate = nil
         self.onDragStart = nil
         self.onDragChange = nil
         self.onDragEnd = nil
@@ -2303,6 +2323,9 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
 
 @MainActor
 public final class RetainedViewRuntime {
+    private static let buttonRepeatInitialDelay = 0.45
+    private static let buttonRepeatInterval = 0.08
+
     public let root: ViewNode
 
     public var displayScale: Double {
@@ -2322,7 +2345,7 @@ public final class RetainedViewRuntime {
     }
 
     public var hasActiveAnimations: Bool {
-        !colorAnimations.isEmpty
+        !colorAnimations.isEmpty || buttonRepeatState != nil
     }
 
     // Gap/Fix: Granular dirty tracking — DirtyFlags replaces single boolean.
@@ -2350,6 +2373,7 @@ public final class RetainedViewRuntime {
     private weak var hoveredScrollIndicatorNode: ViewNode?
     private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
+    private var buttonRepeatState: ButtonRepeatState?
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
 
@@ -2564,6 +2588,7 @@ public final class RetainedViewRuntime {
         updateHoverTarget(to: hitNode)
         pressedNode = hitNode
         hitNode?.onPointerDown?()
+        beginButtonRepeatIfNeeded(for: hitNode)
     }
 
     public func pointerUp(at point: Point) {
@@ -2594,9 +2619,12 @@ public final class RetainedViewRuntime {
         let hitNode = hitTest(at: point)
 
         if let pressedNode {
+            let didRepeat = endButtonRepeat(for: pressedNode)
             if pressedNode === hitNode {
                 pressedNode.onPointerUpInside?()
-                pressedNode.onActivate?()
+                if !didRepeat {
+                    pressedNode.onActivate?()
+                }
             } else {
                 pressedNode.onPointerUpOutside?()
             }
@@ -2641,7 +2669,78 @@ public final class RetainedViewRuntime {
     }
 
     public func keyboardFocusDidLeaveWindow() {
+        buttonRepeatState = nil
         updateFocusTarget(to: nil)
+    }
+
+    private func beginButtonRepeatIfNeeded(for node: ViewNode?) {
+        guard let node, node.buttonRepeatBehavior == .enabled else {
+            buttonRepeatState = nil
+            return
+        }
+
+        buttonRepeatState = ButtonRepeatState(
+            node: node,
+            startTime: nil,
+            nextActivationTime: nil,
+            didRepeat: false
+        )
+        invalidate(.paint)
+    }
+
+    private func endButtonRepeat(for node: ViewNode?) -> Bool {
+        guard let state = buttonRepeatState else {
+            return false
+        }
+
+        guard state.node === node else {
+            if state.node == nil {
+                buttonRepeatState = nil
+            }
+            return false
+        }
+
+        buttonRepeatState = nil
+        return state.didRepeat
+    }
+
+    @discardableResult
+    private func advanceButtonRepeat(at timestamp: Double) -> Bool {
+        guard var state = buttonRepeatState else {
+            return false
+        }
+
+        guard let node = state.node, pressedNode === node else {
+            buttonRepeatState = nil
+            return false
+        }
+
+        guard hoveredNode === node else {
+            buttonRepeatState = state
+            return false
+        }
+
+        if state.startTime == nil {
+            state.startTime = timestamp
+            state.nextActivationTime = timestamp + Self.buttonRepeatInitialDelay
+            buttonRepeatState = state
+            return false
+        }
+
+        guard let nextActivationTime = state.nextActivationTime, timestamp >= nextActivationTime else {
+            buttonRepeatState = state
+            return false
+        }
+
+        state.didRepeat = true
+        state.nextActivationTime = timestamp + Self.buttonRepeatInterval
+        buttonRepeatState = state
+        if let onRepeatActivate = node.onRepeatActivate {
+            onRepeatActivate()
+        } else {
+            node.onActivate?()
+        }
+        return true
     }
 
     public func animateBackgroundColor(of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double) {
@@ -2671,8 +2770,10 @@ public final class RetainedViewRuntime {
 
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
+        let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
+
         guard !colorAnimations.isEmpty else {
-            return false
+            return didAdvanceButtonRepeat
         }
 
         var didUpdateAnyAnimation = false
@@ -2699,7 +2800,7 @@ public final class RetainedViewRuntime {
             }
         }
 
-        return didUpdateAnyAnimation
+        return didUpdateAnyAnimation || didAdvanceButtonRepeat
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {

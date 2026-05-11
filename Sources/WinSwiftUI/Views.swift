@@ -5837,6 +5837,7 @@ public struct Button: View {
                 clipsToBounds: surfaceStyle.clipsToBounds,
                 layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
                 isEnabled: context.isEnabled,
+                repeatBehavior: context.environmentValues.buttonRepeatBehavior.retainedBehavior,
                 animation: surfaceStyle.animation,
                 action: {
                     ViewBuildContextScope.withCurrent(context) {

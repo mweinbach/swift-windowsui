@@ -261,6 +261,128 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testEnabledButtonRepeatInvokesActionDuringProlongedPress() async {
+        await MainActor.run {
+            var activationCount = 0
+            let palette = SurfacePalette(
+                idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50),
+                isHitTestVisible: false
+            )
+            let runtime = RetainedViewRuntime(root: root)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: Rect(x: 10, y: 8, width: 40, height: 24),
+                cornerRadius: 4,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                repeatBehavior: .enabled,
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                action: {
+                    activationCount += 1
+                }
+            )
+            root.addChild(button)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+
+            XCTAssertTrue(runtime.hasActiveAnimations)
+            XCTAssertFalse(runtime.tickAnimations(at: 1.0))
+            XCTAssertEqual(activationCount, 0)
+            XCTAssertFalse(runtime.tickAnimations(at: 1.44))
+            XCTAssertEqual(activationCount, 0)
+            XCTAssertTrue(runtime.tickAnimations(at: 1.45))
+            XCTAssertEqual(activationCount, 1)
+            XCTAssertTrue(runtime.tickAnimations(at: 1.531))
+            XCTAssertEqual(activationCount, 2)
+
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+
+            XCTAssertEqual(activationCount, 2)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testEnabledButtonRepeatKeepsReleaseActivationBeforeDelay() async {
+        await MainActor.run {
+            var activationCount = 0
+            let palette = SurfacePalette(
+                idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50),
+                isHitTestVisible: false
+            )
+            let runtime = RetainedViewRuntime(root: root)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: Rect(x: 10, y: 8, width: 40, height: 24),
+                cornerRadius: 4,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                repeatBehavior: .enabled,
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                action: {
+                    activationCount += 1
+                }
+            )
+            root.addChild(button)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+            XCTAssertFalse(runtime.tickAnimations(at: 1.0))
+            XCTAssertFalse(runtime.tickAnimations(at: 1.2))
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+
+            XCTAssertEqual(activationCount, 1)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testDisabledButtonRepeatKeepsSingleReleaseActivation() async {
+        await MainActor.run {
+            var activationCount = 0
+            let palette = SurfacePalette(
+                idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50),
+                isHitTestVisible: false
+            )
+            let runtime = RetainedViewRuntime(root: root)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: Rect(x: 10, y: 8, width: 40, height: 24),
+                cornerRadius: 4,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                repeatBehavior: .disabled,
+                animation: ControlAnimationStyle(focusDuration: 0, pressDuration: 0, activationDuration: 0),
+                action: {
+                    activationCount += 1
+                }
+            )
+            root.addChild(button)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+            XCTAssertFalse(runtime.tickAnimations(at: 1.0))
+            XCTAssertFalse(runtime.tickAnimations(at: 1.6))
+            XCTAssertEqual(activationCount, 0)
+
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+
+            XCTAssertEqual(activationCount, 1)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
     func testRenderFrameCapturesButtonVisualStateChanges() async {
         await MainActor.run {
             let palette = SurfacePalette(

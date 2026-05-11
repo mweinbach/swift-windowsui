@@ -618,6 +618,7 @@ public enum Controls {
         clipsToBounds: Bool = false,
         layoutMode: ViewLayoutMode = .absolute,
         isEnabled: Bool = true,
+        repeatBehavior: RetainedButtonRepeatBehavior = .automatic,
         animation: ControlAnimationStyle = .default,
         action: (() -> Void)? = nil,
         children: [ViewNode] = []
@@ -645,6 +646,7 @@ public enum Controls {
             return node
         }
 
+        node.buttonRepeatBehavior = repeatBehavior
         let interactionState = ButtonInteractionState()
 
         func applySurfaceState(duration: Double) {
@@ -713,6 +715,9 @@ public enum Controls {
             animate(.background, node, in: runtime, to: palette.activated, duration: animation.activationDuration)
             animate(.border, node, in: runtime, to: chrome.borderActivatedColor, duration: animation.activationDuration)
             animate(.shadow, node, in: runtime, to: chrome.shadowActivatedColor, duration: animation.activationDuration)
+            action?()
+        }
+        node.onRepeatActivate = {
             action?()
         }
 

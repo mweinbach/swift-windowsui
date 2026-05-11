@@ -6612,10 +6612,20 @@ final class WinSwiftUITests: XCTestCase {
                 ButtonRepeatBehaviorReaderView()
                     .environment(\.buttonRepeatBehavior, .disabled)
             )
+            let enabledButtonNode = makeNode(
+                Button("REPEAT") {}
+                    .buttonRepeatBehavior(.enabled)
+            )
+            let disabledButtonNode = makeNode(
+                Button("REPEAT") {}
+                    .buttonRepeatBehavior(.disabled)
+            )
 
             XCTAssertEqual(defaultNode.text, "AUTOMATIC")
             XCTAssertEqual(modifierNode.text, "ENABLED")
             XCTAssertEqual(environmentNode.text, "DISABLED")
+            XCTAssertEqual(enabledButtonNode.buttonRepeatBehavior, .enabled)
+            XCTAssertEqual(disabledButtonNode.buttonRepeatBehavior, .disabled)
         }
     }
 

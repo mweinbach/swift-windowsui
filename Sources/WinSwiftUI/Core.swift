@@ -3142,6 +3142,17 @@ public struct ButtonRepeatBehavior: Sendable, Equatable, Hashable {
     public static let automatic = ButtonRepeatBehavior(.automatic)
     public static let enabled = ButtonRepeatBehavior(.enabled)
     public static let disabled = ButtonRepeatBehavior(.disabled)
+
+    var retainedBehavior: RetainedButtonRepeatBehavior {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .enabled:
+            return .enabled
+        case .disabled:
+            return .disabled
+        }
+    }
 }
 
 public struct ButtonSizing: Sendable, Equatable, Hashable {

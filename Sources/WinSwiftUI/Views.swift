@@ -1804,6 +1804,14 @@ public struct Text: View {
         self.init(formatter.string(for: subject) ?? String(describing: subject))
     }
 
+    public init<F: FormatStyle>(_ input: F.FormatInput, format: F) where F.FormatOutput == String {
+        self.init(format.format(input))
+    }
+
+    public init<F: FormatStyle>(_ input: F.FormatInput, format: F) where F.FormatOutput == AttributedString {
+        self.init(String(format.format(input).characters))
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }

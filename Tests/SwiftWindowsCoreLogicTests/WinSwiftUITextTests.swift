@@ -4,7 +4,39 @@ import SwiftWindowsCore
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
+private struct TestStringFormatStyle: FormatStyle {
+    func format(_ value: Int) -> String {
+        "COUNT \(value)"
+    }
+}
+
+private struct TestAttributedStringFormatStyle: FormatStyle {
+    func format(_ value: Int) -> AttributedString {
+        AttributedString("ATTR \(value)")
+    }
+}
+
 final class WinSwiftUITextTests: XCTestCase {
+    func testFormatStyleInitializerUsesStringOutput() async {
+        await MainActor.run {
+            let customNode = makeNode(Text(7, format: TestStringFormatStyle()))
+            let numberNode = makeNode(
+                Text(1234.5, format: FloatingPointFormatStyle<Double>.number.precision(.fractionLength(1)))
+            )
+
+            XCTAssertEqual(customNode.text, "COUNT 7")
+            XCTAssertEqual(numberNode.text, "1,234.5")
+        }
+    }
+
+    func testFormatStyleInitializerFlattensAttributedStringOutput() async {
+        await MainActor.run {
+            let node = makeNode(Text(9, format: TestAttributedStringFormatStyle()))
+
+            XCTAssertEqual(node.text, "ATTR 9")
+        }
+    }
+
     func testFormatterInitializerUsesFoundationFormatterOutput() async {
         await MainActor.run {
             let numberFormatter = NumberFormatter()

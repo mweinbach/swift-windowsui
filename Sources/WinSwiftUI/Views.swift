@@ -1784,6 +1784,22 @@ public struct Text: View {
         self.init("\(startText) - \(endText)")
     }
 
+    public init(
+        timerInterval: ClosedRange<Date>,
+        pauseTime: Date? = nil,
+        countsDown: Bool = true,
+        showsHours: Bool = true
+    ) {
+        self.init(
+            Self.formattedTimerIntervalText(
+                timerInterval,
+                pauseTime: pauseTime,
+                countsDown: countsDown,
+                showsHours: showsHours
+            )
+        )
+    }
+
     public init<S: StringProtocol>(_ content: S) {
         self.init(String(content))
     }
@@ -1834,6 +1850,38 @@ public struct Text: View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    }
+
+    private static func formattedTimerIntervalText(
+        _ interval: ClosedRange<Date>,
+        pauseTime: Date?,
+        countsDown: Bool,
+        showsHours: Bool
+    ) -> String {
+        let duration = interval.upperBound.timeIntervalSince(interval.lowerBound)
+        guard duration > 0 else {
+            return formatTimerDuration(0, showsHours: showsHours)
+        }
+
+        let referenceDate = pauseTime ?? Date()
+        let elapsed = referenceDate.timeIntervalSince(interval.lowerBound)
+        let unclampedSeconds = countsDown ? duration - elapsed : elapsed
+        let clampedSeconds = min(max(unclampedSeconds, 0), duration)
+        return formatTimerDuration(clampedSeconds, showsHours: showsHours)
+    }
+
+    private static func formatTimerDuration(_ seconds: TimeInterval, showsHours: Bool) -> String {
+        let totalSeconds = max(0, Int(seconds.rounded(.down)))
+        let hours = totalSeconds / 3_600
+        let minutes = (totalSeconds % 3_600) / 60
+        let seconds = totalSeconds % 60
+
+        if showsHours, hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
+        }
+
+        let totalMinutes = totalSeconds / 60
+        return String(format: "%d:%02d", totalMinutes, seconds)
     }
 
     public static func + (lhs: Text, rhs: Text) -> Text {

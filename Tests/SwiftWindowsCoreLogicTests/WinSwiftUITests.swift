@@ -7350,6 +7350,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGaugeStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct GaugeStyleReaderView: View {
+                @Environment(\.gaugeStyle) var gaugeStyle
+
+                var body: some View {
+                    Text(gaugeStyle == .accessoryCircularCapacity ? "CIRCULAR" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(GaugeStyleReaderView().gaugeStyle(.accessoryCircularCapacity))
+            let inheritedNode = makeNode(
+                VStack {
+                    Gauge(value: 0.25, in: 0...1) {
+                        Text("CPU")
+                    }
+                    Gauge(value: Float(0.75), in: Float(0)...Float(1)) {
+                        Text("MEMORY")
+                    }
+                }
+                .gaugeStyle(.accessoryLinearCapacity)
+            )
+
+            XCTAssertEqual(readerNode.text, "CIRCULAR")
+            XCTAssertEqual(inheritedNode.children[0].children[1].children[1].frame.size.width, 50)
+            XCTAssertEqual(inheritedNode.children[1].children[1].children[1].frame.size.width, 150)
+        }
+    }
+
     func testTintModifierPropagatesToControls() async {
         await MainActor.run {
             var isOn = true

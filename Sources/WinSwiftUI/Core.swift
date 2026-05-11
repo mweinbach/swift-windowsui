@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var gaugeStyle: GaugeStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
     public var submitLabel: SubmitLabel
@@ -1275,6 +1276,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        gaugeStyle: GaugeStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
         submitLabel: SubmitLabel = .return,
@@ -1369,6 +1371,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.gaugeStyle = gaugeStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
         self.submitLabel = submitLabel
@@ -2044,6 +2047,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var gaugeStyle: GaugeStyle {
+        environmentValuesProvider().gaugeStyle
     }
 
     public var toggleStyle: ToggleStyle {
@@ -4003,6 +4010,34 @@ public struct PickerStyle: Sendable, Equatable {
     public static let automatic = PickerStyle(kind: .automatic)
     public static let segmented = PickerStyle(kind: .segmented)
     public static let menu = PickerStyle(kind: .menu)
+}
+
+public struct GaugeStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case linear
+        case linearCapacity
+        case accessoryLinear
+        case accessoryLinearCapacity
+        case circular
+        case accessoryCircular
+        case accessoryCircularCapacity
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = GaugeStyle(kind: .automatic)
+    public static let linear = GaugeStyle(kind: .linear)
+    public static let linearCapacity = GaugeStyle(kind: .linearCapacity)
+    public static let accessoryLinear = GaugeStyle(kind: .accessoryLinear)
+    public static let accessoryLinearCapacity = GaugeStyle(kind: .accessoryLinearCapacity)
+    public static let circular = GaugeStyle(kind: .circular)
+    public static let accessoryCircular = GaugeStyle(kind: .accessoryCircular)
+    public static let accessoryCircularCapacity = GaugeStyle(kind: .accessoryCircularCapacity)
 }
 
 public enum ForegroundStyle: Sendable, Equatable {
@@ -6779,6 +6814,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func gaugeStyle(_ style: GaugeStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.gaugeStyle, style))
         }
     }
 

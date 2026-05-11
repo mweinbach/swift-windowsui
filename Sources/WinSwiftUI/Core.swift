@@ -527,6 +527,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
     public var legibilityWeight: LegibilityWeight?
+    public var displayScale: Double
+    public var pixelLength: Double
     public var layoutDirection: LayoutDirection
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
@@ -569,6 +571,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         colorScheme: ColorScheme = .dark,
         colorSchemeContrast: ColorSchemeContrast = .standard,
         legibilityWeight: LegibilityWeight? = nil,
+        displayScale: Double = 1,
+        pixelLength: Double = 1,
         layoutDirection: LayoutDirection = .leftToRight,
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
@@ -605,6 +609,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
         self.legibilityWeight = legibilityWeight
+        self.displayScale = displayScale
+        self.pixelLength = pixelLength
         self.layoutDirection = layoutDirection
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
@@ -987,6 +993,14 @@ public struct ViewBuildContext {
 
     public var dynamicTypeSize: DynamicTypeSize {
         environmentValues.dynamicTypeSize
+    }
+
+    public var displayScale: Double {
+        environmentValues.displayScale
+    }
+
+    public var pixelLength: Double {
+        environmentValues.pixelLength
     }
 
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] {

@@ -41,7 +41,13 @@ public enum WinSwiftUIRendererSnapshotter {
             canvasSizeProvider: {
                 Size(width: Double(size.width), height: Double(size.height))
             },
-            invalidateHandler: {}
+            invalidateHandler: {},
+            environmentValuesProvider: {
+                EnvironmentValues(
+                    displayScale: displayScale,
+                    pixelLength: displayScale > 0 ? 1 / displayScale : 1
+                )
+            }
         )
         let component = view.makeComponent(context: context)
         let host = ComponentHost(runtime: runtime)

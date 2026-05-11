@@ -5378,6 +5378,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDisplayScaleAndPixelLengthEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct ScaleReaderView: View {
+                @Environment(\.displayScale) var displayScale
+                @Environment(\.pixelLength) var pixelLength
+
+                var body: some View {
+                    Text(
+                        displayScale == 3 && abs(pixelLength - (1.0 / 3.0)) < 0.001
+                            ? "SCALE3"
+                            : displayScale == 2 && abs(pixelLength - 0.5) < 0.001
+                                ? "SCALE2"
+                                : "SCALE1"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ScaleReaderView())
+            let overrideNode = makeNode(
+                ScaleReaderView()
+                    .environment(\.displayScale, 3.0)
+                    .environment(\.pixelLength, 1.0 / 3.0)
+            )
+            let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
+                of: ScaleReaderView(),
+                size: IntSize(width: 200, height: 100),
+                displayScale: 2
+            )
+
+            XCTAssertEqual(defaultNode.text, "SCALE1")
+            XCTAssertEqual(overrideNode.text, "SCALE3")
+            XCTAssertEqual(firstText(in: snapshot.runtime.root), "SCALE2")
+            XCTAssertEqual(snapshot.runtime.displayScale, 2)
+        }
+    }
+
     func testLayoutDirectionEnvironmentFlipsLeadingTrailingAlignment() async {
         await MainActor.run {
             struct LayoutDirectionReaderView: View {

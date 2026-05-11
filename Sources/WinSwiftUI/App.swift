@@ -371,8 +371,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             },
             observedObjectHandler: { [weak self] object in
                 self?.observeObject(object)
+            },
+            environmentValuesProvider: { [weak self] in
+                let displayScale = self?.runtime.displayScale ?? 1
+                return EnvironmentValues(
+                    displayScale: displayScale,
+                    pixelLength: Self.pixelLength(for: displayScale)
+                )
             }
         )
+    }
+
+    private static func pixelLength(for displayScale: Double) -> Double {
+        displayScale > 0 ? 1 / displayScale : 1
     }
 
     private func buildRootComponent() -> Component {

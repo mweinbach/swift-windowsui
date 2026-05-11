@@ -112,8 +112,23 @@ public struct Animation: Sendable {
     }
 }
 
+public struct Transaction: Sendable {
+    public var animation: Animation?
+    public var disablesAnimations: Bool
+
+    public init(animation: Animation? = nil) {
+        self.animation = animation
+        self.disablesAnimations = false
+    }
+}
+
 @discardableResult
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
+    try body()
+}
+
+@discardableResult
+public func withTransaction<Result>(_ transaction: Transaction, _ body: () throws -> Result) rethrows -> Result {
     try body()
 }
 
@@ -6576,6 +6591,15 @@ public extension View {
                 )
                 return node
             }
+        }
+    }
+
+    func transaction(_ transform: @escaping (inout Transaction) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            var transaction = Transaction()
+            transform(&transaction)
+            _ = transaction
+            return content.makeComponent(context: context)
         }
     }
 

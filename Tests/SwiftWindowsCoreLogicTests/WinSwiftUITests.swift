@@ -6674,6 +6674,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTransactionCompatibilityShimsExecuteBodiesAndTransforms() async {
+        await MainActor.run {
+            var value = 0
+            var transaction = Transaction(animation: .easeIn(duration: 0.2))
+            transaction.disablesAnimations = true
+
+            let result = withTransaction(transaction) {
+                value = 7
+                return value + 1
+            }
+
+            var didTransform = false
+            let node = makeNode(
+                Text("TX")
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                        didTransform = true
+                    }
+            )
+
+            XCTAssertEqual(result, 8)
+            XCTAssertEqual(value, 7)
+            XCTAssertTrue(didTransform)
+            XCTAssertEqual(node.text, "TX")
+        }
+    }
+
     func testAccessibilityPreferenceEnvironmentValuesCanBeReadAndOverrideAnimation() async {
         await MainActor.run {
             struct AccessibilityPreferenceReaderView: View {

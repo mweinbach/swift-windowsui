@@ -230,6 +230,8 @@ Modifiers:
 - `hoverEffectDisabled`
 - `focusEffectDisabled`
 - `keyboardShortcut`
+- `redacted`
+- `unredacted`
 - `opacity`
 - `hidden`
 - `zIndex`
@@ -288,6 +290,7 @@ Compatibility helpers:
 - `Angle`
 - `Axis`
 - `HoverEffect`
+- `RedactionReasons`
 - `KeyEquivalent`
 - `EventModifiers`
 - `KeyboardShortcut`
@@ -342,6 +345,7 @@ Surface direction:
 - `focusable(_:)` maps to the retained node focus flag and enables hit testing when focusability is turned on. Focus effects and programmatic `FocusState` bindings are not modeled yet.
 - `hoverEffect(_:)`, `defaultHoverEffect(_:)`, `hoverEffectDisabled(_:)`, and `focusEffectDisabled(_:)` store retained interaction-effect metadata for source-compatible call sites. `hoverEffect(_:)` also opts the node into hit testing so the runtime can identify hoverable content, but lift/highlight rendering and platform focus-effect visuals are not drawn yet.
 - `keyboardShortcut(_:)` stores retained shortcut metadata on the modified node and routes matching `RetainedViewRuntime.keyDown` events to that node's activation handler. SwiftUI `.command` shortcuts map to Windows Control-key shortcuts, `.option` maps to Alt, and `.defaultAction` / `.cancelAction` use Enter / Escape without modifiers. Menu command routing and platform-reserved shortcut arbitration are not modeled yet.
+- `redacted(reason:)` and `unredacted()` propagate `EnvironmentValues.redactionReasons` and store retained redaction metadata on affected nodes. Placeholder skeleton drawing is not implemented yet, so this is currently a semantic/render-contract surface rather than a visual replacement.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
@@ -419,7 +423,7 @@ Surface direction:
 - `@ObservedObject`
 - `@StateObject`
 
-`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
+`@Environment` can read retained-context values such as `isEnabled`, `isScrollEnabled`, `horizontalScrollIndicatorVisibility`, `verticalScrollIndicatorVisibility`, `defaultMinListHeaderHeight`, `defaultMinListRowHeight`, `headerProminence`, `badgeProminence`, `redactionReasons`, `colorScheme`, `font`, `multilineTextAlignment`, `lineLimit`, `lineSpacing`, `truncationMode`, `allowsTightening`, `textCase`, `textInputAutocapitalization`, `isAutocorrectionDisabled`, `tint`, `controlSize`, `imageScale`, `labelStyle`, `toggleStyle`, and `textFieldStyle`, and app-defined `EnvironmentKey` values can be exposed through `EnvironmentValues` extensions. `environment(_:_:)` and `preferredColorScheme(_:)` override inherited values through the retained build context.
 Observed object changes are coalesced by the host before rebuilding the retained tree so one logical update does not trigger multiple immediate redraw passes.
 `@State` stores values in a retained box captured by the view value and exposes `$state` as a `Binding`, which is enough for common controls such as `Toggle`.
 `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.

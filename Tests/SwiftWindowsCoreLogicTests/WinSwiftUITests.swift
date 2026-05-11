@@ -4801,6 +4801,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRedactionModifiersPropagateThroughEnvironmentAndRetainedNodes() async {
+        await MainActor.run {
+            struct RedactionEnvironmentReader: View {
+                @Environment(\.redactionReasons) var redactionReasons
+
+                var body: some View {
+                    Text(redactionReasons.contains(.placeholder) ? "REDACTED" : "PLAIN")
+                }
+            }
+
+            let redactedNode = makeNode(Text("SECRET").redacted(reason: .placeholder))
+            let inheritedNode = makeNode(RedactionEnvironmentReader().redacted(reason: .placeholder))
+            let unredactedNode = makeNode(
+                VStack {
+                    RedactionEnvironmentReader()
+                        .unredacted()
+                }
+                .redacted(reason: .placeholder)
+            )
+
+            XCTAssertEqual(redactedNode.redactionReasons, [.placeholder])
+            XCTAssertEqual(inheritedNode.redactionReasons, [.placeholder])
+            XCTAssertEqual(inheritedNode.text, "REDACTED")
+            XCTAssertEqual(unredactedNode.redactionReasons, [.placeholder])
+            XCTAssertEqual(unredactedNode.children.first?.redactionReasons, [])
+            XCTAssertEqual(unredactedNode.children.first?.text, "PLAIN")
+        }
+    }
+
     func testKeyboardShortcutModifierMapsAndActivatesRetainedNode() async {
         await MainActor.run {
             var activations = 0

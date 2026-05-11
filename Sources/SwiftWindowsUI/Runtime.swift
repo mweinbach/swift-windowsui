@@ -53,6 +53,16 @@ public enum RetainedHoverEffect: Sendable, Equatable {
     case lift
 }
 
+public struct RetainedRedactionReasons: OptionSet, Sendable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let placeholder = RetainedRedactionReasons(rawValue: 1 << 0)
+}
+
 struct ViewLayoutCacheKey: Equatable, Sendable {
     var frame: Rect
     var displayScale: Double
@@ -460,6 +470,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var redactionReasons: RetainedRedactionReasons {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -567,6 +581,7 @@ public final class ViewNode {
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
+        redactionReasons: RetainedRedactionReasons = [],
         paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
@@ -617,6 +632,7 @@ public final class ViewNode {
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled
+        self.redactionReasons = redactionReasons
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil

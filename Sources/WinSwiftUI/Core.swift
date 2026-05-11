@@ -376,6 +376,24 @@ public struct HoverEffect: Sendable, Equatable, Hashable {
     }
 }
 
+public struct RedactionReasons: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: Int
+
+    public init(rawValue: Int) {
+        self.rawValue = rawValue
+    }
+
+    public static let placeholder = RedactionReasons(rawValue: 1 << 0)
+
+    var retainedReasons: RetainedRedactionReasons {
+        var reasons: RetainedRedactionReasons = []
+        if contains(.placeholder) {
+            reasons.insert(.placeholder)
+        }
+        return reasons
+    }
+}
+
 public enum Prominence: Sendable, Equatable, Hashable {
     case standard
     case increased
@@ -452,6 +470,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isScrollEnabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
+    public var redactionReasons: RedactionReasons
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var listRowSpacing: Double?
@@ -488,6 +507,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isScrollEnabled: Bool = true,
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
+        redactionReasons: RedactionReasons = [],
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
         headerProminence: Prominence = .standard,
@@ -518,6 +538,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isScrollEnabled = isScrollEnabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
+        self.redactionReasons = redactionReasons
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.listRowSpacing = nil
@@ -4235,6 +4256,33 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isFocusEffectDisabled = disabled
+                return childNode
+            }
+        }
+    }
+
+    func redacted(reason: RedactionReasons) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values.redactionReasons.formUnion(reason)
+            let resolvedContext = context.withEnvironmentValue(\.redactionReasons, values.redactionReasons)
+            let child = content.makeComponent(context: resolvedContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.redactionReasons = values.redactionReasons.retainedReasons
+                return childNode
+            }
+        }
+    }
+
+    func unredacted() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(
+                context: context.withEnvironmentValue(\.redactionReasons, [])
+            )
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.redactionReasons = []
                 return childNode
             }
         }

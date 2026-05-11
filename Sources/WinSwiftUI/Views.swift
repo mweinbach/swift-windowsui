@@ -1669,9 +1669,10 @@ public struct Text: View {
         }
 
         let resolvedContent = content.resolvedTextCase(textCase ?? context.textCase)
+        let redactionReasons = context.environmentValues.redactionReasons.retainedReasons
 
         return Component { _ in
-            Controls.label(
+            let node = Controls.label(
                 resolvedContent,
                 color: resolvedColor,
                 scale: resolvedFont.resolvedScale,
@@ -1690,6 +1691,8 @@ public struct Text: View {
                 strikethrough: strikethrough,
                 enableKerning: allowsTightening ?? context.allowsTightening
             )
+            node.redactionReasons = redactionReasons
+            return node
         }
     }
 

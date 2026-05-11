@@ -108,6 +108,8 @@ Views and containers:
 - `HSplitView`
 - `VSplitView`
 - `Menu`
+  - `StringProtocol` title inputs
+  - `Menu(_:systemImage:content:)`
 - `Button`
   - `StringProtocol` title inputs
   - `Button(_:systemImage:...)`

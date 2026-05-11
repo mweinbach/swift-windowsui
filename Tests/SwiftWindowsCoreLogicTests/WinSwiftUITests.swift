@@ -171,6 +171,9 @@ final class WinSwiftUITests: XCTestCase {
                     Menu(title) {
                         Button(title) {}
                     }
+                    Menu(title, systemImage: "ellipsis.circle") {
+                        Button(title) {}
+                    }
                     Toggle(title, isOn: .constant(true))
                     ProgressView(title, value: 0.5, total: 1.0)
                     Button(title) {}

@@ -17,6 +17,17 @@ private struct TestAttributedStringFormatStyle: FormatStyle {
 }
 
 final class WinSwiftUITextTests: XCTestCase {
+    func testAttributedStringInitializerFlattensToRetainedText() async {
+        await MainActor.run {
+            var attributed = AttributedString("HELLO")
+            attributed.append(AttributedString(" WORLD"))
+
+            let node = makeNode(Text(attributed))
+
+            XCTAssertEqual(node.text, "HELLO WORLD")
+        }
+    }
+
     func testFormatStyleInitializerUsesStringOutput() async {
         await MainActor.run {
             let customNode = makeNode(Text(7, format: TestStringFormatStyle()))

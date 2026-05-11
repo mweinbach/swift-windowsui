@@ -1804,12 +1804,16 @@ public struct Text: View {
         self.init(formatter.string(for: subject) ?? String(describing: subject))
     }
 
+    public init(_ attributedContent: AttributedString) {
+        self.init(Self.flattenedAttributedText(attributedContent))
+    }
+
     public init<F: FormatStyle>(_ input: F.FormatInput, format: F) where F.FormatOutput == String {
         self.init(format.format(input))
     }
 
     public init<F: FormatStyle>(_ input: F.FormatInput, format: F) where F.FormatOutput == AttributedString {
-        self.init(String(format.format(input).characters))
+        self.init(Self.flattenedAttributedText(format.format(input)))
     }
 
     public init<S: StringProtocol>(_ content: S) {
@@ -1862,6 +1866,10 @@ public struct Text: View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+    }
+
+    private static func flattenedAttributedText(_ attributedContent: AttributedString) -> String {
+        String(attributedContent.characters)
     }
 
     private static func formattedTimerIntervalText(

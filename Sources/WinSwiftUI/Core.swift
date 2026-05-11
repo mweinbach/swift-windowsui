@@ -330,6 +330,11 @@ public enum ColorScheme: Sendable, Equatable {
     case dark
 }
 
+public enum LayoutDirection: Sendable, Equatable {
+    case leftToRight
+    case rightToLeft
+}
+
 public enum TextInputAutocapitalization: Sendable, Equatable {
     case never
     case words
@@ -449,6 +454,7 @@ public struct OpenURLAction: @unchecked Sendable {
 
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
+    public var layoutDirection: LayoutDirection
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
@@ -487,6 +493,7 @@ public struct EnvironmentValues: @unchecked Sendable {
 
     public init(
         colorScheme: ColorScheme = .dark,
+        layoutDirection: LayoutDirection = .leftToRight,
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
@@ -519,6 +526,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         openURL: OpenURLAction = .system
     ) {
         self.colorScheme = colorScheme
+        self.layoutDirection = layoutDirection
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle
         self.tint = tint
@@ -886,6 +894,10 @@ public struct ViewBuildContext {
             values.tint = tintProvider()
         }
         return values
+    }
+
+    public var layoutDirection: LayoutDirection {
+        environmentValues.layoutDirection
     }
 
     var navigationDestinationRegistrations: [NavigationDestinationRegistration] {
@@ -2869,8 +2881,23 @@ func composeComponent(
 }
 
 extension HorizontalAlignment {
+    func resolved(for layoutDirection: LayoutDirection) -> HorizontalAlignment {
+        switch (self, layoutDirection) {
+        case (.leading, .rightToLeft):
+            return .trailing
+        case (.trailing, .rightToLeft):
+            return .leading
+        case (.leading, .leftToRight), (.center, _), (.trailing, .leftToRight):
+            return self
+        }
+    }
+
     var stackAlignment: StackCrossAlignment {
-        switch self {
+        stackAlignment(layoutDirection: .leftToRight)
+    }
+
+    func stackAlignment(layoutDirection: LayoutDirection) -> StackCrossAlignment {
+        switch resolved(for: layoutDirection) {
         case .leading:
             return .leading
         case .center:
@@ -2881,7 +2908,11 @@ extension HorizontalAlignment {
     }
 
     var textAlignment: TextHorizontalAlignment {
-        switch self {
+        textAlignment(layoutDirection: .leftToRight)
+    }
+
+    func textAlignment(layoutDirection: LayoutDirection) -> TextHorizontalAlignment {
+        switch resolved(for: layoutDirection) {
         case .leading:
             return .leading
         case .center:
@@ -2926,6 +2957,10 @@ extension TextAlignment {
         case .trailing:
             return .trailing
         }
+    }
+
+    func textAlignment(layoutDirection: LayoutDirection) -> TextHorizontalAlignment {
+        horizontalAlignment.textAlignment(layoutDirection: layoutDirection)
     }
 }
 
@@ -3167,9 +3202,13 @@ extension EdgeInsets {
 }
 
 extension Alignment {
-    func frameOrigin(for childSize: Size, in containerSize: Size) -> Point {
+    func frameOrigin(
+        for childSize: Size,
+        in containerSize: Size,
+        layoutDirection: LayoutDirection = .leftToRight
+    ) -> Point {
         let x: Double
-        switch horizontal {
+        switch horizontal.resolved(for: layoutDirection) {
         case .leading:
             x = 0
         case .center:
@@ -3266,7 +3305,7 @@ public extension View {
                     preferredSize: Size(width: width ?? 0, height: height ?? 0),
                     stackLayout: .vertical(
                         padding: .zero,
-                        alignment: alignment.horizontal.stackAlignment,
+                        alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection),
                         mainAlignment: alignment.vertical.mainAlignment
                     ),
                     isHitTestVisible: false,
@@ -3307,7 +3346,7 @@ public extension View {
                     preferredSize: hasIdealSize ? idealSize : nil,
                     stackLayout: .vertical(
                         padding: .zero,
-                        alignment: alignment.horizontal.stackAlignment,
+                        alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection),
                         mainAlignment: alignment.vertical.mainAlignment
                     ),
                     isHitTestVisible: false,
@@ -3516,7 +3555,11 @@ public extension View {
                     }
 
                     let backgroundSize = backgroundNode.intrinsicContentSize()
-                    let backgroundOrigin = alignment.frameOrigin(for: backgroundSize, in: containerSize)
+                    let backgroundOrigin = alignment.frameOrigin(
+                        for: backgroundSize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
                     let backgroundFrame = Rect(origin: backgroundOrigin, size: backgroundSize)
                     if backgroundNode.frame != backgroundFrame {
                         backgroundNode.frame = backgroundFrame
@@ -3588,7 +3631,11 @@ public extension View {
                     }
 
                     let overlaySize = overlayNode.intrinsicContentSize()
-                    let overlayOrigin = alignment.frameOrigin(for: overlaySize, in: containerSize)
+                    let overlayOrigin = alignment.frameOrigin(
+                        for: overlaySize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
                     let overlayFrame = Rect(origin: overlayOrigin, size: overlaySize)
                     if overlayNode.frame != overlayFrame {
                         overlayNode.frame = overlayFrame

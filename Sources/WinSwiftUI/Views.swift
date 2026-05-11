@@ -1680,7 +1680,7 @@ public struct Text: View {
                 weight: resolvedFont.weight.textWeight,
                 fontFamily: resolvedFont.resolvedFamily,
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
-                alignment: resolvedAlignment.horizontalAlignment.textAlignment,
+                alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? 2,
                 lineBreakMode: resolvedLineBreakMode(
@@ -1937,7 +1937,7 @@ public struct Image: View {
                     preferredSize: preferredSize,
                     color: resolvedColor,
                     scale: resolvedScale,
-                    alignment: alignment.horizontalAlignment.textAlignment
+                    alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
                 applyAccessibility(to: node)
                 return node
@@ -2434,7 +2434,10 @@ public struct VStack: View {
         Component { runtime in
             let childContext = context.withStackAxis(.vertical)
             return Controls.stackPanel(
-                stackLayout: .vertical(spacing: spacing, alignment: alignment.stackAlignment),
+                stackLayout: .vertical(
+                    spacing: spacing,
+                    alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                ),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
@@ -2502,7 +2505,10 @@ public struct LazyVStack: View {
         return Component { runtime in
             let childContext = context.withStackAxis(.vertical)
             return Controls.stackPanel(
-                stackLayout: .vertical(spacing: spacing, alignment: alignment.stackAlignment),
+                stackLayout: .vertical(
+                    spacing: spacing,
+                    alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                ),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
@@ -2585,7 +2591,7 @@ public struct Grid: View {
             Controls.stackPanel(
                 stackLayout: .vertical(
                     spacing: verticalSpacing,
-                    alignment: alignment.horizontal.stackAlignment
+                    alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection)
                 ),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
@@ -2646,7 +2652,11 @@ public struct ZStack: View {
             root.onLayout = { bounds in
                 for child in childNodes {
                     let childSize = child.intrinsicContentSize()
-                    let origin = alignment.frameOrigin(for: childSize, in: bounds.size)
+                    let origin = alignment.frameOrigin(
+                        for: childSize,
+                        in: bounds.size,
+                        layoutDirection: context.layoutDirection
+                    )
                     let frame = Rect(origin: origin, size: childSize)
                     if child.frame != frame {
                         child.frame = frame
@@ -2710,7 +2720,7 @@ public struct ScrollView: View {
                 shadowOffset: style.shadowOffset,
                 shadowSpread: style.shadowSpread,
                 cornerRadius: style.cornerRadius,
-                stackLayout: scrollStackLayout,
+                stackLayout: scrollStackLayout(layoutDirection: context.layoutDirection),
                 scrollStep: style.scrollStep,
                 scrollIndicatorColor: style.indicatorColor,
                 scrollIndicatorHoverColor: style.indicatorHoverColor,
@@ -2732,12 +2742,16 @@ public struct ScrollView: View {
         }
     }
 
-    private var scrollStackLayout: StackLayout {
+    private func scrollStackLayout(layoutDirection: LayoutDirection) -> StackLayout {
         switch axis {
         case .horizontal:
             return .horizontal(spacing: style.spacing, padding: style.padding, alignment: .center)
         case .vertical:
-            return .vertical(spacing: style.spacing, padding: style.padding, alignment: style.alignment.stackAlignment)
+            return .vertical(
+                spacing: style.spacing,
+                padding: style.padding,
+                alignment: style.alignment.stackAlignment(layoutDirection: layoutDirection)
+            )
         }
     }
 }
@@ -2946,7 +2960,11 @@ public struct Section: View {
                 shadowSpread: 10,
                 cornerRadius: style.cornerRadius,
                 clipsToBounds: true,
-                stackLayout: .vertical(spacing: style.spacing, padding: style.padding, alignment: style.alignment.stackAlignment),
+                stackLayout: .vertical(
+                    spacing: style.spacing,
+                    padding: style.padding,
+                    alignment: style.alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                ),
                 isHitTestVisible: style.isHitTestVisible,
                 children: children
             )
@@ -3634,7 +3652,7 @@ private func textInputComponent(
             weight: (context.fontWeight ?? context.font.weight).textWeight,
             fontFamily: context.font.resolvedFamily,
             nativeFontSize: context.font.resolvedNativeTextSize,
-            alignment: context.textAlignment.horizontalAlignment.textAlignment,
+            alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
             lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
             maximumNumberOfLines: allowsNewlines ? nil : 1

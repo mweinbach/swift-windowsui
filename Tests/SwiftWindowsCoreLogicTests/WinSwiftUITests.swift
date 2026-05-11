@@ -5285,6 +5285,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLayoutDirectionEnvironmentFlipsLeadingTrailingAlignment() async {
+        await MainActor.run {
+            struct LayoutDirectionReaderView: View {
+                @Environment(\.layoutDirection) var layoutDirection
+
+                var body: some View {
+                    Text(layoutDirection == .rightToLeft ? "RTL" : "LTR")
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            let defaultNode = makeNode(LayoutDirectionReaderView())
+            let rtlTextNode = makeNode(
+                LayoutDirectionReaderView()
+                    .environment(\.layoutDirection, .rightToLeft)
+            )
+            let rtlStackNode = makeNode(
+                VStack(alignment: .leading) {
+                    Text("ROW")
+                }
+                .environment(\.layoutDirection, .rightToLeft)
+            )
+
+            XCTAssertEqual(defaultNode.text, "LTR")
+            XCTAssertEqual(defaultNode.textStyle.alignment, .leading)
+            XCTAssertEqual(rtlTextNode.text, "RTL")
+            XCTAssertEqual(rtlTextNode.textStyle.alignment, .trailing)
+            if case .stack(let stackLayout) = rtlStackNode.layoutMode {
+                XCTAssertEqual(stackLayout, .vertical(alignment: .trailing))
+            } else {
+                XCTFail("Expected retained stack layout")
+            }
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {

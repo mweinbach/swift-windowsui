@@ -7048,7 +7048,6 @@ final class WinSwiftUITests: XCTestCase {
                         Text("PRESENTATION BACKGROUND")
                     }
                     .presentationCornerRadius(22)
-                    .presentationCornerRadius(nil)
                 }
             }
 
@@ -7061,17 +7060,82 @@ final class WinSwiftUITests: XCTestCase {
                     )
                 ) {
                     SheetContent()
-                        .presentationBackground(nil as Color?)
                 }
 
             let presentedNode = makeNode(view)
 
             XCTAssertTrue(allTexts(in: presentedNode).contains("STYLED SHEET"))
             XCTAssertTrue(allTexts(in: presentedNode).contains("DONE"))
+            guard let sheetPanel = presentedNode.children.last else {
+                return XCTFail("Expected retained sheet panel")
+            }
+            XCTAssertNil(sheetPanel.backgroundColor)
+            XCTAssertEqual(sheetPanel.backgroundGradient?.startColor, .red)
+            XCTAssertEqual(sheetPanel.backgroundGradient?.endColor, .blue)
+            XCTAssertEqual(sheetPanel.cornerRadius, 22)
 
             firstFocusable(in: presentedNode)?.onActivate?()
 
             XCTAssertFalse(isPresented)
+
+            let resetNode = makeNode(
+                Text("ROOT")
+                    .sheet(isPresented: .constant(true)) {
+                        SheetContent()
+                            .presentationBackground(nil as Color?)
+                            .presentationCornerRadius(nil)
+                    }
+            )
+            guard let resetSheetPanel = resetNode.children.last else {
+                return XCTFail("Expected retained reset sheet panel")
+            }
+            XCTAssertNil(resetSheetPanel.backgroundColor)
+            XCTAssertNil(resetSheetPanel.backgroundGradient)
+            XCTAssertEqual(resetSheetPanel.cornerRadius, 14)
+        }
+    }
+
+    func testPresentationBackgroundAndCornerRadiusApplyToPopoverAndFullScreenCover() async {
+        await MainActor.run {
+            let popoverColor = Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1)
+            let popoverNode = makeNode(
+                Text("ROOT")
+                    .popover(isPresented: .constant(true)) {
+                        Text("POPOVER")
+                            .presentationBackground(popoverColor)
+                            .presentationCornerRadius(9)
+                    }
+            )
+
+            guard let popoverPanel = popoverNode.children.last else {
+                return XCTFail("Expected retained popover panel")
+            }
+            XCTAssertEqual(popoverPanel.backgroundColor, popoverColor)
+            XCTAssertNil(popoverPanel.backgroundGradient)
+            XCTAssertEqual(popoverPanel.cornerRadius, 9)
+
+            let coverGradient = LinearGradient(
+                colors: [.green, .blue],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let coverNode = makeNode(
+                Text("ROOT")
+                    .fullScreenCover(isPresented: .constant(true)) {
+                        Text("COVER")
+                            .presentationBackground(coverGradient)
+                            .presentationCornerRadius(4)
+                    }
+            )
+
+            guard let coverPanel = coverNode.children.last else {
+                return XCTFail("Expected retained full-screen cover panel")
+            }
+            XCTAssertNil(coverPanel.backgroundColor)
+            XCTAssertEqual(coverPanel.backgroundGradient?.startColor, .green)
+            XCTAssertEqual(coverPanel.backgroundGradient?.endColor, .blue)
+            XCTAssertEqual(coverPanel.cornerRadius, 4)
+            XCTAssertTrue(coverPanel.clipsToBounds)
         }
     }
 

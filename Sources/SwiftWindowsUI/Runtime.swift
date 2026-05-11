@@ -260,6 +260,30 @@ public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case disabled
 }
 
+public struct RetainedPresentationChrome: Sendable, Equatable {
+    public var hasBackgroundOverride: Bool
+    public var backgroundColor: Color?
+    public var backgroundGradient: LinearGradient?
+    public var hasCornerRadiusOverride: Bool
+    public var cornerRadius: Double?
+
+    public init(
+        hasBackgroundOverride: Bool = false,
+        backgroundColor: Color? = nil,
+        backgroundGradient: LinearGradient? = nil,
+        hasCornerRadiusOverride: Bool = false,
+        cornerRadius: Double? = nil
+    ) {
+        self.hasBackgroundOverride = hasBackgroundOverride
+        self.backgroundColor = backgroundColor
+        self.backgroundGradient = backgroundGradient
+        self.hasCornerRadiusOverride = hasCornerRadiusOverride
+        self.cornerRadius = cornerRadius
+    }
+
+    public static let empty = RetainedPresentationChrome()
+}
+
 public struct RetainedScrollAnchor: Sendable, Equatable {
     public var x: Double
     public var y: Double
@@ -822,6 +846,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var presentationChrome: RetainedPresentationChrome {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -957,6 +985,7 @@ public final class ViewNode {
         isPrivacySensitive: Bool = false,
         paintsInDeferredPhase: Bool = false,
         matchedGeometryEffect: RetainedMatchedGeometryEffect? = nil,
+        presentationChrome: RetainedPresentationChrome = .empty,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -1029,6 +1058,7 @@ public final class ViewNode {
         self.isPrivacySensitive = isPrivacySensitive
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.matchedGeometryEffect = matchedGeometryEffect
+        self.presentationChrome = presentationChrome
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil

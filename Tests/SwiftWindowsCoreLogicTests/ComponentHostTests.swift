@@ -114,6 +114,23 @@ final class ComponentHostTests: XCTestCase {
                             anchor: Point(x: 0, y: 0),
                             isSource: true
                         )
+                    let presentationChrome = useSecondState
+                        ? RetainedPresentationChrome(
+                            hasBackgroundOverride: true,
+                            backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                            hasCornerRadiusOverride: true,
+                            cornerRadius: 18
+                        )
+                        : RetainedPresentationChrome(
+                            hasBackgroundOverride: true,
+                            backgroundGradient: LinearGradient(
+                                startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                                endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                                axis: .vertical
+                            ),
+                            hasCornerRadiusOverride: true,
+                            cornerRadius: 8
+                        )
 
                     node.text = label
                     node.opacity = opacity
@@ -135,6 +152,7 @@ final class ComponentHostTests: XCTestCase {
                     node.imageAntialiased = imageAntialiased
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.matchedGeometryEffect = matchedGeometryEffect
+                    node.presentationChrome = presentationChrome
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -185,6 +203,19 @@ final class ComponentHostTests: XCTestCase {
                     isSource: true
                 )
             )
+            XCTAssertEqual(
+                firstNode?.presentationChrome,
+                RetainedPresentationChrome(
+                    hasBackgroundOverride: true,
+                    backgroundGradient: LinearGradient(
+                        startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                        endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                        axis: .vertical
+                    ),
+                    hasCornerRadiusOverride: true,
+                    cornerRadius: 8
+                )
+            )
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -227,6 +258,15 @@ final class ComponentHostTests: XCTestCase {
                     properties: 3,
                     anchor: Point(x: 1, y: 1),
                     isSource: false
+                )
+            )
+            XCTAssertEqual(
+                reusedNode?.presentationChrome,
+                RetainedPresentationChrome(
+                    hasBackgroundOverride: true,
+                    backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                    hasCornerRadiusOverride: true,
+                    cornerRadius: 18
                 )
             )
             XCTAssertEqual(reusedNode?.isFocusable, true)

@@ -6453,6 +6453,39 @@ private final class OnChangeObservationRegistry {
     }
 }
 
+private func mergedPresentationChrome(
+    _ base: RetainedPresentationChrome,
+    applying override: RetainedPresentationChrome
+) -> RetainedPresentationChrome {
+    var result = base
+    if override.hasBackgroundOverride {
+        result.hasBackgroundOverride = true
+        result.backgroundColor = override.backgroundColor
+        result.backgroundGradient = override.backgroundGradient
+    }
+    if override.hasCornerRadiusOverride {
+        result.hasCornerRadiusOverride = true
+        result.cornerRadius = override.cornerRadius
+    }
+    return result
+}
+
+@MainActor
+private func retainedPresentationChrome(in node: ViewNode) -> RetainedPresentationChrome {
+    var chrome = RetainedPresentationChrome.empty
+    for child in node.children {
+        chrome = mergedPresentationChrome(chrome, applying: retainedPresentationChrome(in: child))
+    }
+    return mergedPresentationChrome(chrome, applying: node.presentationChrome)
+}
+
+private func normalizedPresentationCornerRadius(_ value: Double?, defaultValue: Double) -> Double {
+    guard let value, value.isFinite else {
+        return defaultValue
+    }
+    return max(0, value)
+}
+
 @MainActor
 private func retainedSheetPresentation(
     base: Component,
@@ -6466,11 +6499,22 @@ private func retainedSheetPresentation(
             isHitTestVisible: false
         )
         let sheetContentNode = sheet.makeNode(runtime: runtime)
+        let presentationChrome = retainedPresentationChrome(in: sheetContentNode)
+        let sheetBackgroundColor = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundColor
+            : Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
+        let sheetBackgroundGradient = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundGradient
+            : nil
+        let sheetCornerRadius = presentationChrome.hasCornerRadiusOverride
+            ? normalizedPresentationCornerRadius(presentationChrome.cornerRadius, defaultValue: 14)
+            : 14
         let sheetNode = Controls.stackPanel(
-            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+            backgroundColor: sheetBackgroundColor,
+            backgroundGradient: sheetBackgroundGradient,
             borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
             borderWidth: 1,
-            cornerRadius: 14,
+            cornerRadius: sheetCornerRadius,
             clipsToBounds: true,
             stackLayout: .vertical(
                 spacing: 10,
@@ -6520,8 +6564,20 @@ private func retainedFullScreenCoverPresentation(
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
         let coverContentNode = cover.makeNode(runtime: runtime)
+        let presentationChrome = retainedPresentationChrome(in: coverContentNode)
+        let coverBackgroundColor = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundColor
+            : Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1.0)
+        let coverBackgroundGradient = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundGradient
+            : nil
         let coverNode = Controls.stackPanel(
-            backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1.0),
+            backgroundColor: coverBackgroundColor,
+            backgroundGradient: coverBackgroundGradient,
+            cornerRadius: presentationChrome.hasCornerRadiusOverride
+                ? normalizedPresentationCornerRadius(presentationChrome.cornerRadius, defaultValue: 0)
+                : 0,
+            clipsToBounds: presentationChrome.hasCornerRadiusOverride,
             stackLayout: .vertical(
                 spacing: 0,
                 padding: EdgeInsets(top: 24, leading: 24, bottom: 24, trailing: 24),
@@ -6562,14 +6618,25 @@ private func retainedPopoverPresentation(
     Component { runtime in
         let baseNode = base.makeNode(runtime: runtime)
         let popoverContentNode = popover.makeNode(runtime: runtime)
+        let presentationChrome = retainedPresentationChrome(in: popoverContentNode)
+        let popoverBackgroundColor = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundColor
+            : Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98)
+        let popoverBackgroundGradient = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundGradient
+            : nil
+        let popoverCornerRadius = presentationChrome.hasCornerRadiusOverride
+            ? normalizedPresentationCornerRadius(presentationChrome.cornerRadius, defaultValue: 12)
+            : 12
         let popoverNode = Controls.stackPanel(
-            backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
+            backgroundColor: popoverBackgroundColor,
+            backgroundGradient: popoverBackgroundGradient,
             borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.16),
             borderWidth: 1,
             shadowColor: Color(red: 0.0, green: 0.0, blue: 0.0, alpha: 0.28),
             shadowOffset: Point(x: 0, y: 10),
             shadowSpread: 16,
-            cornerRadius: 12,
+            cornerRadius: popoverCornerRadius,
             clipsToBounds: true,
             stackLayout: .vertical(
                 spacing: 8,
@@ -7677,31 +7744,20 @@ public extension View {
     }
 
     func presentationBackground(_ color: Color) -> some View {
-        _ = color
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        presentationBackgroundStyle(color: color, gradient: nil)
     }
 
     func presentationBackground(_ color: Color?) -> some View {
-        _ = color
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        presentationBackgroundStyle(color: color, gradient: nil)
     }
 
     func presentationBackground(_ style: ForegroundStyle) -> some View {
-        _ = style
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        let fill = resolvedStyleFill(from: style)
+        return presentationBackgroundStyle(color: fill.color, gradient: fill.gradient)
     }
 
     func presentationBackground(_ gradient: LinearGradient) -> some View {
-        _ = gradient
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        presentationBackgroundStyle(color: nil, gradient: gradient)
     }
 
     func presentationBackground(
@@ -7716,9 +7772,27 @@ public extension View {
     }
 
     func presentationCornerRadius(_ cornerRadius: Double?) -> some View {
-        _ = cornerRadius
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasCornerRadiusOverride = true
+                node.presentationChrome.cornerRadius = cornerRadius
+                return node
+            }
+        }
+    }
+
+    private func presentationBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasBackgroundOverride = true
+                node.presentationChrome.backgroundColor = color
+                node.presentationChrome.backgroundGradient = gradient
+                return node
+            }
         }
     }
 

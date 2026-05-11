@@ -3005,7 +3005,8 @@ public struct Image: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         switch storage {
         case .systemName(let systemName):
-            let symbol = resolvedSymbolIcon(for: systemName)
+            let symbolVariants = context.symbolVariants
+            let symbol = resolvedSymbolIcon(for: systemName, variants: symbolVariants)
             let resolvedColor = (color ?? context.foregroundColor)
                 .resolvedForVisualEnvironment(
                     contrast: context.colorSchemeContrast,
@@ -3023,8 +3024,17 @@ public struct Image: View {
                     scale: resolvedScale,
                     alignment: alignment.textAlignment(layoutDirection: context.layoutDirection)
                 )
+                if symbolVariants.contains(.fill) {
+                    node.textStyle.weight = .bold
+                }
                 applyImageMetadata(to: node, context: context)
-                return node
+                return retainedSymbolVariantNode(
+                    iconNode: node,
+                    iconSize: preferredSize ?? baseSize,
+                    variants: symbolVariants,
+                    tint: resolvedColor,
+                    context: context
+                )
             }
         case .bitmap(let bitmap):
             let preferredSize = resolvedPreferredSize(baseSize: bitmap?.logicalSize, requiresExplicitOptIn: false)
@@ -3217,6 +3227,78 @@ public struct Image: View {
 
     private func templateByte(_ value: Float) -> UInt8 {
         UInt8((max(0, min(1, value)) * 255).rounded())
+    }
+
+    private func retainedSymbolVariantNode(
+        iconNode: ViewNode,
+        iconSize: Size,
+        variants: SymbolVariants,
+        tint: Color,
+        context: ViewBuildContext
+    ) -> ViewNode {
+        guard variants.contains(.circle)
+            || variants.contains(.square)
+            || variants.contains(.rectangle)
+            || variants.contains(.slash) else {
+            return iconNode
+        }
+
+        let hasShape = variants.contains(.circle) || variants.contains(.square) || variants.contains(.rectangle)
+        let isRectangle = variants.contains(.rectangle)
+        let widthMultiplier = isRectangle ? 1.65 : 1.35
+        let boxSize = Size(
+            width: max(iconSize.width, iconSize.width * widthMultiplier),
+            height: max(iconSize.height, iconSize.height * 1.35)
+        )
+        let shapeCornerRadius: Double
+        if variants.contains(.circle) {
+            shapeCornerRadius = min(boxSize.width, boxSize.height) * 0.5
+        } else if variants.contains(.square) {
+            shapeCornerRadius = max(2, min(boxSize.width, boxSize.height) * 0.16)
+        } else {
+            shapeCornerRadius = max(2, min(boxSize.width, boxSize.height) * 0.12)
+        }
+
+        iconNode.frame = Rect(
+            x: (boxSize.width - iconSize.width) * 0.5,
+            y: (boxSize.height - iconSize.height) * 0.5,
+            width: iconSize.width,
+            height: iconSize.height
+        )
+        iconNode.preferredSize = iconSize
+
+        var children = [iconNode]
+        if variants.contains(.slash) {
+            let slashThickness = max(2, min(boxSize.width, boxSize.height) * 0.10)
+            let slashNode = Controls.panel(
+                frame: Rect(
+                    x: boxSize.width * 0.18,
+                    y: (boxSize.height - slashThickness) * 0.5,
+                    width: boxSize.width * 0.64,
+                    height: slashThickness
+                ),
+                backgroundColor: tint,
+                cornerRadius: slashThickness * 0.5,
+                isHitTestVisible: false
+            )
+            slashNode.transform = Transform2D(rotation: -0.78)
+            slashNode.nodeTag = "symbol-variant-slash"
+            children.append(slashNode)
+        }
+
+        let variantNode = Controls.panel(
+            preferredSize: boxSize,
+            backgroundColor: hasShape && variants.contains(.fill) ? tint.opacity(0.18) : nil,
+            borderColor: hasShape ? tint.opacity(variants.contains(.fill) ? 0.34 : 0.68) : .clear,
+            borderWidth: hasShape ? 1 : 0,
+            cornerRadius: hasShape ? shapeCornerRadius : 0,
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: children
+        )
+        variantNode.nodeTag = "symbol-variant"
+        applyImageMetadata(to: variantNode, context: context)
+        return variantNode
     }
 
     private func applyImageMetadata(to node: ViewNode, context: ViewBuildContext) {
@@ -9743,13 +9825,17 @@ private func buildSplitComponent(
     }
 }
 
-private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
-    switch systemName {
+private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants = .none) -> SymbolIcon {
+    let resolvedName = variants.contains(.fill) && !systemName.hasSuffix(".fill")
+        ? "\(systemName).fill"
+        : systemName
+
+    switch resolvedName {
     case "magnifyingglass":
         return .search
     case "folder":
         return .folder
-    case "gearshape", "gearshape.fill":
+    case "gear", "gear.fill", "gearshape", "gearshape.fill":
         return .settings
     case "bolt", "bolt.fill":
         return .lightning
@@ -9759,11 +9845,11 @@ private func resolvedSymbolIcon(for systemName: String) -> SymbolIcon {
         return .keyboard
     case "sparkles":
         return .sparkle
-    case "info.circle", "info.circle.fill":
+    case "info", "info.fill", "info.circle", "info.circle.fill":
         return .info
-    case "waveform.path.ecg", "chart.line.uptrend.xyaxis":
+    case "waveform.path.ecg", "waveform.path.ecg.fill", "chart.line.uptrend.xyaxis", "chart.line.uptrend.xyaxis.fill":
         return .activity
-    case "doc.text", "doc.text.fill":
+    case "doc", "doc.fill", "doc.text", "doc.text.fill":
         return .document
     case "rectangle.split.3x1", "rectangle.split.3x1.fill":
         return .split

@@ -2782,6 +2782,18 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(inheritedNode.children[0].symbolVariants, .circle)
             XCTAssertEqual(inheritedNode.children[1].children[0].symbolVariants, .circle)
             XCTAssertEqual(resetNode.children[0].symbolVariants, .none)
+            XCTAssertEqual(defaultNode.text, "\u{E713}")
+            XCTAssertEqual(fillNode.textStyle.weight, .bold)
+            XCTAssertEqual(combinedNode.nodeTag, "symbol-variant")
+            XCTAssertEqual(combinedNode.children[0].text, "\u{E713}")
+            XCTAssertEqual(combinedNode.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(combinedNode.children[1].nodeTag, "symbol-variant-slash")
+            XCTAssertEqual(inheritedNode.children[0].nodeTag, "symbol-variant")
+            XCTAssertGreaterThan(inheritedNode.children[0].borderWidth, 0)
+            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 0.5 * min(
+                inheritedNode.children[0].preferredSize?.width ?? 0,
+                inheritedNode.children[0].preferredSize?.height ?? 0
+            ))
             XCTAssertEqual(readerNode.text, "FILL_SLASH")
             XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
         }

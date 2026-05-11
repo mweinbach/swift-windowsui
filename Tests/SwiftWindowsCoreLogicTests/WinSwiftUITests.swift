@@ -2229,6 +2229,11 @@ final class WinSwiftUITests: XCTestCase {
 
             let labeledNode = makeNode(Image(url.path, label: Text("PHOTO")))
             let decorativeNode = makeNode(Image(decorative: url.path))
+            let variableBitmapNode = makeNode(Image(url.path, variableValue: 0.25))
+            let labeledVariableBitmapNode = makeNode(
+                Image(url.path, variableValue: 0.5, label: Text("VARIABLE PHOTO"))
+            )
+            let decorativeVariableBitmapNode = makeNode(Image(decorative: url.path, variableValue: 0.75))
             let variableSymbolNode = makeNode(
                 Image(systemName: "gearshape", variableValue: 0.42)
                     .foregroundColor(.red)
@@ -2242,6 +2247,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(labeledNode.bitmapSurface?.height, 1)
             XCTAssertEqual(decorativeNode.bitmapSurface?.width, 2)
             XCTAssertEqual(decorativeNode.bitmapSurface?.height, 1)
+            XCTAssertEqual(variableBitmapNode.symbolVariableValue, 0.25)
+            XCTAssertEqual(labeledVariableBitmapNode.symbolVariableValue, 0.5)
+            XCTAssertEqual(labeledVariableBitmapNode.accessibilityLabel, "VARIABLE PHOTO")
+            XCTAssertEqual(decorativeVariableBitmapNode.symbolVariableValue, 0.75)
+            XCTAssertTrue(decorativeVariableBitmapNode.isAccessibilityHidden)
             XCTAssertEqual(variableSymbolNode.text, "\u{E713}")
             XCTAssertEqual(variableSymbolNode.textStyle.color, .red)
             XCTAssertEqual(variableSymbolNode.symbolVariableValue, 0.42)

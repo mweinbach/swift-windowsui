@@ -2049,13 +2049,28 @@ public struct Image: View {
         self.init(storage: .bitmap(Self.loadResource(named: name, bundle: bundle)))
     }
 
+    public init(_ name: String, variableValue: Double?, bundle: Bundle? = nil) {
+        self.init(name, bundle: bundle)
+        self.symbolVariableValue = variableValue
+    }
+
     public init(_ name: String, bundle: Bundle? = nil, label: Text) {
         self.init(name, bundle: bundle)
         self.accessibilityLabel = label.plainContent
     }
 
+    public init(_ name: String, variableValue: Double?, bundle: Bundle? = nil, label: Text) {
+        self.init(name, variableValue: variableValue, bundle: bundle)
+        self.accessibilityLabel = label.plainContent
+    }
+
     public init(decorative name: String, bundle: Bundle? = nil) {
         self.init(name, bundle: bundle)
+        self.isAccessibilityHidden = true
+    }
+
+    public init(decorative name: String, variableValue: Double?, bundle: Bundle? = nil) {
+        self.init(name, variableValue: variableValue, bundle: bundle)
         self.isAccessibilityHidden = true
     }
 

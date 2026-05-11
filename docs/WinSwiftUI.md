@@ -225,6 +225,10 @@ Modifiers:
 - `gridCellColumns`
 - `allowsHitTesting`
 - `focusable`
+- `hoverEffect`
+- `defaultHoverEffect`
+- `hoverEffectDisabled`
+- `focusEffectDisabled`
 - `keyboardShortcut`
 - `opacity`
 - `hidden`
@@ -283,6 +287,7 @@ Compatibility helpers:
 - `UnitPoint`
 - `Angle`
 - `Axis`
+- `HoverEffect`
 - `KeyEquivalent`
 - `EventModifiers`
 - `KeyboardShortcut`
@@ -335,6 +340,7 @@ Surface direction:
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.
 - `contentShape` and `ContentShapeKinds` are accepted for source compatibility. Retained hit testing remains rectangular today, so the shape and kind values do not alter pointer, focus, preview, or accessibility geometry yet.
 - `focusable(_:)` maps to the retained node focus flag and enables hit testing when focusability is turned on. Focus effects and programmatic `FocusState` bindings are not modeled yet.
+- `hoverEffect(_:)`, `defaultHoverEffect(_:)`, `hoverEffectDisabled(_:)`, and `focusEffectDisabled(_:)` store retained interaction-effect metadata for source-compatible call sites. `hoverEffect(_:)` also opts the node into hit testing so the runtime can identify hoverable content, but lift/highlight rendering and platform focus-effect visuals are not drawn yet.
 - `keyboardShortcut(_:)` stores retained shortcut metadata on the modified node and routes matching `RetainedViewRuntime.keyDown` events to that node's activation handler. SwiftUI `.command` shortcuts map to Windows Control-key shortcuts, `.option` maps to Alt, and `.defaultAction` / `.cancelAction` use Enter / Escape without modifiers. Menu command routing and platform-reserved shortcut arbitration are not modeled yet.
 - `Image(systemName:)` maps known SF Symbol names into the project icon set.
 - `Image(_:bundle:label:)`, `Image(decorative:bundle:)`, and `Image(systemName:variableValue:)` are accepted for source compatibility and reuse the same retained bitmap/icon rendering paths. Image labels and decorative flags map to retained accessibility metadata; variable symbol values are retained as API-shape compatibility only until variable SF Symbol rendering exists.

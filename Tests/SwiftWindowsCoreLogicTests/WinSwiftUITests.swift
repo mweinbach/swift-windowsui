@@ -4764,6 +4764,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testHoverEffectModifiersMapToRetainedEffectMetadata() async {
+        await MainActor.run {
+            let liftNode = makeNode(
+                Text("HOVER")
+                    .allowsHitTesting(false)
+                    .hoverEffect(.lift)
+            )
+            let defaultNode = makeNode(
+                Text("DEFAULT")
+                    .hoverEffect()
+                    .defaultHoverEffect(.highlight)
+            )
+            let disabledNode = makeNode(
+                Text("DISABLED")
+                    .hoverEffect(.highlight)
+                    .hoverEffectDisabled()
+            )
+
+            XCTAssertEqual(liftNode.hoverEffect, .lift)
+            XCTAssertTrue(liftNode.isHitTestVisible)
+            XCTAssertFalse(liftNode.isHoverEffectDisabled)
+            XCTAssertEqual(defaultNode.hoverEffect, .highlight)
+            XCTAssertNil(disabledNode.hoverEffect)
+            XCTAssertTrue(disabledNode.isHoverEffectDisabled)
+        }
+    }
+
+    func testFocusEffectDisabledModifierMapsToRetainedMetadata() async {
+        await MainActor.run {
+            let disabledNode = makeNode(Text("FOCUS").focusEffectDisabled())
+            let enabledNode = makeNode(Text("FOCUS").focusEffectDisabled(false))
+
+            XCTAssertTrue(disabledNode.isFocusEffectDisabled)
+            XCTAssertFalse(enabledNode.isFocusEffectDisabled)
+        }
+    }
+
     func testKeyboardShortcutModifierMapsAndActivatesRetainedNode() async {
         await MainActor.run {
             var activations = 0

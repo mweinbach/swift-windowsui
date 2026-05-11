@@ -347,6 +347,35 @@ public enum Visibility: Sendable, Equatable {
     }
 }
 
+public struct HoverEffect: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case highlight
+        case lift
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = HoverEffect(kind: .automatic)
+    public static let highlight = HoverEffect(kind: .highlight)
+    public static let lift = HoverEffect(kind: .lift)
+
+    var retainedEffect: RetainedHoverEffect {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .highlight:
+            return .highlight
+        case .lift:
+            return .lift
+        }
+    }
+}
+
 public enum Prominence: Sendable, Equatable, Hashable {
     case standard
     case increased
@@ -421,6 +450,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     public var isScrollEnabled: Bool
+    public var defaultHoverEffect: HoverEffect?
+    public var isHoverEffectEnabled: Bool
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var listRowSpacing: Double?
@@ -455,6 +486,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
+        defaultHoverEffect: HoverEffect? = nil,
+        isHoverEffectEnabled: Bool = true,
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
         headerProminence: Prominence = .standard,
@@ -483,6 +516,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isScrollEnabled = isScrollEnabled
+        self.defaultHoverEffect = defaultHoverEffect
+        self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.listRowSpacing = nil
@@ -4142,6 +4177,64 @@ public extension View {
                 if isFocusable {
                     childNode.isHitTestVisible = true
                 }
+                return childNode
+            }
+        }
+    }
+
+    func hoverEffect(_ effect: HoverEffect = .automatic, isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                if isEnabled, context.environmentValues.isHoverEffectEnabled {
+                    let resolvedEffect = effect == .automatic
+                        ? context.environmentValues.defaultHoverEffect ?? effect
+                        : effect
+                    childNode.hoverEffect = resolvedEffect.retainedEffect
+                    childNode.isHoverEffectDisabled = false
+                    childNode.isHitTestVisible = true
+                } else {
+                    childNode.hoverEffect = nil
+                    childNode.isHoverEffectDisabled = true
+                }
+                return childNode
+            }
+        }
+    }
+
+    func defaultHoverEffect(_ effect: HoverEffect?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(\.defaultHoverEffect, effect)
+            )
+        }
+    }
+
+    func hoverEffectDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let resolvedContext = context.withEnvironmentValue(
+                \.isHoverEffectEnabled,
+                context.environmentValues.isHoverEffectEnabled && !disabled
+            )
+            let child = content.makeComponent(context: resolvedContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHoverEffectDisabled = disabled
+                if disabled {
+                    childNode.hoverEffect = nil
+                }
+                return childNode
+            }
+        }
+    }
+
+    func focusEffectDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusEffectDisabled = disabled
                 return childNode
             }
         }

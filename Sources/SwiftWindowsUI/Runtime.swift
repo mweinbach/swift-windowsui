@@ -47,6 +47,12 @@ public struct KeyboardShortcutBinding: Sendable, Equatable {
     }
 }
 
+public enum RetainedHoverEffect: Sendable, Equatable {
+    case automatic
+    case highlight
+    case lift
+}
+
 struct ViewLayoutCacheKey: Equatable, Sendable {
     var frame: Rect
     var displayScale: Double
@@ -442,6 +448,18 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var hoverEffect: RetainedHoverEffect? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isHoverEffectDisabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isFocusEffectDisabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -546,6 +564,9 @@ public final class ViewNode {
         accessibilityIdentifier: String? = nil,
         isAccessibilityHidden: Bool = false,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
+        hoverEffect: RetainedHoverEffect? = nil,
+        isHoverEffectDisabled: Bool = false,
+        isFocusEffectDisabled: Bool = false,
         paintsInDeferredPhase: Bool = false,
         children: [ViewNode] = []
     ) {
@@ -593,6 +614,9 @@ public final class ViewNode {
         self.accessibilityIdentifier = accessibilityIdentifier
         self.isAccessibilityHidden = isAccessibilityHidden
         self.keyboardShortcuts = keyboardShortcuts
+        self.hoverEffect = hoverEffect
+        self.isHoverEffectDisabled = isHoverEffectDisabled
+        self.isFocusEffectDisabled = isFocusEffectDisabled
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.onPointerEnter = nil
         self.onPointerExit = nil

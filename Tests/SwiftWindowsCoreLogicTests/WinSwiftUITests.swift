@@ -7123,6 +7123,81 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFocusedObjectValuesPropagateThroughViewContext() async {
+        await MainActor.run {
+            final class FocusModel: ObservableObject {
+                @Published var label: String
+
+                init(label: String) {
+                    self.label = label
+                }
+            }
+
+            struct FocusedObjectReaderView: View {
+                @FocusedObject var model: FocusModel?
+
+                var body: some View {
+                    Text(model?.label ?? "NONE")
+                }
+            }
+
+            let defaultNode = makeNode(FocusedObjectReaderView())
+            let outerModel = FocusModel(label: "OUTER")
+            let innerModel = FocusModel(label: "INNER")
+            let sceneModel = FocusModel(label: "SCENE")
+            let focusedNode = makeNode(
+                VStack {
+                    FocusedObjectReaderView()
+                    FocusedObjectReaderView()
+                        .focusedObject(innerModel)
+                    FocusedObjectReaderView()
+                        .focusedSceneObject(sceneModel)
+                }
+                .focusedObject(outerModel)
+            )
+
+            XCTAssertEqual(defaultNode.text, "NONE")
+            XCTAssertEqual(focusedNode.children[0].text, "OUTER")
+            XCTAssertEqual(focusedNode.children[1].text, "INNER")
+            XCTAssertEqual(focusedNode.children[2].text, "SCENE")
+        }
+    }
+
+    func testFocusedObjectMutationTriggersInvalidation() async {
+        await MainActor.run {
+            final class FocusModel: ObservableObject {
+                @Published var label = "MODEL"
+            }
+
+            struct FocusedObjectReaderView: View {
+                @FocusedObject var model: FocusModel?
+
+                var body: some View {
+                    Text(model?.label ?? "NONE")
+                }
+            }
+
+            let model = FocusModel()
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = FocusedObjectReaderView()
+                .focusedObject(model)
+                .makeComponent(context: context)
+            model.label = "UPDATED"
+
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testTintAndControlSizeBridgeThroughEnvironmentValues() async {
         await MainActor.run {
             struct InheritedControlEnvironmentReaderView: View {

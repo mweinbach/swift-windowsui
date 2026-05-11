@@ -546,6 +546,10 @@ public protocol FocusedValueKey {
     associatedtype Value
 }
 
+private struct FocusedObjectKey<ObjectType: ObservableObject>: FocusedValueKey {
+    typealias Value = ObjectType
+}
+
 public struct FocusedValues: @unchecked Sendable {
     private var values: [ObjectIdentifier: Any]
 
@@ -564,6 +568,19 @@ public struct FocusedValues: @unchecked Sendable {
                 values.removeValue(forKey: ObjectIdentifier(key))
             }
         }
+    }
+
+    public func focusedObject<ObjectType: ObservableObject>(
+        _ type: ObjectType.Type = ObjectType.self
+    ) -> ObjectType? {
+        self[FocusedObjectKey<ObjectType>.self]
+    }
+
+    public mutating func setFocusedObject<ObjectType: ObservableObject>(
+        _ object: ObjectType?,
+        for type: ObjectType.Type = ObjectType.self
+    ) {
+        self[FocusedObjectKey<ObjectType>.self] = object
     }
 }
 
@@ -1238,6 +1255,20 @@ public struct FocusedBinding<Value> {
 
     public var projectedValue: Binding<Value>? {
         binding
+    }
+}
+
+@MainActor
+@propertyWrapper
+public struct FocusedObject<ObjectType: ObservableObject> {
+    public init() {}
+
+    public var wrappedValue: ObjectType? {
+        let object = ViewBuildContextScope.current?.environmentValues.focusedValues.focusedObject(ObjectType.self)
+        if let object {
+            ViewBuildContextScope.current?.observe(object)
+        }
+        return object
     }
 }
 
@@ -5053,6 +5084,18 @@ public extension View {
 
     func focusedSceneValue<Value>(_ keyPath: WritableKeyPath<FocusedValues, Value?>, _ value: Value?) -> some View {
         focusedValue(keyPath, value)
+    }
+
+    func focusedObject<ObjectType: ObservableObject>(_ object: ObjectType?) -> some View {
+        ModifiedView(content: self) { content, context in
+            var focusedValues = context.environmentValues.focusedValues
+            focusedValues.setFocusedObject(object, for: ObjectType.self)
+            return content.makeComponent(context: context.withEnvironmentValue(\.focusedValues, focusedValues))
+        }
+    }
+
+    func focusedSceneObject<ObjectType: ObservableObject>(_ object: ObjectType?) -> some View {
+        focusedObject(object)
     }
 
     func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View {

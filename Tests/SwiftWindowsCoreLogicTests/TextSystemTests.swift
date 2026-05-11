@@ -118,6 +118,113 @@ final class TextSystemTests: XCTestCase {
         XCTAssertFalse(result.2, "Native bitmap text commands should not appear when the native path is forced to fail")
     }
 
+    func testNativeAppendExternalizesTextDecorationCommands() async {
+        let result = await MainActor.run { () -> (PixelTextStyle?, [FillRectCommand]) in
+            defer { NativeTextRenderer.resetTestingOverrides() }
+            var capturedStyle: PixelTextStyle?
+            NativeTextRenderer.testingOverrides.appendCommands = { _, rect, style, _, _, commands in
+                capturedStyle = style
+                commands.append(
+                    .drawBitmap(
+                        DrawBitmapCommand(
+                            rect: rect,
+                            bitmap: BitmapSurface(
+                                width: 1,
+                                height: 1,
+                                bytesPerRow: 4,
+                                pixels: Data([255, 255, 255, 255])
+                            )
+                        )
+                    )
+                )
+                return true
+            }
+            NativeTextRenderer.testingOverrides.layout = { text, style, _, _ in
+                NativeTextLayoutResult(
+                    lines: [
+                        NativeTextLineLayout(
+                            text: text,
+                            width: 36,
+                            height: style.nativeFontPixelSize,
+                            glyphs: []
+                        )
+                    ],
+                    contentSize: Size(width: 36, height: style.nativeFontPixelSize),
+                    measuredSize: Size(width: 36, height: style.nativeFontPixelSize)
+                )
+            }
+
+            let underlineColor = Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7)
+            let strikethroughColor = Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
+            var commands: [RenderCommand] = []
+            _ = NativeTextRenderer.appendCommands(
+                for: "Decorated",
+                in: Rect(x: 0, y: 0, width: 120, height: 36),
+                style: PixelTextStyle(
+                    color: .white,
+                    alignment: .leading,
+                    verticalAlignment: .top,
+                    nativeFontSize: 18,
+                    underline: true,
+                    underlineColor: underlineColor,
+                    strikethrough: true,
+                    strikethroughColor: strikethroughColor
+                ),
+                scaleFactor: 1,
+                clipRect: nil,
+                into: &commands
+            )
+
+            let fills = commands.compactMap { command -> FillRectCommand? in
+                if case .fillRect(let fillRect) = command {
+                    return fillRect
+                }
+                return nil
+            }
+            return (capturedStyle, fills)
+        }
+
+        XCTAssertFalse(result.0?.underline ?? true)
+        XCTAssertFalse(result.0?.strikethrough ?? true)
+        XCTAssertEqual(result.1.map(\.color), [
+            Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7),
+            Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
+        ])
+    }
+
+    func testPixelFrameFallbackEmitsTextDecorationCommands() async {
+        let result = await MainActor.run { () -> [Color] in
+            defer { NativeTextRenderer.resetTestingOverrides() }
+            NativeTextRenderer.testingOverrides.appendCommands = { _, _, _, _, _, _ in false }
+
+            let runtime = RetainedViewRuntime(
+                root: ViewNode(
+                    frame: Rect(x: 0, y: 0, width: 160, height: 40),
+                    text: "Fallback",
+                    textStyle: PixelTextStyle(
+                        color: .white,
+                        alignment: .leading,
+                        verticalAlignment: .top,
+                        underline: true,
+                        underlineColor: Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7),
+                        strikethrough: true,
+                        strikethroughColor: Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
+                    )
+                )
+            )
+
+            return runtime.renderFrame().commands.compactMap { command in
+                if case .fillRect(let fillRect) = command {
+                    return fillRect.color
+                }
+                return nil
+            }
+        }
+
+        XCTAssertTrue(result.contains(Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7)))
+        XCTAssertTrue(result.contains(Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)))
+    }
+
     func testDirectWriteLayoutProducesGlyphPlacementsWhenAvailable() async throws {
         let capabilities = await MainActor.run {
             TextSystem.capabilities()

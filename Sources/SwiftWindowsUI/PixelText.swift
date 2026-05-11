@@ -108,6 +108,24 @@ public struct PixelTextStyle: Sendable, Equatable {
 }
 
 extension PixelTextStyle {
+    var hasTextDecorations: Bool {
+        underline || strikethrough
+    }
+
+    var withoutTextDecorations: PixelTextStyle {
+        var copy = self
+        copy.underline = false
+        copy.underlineColor = nil
+        copy.strikethrough = false
+        copy.strikethroughColor = nil
+        copy.spans = copy.spans?.map { span in
+            var span = span
+            span.style = span.style.withoutTextDecorations
+            return span
+        }
+        return copy
+    }
+
     func multipliedOpacity(by opacity: Float) -> PixelTextStyle {
         guard opacity != 1 else {
             return self
@@ -260,6 +278,16 @@ enum PixelFont {
 
             y += Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale
         }
+
+        TextDecorationCommandBuilder.appendCommands(
+            for: text,
+            in: rect,
+            style: effectiveStyle,
+            scaleFactor: 1,
+            clipRect: clipRect,
+            nativeLayout: nil,
+            into: &commands
+        )
     }
 
     static func appendGlyphPrimitives(
@@ -477,6 +505,212 @@ enum PixelFont {
 
     static func glyphRows(for character: Character) -> [String] {
         PixelFontAtlas.pattern(for: character)
+    }
+}
+
+enum TextDecorationCommandBuilder {
+    static func appendCommands(
+        for text: String,
+        in rect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        nativeLayout: NativeTextLayoutResult?,
+        into commands: inout [RenderCommand]
+    ) {
+        guard !text.isEmpty, style.hasTextDecorations else {
+            return
+        }
+
+        if let nativeLayout {
+            appendNativeDecorationCommands(
+                in: rect,
+                style: style,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                layout: nativeLayout,
+                into: &commands
+            )
+            return
+        }
+
+        appendPixelDecorationCommands(
+            for: text,
+            in: rect,
+            style: style,
+            scaleFactor: scaleFactor,
+            clipRect: clipRect,
+            into: &commands
+        )
+    }
+
+    private static func appendNativeDecorationCommands(
+        in rect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        layout: NativeTextLayoutResult,
+        into commands: inout [RenderCommand]
+    ) {
+        let contentRect = rect.inset(by: style.insets)
+        let baseY: Double
+        switch style.verticalAlignment {
+        case .top:
+            baseY = contentRect.origin.y
+        case .center:
+            baseY = contentRect.origin.y + max(0, (contentRect.size.height - layout.contentSize.height) * 0.5)
+        case .bottom:
+            baseY = contentRect.maxY - layout.contentSize.height
+        }
+
+        var lineOriginY = baseY
+        for line in layout.lines {
+            let startX: Double
+            switch style.alignment {
+            case .leading:
+                startX = contentRect.origin.x
+            case .center:
+                startX = contentRect.origin.x + max(0, (contentRect.size.width - line.width) * 0.5)
+            case .trailing:
+                startX = contentRect.maxX - line.width
+            }
+
+            appendLineDecorationCommands(
+                lineRect: Rect(x: startX, y: lineOriginY, width: line.width, height: line.height),
+                style: style,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                into: &commands
+            )
+            lineOriginY += line.height + layout.lineSpacing
+        }
+    }
+
+    private static func appendPixelDecorationCommands(
+        for text: String,
+        in rect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) {
+        let contentRect = rect.inset(by: style.insets)
+        guard contentRect.size.width > 0, contentRect.size.height > 0 else {
+            return
+        }
+
+        let maxContentWidth = max(0, contentRect.size.width)
+        let effectiveStyle = style.resolvingMinimumScaleFactor(
+            for: text,
+            maxContentWidth: maxContentWidth,
+            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01) }
+        )
+        let scale = max(effectiveStyle.scale, 0.01)
+        let layout = resolveTextLayout(
+            for: text,
+            style: effectiveStyle,
+            maxContentWidth: maxContentWidth,
+            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale }
+        )
+        let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
+        let verticalLineCount = max(max(layout.lines.count, 1), reservedLineCount ?? 0)
+        let totalTextHeight = pixelTextContentHeight(
+            lineCount: verticalLineCount,
+            style: effectiveStyle,
+            scale: scale
+        )
+
+        var y = contentRect.origin.y + max(0, (contentRect.size.height - totalTextHeight) * 0.5)
+        for line in layout.lines {
+            let lineWidth = PixelFont.rawLineWidth(line, letterSpacing: effectiveStyle.letterSpacing) * scale
+            let x: Double
+            switch effectiveStyle.alignment {
+            case .leading:
+                x = contentRect.origin.x
+            case .center:
+                x = contentRect.origin.x + max(0, (contentRect.size.width - lineWidth) * 0.5)
+            case .trailing:
+                x = contentRect.maxX - lineWidth
+            }
+
+            appendLineDecorationCommands(
+                lineRect: Rect(
+                    x: x,
+                    y: y,
+                    width: lineWidth,
+                    height: Double(PixelFontAtlas.glyphHeight) * scale
+                ),
+                style: effectiveStyle,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                into: &commands
+            )
+            y += Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale
+        }
+    }
+
+    private static func appendLineDecorationCommands(
+        lineRect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) {
+        guard lineRect.size.width > 0, lineRect.size.height > 0 else {
+            return
+        }
+
+        let thickness = max(1 / max(scaleFactor, 1), min(lineRect.size.height, max(1, lineRect.size.height * 0.08)))
+        if style.underline {
+            appendDecorationCommand(
+                lineRect: lineRect,
+                y: min(lineRect.maxY - thickness, lineRect.origin.y + lineRect.size.height * 0.86),
+                thickness: thickness,
+                color: style.underlineColor ?? style.color,
+                clipRect: clipRect,
+                into: &commands
+            )
+        }
+
+        if style.strikethrough {
+            appendDecorationCommand(
+                lineRect: lineRect,
+                y: lineRect.origin.y + max(0, (lineRect.size.height - thickness) * 0.52),
+                thickness: thickness,
+                color: style.strikethroughColor ?? style.color,
+                clipRect: clipRect,
+                into: &commands
+            )
+        }
+    }
+
+    private static func appendDecorationCommand(
+        lineRect: Rect,
+        y: Double,
+        thickness: Double,
+        color: Color,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) {
+        guard color.alpha > 0 else {
+            return
+        }
+
+        let rect = Rect(x: lineRect.origin.x, y: y, width: lineRect.size.width, height: thickness)
+        if let clipRect, clipRect.intersected(with: rect) == nil {
+            return
+        }
+
+        commands.append(
+            .fillRect(
+                FillRectCommand(
+                    rect: rect,
+                    color: color,
+                    cornerRadius: 0,
+                    clipRect: clipRect
+                )
+            )
+        )
     }
 }
 

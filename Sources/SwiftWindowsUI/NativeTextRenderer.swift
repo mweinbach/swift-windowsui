@@ -47,22 +47,71 @@ enum NativeTextRenderer {
         clipRect: Rect?,
         into commands: inout [RenderCommand]
     ) -> Bool {
+        let externalizesDecorations = style.hasTextDecorations
+        let textRenderStyle = externalizesDecorations ? style.withoutTextDecorations : style
+
         if let override = testingOverrides.appendCommands {
-            return override(text, rect, style, scaleFactor, clipRect, &commands)
+            let didAppend = override(text, rect, textRenderStyle, scaleFactor, clipRect, &commands)
+            appendExternalDecorationCommandsIfNeeded(
+                didAppend: didAppend,
+                text: text,
+                rect: rect,
+                style: style,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                into: &commands
+            )
+            return didAppend
         }
-        return DirectWriteTextRenderer.appendCommands(
+        let didAppend = DirectWriteTextRenderer.appendCommands(
             for: text,
             in: rect,
-            style: style,
+            style: textRenderStyle,
             scaleFactor: scaleFactor,
             clipRect: clipRect,
             into: &commands
         ) || GDIRasterTextRenderer.appendCommands(
             for: text,
             in: rect,
+            style: textRenderStyle,
+            scaleFactor: scaleFactor,
+            clipRect: clipRect,
+            into: &commands
+        )
+        appendExternalDecorationCommandsIfNeeded(
+            didAppend: didAppend,
+            text: text,
+            rect: rect,
             style: style,
             scaleFactor: scaleFactor,
             clipRect: clipRect,
+            into: &commands
+        )
+        return didAppend
+    }
+
+    private static func appendExternalDecorationCommandsIfNeeded(
+        didAppend: Bool,
+        text: String,
+        rect: Rect,
+        style: PixelTextStyle,
+        scaleFactor: Double,
+        clipRect: Rect?,
+        into commands: inout [RenderCommand]
+    ) {
+        guard didAppend, style.hasTextDecorations else {
+            return
+        }
+
+        let contentWidth = max(0, rect.inset(by: style.insets).size.width)
+        let nativeLayout = layout(text, style: style, scaleFactor: scaleFactor, maxWidth: contentWidth)
+        TextDecorationCommandBuilder.appendCommands(
+            for: text,
+            in: rect,
+            style: style,
+            scaleFactor: scaleFactor,
+            clipRect: clipRect,
+            nativeLayout: nativeLayout,
             into: &commands
         )
     }

@@ -905,6 +905,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
     public var buttonRepeatBehavior: ButtonRepeatBehavior
+    public var menuIndicatorVisibility: Visibility
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
@@ -916,8 +917,10 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultMinListHeaderHeight: CGFloat?
     public var headerProminence: Prominence
     public var badgeProminence: BadgeProminence
+    public var defaultWheelPickerItemHeight: CGFloat
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
+    public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
@@ -993,6 +996,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
         buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
+        menuIndicatorVisibility: Visibility = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
@@ -1000,8 +1004,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultMinListHeaderHeight: CGFloat? = nil,
         headerProminence: Prominence = .standard,
         badgeProminence: BadgeProminence = .standard,
+        defaultWheelPickerItemHeight: CGFloat = 32,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
+        scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
@@ -1077,6 +1083,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
         self.buttonRepeatBehavior = buttonRepeatBehavior
+        self.menuIndicatorVisibility = menuIndicatorVisibility
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
@@ -1088,8 +1095,10 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
         self.headerProminence = headerProminence
         self.badgeProminence = badgeProminence
+        self.defaultWheelPickerItemHeight = defaultWheelPickerItemHeight
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
+        self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
         self.dismiss = dismiss
@@ -3281,6 +3290,26 @@ public struct ScrollIndicatorVisibility: Sendable, Equatable {
     }
 }
 
+public struct ScrollDismissesKeyboardMode: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case immediately
+        case interactively
+        case never
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ScrollDismissesKeyboardMode(.automatic)
+    public static let immediately = ScrollDismissesKeyboardMode(.immediately)
+    public static let interactively = ScrollDismissesKeyboardMode(.interactively)
+    public static let never = ScrollDismissesKeyboardMode(.never)
+}
+
 public struct ScrollViewStyle: Sendable {
     public var spacing: Double
     public var padding: EdgeInsets
@@ -4501,6 +4530,12 @@ public extension View {
         }
     }
 
+    func menuIndicator(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.menuIndicatorVisibility, visibility))
+        }
+    }
+
     func pickerStyle(_ style: PickerStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withPickerStyle(style))
@@ -5343,6 +5378,18 @@ public extension View {
                 resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollIndicatorVisibility, visibility)
             }
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func scrollDismissesKeyboard(_ mode: ScrollDismissesKeyboardMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.scrollDismissesKeyboardMode, mode))
+        }
+    }
+
+    func defaultWheelPickerItemHeight(_ height: CGFloat) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultWheelPickerItemHeight, height))
         }
     }
 

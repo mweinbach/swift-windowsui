@@ -6512,6 +6512,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAdditionalControlAndScrollEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct ControlScrollEnvironmentReaderView: View {
+                @Environment(\.menuIndicatorVisibility) var menuIndicatorVisibility
+                @Environment(\.defaultWheelPickerItemHeight) var defaultWheelPickerItemHeight
+                @Environment(\.scrollDismissesKeyboardMode) var scrollDismissesKeyboardMode
+
+                var body: some View {
+                    Text(
+                        "\(menuIndicatorVisibility == .hidden ? "HIDDEN" : menuIndicatorVisibility == .visible ? "VISIBLE" : "AUTOMATIC") "
+                            + "\(Int(defaultWheelPickerItemHeight)) "
+                            + "\(scrollDismissesKeyboardMode == .immediately ? "IMMEDIATE" : scrollDismissesKeyboardMode == .never ? "NEVER" : "AUTO")"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ControlScrollEnvironmentReaderView())
+            let modifierNode = makeNode(
+                ControlScrollEnvironmentReaderView()
+                    .menuIndicator(.hidden)
+                    .defaultWheelPickerItemHeight(44)
+                    .scrollDismissesKeyboard(.immediately)
+            )
+            let environmentNode = makeNode(
+                ControlScrollEnvironmentReaderView()
+                    .environment(\.menuIndicatorVisibility, .visible)
+                    .environment(\.defaultWheelPickerItemHeight, 52)
+                    .environment(\.scrollDismissesKeyboardMode, .never)
+            )
+
+            XCTAssertEqual(defaultNode.text, "AUTOMATIC 32 AUTO")
+            XCTAssertEqual(modifierNode.text, "HIDDEN 44 IMMEDIATE")
+            XCTAssertEqual(environmentNode.text, "VISIBLE 52 NEVER")
+        }
+    }
+
     func testDisabledToggleAndSliderDoNotMutateBindings() async {
         await MainActor.run {
             var isEnabled = false

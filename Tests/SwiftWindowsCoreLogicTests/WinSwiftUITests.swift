@@ -5821,21 +5821,39 @@ final class WinSwiftUITests: XCTestCase {
     func testAccessibilityPreferenceEnvironmentValuesCanBeReadAndOverrideAnimation() async {
         await MainActor.run {
             struct AccessibilityPreferenceReaderView: View {
+                @Environment(\.accessibilityAssistiveAccessEnabled) var assistiveAccessEnabled
+                @Environment(\.accessibilityDimFlashingLights) var dimFlashingLights
                 @Environment(\.accessibilityDifferentiateWithoutColor) var differentiateWithoutColor
+                @Environment(\.accessibilityEnabled) var accessibilityEnabled
                 @Environment(\.accessibilityInvertColors) var invertColors
+                @Environment(\.accessibilityLargeContentViewerEnabled) var largeContentViewerEnabled
+                @Environment(\.accessibilityPlayAnimatedImages) var playAnimatedImages
+                @Environment(\.accessibilityPrefersHeadAnchorAlternative) var prefersHeadAnchorAlternative
+                @Environment(\.accessibilityQuickActionsEnabled) var quickActionsEnabled
+                @Environment(\.accessibilityReduceHighlightingEffects) var reduceHighlightingEffects
                 @Environment(\.accessibilityReduceMotion) var reduceMotion
                 @Environment(\.accessibilityReduceTransparency) var reduceTransparency
                 @Environment(\.accessibilityShowButtonShapes) var showButtonShapes
+                @Environment(\.accessibilityShowBorders) var showBorders
                 @Environment(\.accessibilitySwitchControlEnabled) var switchControlEnabled
                 @Environment(\.accessibilityVoiceOverEnabled) var voiceOverEnabled
 
                 var body: some View {
                     Text(
-                        differentiateWithoutColor
+                        assistiveAccessEnabled
+                            && dimFlashingLights
+                            && differentiateWithoutColor
+                            && accessibilityEnabled
                             && invertColors
+                            && largeContentViewerEnabled
+                            && !playAnimatedImages
+                            && prefersHeadAnchorAlternative
+                            && quickActionsEnabled
+                            && reduceHighlightingEffects
                             && reduceMotion
                             && reduceTransparency
                             && showButtonShapes
+                            && showBorders
                             && switchControlEnabled
                             && voiceOverEnabled
                             ? "ACCESS"
@@ -5847,11 +5865,20 @@ final class WinSwiftUITests: XCTestCase {
             let defaultNode = makeNode(AccessibilityPreferenceReaderView())
             let overriddenNode = makeNode(
                 AccessibilityPreferenceReaderView()
+                    .environment(\.accessibilityAssistiveAccessEnabled, true)
+                    .environment(\.accessibilityDimFlashingLights, true)
                     .environment(\.accessibilityDifferentiateWithoutColor, true)
+                    .environment(\.accessibilityEnabled, true)
                     .environment(\.accessibilityInvertColors, true)
+                    .environment(\.accessibilityLargeContentViewerEnabled, true)
+                    .environment(\.accessibilityPlayAnimatedImages, false)
+                    .environment(\.accessibilityPrefersHeadAnchorAlternative, true)
+                    .environment(\.accessibilityQuickActionsEnabled, true)
+                    .environment(\.accessibilityReduceHighlightingEffects, true)
                     .environment(\.accessibilityReduceMotion, true)
                     .environment(\.accessibilityReduceTransparency, true)
                     .environment(\.accessibilityShowButtonShapes, true)
+                    .environment(\.accessibilityShowBorders, true)
                     .environment(\.accessibilitySwitchControlEnabled, true)
                     .environment(\.accessibilityVoiceOverEnabled, true)
             )

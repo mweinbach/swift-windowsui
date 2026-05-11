@@ -859,11 +859,20 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
+    public var accessibilityAssistiveAccessEnabled: Bool
+    public var accessibilityDimFlashingLights: Bool
     public var accessibilityDifferentiateWithoutColor: Bool
+    public var accessibilityEnabled: Bool
     public var accessibilityInvertColors: Bool
+    public var accessibilityLargeContentViewerEnabled: Bool
+    public var accessibilityPlayAnimatedImages: Bool
+    public var accessibilityPrefersHeadAnchorAlternative: Bool
+    public var accessibilityQuickActionsEnabled: Bool
+    public var accessibilityReduceHighlightingEffects: Bool
     public var accessibilityReduceMotion: Bool
     public var accessibilityReduceTransparency: Bool
     public var accessibilityShowButtonShapes: Bool
+    public var accessibilityShowBorders: Bool
     public var accessibilitySwitchControlEnabled: Bool
     public var accessibilityVoiceOverEnabled: Bool
     public var calendar: Calendar
@@ -937,11 +946,20 @@ public struct EnvironmentValues: @unchecked Sendable {
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
+        accessibilityAssistiveAccessEnabled: Bool = false,
+        accessibilityDimFlashingLights: Bool = false,
         accessibilityDifferentiateWithoutColor: Bool = false,
+        accessibilityEnabled: Bool = false,
         accessibilityInvertColors: Bool = false,
+        accessibilityLargeContentViewerEnabled: Bool = false,
+        accessibilityPlayAnimatedImages: Bool = true,
+        accessibilityPrefersHeadAnchorAlternative: Bool = false,
+        accessibilityQuickActionsEnabled: Bool = false,
+        accessibilityReduceHighlightingEffects: Bool = false,
         accessibilityReduceMotion: Bool = false,
         accessibilityReduceTransparency: Bool = false,
         accessibilityShowButtonShapes: Bool = false,
+        accessibilityShowBorders: Bool = false,
         accessibilitySwitchControlEnabled: Bool = false,
         accessibilityVoiceOverEnabled: Bool = false,
         calendar: Calendar = Calendar(identifier: .gregorian),
@@ -1009,11 +1027,20 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength
+        self.accessibilityAssistiveAccessEnabled = accessibilityAssistiveAccessEnabled
+        self.accessibilityDimFlashingLights = accessibilityDimFlashingLights
         self.accessibilityDifferentiateWithoutColor = accessibilityDifferentiateWithoutColor
+        self.accessibilityEnabled = accessibilityEnabled
         self.accessibilityInvertColors = accessibilityInvertColors
+        self.accessibilityLargeContentViewerEnabled = accessibilityLargeContentViewerEnabled
+        self.accessibilityPlayAnimatedImages = accessibilityPlayAnimatedImages
+        self.accessibilityPrefersHeadAnchorAlternative = accessibilityPrefersHeadAnchorAlternative
+        self.accessibilityQuickActionsEnabled = accessibilityQuickActionsEnabled
+        self.accessibilityReduceHighlightingEffects = accessibilityReduceHighlightingEffects
         self.accessibilityReduceMotion = accessibilityReduceMotion
         self.accessibilityReduceTransparency = accessibilityReduceTransparency
         self.accessibilityShowButtonShapes = accessibilityShowButtonShapes
+        self.accessibilityShowBorders = accessibilityShowBorders
         self.accessibilitySwitchControlEnabled = accessibilitySwitchControlEnabled
         self.accessibilityVoiceOverEnabled = accessibilityVoiceOverEnabled
         var resolvedCalendar = calendar

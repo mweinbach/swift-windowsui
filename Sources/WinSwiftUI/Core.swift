@@ -347,6 +347,11 @@ public enum Visibility: Sendable, Equatable {
     }
 }
 
+public enum Prominence: Sendable, Equatable, Hashable {
+    case standard
+    case increased
+}
+
 public protocol EnvironmentKey {
     associatedtype Value
 
@@ -378,6 +383,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var listRowSpacing: Double?
     public var defaultMinListRowHeight: Double
     public var defaultMinListHeaderHeight: CGFloat?
+    public var headerProminence: Prominence
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     private var customValues: [ObjectIdentifier: Any]
@@ -404,6 +410,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         isScrollEnabled: Bool = true,
         defaultMinListRowHeight: Double = 0,
         defaultMinListHeaderHeight: CGFloat? = nil,
+        headerProminence: Prominence = .standard,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic
     ) {
@@ -431,6 +438,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.listRowSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
+        self.headerProminence = headerProminence
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.customValues = [:]
@@ -724,6 +732,10 @@ public struct ViewBuildContext {
 
     public var defaultMinListHeaderHeight: CGFloat? {
         environmentValuesProvider().defaultMinListHeaderHeight
+    }
+
+    public var headerProminence: Prominence {
+        environmentValuesProvider().headerProminence
     }
 
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility {
@@ -3414,6 +3426,12 @@ public extension View {
             }
 
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func headerProminence(_ prominence: Prominence) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.headerProminence, prominence))
         }
     }
 

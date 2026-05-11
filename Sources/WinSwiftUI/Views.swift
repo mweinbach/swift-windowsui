@@ -2531,8 +2531,6 @@ public struct Section: View {
         self.header = [
             AnyView(
                 Text(title)
-                    .foregroundColor(style.headerColor)
-                    .font(style.headerFont)
                     .multilineTextAlignment(.leading)
                     .lineLimit(1)
             )
@@ -2584,9 +2582,10 @@ public struct Section: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
+            let headerFont = style.headerFont.resolvedHeaderFont(for: context.headerProminence)
             let headerContext = context
                 .withForegroundColor(style.headerColor)
-                .withFont(style.headerFont)
+                .withFont(headerFont)
                 .withTextAlignment(.leading)
                 .withLineLimit(1)
             let footerContext = context
@@ -2637,6 +2636,17 @@ public struct Section: View {
             }
 
             return node
+        }
+    }
+}
+
+private extension Font {
+    func resolvedHeaderFont(for prominence: Prominence) -> Font {
+        switch prominence {
+        case .standard:
+            return self
+        case .increased:
+            return weight(.bold)
         }
     }
 }

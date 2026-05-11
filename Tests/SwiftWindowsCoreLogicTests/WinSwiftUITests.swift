@@ -2654,6 +2654,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testHeaderProminenceMapsToRetainedSectionHeaderFontWeight() async {
+        await MainActor.run {
+            let standardNode = makeNode(
+                Section("TITLE") {
+                    Text("ROW")
+                }
+            )
+            let increasedNode = makeNode(
+                Section("TITLE") {
+                    Text("ROW")
+                }
+                .headerProminence(.increased)
+            )
+            let explicitHeaderNode = makeNode(
+                Section {
+                    Text("ROW")
+                } header: {
+                    Text("HEADER")
+                        .font(.system(size: 12, weight: .regular))
+                }
+                .headerProminence(.increased)
+            )
+
+            XCTAssertEqual(standardNode.children[0].textStyle.weight, .semibold)
+            XCTAssertEqual(increasedNode.children[0].textStyle.weight, .bold)
+            XCTAssertEqual(explicitHeaderNode.children[0].textStyle.weight, .regular)
+        }
+    }
+
+    func testHeaderProminenceEnvironmentCanBeRead() async {
+        await MainActor.run {
+            struct HeaderProminenceReader: View {
+                @Environment(\.headerProminence) var headerProminence
+
+                var body: some View {
+                    Text(headerProminence == .increased ? "INCREASED" : "STANDARD")
+                }
+            }
+
+            let defaultNode = makeNode(HeaderProminenceReader())
+            let customNode = makeNode(HeaderProminenceReader().headerProminence(.increased))
+
+            XCTAssertEqual(defaultNode.text, "STANDARD")
+            XCTAssertEqual(customNode.text, "INCREASED")
+        }
+    }
+
     func testDefaultMinListHeaderHeightMapsToRetainedSectionHeaderConstraints() async {
         await MainActor.run {
             let node = makeNode(

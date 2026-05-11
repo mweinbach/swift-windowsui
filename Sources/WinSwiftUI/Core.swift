@@ -3709,6 +3709,46 @@ public struct ButtonStyle: Sendable, Equatable {
     }
 }
 
+public struct ToolbarItemPlacement: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case principal
+        case navigation
+        case primaryAction
+        case confirmationAction
+        case cancellationAction
+        case destructiveAction
+        case status
+        case bottomBar
+        case keyboard
+        case topBarLeading
+        case topBarTrailing
+        case navigationBarLeading
+        case navigationBarTrailing
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToolbarItemPlacement(.automatic)
+    public static let principal = ToolbarItemPlacement(.principal)
+    public static let navigation = ToolbarItemPlacement(.navigation)
+    public static let primaryAction = ToolbarItemPlacement(.primaryAction)
+    public static let confirmationAction = ToolbarItemPlacement(.confirmationAction)
+    public static let cancellationAction = ToolbarItemPlacement(.cancellationAction)
+    public static let destructiveAction = ToolbarItemPlacement(.destructiveAction)
+    public static let status = ToolbarItemPlacement(.status)
+    public static let bottomBar = ToolbarItemPlacement(.bottomBar)
+    public static let keyboard = ToolbarItemPlacement(.keyboard)
+    public static let topBarLeading = ToolbarItemPlacement(.topBarLeading)
+    public static let topBarTrailing = ToolbarItemPlacement(.topBarTrailing)
+    public static let navigationBarLeading = ToolbarItemPlacement(.navigationBarLeading)
+    public static let navigationBarTrailing = ToolbarItemPlacement(.navigationBarTrailing)
+}
+
 public struct ButtonRepeatBehavior: Sendable, Equatable, Hashable {
     private enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -4951,6 +4991,58 @@ public extension View {
                     ),
                     isHitTestVisible: false,
                     children: children
+                )
+            }
+        }
+    }
+
+    func toolbar(@ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
+        toolbar(id: nil, content: toolbarContent)
+    }
+
+    func toolbar(id: String, @ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
+        toolbar(id: Optional(id), content: toolbarContent)
+    }
+
+    private func toolbar(id: String?, @ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
+        let toolbarViews = toolbarContent()
+        return ModifiedView(content: self) { content, context in
+            guard !toolbarViews.isEmpty else {
+                return content.makeComponent(context: context)
+            }
+
+            let base = content.makeComponent(context: context)
+            let toolbarContext = context
+                .withButtonStyle(.borderless)
+                .withControlSize(.small)
+            let toolbar = composeComponent(
+                from: toolbarViews,
+                context: toolbarContext,
+                fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
+                isHitTestVisible: false
+            )
+
+            return Component { runtime in
+                let toolbarContentNode = toolbar.makeNode(runtime: runtime)
+                let toolbarNode = Controls.stackPanel(
+                    backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
+                    borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderWidth: 1,
+                    stackLayout: .horizontal(
+                        spacing: 8,
+                        padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                        alignment: .center
+                    ),
+                    isHitTestVisible: false,
+                    children: [toolbarContentNode]
+                )
+                toolbarNode.nodeTag = id
+
+                let baseNode = base.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    stackLayout: .vertical(spacing: 0, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [toolbarNode, baseNode]
                 )
             }
         }

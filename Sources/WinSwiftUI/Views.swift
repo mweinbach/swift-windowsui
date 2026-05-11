@@ -2327,6 +2327,114 @@ public struct LabeledContent: View {
 }
 
 @MainActor
+public struct ToolbarItem: View {
+    public typealias Body = Never
+
+    public let id: String?
+    public let placement: ToolbarItemPlacement
+    public let showsByDefault: Bool
+    private let content: [AnyView]
+
+    public init(
+        placement: ToolbarItemPlacement = .automatic,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.id = nil
+        self.placement = placement
+        self.showsByDefault = true
+        self.content = content()
+    }
+
+    public init(
+        id: String,
+        placement: ToolbarItemPlacement = .automatic,
+        showsByDefault: Bool = true,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.id = id
+        self.placement = placement
+        self.showsByDefault = showsByDefault
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ToolbarItem has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let item = composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
+            isHitTestVisible: false
+        )
+        guard let id else {
+            return item
+        }
+
+        return Component { runtime in
+            let node = item.makeNode(runtime: runtime)
+            node.nodeTag = id
+            return node
+        }
+    }
+}
+
+@MainActor
+public struct ToolbarItemGroup: View {
+    public typealias Body = Never
+
+    public let id: String?
+    public let placement: ToolbarItemPlacement
+    public let showsByDefault: Bool
+    private let content: [AnyView]
+
+    public init(
+        placement: ToolbarItemPlacement = .automatic,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.id = nil
+        self.placement = placement
+        self.showsByDefault = true
+        self.content = content()
+    }
+
+    public init(
+        id: String,
+        placement: ToolbarItemPlacement = .automatic,
+        showsByDefault: Bool = true,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.id = id
+        self.placement = placement
+        self.showsByDefault = showsByDefault
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("ToolbarItemGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let group = composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center)),
+            isHitTestVisible: false
+        )
+        guard let id else {
+            return group
+        }
+
+        return Component { runtime in
+            let node = group.makeNode(runtime: runtime)
+            node.nodeTag = id
+            return node
+        }
+    }
+}
+
+@MainActor
 public struct Label: View {
     public typealias Body = Never
 

@@ -8301,6 +8301,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testToolbarModifierComposesRetainedCommandRow() async {
+        await MainActor.run {
+            var activations = 0
+            let node = makeNode(
+                Text("DETAIL")
+                    .toolbar(id: "main-toolbar") {
+                        ToolbarItem(placement: .navigation) {
+                            Button("BACK") {
+                                activations += 1
+                            }
+                        }
+                        ToolbarItemGroup(id: "actions", placement: .primaryAction) {
+                            Button("ADD") {}
+                            Button("EDIT") {}
+                        }
+                    }
+            )
+
+            guard case .stack(let rootLayout) = node.layoutMode else {
+                return XCTFail("Expected toolbar modifier to wrap content in a vertical stack")
+            }
+
+            XCTAssertEqual(rootLayout, .vertical(spacing: 0, alignment: .stretch))
+            XCTAssertEqual(node.children.count, 2)
+            XCTAssertEqual(node.children[0].nodeTag, "main-toolbar")
+            XCTAssertEqual(node.children[1].text, "DETAIL")
+
+            let toolbarTexts = allTexts(in: node.children[0])
+            XCTAssertTrue(toolbarTexts.contains("BACK"))
+            XCTAssertTrue(toolbarTexts.contains("ADD"))
+            XCTAssertTrue(toolbarTexts.contains("EDIT"))
+
+            firstFocusable(in: node.children[0])?.onActivate?()
+            XCTAssertEqual(activations, 1)
+        }
+    }
+
     func testContentUnavailableViewMapsToRetainedPlaceholderSurface() async {
         await MainActor.run {
             var retryCount = 0

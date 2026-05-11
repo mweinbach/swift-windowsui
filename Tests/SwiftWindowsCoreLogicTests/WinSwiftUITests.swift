@@ -9856,6 +9856,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabeledContentStyleModifierPropagatesThroughEnvironment() async {
+        await MainActor.run {
+            struct LabeledContentStyleReaderView: View {
+                @Environment(\.labeledContentStyle) var labeledContentStyle
+
+                var body: some View {
+                    Text(labeledContentStyle == .automatic ? "AUTOMATIC" : "OTHER")
+                }
+            }
+
+            let readerNode = makeNode(
+                LabeledContentStyleReaderView()
+                    .labeledContentStyle(AutomaticLabeledContentStyle())
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    LabeledContent("STATUS", value: "READY")
+                }
+                .labeledContentStyle(.automatic)
+            )
+
+            XCTAssertEqual(readerNode.text, "AUTOMATIC")
+            XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["STATUS", "READY"])
+            XCTAssertEqual(inheritedNode.children[0].children[0].textStyle.color, .secondary)
+        }
+    }
+
     func testToolbarModifierComposesRetainedCommandRow() async {
         await MainActor.run {
             var activations = 0

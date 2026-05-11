@@ -1177,6 +1177,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
+    public var labeledContentStyle: LabeledContentStyle
     public var formStyle: FormStyle
     public var groupBoxStyle: GroupBoxStyle
     public var controlGroupStyle: ControlGroupStyle
@@ -1280,6 +1281,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
+        labeledContentStyle: LabeledContentStyle = .automatic,
         formStyle: FormStyle = .automatic,
         groupBoxStyle: GroupBoxStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
@@ -1379,6 +1381,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.controlSize = controlSize
         self.labelStyle = labelStyle
+        self.labeledContentStyle = labeledContentStyle
         self.formStyle = formStyle
         self.groupBoxStyle = groupBoxStyle
         self.controlGroupStyle = controlGroupStyle
@@ -2059,6 +2062,10 @@ public struct ViewBuildContext {
 
     public var labelStyle: LabelStyle {
         environmentValuesProvider().labelStyle
+    }
+
+    public var labeledContentStyle: LabeledContentStyle {
+        environmentValuesProvider().labeledContentStyle
     }
 
     public var formStyle: FormStyle {
@@ -4161,6 +4168,26 @@ public struct ColumnsFormStyle: Sendable, Equatable {
 public struct GroupedFormStyle: Sendable, Equatable {
     public init() {}
 }
+
+public struct LabeledContentStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+    }
+
+    let kind: Kind
+
+    public init() {
+        self.kind = .automatic
+    }
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = LabeledContentStyle(kind: .automatic)
+}
+
+public typealias AutomaticLabeledContentStyle = LabeledContentStyle
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
@@ -6936,6 +6963,12 @@ public extension View {
     func labelStyle(_ style: LabelStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.labelStyle, style))
+        }
+    }
+
+    func labeledContentStyle(_ style: LabeledContentStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.labeledContentStyle, style))
         }
     }
 

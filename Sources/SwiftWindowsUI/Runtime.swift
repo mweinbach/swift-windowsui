@@ -613,6 +613,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var isSubmitScopeBoundary: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var hoverEffect: RetainedHoverEffect? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -750,6 +754,7 @@ public final class ViewNode {
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
+        isSubmitScopeBoundary: Bool = false,
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
@@ -806,6 +811,7 @@ public final class ViewNode {
         self.keyboardShortcuts = keyboardShortcuts
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)
+        self.isSubmitScopeBoundary = isSubmitScopeBoundary
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled

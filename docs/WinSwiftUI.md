@@ -274,6 +274,7 @@ Modifiers:
 - `onDisappear`
 - `onChange`
 - `onSubmit`
+- `submitScope`
 - `submitLabel`
 - `onHover`
 - `onTapGesture`
@@ -398,7 +399,7 @@ Surface direction:
 - `searchable(text:placement:prompt:)` and `searchable(text:isPresented:placement:prompt:)` prepend a retained search `TextField` to the modified subtree and propagate `EnvironmentValues.isSearching` plus `EnvironmentValues.dismissSearch` to descendants. `DismissSearchAction` clears the bound text, clears the presentation binding when present, and invalidates the retained runtime. `SearchFieldPlacement` accepts `.automatic`, `.navigationBarDrawer`, `.navigationBarDrawer(displayMode:)`, `.sidebar`, and `.toolbar` for source compatibility; placement-specific native navigation or toolbar integration, token search, scopes, and suggestions are not implemented yet.
 - `renameAction(_:)` stores a `RenameAction` in `EnvironmentValues.rename`, and `RenameButton` maps to a retained button that invokes that action when present. The button is disabled when no rename action is available. Native context menu integration and focus-target retargeting are not modeled yet.
 - `onAppear` fires when the retained node first renders, `onDisappear` fires when an appeared retained subtree is removed or replaced, and `onChange(of:)` keeps lightweight call-site state so rebuilt SwiftUI-shaped views can observe `Equatable` value transitions.
-- `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs; submit scopes and platform keyboard return-key labels are not modeled yet.
+- `onSubmit(of:_:)` hooks retained Enter key input into SwiftUI-shaped submit actions for text/search triggers on the modified retained subtree. It preserves existing non-submit key handling and invalidates after the submit action runs. `submitScope(_:)` marks a retained subtree boundary that blocks outer submit handlers while allowing handlers inside the scope to run; platform keyboard return-key labels are not modeled yet.
 - `submitLabel(_:)` propagates `EnvironmentValues.submitLabel` and stores the requested return-key label on retained `TextField`, `SecureField`, and `TextEditor` nodes as renderer-neutral text-input metadata. It does not alter hardware keyboard behavior on the retained Windows input path today.
 - `onHover` opts the retained node into hit testing and forwards pointer enter/exit transitions as `true`/`false`.
 - `onTapGesture` opts the retained node into hit testing and handles pointer tap activation. Multi-tap `count` values require consecutive inside releases and reset after an outside release; platform-native tap timing thresholds are not modeled yet.

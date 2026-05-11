@@ -5967,6 +5967,17 @@ public extension View {
         }
     }
 
+    func submitScope(_ isBlocking: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isSubmitScopeBoundary = isBlocking
+                return childNode
+            }
+        }
+    }
+
     func onHover(perform action: @escaping (Bool) -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -6107,8 +6118,13 @@ private func attachSubmitHandler(
     to node: ViewNode,
     triggers: SubmitTriggers,
     action: @escaping () -> Void,
-    invalidate: @escaping () -> Void
+    invalidate: @escaping () -> Void,
+    isRoot: Bool = true
 ) {
+    guard isRoot || !node.isSubmitScopeBoundary else {
+        return
+    }
+
     if node.onKeyDown != nil {
         let existingOnKeyDown = node.onKeyDown
         node.onKeyDown = { event in
@@ -6123,6 +6139,12 @@ private func attachSubmitHandler(
     }
 
     for child in node.children {
-        attachSubmitHandler(to: child, triggers: triggers, action: action, invalidate: invalidate)
+        attachSubmitHandler(
+            to: child,
+            triggers: triggers,
+            action: action,
+            invalidate: invalidate,
+            isRoot: false
+        )
     }
 }

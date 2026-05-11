@@ -647,6 +647,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSubmitScopeBlocksOuterSubmitHandlersForScopedTextInputs() async {
+        await MainActor.run {
+            var outerSubmitCount = 0
+            var innerSubmitCount = 0
+            var unscopedSubmitCount = 0
+            let scopedNode = makeNode(
+                VStack {
+                    TextField("SCOPED", text: .constant(""))
+                        .onSubmit {
+                            innerSubmitCount += 1
+                        }
+                        .submitScope()
+                    TextField("UNSCOPED", text: .constant(""))
+                }
+                .onSubmit {
+                    outerSubmitCount += 1
+                }
+            )
+            let unblockedNode = makeNode(
+                TextField("OPEN", text: .constant(""))
+                    .submitScope(false)
+                    .onSubmit {
+                        unscopedSubmitCount += 1
+                    }
+            )
+
+            let scopedField = scopedNode.children[0]
+            let unscopedField = scopedNode.children[1]
+
+            XCTAssertTrue(scopedField.isSubmitScopeBoundary)
+            XCTAssertFalse(unblockedNode.isSubmitScopeBoundary)
+
+            scopedField.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            unscopedField.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+            unblockedNode.onKeyDown?(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
+
+            XCTAssertEqual(innerSubmitCount, 1)
+            XCTAssertEqual(outerSubmitCount, 1)
+            XCTAssertEqual(unscopedSubmitCount, 1)
+        }
+    }
+
     func testSubmitLabelModifierAcceptsSwiftUIReturnKeyLabels() async {
         await MainActor.run {
             struct SubmitLabelReaderView: View {

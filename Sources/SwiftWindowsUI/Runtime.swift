@@ -872,6 +872,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var isToolbarContainer: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place
@@ -1008,6 +1012,7 @@ public final class ViewNode {
         paintsInDeferredPhase: Bool = false,
         matchedGeometryEffect: RetainedMatchedGeometryEffect? = nil,
         presentationChrome: RetainedPresentationChrome = .empty,
+        isToolbarContainer: Bool = false,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -1081,6 +1086,7 @@ public final class ViewNode {
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.matchedGeometryEffect = matchedGeometryEffect
         self.presentationChrome = presentationChrome
+        self.isToolbarContainer = isToolbarContainer
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerDown = nil

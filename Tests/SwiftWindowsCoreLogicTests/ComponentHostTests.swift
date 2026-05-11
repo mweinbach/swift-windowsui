@@ -163,6 +163,7 @@ final class ComponentHostTests: XCTestCase {
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.presentationChrome = presentationChrome
+                    node.isToolbarContainer = useSecondState
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -231,6 +232,7 @@ final class ComponentHostTests: XCTestCase {
                     selectedDetent: .height(240)
                 )
             )
+            XCTAssertEqual(firstNode?.isToolbarContainer, false)
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -289,6 +291,7 @@ final class ComponentHostTests: XCTestCase {
                     selectedDetent: .fraction(0.5)
                 )
             )
+            XCTAssertEqual(reusedNode?.isToolbarContainer, true)
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

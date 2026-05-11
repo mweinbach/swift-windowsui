@@ -6363,6 +6363,18 @@ extension EdgeInsets {
     }
 }
 
+@MainActor
+private func applyToolbarBackgroundStyle(to node: ViewNode, color: Color?, gradient: LinearGradient?) {
+    if node.isToolbarContainer {
+        node.backgroundColor = color
+        node.backgroundGradient = gradient
+    }
+
+    for child in node.children {
+        applyToolbarBackgroundStyle(to: child, color: color, gradient: gradient)
+    }
+}
+
 extension Alignment {
     func frameOrigin(
         for childSize: Size,
@@ -7518,6 +7530,7 @@ public extension View {
                     isHitTestVisible: false,
                     children: [toolbarContentNode]
                 )
+                toolbarNode.isToolbarContainer = true
                 toolbarNode.nodeTag = id
 
                 let baseNode = base.makeNode(runtime: runtime)
@@ -7539,42 +7552,49 @@ public extension View {
     }
 
     func toolbarBackground(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
-        _ = visibility
         _ = bars
+        let shouldHide = visibility == .hidden
         return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                if shouldHide {
+                    applyToolbarBackgroundStyle(to: node, color: nil, gradient: nil)
+                }
+                return node
+            }
         }
     }
 
     func toolbarBackground(_ color: Color, for bars: ToolbarItemPlacement...) -> some View {
-        _ = color
         _ = bars
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        return toolbarBackgroundStyle(color: color, gradient: nil)
     }
 
     func toolbarBackground(_ color: Color?, for bars: ToolbarItemPlacement...) -> some View {
-        _ = color
         _ = bars
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        return toolbarBackgroundStyle(color: color, gradient: nil)
     }
 
     func toolbarBackground(_ style: ForegroundStyle, for bars: ToolbarItemPlacement...) -> some View {
-        _ = style
         _ = bars
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
-        }
+        let fill = resolvedStyleFill(from: style)
+        return toolbarBackgroundStyle(color: fill.color, gradient: fill.gradient)
     }
 
     func toolbarBackground(_ gradient: LinearGradient, for bars: ToolbarItemPlacement...) -> some View {
-        _ = gradient
         _ = bars
-        return ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+        return toolbarBackgroundStyle(color: nil, gradient: gradient)
+    }
+
+    private func toolbarBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarBackgroundStyle(to: node, color: color, gradient: gradient)
+                return node
+            }
         }
     }
 

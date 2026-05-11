@@ -11904,6 +11904,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(titleModes.count, 4)
             XCTAssertEqual(placements.count, 4)
             XCTAssertTrue(allTexts(in: node.children[0]).contains("SAVE"))
+            XCTAssertNil(node.children[0].backgroundColor)
+            XCTAssertEqual(node.children[0].backgroundGradient?.startColor, .red)
+            XCTAssertEqual(node.children[0].backgroundGradient?.endColor, .blue)
             XCTAssertEqual(node.children[1].text, "DETAIL")
         }
     }

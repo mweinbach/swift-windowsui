@@ -3000,6 +3000,51 @@ public struct Label: View {
         return copy
     }
 
+    public func foregroundStyle(_ color: Color) -> Label {
+        foregroundColor(color)
+    }
+
+    public func foregroundStyle(_ primary: Color, _ secondary: Color) -> Label {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: Color, _ secondary: Color, _ tertiary: Color) -> Label {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ style: ForegroundStyle) -> Label {
+        foregroundColor(resolvedFill(from: style).color)
+    }
+
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> Label {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Label {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ gradient: LinearGradient) -> Label {
+        foregroundStyle(.linearGradient(gradient))
+    }
+
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient) -> Label {
+        _ = secondary
+        return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient) -> Label {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary)
+    }
+
     public func font(_ font: Font) -> Label {
         var copy = self
         copy.font = font

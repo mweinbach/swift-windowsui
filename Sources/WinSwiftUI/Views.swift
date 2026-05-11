@@ -8690,7 +8690,7 @@ public struct Button: View {
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let buttonStyle = resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
-            let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle)
+            let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle, context: context)
             let buttonBorderShape = context.environmentValues.buttonBorderShape
             let node = Controls.button(
                 runtime: runtime,
@@ -8730,7 +8730,40 @@ public struct Button: View {
         return copy
     }
 
-    private func resolvedSurfaceStyle(for buttonStyle: ButtonStyle) -> ButtonSurfaceStyle {
+    private func resolvedSurfaceStyle(for buttonStyle: ButtonStyle, context: ViewBuildContext) -> ButtonSurfaceStyle {
+        if buttonStyle == .borderedProminent {
+            return ButtonSurfaceStyle(
+                cornerRadius: 16,
+                palette: SurfacePalette(
+                    idle: context.tint.opacity(0.84),
+                    hovered: context.tint.opacity(0.92),
+                    focused: context.tint.opacity(0.98),
+                    pressed: context.tint,
+                    activated: context.tint,
+                    disabledBackground: Color(red: 0.20, green: 0.24, blue: 0.30, alpha: 0.50),
+                    disabledForeground: Color(red: 0.66, green: 0.70, blue: 0.78, alpha: 0.72),
+                    disabledBorder: Color(red: 0.50, green: 0.58, blue: 0.68, alpha: 0.20)
+                ),
+                chrome: SurfaceChrome(
+                    borderColor: context.tint.opacity(0.34),
+                    borderHoveredColor: context.tint.opacity(0.48),
+                    borderFocusedColor: context.tint.opacity(0.60),
+                    borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.38),
+                    borderWidth: 1,
+                    focusRingColor: context.tint.opacity(0.34),
+                    focusRingWidth: 2,
+                    shadowColor: context.tint.opacity(0.20),
+                    shadowHoveredColor: context.tint.opacity(0.26),
+                    shadowFocusedColor: context.tint.opacity(0.32),
+                    shadowPressedColor: context.tint.opacity(0.12),
+                    shadowOffset: Point(x: 0, y: 14),
+                    shadowSpread: 8
+                ),
+                clipsToBounds: true,
+                animation: .default
+            )
+        }
+
         guard buttonStyle == .automatic else {
             return buttonStyle.surfaceStyle
         }

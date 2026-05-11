@@ -3810,6 +3810,7 @@ final class WinSwiftUITests: XCTestCase {
                         .buttonSurface(customStyle)
                 }
                 .buttonStyle(BorderlessButtonStyle())
+                .tint(customColor)
             )
 
             let inheritedButton = node.children[0]
@@ -3822,7 +3823,8 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(inheritedButton.backgroundColor, .clear)
             XCTAssertEqual(inheritedButton.borderColor, .clear)
-            XCTAssertEqual(overriddenButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(overriddenButton.backgroundColor, customColor.opacity(0.84))
+            XCTAssertEqual(overriddenButton.borderColor, customColor.opacity(0.34))
             XCTAssertEqual(linkButton.backgroundColor, .clear)
             XCTAssertEqual(linkButton.borderColor, .clear)
             XCTAssertEqual(cardButton.backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)

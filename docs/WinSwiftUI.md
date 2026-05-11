@@ -239,6 +239,7 @@ Modifiers:
 - `listRowBackground`
 - `listRowInsets`
 - `listRowSpacing`
+- `listStyle`
 - `headerProminence`
 - `badge`
 - `badgeProminence`
@@ -264,6 +265,7 @@ Compatibility helpers:
 - `ViewModifier`
 - `ViewModifier.Content`
 - `ModifiedContent`
+- `ListStyle`
 - `Color(red:green:blue:opacity:)`
 - `Color(white:opacity:)`
 - `Color(hue:saturation:brightness:opacity:)`
@@ -336,6 +338,7 @@ Surface direction:
 - `ContentUnavailableView` maps placeholder label, description, and action builders to retained centered vertical chrome. The title/system-image and search convenience forms reuse retained `Label` / text / button composition; platform-specific empty-state styling is intentionally minimal.
 - `ViewThatFits(in:_:)` chooses the first retained child whose intrinsic size fits the current build context canvas along the requested axes, then falls back to the last child when none fit. It does not yet perform SwiftUI-style proposal probing through nested layout.
 - Custom `ViewModifier` types work through `modifier(_:)` and rebuild their body into the retained component pipeline. The compatibility wrapper preserves common metadata such as tags and tab items from the modified content, but advanced SwiftUI modifier identity and transaction semantics are not modeled yet.
+- `listStyle(_:)` stores a SwiftUI-shaped `ListStyle` in `EnvironmentValues` and maps `plain`, `grouped`, `inset`, `insetGrouped`, and `sidebar` styles to retained scroll-panel spacing, padding, and chrome. It is a compatibility value, not SwiftUI's protocol-based custom list style system.
 - `Rectangle`, `RoundedRectangle`, `Capsule`, `Circle`, and `Ellipse` map to retained fill/border/corner-radius nodes; `fill` uses explicit colors or the inherited foreground style, `stroke` and `strokeBorder` accept `Color`, stored `ForegroundStyle`, `LinearGradient`, and `StrokeStyle` overloads. `StrokeStyle.lineWidth` maps to retained border width; line caps, joins, miter limits, and dash patterns are accepted for source compatibility but are not rendered by the retained border path yet. Rounded corner styles currently share the same retained rounded-rect path.
 - `Divider()` maps to a retained separator node and picks a horizontal or vertical preferred size from the inherited stack axis.
 - `ForEach` expands into builder children instead of adding an extra layout wrapper, and generated children receive stable retained node tags derived from the SwiftUI-style id. `Range<Int>` and `ClosedRange<Int>` support the SwiftUI-style shorthand initializer.

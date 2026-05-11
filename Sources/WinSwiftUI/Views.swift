@@ -2756,9 +2756,18 @@ public struct List: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
+            let listChrome = context.listStyle.retainedChrome
             let node = Controls.scrollPanel(
                 axis: .vertical,
-                stackLayout: .vertical(spacing: context.listRowSpacing ?? 0, padding: .zero, alignment: .stretch),
+                backgroundColor: listChrome.backgroundColor,
+                borderColor: listChrome.borderColor,
+                borderWidth: listChrome.borderWidth,
+                cornerRadius: listChrome.cornerRadius,
+                stackLayout: .vertical(
+                    spacing: context.listRowSpacing ?? listChrome.defaultSpacing,
+                    padding: listChrome.padding,
+                    alignment: .stretch
+                ),
                 isHitTestVisible: false,
                 children: content.map {
                     let row = $0.makeComponent(context: context).makeNode(runtime: runtime)

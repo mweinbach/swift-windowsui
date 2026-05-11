@@ -2648,6 +2648,86 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListStyleModifierMapsToRetainedListChrome() async {
+        await MainActor.run {
+            let plainNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(.plain)
+            )
+            let insetGroupedNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(.insetGrouped)
+            )
+            let overriddenSpacingNode = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                }
+                .listStyle(.grouped)
+                .listRowSpacing(18)
+            )
+
+            guard case .stack(let plainLayout) = plainNode.layoutMode else {
+                return XCTFail("Expected plain List to keep retained stack layout")
+            }
+            guard case .stack(let insetGroupedLayout) = insetGroupedNode.layoutMode else {
+                return XCTFail("Expected insetGrouped List to keep retained stack layout")
+            }
+            guard case .stack(let overriddenSpacingLayout) = overriddenSpacingNode.layoutMode else {
+                return XCTFail("Expected grouped List to keep retained stack layout")
+            }
+
+            XCTAssertNil(plainNode.backgroundColor)
+            XCTAssertEqual(plainNode.borderWidth, 0)
+            XCTAssertEqual(plainNode.cornerRadius, 0)
+            XCTAssertEqual(plainLayout, .vertical(spacing: 0, padding: .zero, alignment: .stretch))
+
+            XCTAssertEqual(insetGroupedNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.78))
+            XCTAssertEqual(insetGroupedNode.borderWidth, 1)
+            XCTAssertEqual(insetGroupedNode.cornerRadius, 14)
+            XCTAssertEqual(
+                insetGroupedLayout,
+                .vertical(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(
+                overriddenSpacingLayout,
+                .vertical(
+                    spacing: 18,
+                    padding: EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
+                    alignment: .stretch
+                )
+            )
+        }
+    }
+
+    func testListStyleEnvironmentCanBeRead() async {
+        await MainActor.run {
+            struct ListStyleReader: View {
+                @Environment(\.listStyle) var listStyle
+
+                var body: some View {
+                    Text(listStyle == .sidebar ? "SIDEBAR" : "OTHER")
+                }
+            }
+
+            let defaultNode = makeNode(ListStyleReader())
+            let sidebarNode = makeNode(ListStyleReader().listStyle(.sidebar))
+
+            XCTAssertEqual(defaultNode.text, "OTHER")
+            XCTAssertEqual(sidebarNode.text, "SIDEBAR")
+        }
+    }
+
     func testDefaultMinListRowHeightMapsToRetainedRowConstraints() async {
         await MainActor.run {
             let node = makeNode(

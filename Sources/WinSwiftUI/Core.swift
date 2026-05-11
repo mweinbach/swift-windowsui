@@ -417,6 +417,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var labelStyle: LabelStyle
     public var toggleStyle: ToggleStyle
     public var textFieldStyle: TextFieldStyle
+    public var listStyle: ListStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     public var isScrollEnabled: Bool
@@ -449,6 +450,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         labelStyle: LabelStyle = .automatic,
         toggleStyle: ToggleStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
+        listStyle: ListStyle = .automatic,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
@@ -476,6 +478,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.labelStyle = labelStyle
         self.toggleStyle = toggleStyle
         self.textFieldStyle = textFieldStyle
+        self.listStyle = listStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.isScrollEnabled = isScrollEnabled
@@ -748,6 +751,10 @@ public struct ViewBuildContext {
 
     public var textFieldStyle: TextFieldStyle {
         environmentValuesProvider().textFieldStyle
+    }
+
+    public var listStyle: ListStyle {
+        environmentValuesProvider().listStyle
     }
 
     public var textInputAutocapitalization: TextInputAutocapitalization? {
@@ -2332,6 +2339,82 @@ public struct TextFieldStyle: Sendable, Equatable {
     public static let roundedBorder = TextFieldStyle(kind: .roundedBorder)
 }
 
+public struct ListStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case plain
+        case grouped
+        case inset
+        case insetGrouped
+        case sidebar
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ListStyle(kind: .automatic)
+    public static let plain = ListStyle(kind: .plain)
+    public static let grouped = ListStyle(kind: .grouped)
+    public static let inset = ListStyle(kind: .inset)
+    public static let insetGrouped = ListStyle(kind: .insetGrouped)
+    public static let sidebar = ListStyle(kind: .sidebar)
+
+    var retainedChrome: RetainedListChrome {
+        switch kind {
+        case .automatic, .plain:
+            return RetainedListChrome()
+        case .grouped:
+            return RetainedListChrome(
+                defaultSpacing: 8,
+                padding: EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
+                backgroundColor: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72),
+                borderColor: Color(red: 0.72, green: 0.80, blue: 0.92, alpha: 0.16),
+                borderWidth: 1,
+                cornerRadius: 12
+            )
+        case .inset:
+            return RetainedListChrome(
+                defaultSpacing: 6,
+                padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                backgroundColor: nil,
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 0
+            )
+        case .insetGrouped:
+            return RetainedListChrome(
+                defaultSpacing: 8,
+                padding: EdgeInsets(top: 10, leading: 12, bottom: 10, trailing: 12),
+                backgroundColor: Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.78),
+                borderColor: Color(red: 0.76, green: 0.84, blue: 0.96, alpha: 0.18),
+                borderWidth: 1,
+                cornerRadius: 14
+            )
+        case .sidebar:
+            return RetainedListChrome(
+                defaultSpacing: 4,
+                padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6),
+                backgroundColor: Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.68),
+                borderColor: .clear,
+                borderWidth: 0,
+                cornerRadius: 10
+            )
+        }
+    }
+}
+
+struct RetainedListChrome: Sendable, Equatable {
+    var defaultSpacing: Double = 0
+    var padding: EdgeInsets = .zero
+    var backgroundColor: Color? = nil
+    var borderColor: Color = .clear
+    var borderWidth: Double = 0
+    var cornerRadius: Double = 0
+}
+
 public struct ScrollIndicatorVisibility: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -3515,6 +3598,12 @@ public extension View {
     func textFieldStyle(_ style: TextFieldStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textFieldStyle, style))
+        }
+    }
+
+    func listStyle(_ style: ListStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.listStyle, style))
         }
     }
 

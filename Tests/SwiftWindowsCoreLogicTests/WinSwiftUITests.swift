@@ -5437,6 +5437,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScenePhaseEnvironmentValueCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct ScenePhaseReaderView: View {
+                @Environment(\.scenePhase) var scenePhase
+
+                var body: some View {
+                    Text(
+                        scenePhase == .active
+                            ? "ACTIVE"
+                            : scenePhase == .inactive
+                                ? "INACTIVE"
+                                : "BACKGROUND"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(ScenePhaseReaderView())
+            let inactiveNode = makeNode(
+                ScenePhaseReaderView()
+                    .environment(\.scenePhase, .inactive)
+            )
+            let backgroundNode = makeNode(
+                ScenePhaseReaderView()
+                    .environment(\.scenePhase, .background)
+            )
+
+            XCTAssertEqual(defaultNode.text, "ACTIVE")
+            XCTAssertEqual(inactiveNode.text, "INACTIVE")
+            XCTAssertEqual(backgroundNode.text, "BACKGROUND")
+        }
+    }
+
     func testDisplayScaleAndPixelLengthEnvironmentValuesCanBeReadAndOverridden() async {
         await MainActor.run {
             struct ScaleReaderView: View {

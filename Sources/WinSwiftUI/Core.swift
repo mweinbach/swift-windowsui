@@ -335,6 +335,12 @@ public enum ColorSchemeContrast: Sendable, Equatable {
     case increased
 }
 
+public enum ScenePhase: Sendable, Equatable, Hashable {
+    case active
+    case inactive
+    case background
+}
+
 public enum LegibilityWeight: Sendable, Equatable {
     case regular
     case bold
@@ -526,6 +532,7 @@ public struct OpenURLAction: @unchecked Sendable {
 public struct EnvironmentValues: @unchecked Sendable {
     public var colorScheme: ColorScheme
     public var colorSchemeContrast: ColorSchemeContrast
+    public var scenePhase: ScenePhase
     public var legibilityWeight: LegibilityWeight?
     public var displayScale: Double
     public var pixelLength: Double
@@ -576,6 +583,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public init(
         colorScheme: ColorScheme = .dark,
         colorSchemeContrast: ColorSchemeContrast = .standard,
+        scenePhase: ScenePhase = .active,
         legibilityWeight: LegibilityWeight? = nil,
         displayScale: Double = 1,
         pixelLength: Double = 1,
@@ -620,6 +628,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
+        self.scenePhase = scenePhase
         self.legibilityWeight = legibilityWeight
         self.displayScale = displayScale
         self.pixelLength = pixelLength

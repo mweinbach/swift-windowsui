@@ -10,6 +10,26 @@ private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnch
     anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
 }
 
+private func stackMainAlignment(from value: Double) -> StackMainAlignment {
+    if value <= 0.25 {
+        return .start
+    }
+    if value >= 0.75 {
+        return .end
+    }
+    return .center
+}
+
+private func stackCrossAlignment(from value: Double) -> StackCrossAlignment {
+    if value <= 0.25 {
+        return .leading
+    }
+    if value >= 0.75 {
+        return .trailing
+    }
+    return .center
+}
+
 public struct GeometryProxy {
     public let size: Size
 
@@ -3773,6 +3793,7 @@ public struct ScrollView: View {
             )
             let initialScrollAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .initialOffset))
             let scrollSizeChangeAnchor = retainedScrollAnchor(from: context.defaultScrollAnchor(for: .sizeChanges))
+            let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
                 backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground ? nil : style.backgroundColor,
@@ -3784,7 +3805,8 @@ public struct ScrollView: View {
                 cornerRadius: style.cornerRadius,
                 stackLayout: scrollStackLayout(
                     layoutDirection: context.layoutDirection,
-                    padding: context.contentInsets(for: .scrollContent, defaultInsets: style.padding)
+                    padding: context.contentInsets(for: .scrollContent, defaultInsets: style.padding),
+                    alignmentAnchor: alignmentAnchor
                 ),
                 scrollStep: style.scrollStep,
                 scrollIndicatorColor: style.indicatorColor,
@@ -3811,15 +3833,26 @@ public struct ScrollView: View {
         }
     }
 
-    private func scrollStackLayout(layoutDirection: LayoutDirection, padding: EdgeInsets) -> StackLayout {
+    private func scrollStackLayout(
+        layoutDirection: LayoutDirection,
+        padding: EdgeInsets,
+        alignmentAnchor: UnitPoint?
+    ) -> StackLayout {
         switch axis {
         case .horizontal:
-            return .horizontal(spacing: style.spacing, padding: padding, alignment: .center)
+            return .horizontal(
+                spacing: style.spacing,
+                padding: padding,
+                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.y) } ?? .center,
+                mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.x) } ?? .start
+            )
         case .vertical:
             return .vertical(
                 spacing: style.spacing,
                 padding: padding,
-                alignment: style.alignment.stackAlignment(layoutDirection: layoutDirection)
+                alignment: alignmentAnchor.map { stackCrossAlignment(from: $0.x) }
+                    ?? style.alignment.stackAlignment(layoutDirection: layoutDirection),
+                mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
             )
         }
     }
@@ -3970,6 +4003,7 @@ public struct List: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         Component { runtime in
             let listChrome = context.listStyle.retainedChrome
+            let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let node = Controls.scrollPanel(
                 axis: .vertical,
                 backgroundColor: listChrome.backgroundColor,
@@ -3979,7 +4013,8 @@ public struct List: View {
                 stackLayout: .vertical(
                     spacing: context.listRowSpacing ?? listChrome.defaultSpacing,
                     padding: context.contentInsets(for: .scrollContent, defaultInsets: listChrome.padding),
-                    alignment: .stretch
+                    alignment: .stretch,
+                    mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
                 ),
                 isHitTestVisible: false,
                 children: content.map {
@@ -4338,6 +4373,7 @@ public struct Section: View {
                 footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
             let hidesScrollContentBackground = style.scrollAxis != nil &&
                 context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
+            let alignmentAnchor = style.scrollAxis == nil ? nil : context.defaultScrollAnchor(for: .alignment)
 
             let node = Controls.stackPanel(
                 backgroundColor: hidesScrollContentBackground ? nil : style.backgroundColor,
@@ -4354,7 +4390,8 @@ public struct Section: View {
                     padding: style.scrollAxis == nil
                         ? style.padding
                         : context.contentInsets(for: .scrollContent, defaultInsets: style.padding),
-                    alignment: style.alignment.stackAlignment(layoutDirection: context.layoutDirection)
+                    alignment: style.alignment.stackAlignment(layoutDirection: context.layoutDirection),
+                    mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
                 ),
                 isHitTestVisible: style.isHitTestVisible,
                 children: children

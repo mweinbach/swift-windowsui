@@ -4248,6 +4248,24 @@ final class WinSwiftUITests: XCTestCase {
                 .defaultScrollAnchor(nil, for: .sizeChanges)
                 .defaultScrollAnchor(.center, for: .alignment)
             )
+            let horizontalNode = makeNode(
+                ScrollView(.horizontal) {
+                    Text("ROW")
+                }
+                .defaultScrollAnchor(.bottomTrailing, for: .alignment)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ROW")
+                }
+                .defaultScrollAnchor(.bottom, for: .alignment)
+            )
+            let scrollingSectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .defaultScrollAnchor(.center, for: .alignment)
+            )
 
             XCTAssertEqual(roles.count, 3)
             XCTAssertEqual(defaultNode.initialScrollAnchor, RetainedScrollAnchor(x: 0.5, y: 1))
@@ -4255,6 +4273,20 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(roleNode.initialScrollAnchor, RetainedScrollAnchor(x: 0.5, y: 0))
             XCTAssertNil(roleNode.scrollSizeChangeAnchor)
             XCTAssertEqual(roleNode.scrollAxis, .vertical)
+
+            guard case .stack(let defaultLayout) = defaultNode.layoutMode,
+                  case .stack(let roleLayout) = roleNode.layoutMode,
+                  case .stack(let horizontalLayout) = horizontalNode.layoutMode,
+                  case .stack(let listLayout) = listNode.layoutMode,
+                  case .stack(let sectionLayout) = scrollingSectionNode.layoutMode else {
+                return XCTFail("Expected retained stack layouts for default scroll anchor assertions")
+            }
+
+            XCTAssertEqual(defaultLayout, .vertical(alignment: .center, mainAlignment: .end))
+            XCTAssertEqual(roleLayout, .vertical(alignment: .center, mainAlignment: .center))
+            XCTAssertEqual(horizontalLayout, .horizontal(alignment: .trailing, mainAlignment: .end))
+            XCTAssertEqual(listLayout, .vertical(alignment: .stretch, mainAlignment: .end))
+            XCTAssertEqual(sectionLayout.mainAlignment, .center)
         }
     }
 

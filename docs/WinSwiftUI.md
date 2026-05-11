@@ -70,6 +70,7 @@ Views and containers:
 - `LabeledContent`
   - `StringProtocol` title inputs
   - title/value inputs
+  - `value:format:` overloads
 - `ToolbarItem`
 - `ToolbarItemGroup`
 - `Label`
@@ -461,7 +462,7 @@ Surface direction:
 - `Image(systemName:)` currently resolves to retained icon labels that render through the scene glyph atlas or the frame fallback text path.
 - `Image(_:)` resolves direct file paths or bundle resources through the WIC-backed image loader and maps decoded bitmaps onto retained bitmap nodes that emit `DrawBitmapCommand`/`ImagePrimitive` resources. PNG/JPEG/BMP resources are supported through WIC; asset-catalog lookup is not implemented yet.
 - `Image.resizable`, image `aspectRatio`, `scaledToFit`, and `scaledToFill` map system icon glyphs and decoded bitmap images to retained preferred sizes based on font size or native bitmap size, image scale, and aspect ratio. Generic view `aspectRatio`, `scaledToFit`, and `scaledToFill` wrap retained content with a preferred-size container derived from the child intrinsic size. `resizingMode` and `capInsets` are retained as compatibility metadata; real tile and nine-slice rendering are not implemented yet.
-- `LabeledContent` maps title/value and builder-label forms to a retained horizontal row with secondary leading label text and trailing content, matching common settings and form call sites without adding native control dependencies.
+- `LabeledContent` maps title/value, `value:format:`, and builder-label forms to a retained horizontal row with secondary leading label text and trailing content, matching common settings and form call sites without adding native control dependencies.
 - `ToolbarItem`, `ToolbarItemGroup`, and `toolbar(content:)` / `toolbar(id:content:)` accept common SwiftUI-shaped command definitions and compose them into a retained compact command row above the modified content. Toolbar placements are source-compatible values today; WinSwiftUI does not yet route them into native window chrome, navigation bars, bottom bars, or user-customizable toolbar slots.
 - `Link` maps title and builder labels onto a retained plain button. Activation calls `EnvironmentValues.openURL`, whose default action asks the Windows shell to open the destination URL; tests and apps can inject an `OpenURLAction` through `.environment(\.openURL, ...)`.
 - `ContentUnavailableView` maps placeholder label, description, and action builders to retained centered vertical chrome. The title/system-image and search convenience forms reuse retained `Label` / text / button composition; platform-specific empty-state styling is intentionally minimal.

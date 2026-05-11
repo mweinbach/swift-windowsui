@@ -9624,12 +9624,16 @@ final class WinSwiftUITests: XCTestCase {
             )
             let stringNode = makeNode(LabeledContent("STATUS", value: "READY"))
             let keyNode = makeNode(LabeledContent(LocalizedStringKey("MODE"), value: "AUTO"))
+            let formattedNode = makeNode(LabeledContent("COUNT", value: 42, format: .number))
+            let formattedKeyNode = makeNode(LabeledContent(LocalizedStringKey("SCORE"), value: 0.875, format: .percent))
 
             XCTAssertEqual(allTexts(in: builderNode), ["LABEL", "VALUE"])
             XCTAssertEqual(builderNode.children[0].layoutPriority, 1)
             XCTAssertEqual(builderNode.children[0].textStyle.color, .secondary)
             XCTAssertEqual(allTexts(in: stringNode), ["STATUS", "READY"])
             XCTAssertEqual(allTexts(in: keyNode), ["MODE", "AUTO"])
+            XCTAssertEqual(allTexts(in: formattedNode), ["COUNT", "42"])
+            XCTAssertEqual(allTexts(in: formattedKeyNode), ["SCORE", 0.875.formatted(.percent)])
         }
     }
 

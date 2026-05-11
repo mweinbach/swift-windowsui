@@ -2290,6 +2290,22 @@ public struct LabeledContent: View {
         self.init(titleKey.resolvedString, value: String(value))
     }
 
+    public init<F: FormatStyle>(
+        _ titleKey: LocalizedStringKey,
+        value: F.FormatInput,
+        format: F
+    ) where F.FormatOutput == String {
+        self.init(titleKey.resolvedString, value: format.format(value))
+    }
+
+    public init<S: StringProtocol, F: FormatStyle>(
+        _ title: S,
+        value: F.FormatInput,
+        format: F
+    ) where F.FormatOutput == String {
+        self.init(String(title), value: format.format(value))
+    }
+
     public var body: Never {
         fatalError("LabeledContent has no body")
     }

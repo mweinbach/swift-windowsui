@@ -2552,6 +2552,30 @@ public struct Label: View {
     private var font: Font
     private var spacing: Double
 
+    public init(_ title: String, image name: String) {
+        self.title = [
+            AnyView(
+                Text(title)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        ]
+        self.icon = [
+            AnyView(Image(name))
+        ]
+        self.color = nil
+        self.font = .system(size: 1.6, weight: .semibold)
+        self.spacing = 10
+    }
+
+    public init<S: StringProtocol>(_ title: S, image name: String) {
+        self.init(String(title), image: name)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, image name: String) {
+        self.init(titleKey.resolvedString, image: name)
+    }
+
     public init(_ title: String, systemImage: String) {
         self.title = [
             AnyView(

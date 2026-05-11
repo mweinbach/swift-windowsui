@@ -2090,6 +2090,28 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLabelNamedImageInitializersComposeBitmapIconContent() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-label-image-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let stringNode = makeNode(Label("PHOTO", image: url.path))
+            let protocolTitle: Substring = "TOOLS"[...]
+            let protocolNode = makeNode(Label(protocolTitle, image: url.path))
+            let keyNode = makeNode(Label(LocalizedStringKey("ALBUM"), image: url.path))
+
+            XCTAssertEqual(stringNode.children.count, 2)
+            XCTAssertEqual(stringNode.children[0].bitmapSurface?.width, 2)
+            XCTAssertEqual(stringNode.children[0].bitmapSurface?.height, 1)
+            XCTAssertEqual(stringNode.children[1].text, "PHOTO")
+            XCTAssertEqual(protocolNode.children[1].text, "TOOLS")
+            XCTAssertEqual(keyNode.children[1].text, "ALBUM")
+        }
+    }
+
     func testLabelStyleModifierSelectsRetainedLabelContent() async {
         await MainActor.run {
             let iconOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.iconOnly))

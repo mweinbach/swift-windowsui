@@ -3129,9 +3129,15 @@ public struct Section: View {
     private let header: [AnyView]
     private let footer: [AnyView]
     private let style: SectionStyle
+    private let isExpanded: Binding<Bool>?
     private let content: [AnyView]
 
-    public init(_ title: String, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
+    public init(
+        _ title: String,
+        isExpanded: Binding<Bool>? = nil,
+        style: SectionStyle = .default,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
         self.header = [
             AnyView(
                 Text(title)
@@ -3141,21 +3147,33 @@ public struct Section: View {
         ]
         self.footer = []
         self.style = style
+        self.isExpanded = isExpanded
         self.content = content()
     }
 
-    public init<S: StringProtocol>(_ title: S, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
-        self.init(String(title), style: style, content: content)
+    public init<S: StringProtocol>(
+        _ title: S,
+        isExpanded: Binding<Bool>? = nil,
+        style: SectionStyle = .default,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(String(title), isExpanded: isExpanded, style: style, content: content)
     }
 
-    public init(_ titleKey: LocalizedStringKey, style: SectionStyle = .default, @ViewBuilder content: () -> [AnyView]) {
-        self.init(titleKey.resolvedString, style: style, content: content)
+    public init(
+        _ titleKey: LocalizedStringKey,
+        isExpanded: Binding<Bool>? = nil,
+        style: SectionStyle = .default,
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.init(titleKey.resolvedString, isExpanded: isExpanded, style: style, content: content)
     }
 
     public init(@ViewBuilder content: () -> [AnyView]) {
         self.header = []
         self.footer = []
         self.style = .default
+        self.isExpanded = nil
         self.content = content()
     }
 
@@ -3166,6 +3184,19 @@ public struct Section: View {
         self.header = header()
         self.footer = []
         self.style = .default
+        self.isExpanded = nil
+        self.content = content()
+    }
+
+    public init(
+        isExpanded: Binding<Bool>,
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder header: () -> [AnyView]
+    ) {
+        self.header = header()
+        self.footer = []
+        self.style = .default
+        self.isExpanded = isExpanded
         self.content = content()
     }
 
@@ -3177,6 +3208,7 @@ public struct Section: View {
         self.header = header()
         self.footer = footer()
         self.style = .default
+        self.isExpanded = nil
         self.content = content()
     }
 
@@ -3185,7 +3217,8 @@ public struct Section: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        Component { runtime in
+        let expansionBinding = isExpanded
+        return Component { runtime in
             let headerFont = style.headerFont.resolvedHeaderFont(for: context.headerProminence)
             let headerContext = context
                 .withForegroundColor(style.headerColor)
@@ -3197,15 +3230,54 @@ public struct Section: View {
                 .withFont(.caption)
                 .withTextAlignment(.leading)
 
+            let headerNodes = header.map {
+                $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
+            }
+            let resolvedHeaderNodes: [ViewNode]
+            if let expansionBinding, !headerNodes.isEmpty {
+                let chevronNode = Controls.label(
+                    expansionBinding.wrappedValue ? "V" : ">",
+                    preferredSize: Size(width: 18, height: 24),
+                    color: style.headerColor,
+                    scale: 1.2,
+                    weight: .semibold,
+                    lineBreakMode: .truncateTail,
+                    maximumNumberOfLines: 1
+                )
+                let headerContent = Controls.stackPanel(
+                    layoutPriority: 1,
+                    stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center),
+                    isHitTestVisible: false,
+                    children: [chevronNode] + headerNodes
+                )
+                let headerButton = Controls.button(
+                    runtime: runtime,
+                    cornerRadius: 8,
+                    palette: ButtonSurfaceStyle.plain.palette,
+                    chrome: ButtonSurfaceStyle.plain.chrome,
+                    clipsToBounds: false,
+                    layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                    isEnabled: context.isEnabled,
+                    action: {
+                        expansionBinding.wrappedValue.toggle()
+                        context.invalidate()
+                    },
+                    children: [headerContent]
+                )
+                resolvedHeaderNodes = [headerButton]
+            } else {
+                resolvedHeaderNodes = headerNodes
+            }
+            if let minimumHeaderHeight = context.defaultMinListHeaderHeight, minimumHeaderHeight > 0 {
+                resolvedHeaderNodes.forEach { $0.applyDefaultMinimumHeight(minimumHeaderHeight) }
+            }
+
+            let contentNodes = expansionBinding?.wrappedValue == false
+                ? []
+                : content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             let children =
-                header.map {
-                    let headerNode = $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
-                    if let minimumHeaderHeight = context.defaultMinListHeaderHeight, minimumHeaderHeight > 0 {
-                        headerNode.applyDefaultMinimumHeight(minimumHeaderHeight)
-                    }
-                    return headerNode
-                } +
-                content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) } +
+                resolvedHeaderNodes +
+                contentNodes +
                 footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
             let hidesScrollContentBackground = style.scrollAxis != nil &&
                 context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground

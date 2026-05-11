@@ -117,6 +117,8 @@ Views and containers:
 - `Form`
 - `Section`
   - `StringProtocol` title inputs
+  - `Section(_:isExpanded:content:)`
+  - `Section(isExpanded:content:header:)`
   - `Section { content } header: { header } footer: { footer }`
 - `GroupBox`
   - `StringProtocol` title inputs
@@ -415,7 +417,7 @@ Surface direction:
 - `toggleStyle(_:)` propagates through `EnvironmentValues`; `.automatic` and `.switch` use the retained switch, `.checkbox` maps to retained checkbox chrome with arbitrary SwiftUI-shaped label content, and `.button` maps to retained selected/unselected button chrome.
 - `textFieldStyle(_:)` propagates through `EnvironmentValues`; `.automatic` and `.roundedBorder` use the retained bordered input chrome, while `.plain` maps to a borderless retained input surface.
 - `background(_:alignment:)` and `overlay(_:alignment:)` forward to the retained absolute layering path used by the builder-based overloads.
-- `Section` supports title, header, footer, and content-only forms, all mapped to the retained vertical section panel.
+- `Section` supports title, header, footer, content-only, and `isExpanded` binding forms, all mapped to the retained vertical section panel. Collapsible sections wrap the header in a retained disclosure-style button, write through the expansion binding, and conditionally include section content; context-specific SwiftUI sidebar/list disclosure styling is not modeled yet.
 - `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome.
 - `NavigationStack` and `NavigationView` preserve `navigationTitle` / `navigationBarTitle` metadata, render lightweight retained title chrome, and support local push/pop presentation for direct `NavigationLink(destination:)` and `NavigationLink { destination } label: { ... }` links plus `NavigationLink(value:)` routes resolved by `navigationDestination(for:)`. `NavigationStack(path:)` syncs value-link pushes and back navigation with `NavigationPath` or generic mutable collection bindings, including nested path restoration as each resolved destination contributes its own registered destinations. Boolean and item `navigationDestination` overloads render binding-driven retained destinations and clear their bindings through the back control or `@Environment(\.dismiss)`. Platform-native navigation transitions are not implemented yet.
 - `sheet(isPresented:onDismiss:content:)` and `sheet(item:onDismiss:content:)` compose retained modal overlays above the modified view, install `EnvironmentValues.isPresented`, and provide a `DismissAction` that clears the Boolean or item binding, runs `onDismiss`, and invalidates the retained runtime. Native window modality, presentation detents, drag-to-dismiss, and platform transition animations are not implemented yet.

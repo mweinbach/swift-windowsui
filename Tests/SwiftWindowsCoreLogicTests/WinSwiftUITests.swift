@@ -3689,6 +3689,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSectionExpandedBindingControlsRetainedContentAndHeaderActivation() async {
+        await MainActor.run {
+            var isExpanded = false
+            var didInvalidate = false
+            let binding = Binding(
+                get: { isExpanded },
+                set: { isExpanded = $0 }
+            )
+
+            let collapsedNode = makeNode(
+                Section("ADVANCED", isExpanded: binding) {
+                    Text("ROW")
+                },
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: collapsedNode).contains("ADVANCED"))
+            XCTAssertTrue(allTexts(in: collapsedNode).contains(">"))
+            XCTAssertFalse(allTexts(in: collapsedNode).contains("ROW"))
+
+            collapsedNode.children[0].onActivate?()
+
+            XCTAssertTrue(isExpanded)
+            XCTAssertTrue(didInvalidate)
+
+            let expandedNode = makeNode(
+                Section(isExpanded: binding) {
+                    Text("DETAIL")
+                } header: {
+                    Text("OPTIONS")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: expandedNode).contains("OPTIONS"))
+            XCTAssertTrue(allTexts(in: expandedNode).contains("V"))
+            XCTAssertTrue(allTexts(in: expandedNode).contains("DETAIL"))
+
+            expandedNode.children[0].onActivate?()
+            XCTAssertFalse(isExpanded)
+
+            let localizedCollapsedNode = makeNode(
+                Section(LocalizedStringKey("LOCAL"), isExpanded: binding) {
+                    Text("HIDDEN")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: localizedCollapsedNode).contains("LOCAL"))
+            XCTAssertFalse(allTexts(in: localizedCollapsedNode).contains("HIDDEN"))
+        }
+    }
+
     func testHeaderProminenceMapsToRetainedSectionHeaderFontWeight() async {
         await MainActor.run {
             let standardNode = makeNode(

@@ -6066,6 +6066,16 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .navigationSplitViewStyle(.balanced)
             )
+            let prominentNode = makeNode(
+                NavigationSplitView {
+                    Text("SIDEBAR")
+                } content: {
+                    Text("CONTENT")
+                } detail: {
+                    Text("DETAIL")
+                }
+                .navigationSplitViewStyle(ProminentDetailNavigationSplitViewStyle())
+            )
 
             XCTAssertEqual(balancedReaderNode.text, "BALANCED")
             XCTAssertEqual(prominentReaderNode.text, "PROMINENT")
@@ -6073,6 +6083,20 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(splitNode.children.count, 2)
             XCTAssertEqual(splitNode.children[0].text, "SIDEBAR")
             XCTAssertEqual(splitNode.children[1].text, "DETAIL")
+            XCTAssertEqual(splitNode.children[0].layoutPriority, 1)
+            XCTAssertEqual(splitNode.children[1].layoutPriority, 1)
+            XCTAssertEqual(splitNode.children[0].borderWidth, 1)
+            XCTAssertEqual(splitNode.children[1].borderWidth, 0)
+            XCTAssertEqual(splitNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24))
+
+            XCTAssertEqual(prominentNode.children.count, 3)
+            XCTAssertEqual(prominentNode.children[0].layoutPriority, 0.75)
+            XCTAssertEqual(prominentNode.children[1].layoutPriority, 0.75)
+            XCTAssertEqual(prominentNode.children[2].layoutPriority, 2)
+            XCTAssertEqual(prominentNode.children[0].borderWidth, 1)
+            XCTAssertEqual(prominentNode.children[1].borderWidth, 1)
+            XCTAssertEqual(prominentNode.children[2].borderWidth, 0)
+            XCTAssertEqual(prominentNode.children[2].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30))
         }
     }
 

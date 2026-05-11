@@ -1300,7 +1300,9 @@ public struct NavigationSplitView: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let columnComponents = visibleColumns().map { column in
+        let visibleColumns = visibleColumns()
+        let style = context.navigationSplitViewStyle
+        let columnComponents = visibleColumns.map { column in
             composeComponent(
                 from: column,
                 context: context.withStackAxis(.vertical),
@@ -1312,8 +1314,44 @@ public struct NavigationSplitView: View {
             Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 0, alignment: .stretch),
                 isHitTestVisible: false,
-                children: columnComponents.map { $0.makeNode(runtime: runtime) }
+                children: columnComponents.enumerated().map { index, component in
+                    let node = component.makeNode(runtime: runtime)
+                    Self.applyRetainedColumnStyle(
+                        to: node,
+                        index: index,
+                        count: columnComponents.count,
+                        style: style
+                    )
+                    return node
+                }
             )
+        }
+    }
+
+    private static func applyRetainedColumnStyle(
+        to node: ViewNode,
+        index: Int,
+        count: Int,
+        style: NavigationSplitViewStyle
+    ) {
+        switch style.kind {
+        case .automatic:
+            node.layoutPriority = 1
+            node.borderColor = index == count - 1 ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.08)
+            node.borderWidth = index == count - 1 ? 0 : 1
+        case .balanced:
+            node.layoutPriority = 1
+            node.backgroundColor = Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24)
+            node.borderColor = index == count - 1 ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10)
+            node.borderWidth = index == count - 1 ? 0 : 1
+        case .prominentDetail:
+            let isDetail = index == count - 1
+            node.layoutPriority = isDetail ? 2 : 0.75
+            node.backgroundColor = isDetail
+                ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
+                : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
+            node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
+            node.borderWidth = isDetail ? 0 : 1
         }
     }
 

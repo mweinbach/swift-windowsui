@@ -6265,6 +6265,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAdditionalSystemStateEnvironmentValuesCanBeReadAndOverridden() async {
+        await MainActor.run {
+            struct SystemStateReaderView: View {
+                @Environment(\.isLuminanceReduced) var isLuminanceReduced
+                @Environment(\.isSceneCaptured) var isSceneCaptured
+                @Environment(\.isTabBarShowingSections) var isTabBarShowingSections
+
+                var body: some View {
+                    Text(
+                        "\(isLuminanceReduced ? "DIM" : "BRIGHT") "
+                            + "\(isSceneCaptured ? "CAPTURED" : "PRIVATE") "
+                            + "\(isTabBarShowingSections ? "TABSECTIONS" : "TABSFLAT")"
+                    )
+                }
+            }
+
+            let defaultNode = makeNode(SystemStateReaderView())
+            let overrideNode = makeNode(
+                SystemStateReaderView()
+                    .environment(\.isLuminanceReduced, true)
+                    .environment(\.isSceneCaptured, true)
+                    .environment(\.isTabBarShowingSections, true)
+            )
+
+            XCTAssertEqual(defaultNode.text, "BRIGHT PRIVATE TABSFLAT")
+            XCTAssertEqual(overrideNode.text, "DIM CAPTURED TABSECTIONS")
+        }
+    }
+
     func testCustomEnvironmentKeysPropagateThroughViewContext() async {
         await MainActor.run {
             struct CustomEnvironmentReaderView: View {

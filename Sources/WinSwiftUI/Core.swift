@@ -852,6 +852,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var appearsActive: Bool
     public var supportsMultipleWindows: Bool
     public var isPresented: Bool
+    public var isSceneCaptured: Bool
+    public var isTabBarShowingSections: Bool
     public var editMode: Binding<EditMode>?
     public var isFocused: Bool
     public var legibilityWeight: LegibilityWeight?
@@ -893,6 +895,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
+    public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
     var isScrollClipDisabled: Bool
@@ -927,6 +930,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         appearsActive: Bool = true,
         supportsMultipleWindows: Bool = false,
         isPresented: Bool = false,
+        isSceneCaptured: Bool = false,
+        isTabBarShowingSections: Bool = false,
         editMode: Binding<EditMode>? = nil,
         isFocused: Bool = false,
         legibilityWeight: LegibilityWeight? = nil,
@@ -968,6 +973,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
+        isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
         defaultMinListRowHeight: Double = 0,
@@ -996,6 +1002,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.appearsActive = appearsActive
         self.supportsMultipleWindows = supportsMultipleWindows
         self.isPresented = isPresented
+        self.isSceneCaptured = isSceneCaptured
+        self.isTabBarShowingSections = isTabBarShowingSections
         self.editMode = editMode
         self.isFocused = isFocused
         self.legibilityWeight = legibilityWeight
@@ -1039,6 +1047,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
+        self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
         self.isScrollClipDisabled = false

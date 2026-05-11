@@ -2268,6 +2268,35 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testImageInterpolationAndAntialiasedModifiersStoreRetainedImageMetadata() async {
+        await MainActor.run {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("winswiftui-image-interpolation-\(UUID().uuidString)")
+                .appendingPathExtension("bmp")
+            try! twoPixelBGRA32BMPData().write(to: url)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            let defaultNode = makeNode(Image(systemName: "gear"))
+            let highNode = makeNode(
+                Image(systemName: "gear")
+                    .interpolation(.high)
+                    .antialiased(false)
+            )
+            let noneBitmapNode = makeNode(
+                Image(url.path)
+                    .interpolation(.none)
+                    .antialiased(true)
+            )
+
+            XCTAssertEqual(defaultNode.imageInterpolation, .medium)
+            XCTAssertNil(defaultNode.imageAntialiased)
+            XCTAssertEqual(highNode.imageInterpolation, .high)
+            XCTAssertEqual(highNode.imageAntialiased, false)
+            XCTAssertEqual(noneBitmapNode.imageInterpolation, .none)
+            XCTAssertEqual(noneBitmapNode.imageAntialiased, true)
+        }
+    }
+
     func testImageLabelAndDecorativeInitializersSetAccessibilityMetadata() async {
         await MainActor.run {
             let url = FileManager.default.temporaryDirectory

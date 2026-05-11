@@ -67,6 +67,13 @@ public enum RetainedImageRenderingMode: Sendable, Equatable {
     case template
 }
 
+public enum RetainedImageInterpolation: Sendable, Equatable {
+    case none
+    case low
+    case medium
+    case high
+}
+
 public enum RetainedSymbolRenderingMode: Sendable, Equatable {
     case monochrome
     case hierarchical
@@ -712,6 +719,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var imageInterpolation: RetainedImageInterpolation {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var imageAntialiased: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var keyboardShortcuts: [KeyboardShortcutBinding] {
         didSet { invalidateRuntime(.paint) }
     }
@@ -891,6 +906,8 @@ public final class ViewNode {
         imageResizingMode: RetainedImageResizingMode? = nil,
         imageCapInsets: EdgeInsets? = nil,
         imageRenderingMode: RetainedImageRenderingMode? = nil,
+        imageInterpolation: RetainedImageInterpolation = .medium,
+        imageAntialiased: Bool? = nil,
         keyboardShortcuts: [KeyboardShortcutBinding] = [],
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
@@ -957,6 +974,8 @@ public final class ViewNode {
         self.imageResizingMode = imageResizingMode
         self.imageCapInsets = imageCapInsets
         self.imageRenderingMode = imageRenderingMode
+        self.imageInterpolation = imageInterpolation
+        self.imageAntialiased = imageAntialiased
         self.keyboardShortcuts = keyboardShortcuts
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)

@@ -167,6 +167,8 @@ public final class ComponentHost {
         if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
         if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
         if target.imageRenderingMode != source.imageRenderingMode { target.imageRenderingMode = source.imageRenderingMode }
+        if target.imageInterpolation != source.imageInterpolation { target.imageInterpolation = source.imageInterpolation }
+        if target.imageAntialiased != source.imageAntialiased { target.imageAntialiased = source.imageAntialiased }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
         if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
         if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }

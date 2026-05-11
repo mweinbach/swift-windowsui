@@ -1998,6 +1998,13 @@ public struct Image: View {
         case original
     }
 
+    public enum Interpolation: Sendable, Equatable {
+        case none
+        case low
+        case medium
+        case high
+    }
+
     private enum Storage {
         case systemName(String)
         case bitmap(BitmapSurface?)
@@ -2013,6 +2020,8 @@ public struct Image: View {
     private var aspectRatioValue: Double?
     private var contentMode: ContentMode?
     private var renderingMode: TemplateRenderingMode?
+    private var interpolation: Interpolation
+    private var antialiased: Bool?
     private var accessibilityLabel: String?
     private var isAccessibilityHidden: Bool
     private var symbolVariableValue: Double?
@@ -2051,6 +2060,8 @@ public struct Image: View {
         self.aspectRatioValue = nil
         self.contentMode = nil
         self.renderingMode = nil
+        self.interpolation = .medium
+        self.antialiased = nil
         self.accessibilityLabel = nil
         self.isAccessibilityHidden = false
         self.symbolVariableValue = nil
@@ -2150,6 +2161,18 @@ public struct Image: View {
         return copy
     }
 
+    public func interpolation(_ interpolation: Interpolation) -> Image {
+        var copy = self
+        copy.interpolation = interpolation
+        return copy
+    }
+
+    public func antialiased(_ isAntialiased: Bool) -> Image {
+        var copy = self
+        copy.antialiased = isAntialiased
+        return copy
+    }
+
     private func resolvedPreferredSize(baseSize: Size?, requiresExplicitOptIn: Bool) -> Size? {
         guard let baseSize else {
             return nil
@@ -2227,6 +2250,8 @@ public struct Image: View {
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
         node.imageCapInsets = isResizable ? capInsets : nil
         node.imageRenderingMode = renderingMode?.retainedImageRenderingMode
+        node.imageInterpolation = interpolation.retainedImageInterpolation
+        node.imageAntialiased = antialiased
     }
 }
 
@@ -2248,6 +2273,21 @@ extension Image.TemplateRenderingMode {
             return .original
         case .template:
             return .template
+        }
+    }
+}
+
+extension Image.Interpolation {
+    var retainedImageInterpolation: RetainedImageInterpolation {
+        switch self {
+        case .none:
+            return .none
+        case .low:
+            return .low
+        case .medium:
+            return .medium
+        case .high:
+            return .high
         }
     }
 }

@@ -88,6 +88,9 @@ final class ComponentHostTests: XCTestCase {
                     let imageCapInsets = useSecondState
                         ? EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8)
                         : EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
+                    let imageRenderingMode: RetainedImageRenderingMode = useSecondState ? .original : .template
+                    let imageInterpolation: RetainedImageInterpolation = useSecondState ? .high : .low
+                    let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
                     let matchedGeometryEffect = useSecondState
                         ? RetainedMatchedGeometryEffect(
@@ -119,6 +122,9 @@ final class ComponentHostTests: XCTestCase {
                     node.symbolVariableValue = symbolVariableValue
                     node.imageResizingMode = imageResizingMode
                     node.imageCapInsets = imageCapInsets
+                    node.imageRenderingMode = imageRenderingMode
+                    node.imageInterpolation = imageInterpolation
+                    node.imageAntialiased = imageAntialiased
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
                     node.matchedGeometryEffect = matchedGeometryEffect
                     node.isFocusable = useSecondState
@@ -156,6 +162,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.symbolVariableValue, 0.25)
             XCTAssertEqual(firstNode?.imageResizingMode, .stretch)
             XCTAssertEqual(firstNode?.imageCapInsets, EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4))
+            XCTAssertEqual(firstNode?.imageRenderingMode, .template)
+            XCTAssertEqual(firstNode?.imageInterpolation, .low)
+            XCTAssertEqual(firstNode?.imageAntialiased, false)
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
             XCTAssertEqual(
                 firstNode?.matchedGeometryEffect,
@@ -189,6 +198,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.symbolVariableValue, 0.75)
             XCTAssertEqual(reusedNode?.imageResizingMode, .tile)
             XCTAssertEqual(reusedNode?.imageCapInsets, EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8))
+            XCTAssertEqual(reusedNode?.imageRenderingMode, .original)
+            XCTAssertEqual(reusedNode?.imageInterpolation, .high)
+            XCTAssertEqual(reusedNode?.imageAntialiased, true)
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
             XCTAssertEqual(
                 reusedNode?.matchedGeometryEffect,

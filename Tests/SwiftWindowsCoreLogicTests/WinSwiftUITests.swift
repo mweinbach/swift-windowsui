@@ -5740,6 +5740,15 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .controlGroupStyle(MenuControlGroupStyle())
             )
+            let tint = Color(red: 0.25, green: 0.65, blue: 0.95, alpha: 1)
+            let paletteGroupNode = makeNode(
+                ControlGroup {
+                    Button("BOLD") {}
+                    Button("ITALIC") {}
+                }
+                .controlGroupStyle(.palette)
+                .tint(tint)
+            )
 
             XCTAssertEqual(readerNode.text, "PALETTE")
             XCTAssertEqual(compactReaderNode.text, "COMPACT")
@@ -5747,6 +5756,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 10)
+            XCTAssertEqual(paletteGroupNode.cornerRadius, 8)
+            XCTAssertEqual(paletteGroupNode.borderColor, tint.opacity(0.34))
+            XCTAssertEqual(paletteGroupNode.children[0].backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
+            XCTAssertEqual(paletteGroupNode.children[1].backgroundColor, ButtonSurfaceStyle.defaultPalette.idle)
         }
     }
 

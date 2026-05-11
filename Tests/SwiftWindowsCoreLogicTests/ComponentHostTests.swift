@@ -92,6 +92,7 @@ final class ComponentHostTests: XCTestCase {
                     let submitLabel: RetainedSubmitLabel = useSecondState ? .search : .return
                     let caretOffset = useSecondState ? 4 : 1
                     let textSelectability: RetainedTextSelectability = useSecondState ? .disabled : .enabled
+                    let textContentType = RetainedTextContentType(rawValue: useSecondState ? "password" : "username")
                     let isFindDisabled = useSecondState
                     let isReplaceDisabled = !useSecondState
                     let isFindNavigatorPresented = useSecondState
@@ -182,6 +183,7 @@ final class ComponentHostTests: XCTestCase {
                     node.textInputSubmitLabel = submitLabel
                     node.textInputCaretOffset = caretOffset
                     node.textSelectability = textSelectability
+                    node.textContentType = textContentType
                     node.isFindDisabled = isFindDisabled
                     node.isReplaceDisabled = isReplaceDisabled
                     node.isFindNavigatorPresented = isFindNavigatorPresented
@@ -240,6 +242,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
             XCTAssertEqual(firstNode?.textInputCaretOffset, 1)
             XCTAssertEqual(firstNode?.textSelectability, .enabled)
+            XCTAssertEqual(firstNode?.textContentType, RetainedTextContentType(rawValue: "username"))
             XCTAssertFalse(firstNode?.isFindDisabled ?? true)
             XCTAssertTrue(firstNode?.isReplaceDisabled ?? false)
             XCTAssertFalse(firstNode?.isFindNavigatorPresented ?? true)
@@ -323,6 +326,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
             XCTAssertEqual(reusedNode?.textInputCaretOffset, 4)
             XCTAssertEqual(reusedNode?.textSelectability, .disabled)
+            XCTAssertEqual(reusedNode?.textContentType, RetainedTextContentType(rawValue: "password"))
             XCTAssertTrue(reusedNode?.isFindDisabled ?? false)
             XCTAssertFalse(reusedNode?.isReplaceDisabled ?? true)
             XCTAssertTrue(reusedNode?.isFindNavigatorPresented ?? false)

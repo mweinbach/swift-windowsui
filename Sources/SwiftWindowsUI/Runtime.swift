@@ -186,6 +186,14 @@ public enum RetainedTextSelectability: Sendable, Equatable {
     case disabled
 }
 
+public struct RetainedTextContentType: Sendable, Equatable, Hashable {
+    public var rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+}
+
 public struct RetainedAccessibilityAction {
     public var name: String?
     public var kind: RetainedAccessibilityActionKind?
@@ -934,6 +942,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var textContentType: RetainedTextContentType? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isFindDisabled: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1150,6 +1162,7 @@ public final class ViewNode {
         textInputSubmitLabel: RetainedSubmitLabel = .return,
         textInputCaretOffset: Int = 0,
         textSelectability: RetainedTextSelectability? = nil,
+        textContentType: RetainedTextContentType? = nil,
         isFindDisabled: Bool = false,
         isReplaceDisabled: Bool = false,
         isFindNavigatorPresented: Bool = false,
@@ -1235,6 +1248,7 @@ public final class ViewNode {
         self.textInputSubmitLabel = textInputSubmitLabel
         self.textInputCaretOffset = max(0, textInputCaretOffset)
         self.textSelectability = textSelectability
+        self.textContentType = textContentType
         self.isFindDisabled = isFindDisabled
         self.isReplaceDisabled = isReplaceDisabled
         self.isFindNavigatorPresented = isFindNavigatorPresented

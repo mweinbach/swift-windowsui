@@ -770,6 +770,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextContentTypeModifierRetainsMetadata() async {
+        await MainActor.run {
+            var value = ""
+            let binding = Binding(
+                get: { value },
+                set: { value = $0 }
+            )
+            let explicitNode = makeNode(
+                TextField("USER", text: binding)
+                    .textContentType(.username)
+            )
+            let secureNode = makeNode(
+                SecureField("PASSWORD", text: binding)
+                    .textContentType(.password)
+            )
+            let resetNode = makeNode(
+                TextField("RESET", text: binding)
+                    .textContentType(nil)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    TextField("EMAIL", text: binding)
+                    TextEditor(text: binding)
+                        .textContentType(.URL)
+                }
+                .textContentType(.emailAddress)
+            )
+
+            XCTAssertEqual(explicitNode.textContentType, RetainedTextContentType(rawValue: "username"))
+            XCTAssertEqual(secureNode.textContentType, RetainedTextContentType(rawValue: "password"))
+            XCTAssertNil(resetNode.textContentType)
+            XCTAssertEqual(inheritedNode.children[0].textContentType, RetainedTextContentType(rawValue: "emailAddress"))
+            XCTAssertEqual(inheritedNode.children[1].textContentType, RetainedTextContentType(rawValue: "URL"))
+        }
+    }
+
     func testTextEditorFindAndReplaceModifiersRetainMetadata() async {
         await MainActor.run {
             var value = "Find me"

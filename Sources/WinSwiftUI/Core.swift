@@ -792,6 +792,57 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case characters
 }
 
+public struct NSTextContentType: RawRepresentable, Sendable, Equatable, Hashable, ExpressibleByStringLiteral {
+    public var rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(stringLiteral value: String) {
+        self.rawValue = value
+    }
+
+    public static let username = NSTextContentType(rawValue: "username")
+    public static let password = NSTextContentType(rawValue: "password")
+    public static let newPassword = NSTextContentType(rawValue: "newPassword")
+    public static let oneTimeCode = NSTextContentType(rawValue: "oneTimeCode")
+    public static let emailAddress = NSTextContentType(rawValue: "emailAddress")
+    public static let telephoneNumber = NSTextContentType(rawValue: "telephoneNumber")
+    public static let URL = NSTextContentType(rawValue: "URL")
+    public static let name = NSTextContentType(rawValue: "name")
+    public static let namePrefix = NSTextContentType(rawValue: "namePrefix")
+    public static let givenName = NSTextContentType(rawValue: "givenName")
+    public static let middleName = NSTextContentType(rawValue: "middleName")
+    public static let familyName = NSTextContentType(rawValue: "familyName")
+    public static let nameSuffix = NSTextContentType(rawValue: "nameSuffix")
+    public static let nickname = NSTextContentType(rawValue: "nickname")
+    public static let organizationName = NSTextContentType(rawValue: "organizationName")
+    public static let jobTitle = NSTextContentType(rawValue: "jobTitle")
+    public static let location = NSTextContentType(rawValue: "location")
+    public static let fullStreetAddress = NSTextContentType(rawValue: "fullStreetAddress")
+    public static let streetAddressLine1 = NSTextContentType(rawValue: "streetAddressLine1")
+    public static let streetAddressLine2 = NSTextContentType(rawValue: "streetAddressLine2")
+    public static let addressCity = NSTextContentType(rawValue: "addressCity")
+    public static let addressState = NSTextContentType(rawValue: "addressState")
+    public static let addressCityAndState = NSTextContentType(rawValue: "addressCityAndState")
+    public static let postalCode = NSTextContentType(rawValue: "postalCode")
+    public static let countryName = NSTextContentType(rawValue: "countryName")
+    public static let creditCardNumber = NSTextContentType(rawValue: "creditCardNumber")
+    public static let creditCardName = NSTextContentType(rawValue: "creditCardName")
+    public static let creditCardGivenName = NSTextContentType(rawValue: "creditCardGivenName")
+    public static let creditCardMiddleName = NSTextContentType(rawValue: "creditCardMiddleName")
+    public static let creditCardFamilyName = NSTextContentType(rawValue: "creditCardFamilyName")
+    public static let creditCardExpiration = NSTextContentType(rawValue: "creditCardExpiration")
+    public static let creditCardExpirationMonth = NSTextContentType(rawValue: "creditCardExpirationMonth")
+    public static let creditCardExpirationYear = NSTextContentType(rawValue: "creditCardExpirationYear")
+    public static let creditCardSecurityCode = NSTextContentType(rawValue: "creditCardSecurityCode")
+
+    var retainedContentType: RetainedTextContentType {
+        RetainedTextContentType(rawValue: rawValue)
+    }
+}
+
 public enum Visibility: Sendable, Equatable {
     case automatic
     case visible
@@ -1656,6 +1707,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var listStyle: ListStyle
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
+    var textContentType: NSTextContentType?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
@@ -1891,6 +1943,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.listStyle = listStyle
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
+        self.textContentType = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
@@ -2686,6 +2739,10 @@ public struct ViewBuildContext {
 
     public var isAutocorrectionDisabled: Bool {
         environmentValuesProvider().isAutocorrectionDisabled
+    }
+
+    var textContentType: NSTextContentType? {
+        environmentValuesProvider().textContentType
     }
 
     var isFindDisabled: Bool {
@@ -10099,6 +10156,12 @@ public extension View {
 
     func disableAutocorrection(_ disable: Bool?) -> some View {
         autocorrectionDisabled(disable ?? false)
+    }
+
+    func textContentType(_ textContentType: NSTextContentType?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textContentType, textContentType))
+        }
     }
 
     func findDisabled(_ isDisabled: Bool = true) -> some View {

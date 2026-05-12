@@ -249,15 +249,20 @@ public struct Rectangle: View {
 public struct RoundedRectangle: View {
     public typealias Body = Never
 
-    private let cornerRadius: Double
-    private let style: RoundedCornerStyle
+    public let cornerSize: CGSize
+    public let style: RoundedCornerStyle
     private var fillStyle: ForegroundStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
 
     public init(cornerRadius: Double, style: RoundedCornerStyle = .circular) {
-        self.cornerRadius = max(0, cornerRadius)
+        let radius = max(0, cornerRadius)
+        self.init(cornerSize: CGSize(width: radius, height: radius), style: style)
+    }
+
+    public init(cornerSize: CGSize, style: RoundedCornerStyle = .continuous) {
+        self.cornerSize = CGSize(width: max(0, cornerSize.width), height: max(0, cornerSize.height))
         self.style = style
         self.fillStyle = nil
         self.strokeStyle = nil
@@ -275,7 +280,7 @@ public struct RoundedRectangle: View {
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle,
-            cornerRadius: cornerRadius
+            cornerRadius: retainedUniformFallbackRadius
         )
     }
 
@@ -372,6 +377,10 @@ public struct RoundedRectangle: View {
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> RoundedRectangle {
         stroke(gradient, style: style)
+    }
+
+    var retainedUniformFallbackRadius: CGFloat {
+        max(cornerSize.width, cornerSize.height)
     }
 }
 
@@ -1442,7 +1451,7 @@ extension Rectangle: InsettableShape, RetainedClipShape {
 
 extension RoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
-        .roundedRectangle(cornerRadius)
+        .roundedRectangle(retainedUniformFallbackRadius)
     }
 }
 

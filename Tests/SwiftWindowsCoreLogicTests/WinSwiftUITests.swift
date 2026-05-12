@@ -2151,6 +2151,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testRoundedRectangleCornerSizeInitializerMapsToRetainedRoundedFallback() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.2, green: 0.7, blue: 0.6, alpha: 1)
+            let strokeColor = Color(red: 0.8, green: 0.4, blue: 0.3, alpha: 1)
+            let shape = RoundedRectangle(cornerSize: CGSize(width: 6, height: 14), style: .continuous)
+
+            XCTAssertEqual(shape.cornerSize, CGSize(width: 6, height: 14))
+            XCTAssertEqual(shape.style, .continuous)
+
+            let filledNode = makeNode(shape.fill(fillColor))
+            XCTAssertEqual(filledNode.backgroundColor, fillColor)
+            XCTAssertEqual(filledNode.cornerRadius, 14)
+
+            let strokedNode = makeNode(
+                RoundedRectangle(cornerSize: CGSize(width: -2, height: 9), style: .circular)
+                    .strokeBorder(strokeColor, lineWidth: 2)
+            )
+            XCTAssertEqual(strokedNode.backgroundColor, .clear)
+            XCTAssertEqual(strokedNode.borderColor, strokeColor)
+            XCTAssertEqual(strokedNode.borderWidth, 2)
+            XCTAssertEqual(strokedNode.cornerRadius, 9)
+
+            let clippedNode = makeNode(Text("CLIP").clipShape(shape))
+            XCTAssertTrue(clippedNode.clipsToBounds)
+            XCTAssertEqual(clippedNode.cornerRadius, 14)
+        }
+    }
+
     func testUnevenRoundedRectangleMapsToRetainedRoundedFallback() async {
         await MainActor.run {
             let fillColor = Color(red: 0.3, green: 0.7, blue: 0.9, alpha: 1)

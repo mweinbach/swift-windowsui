@@ -2574,6 +2574,19 @@ public struct Binding<Value>: DynamicProperty {
         )
     }
 
+    public subscript<Element>(position: Value.Index) -> Binding<Element> where Value: MutableCollection, Value.Element == Element {
+        Binding<Element>(
+            get: {
+                wrappedValue[position]
+            },
+            set: { newValue in
+                var value = wrappedValue
+                value[position] = newValue
+                wrappedValue = value
+            }
+        )
+    }
+
     public func transaction(_ transaction: Transaction) -> Binding<Value> {
         let _ = transaction
         return self

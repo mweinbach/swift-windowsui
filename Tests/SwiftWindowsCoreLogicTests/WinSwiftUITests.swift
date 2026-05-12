@@ -9894,6 +9894,64 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBindingCollectionSubscriptReadsWritesElements() async {
+        await MainActor.run {
+            struct Settings {
+                var isEnabled: Bool
+                var title: String
+            }
+
+            var settings = [
+                Settings(isEnabled: false, title: "ALPHA"),
+                Settings(isEnabled: true, title: "BETA")
+            ]
+            let settingsBinding = Binding(
+                get: { settings },
+                set: { settings = $0 }
+            )
+
+            XCTAssertEqual(settingsBinding[1].title.wrappedValue, "BETA")
+
+            settingsBinding[0].isEnabled.wrappedValue = true
+            settingsBinding[1].title.wrappedValue = "GAMMA"
+
+            XCTAssertTrue(settings[0].isEnabled)
+            XCTAssertEqual(settings[1].title, "GAMMA")
+        }
+    }
+
+    func testBindingCollectionSubscriptFeedsRetainedControls() async {
+        await MainActor.run {
+            struct Settings {
+                var isEnabled: Bool
+                var title: String
+            }
+
+            var settings = [
+                Settings(isEnabled: false, title: "ALPHA"),
+                Settings(isEnabled: true, title: "BETA")
+            ]
+            let settingsBinding = Binding(
+                get: { settings },
+                set: { settings = $0 }
+            )
+
+            let node = makeNode(
+                VStack {
+                    Toggle("FIRST", isOn: settingsBinding[0].isEnabled)
+                    TextField("SECOND", text: settingsBinding[1].title)
+                }
+            )
+            let controls = focusableNodes(in: node)
+
+            controls.first?.onActivate?()
+            controls.last?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertTrue(settings[0].isEnabled)
+            XCTAssertEqual(settings[1].title, "BETAz")
+        }
+    }
+
     func testBindingOptionalPromotionReadsAndWritesNonNilValues() async {
         await MainActor.run {
             var title = "ALPHA"

@@ -12516,6 +12516,15 @@ public extension View {
         return background(gradient)
     }
 
+    func background<Style: ShapeStyle, Clip: Shape>(
+        _ style: Style,
+        in shape: Clip,
+        fillStyle: FillStyle = FillStyle()
+    ) -> some View {
+        let fill = resolvedStyleFill(from: style.retainedForegroundStyle)
+        return shapedBackgroundStyle(color: fill.color, gradient: fill.gradient, shape: shape, fillStyle: fillStyle)
+    }
+
     private func backgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -12528,6 +12537,59 @@ public extension View {
                     isHitTestVisible: false,
                     children: [childNode]
                 )
+            }
+        }
+    }
+
+    private func shapedBackgroundStyle<Clip: Shape>(
+        color: Color?,
+        gradient: LinearGradient?,
+        shape: Clip,
+        fillStyle: FillStyle
+    ) -> some View {
+        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipFillStyle = RetainedClipFillStyle(
+            eoFill: fillStyle.isEOFilled,
+            antialiased: fillStyle.isAntialiased
+        )
+
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let backgroundNode = Controls.panel(
+                    backgroundColor: color,
+                    backgroundGradient: gradient,
+                    cornerRadius: clipStyle.staticCornerRadius,
+                    clipsToBounds: true,
+                    isHitTestVisible: false
+                )
+                backgroundNode.clipFillStyle = clipFillStyle
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let frame = Rect(origin: .zero, size: bounds.size)
+                    if baseNode.frame != frame {
+                        baseNode.frame = frame
+                    }
+                    if backgroundNode.frame != frame {
+                        backgroundNode.frame = frame
+                    }
+                    if case .capsule = clipStyle {
+                        let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                        if backgroundNode.cornerRadius != radius {
+                            backgroundNode.cornerRadius = radius
+                        }
+                    }
+                }
+
+                return root
             }
         }
     }
@@ -12690,6 +12752,15 @@ public extension View {
         return overlay(gradient)
     }
 
+    func overlay<Style: ShapeStyle, Clip: Shape>(
+        _ style: Style,
+        in shape: Clip,
+        fillStyle: FillStyle = FillStyle()
+    ) -> some View {
+        let fill = resolvedStyleFill(from: style.retainedForegroundStyle)
+        return shapedOverlayStyle(color: fill.color, gradient: fill.gradient, shape: shape, fillStyle: fillStyle)
+    }
+
     func overlay(alignment: Alignment = .center, @ViewBuilder content overlayContent: () -> [AnyView]) -> some View {
         let overlayViews = overlayContent()
         return ModifiedView(content: self) { content, context in
@@ -12723,6 +12794,59 @@ public extension View {
                     let overlayFrame = Rect(origin: overlayOrigin, size: overlaySize)
                     if overlayNode.frame != overlayFrame {
                         overlayNode.frame = overlayFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
+    private func shapedOverlayStyle<Clip: Shape>(
+        color: Color?,
+        gradient: LinearGradient?,
+        shape: Clip,
+        fillStyle: FillStyle
+    ) -> some View {
+        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipFillStyle = RetainedClipFillStyle(
+            eoFill: fillStyle.isEOFilled,
+            antialiased: fillStyle.isAntialiased
+        )
+
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let overlayNode = Controls.panel(
+                    backgroundColor: color,
+                    backgroundGradient: gradient,
+                    cornerRadius: clipStyle.staticCornerRadius,
+                    clipsToBounds: true,
+                    isHitTestVisible: false
+                )
+                overlayNode.clipFillStyle = clipFillStyle
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [baseNode, overlayNode]
+                )
+
+                root.onLayout = { bounds in
+                    let frame = Rect(origin: .zero, size: bounds.size)
+                    if baseNode.frame != frame {
+                        baseNode.frame = frame
+                    }
+                    if overlayNode.frame != frame {
+                        overlayNode.frame = frame
+                    }
+                    if case .capsule = clipStyle {
+                        let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                        if overlayNode.cornerRadius != radius {
+                            overlayNode.cornerRadius = radius
+                        }
                     }
                 }
 

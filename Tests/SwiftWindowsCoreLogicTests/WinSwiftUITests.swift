@@ -3531,6 +3531,49 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapedBackgroundAndOverlayStyleOverloadsFillBaseLayout() async {
+        await MainActor.run {
+            let color = Color(red: 0.2, green: 0.6, blue: 0.8, alpha: 0.9)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .leading, endPoint: .trailing)
+            let backgroundNode = renderedNode(
+                Text("BACKGROUND")
+                    .frame(width: 90, height: 36)
+                    .background(color, in: RoundedRectangle(cornerRadius: 9), fillStyle: FillStyle(eoFill: true, antialiased: false))
+            )
+            let materialNode = renderedNode(
+                Text("MATERIAL")
+                    .frame(width: 80, height: 32)
+                    .background(.regularMaterial, in: Capsule())
+            )
+            let overlayNode = renderedNode(
+                Text("OVERLAY")
+                    .frame(width: 72, height: 28)
+                    .overlay(gradient, in: Circle(), fillStyle: FillStyle(antialiased: false))
+            )
+
+            XCTAssertEqual(backgroundNode.children.count, 2)
+            XCTAssertEqual(backgroundNode.children[0].backgroundColor, color)
+            XCTAssertEqual(backgroundNode.children[0].cornerRadius, 9)
+            XCTAssertTrue(backgroundNode.children[0].clipsToBounds)
+            XCTAssertEqual(backgroundNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
+            XCTAssertEqual(backgroundNode.children[0].frame, Rect(x: 0, y: 0, width: 90, height: 36))
+            XCTAssertEqual(firstText(in: backgroundNode.children[1]), "BACKGROUND")
+
+            XCTAssertEqual(materialNode.children[0].backgroundColor, Material.regular.retainedFallbackColor)
+            XCTAssertEqual(materialNode.children[0].cornerRadius, 16)
+            XCTAssertEqual(materialNode.children[0].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+            XCTAssertEqual(firstText(in: materialNode.children[1]), "MATERIAL")
+
+            XCTAssertEqual(overlayNode.children.count, 2)
+            XCTAssertEqual(firstText(in: overlayNode.children[0]), "OVERLAY")
+            XCTAssertEqual(overlayNode.children[1].backgroundGradient, gradient)
+            XCTAssertEqual(overlayNode.children[1].cornerRadius, 14)
+            XCTAssertTrue(overlayNode.children[1].clipsToBounds)
+            XCTAssertEqual(overlayNode.children[1].clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: false))
+            XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
+        }
+    }
+
     func testCustomViewModifierMapsThroughRetainedComponentPipeline() async {
         await MainActor.run {
             let node = makeNode(

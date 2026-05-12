@@ -5533,6 +5533,65 @@ extension Array: View where Element == AnyView {
     }
 }
 
+extension Optional: View where Wrapped: View {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("Optional<View> has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        switch self {
+        case .some(let wrapped):
+            return wrapped.makeComponent(context: context)
+        case .none:
+            return EmptyView().makeComponent(context: context)
+        }
+    }
+}
+
+extension Optional: TaggedViewMetadata where Wrapped: View {
+    var anySelectionTag: AnyHashable? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anySelectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyTabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyBadge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationTitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationBarBackButtonHidden
+    }
+
+    var anyNavigationBarHidden: Bool? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationBarHidden
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyToolbarItemPlacement
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationDestinationRegistrations ?? []
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationPresentedDestinations ?? []
+    }
+}
+
 @MainActor
 @resultBuilder
 public enum ViewBuilder {

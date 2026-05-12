@@ -3161,6 +3161,34 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOptionalViewRendersWrappedContentOrEmptyView() async {
+        await MainActor.run {
+            let present: Text? = Text("OPTIONAL")
+            let absent: Text? = nil
+
+            let presentNode = makeNode(present)
+            let absentNode = makeNode(absent)
+
+            XCTAssertEqual(presentNode.text, "OPTIONAL")
+            XCTAssertTrue(allTexts(in: absentNode).isEmpty)
+            XCTAssertEqual(absentNode.intrinsicContentSize(), .zero)
+        }
+    }
+
+    func testOptionalViewPreservesWrappedMetadataWhenPresent() async {
+        await MainActor.run {
+            let tagged = Text("OPTION").tag("selected")
+            let present = Optional(tagged)
+            let absent: Text? = nil
+
+            XCTAssertEqual(
+                (present as any TaggedViewMetadata).anySelectionTag,
+                AnyHashable("selected")
+            )
+            XCTAssertNil((absent as any TaggedViewMetadata).anySelectionTag)
+        }
+    }
+
     func testForegroundStyleMultiArgumentOverloadsUsePrimaryStyle() async {
         await MainActor.run {
             let primaryColor = Color(red: 0.6, green: 0.2, blue: 0.9, alpha: 1)

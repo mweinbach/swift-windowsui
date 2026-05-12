@@ -3055,6 +3055,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var horizontalScrollBounceBehavior: ScrollBounceBehavior
     public var verticalScrollBounceBehavior: ScrollBounceBehavior
+    public var scrollTargetBehavior: AnyScrollTargetBehavior?
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
@@ -3181,6 +3182,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         horizontalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
         verticalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
+        scrollTargetBehavior: AnyScrollTargetBehavior? = nil,
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
@@ -3327,6 +3329,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
         self.horizontalScrollBounceBehavior = horizontalScrollBounceBehavior
         self.verticalScrollBounceBehavior = verticalScrollBounceBehavior
+        self.scrollTargetBehavior = scrollTargetBehavior
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
@@ -4982,6 +4985,10 @@ public struct ViewBuildContext {
 
     public var verticalScrollBounceBehavior: ScrollBounceBehavior {
         environmentValuesProvider().verticalScrollBounceBehavior
+    }
+
+    public var scrollTargetBehavior: AnyScrollTargetBehavior? {
+        environmentValuesProvider().scrollTargetBehavior
     }
 
     func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
@@ -9712,6 +9719,187 @@ public struct ScrollBounceBehavior: Sendable, Equatable, Hashable, CustomStringC
         case .never:
             return "never"
         }
+    }
+}
+
+public struct ScrollTarget: Sendable, Equatable {
+    public var rect: CGRect
+    public var anchor: UnitPoint?
+
+    public init(rect: CGRect, anchor: UnitPoint? = nil) {
+        self.rect = rect
+        self.anchor = anchor
+    }
+}
+
+public struct ScrollTargetBehaviorContext: Sendable, Equatable {
+    public var originalTarget: ScrollTarget
+    public var velocity: CGPoint
+    public var contentSize: CGSize
+    public var containerSize: CGSize
+    public var axes: Axis.Set
+
+    public init(
+        originalTarget: ScrollTarget = ScrollTarget(rect: CGRect(x: 0, y: 0, width: 0, height: 0)),
+        velocity: CGPoint = .zero,
+        contentSize: CGSize = .zero,
+        containerSize: CGSize = .zero,
+        axes: Axis.Set = .vertical
+    ) {
+        self.originalTarget = originalTarget
+        self.velocity = velocity
+        self.contentSize = contentSize
+        self.containerSize = containerSize
+        self.axes = axes
+    }
+}
+
+public struct ScrollTargetBehaviorProperties: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ScrollTargetBehaviorPropertiesContext: Sendable, Equatable {
+    public var axes: Axis.Set
+    public var containerSize: CGSize
+
+    public init(axes: Axis.Set = .vertical, containerSize: CGSize = .zero) {
+        self.axes = axes
+        self.containerSize = containerSize
+    }
+}
+
+public protocol ScrollTargetBehavior: Sendable {
+    typealias TargetContext = ScrollTargetBehaviorContext
+    typealias Properties = ScrollTargetBehaviorProperties
+    typealias PropertiesContext = ScrollTargetBehaviorPropertiesContext
+
+    func updateTarget(_ target: inout ScrollTarget, context: TargetContext)
+    func properties(context: PropertiesContext) -> Properties
+    var retainedScrollTargetBehaviorDescription: String { get }
+}
+
+public extension ScrollTargetBehavior {
+    func properties(context: PropertiesContext) -> Properties {
+        ScrollTargetBehaviorProperties()
+    }
+
+    var retainedScrollTargetBehaviorDescription: String {
+        String(describing: Self.self)
+    }
+}
+
+public struct PagingScrollTargetBehavior: ScrollTargetBehavior, Equatable, Hashable, CustomStringConvertible {
+    public init() {}
+
+    public func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {}
+
+    public var retainedScrollTargetBehaviorDescription: String {
+        description
+    }
+
+    public var description: String {
+        "paging"
+    }
+}
+
+public struct ViewAlignedScrollTargetBehavior: ScrollTargetBehavior, Equatable, CustomStringConvertible {
+    public struct LimitBehavior: Sendable, Equatable, Hashable, CustomStringConvertible {
+        private enum Kind: Sendable, Equatable, Hashable {
+            case automatic
+            case always
+            case never
+        }
+
+        private let kind: Kind
+
+        private init(_ kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let automatic = LimitBehavior(.automatic)
+        public static let always = LimitBehavior(.always)
+        public static let never = LimitBehavior(.never)
+
+        public var description: String {
+            switch kind {
+            case .automatic:
+                return "automatic"
+            case .always:
+                return "always"
+            case .never:
+                return "never"
+            }
+        }
+    }
+
+    public var limitBehavior: LimitBehavior
+    public var anchor: UnitPoint?
+
+    public init(limitBehavior: LimitBehavior = .automatic, anchor: UnitPoint? = nil) {
+        self.limitBehavior = limitBehavior
+        self.anchor = anchor
+    }
+
+    public init(anchor: UnitPoint?) {
+        self.init(limitBehavior: .automatic, anchor: anchor)
+    }
+
+    public func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {}
+
+    public var retainedScrollTargetBehaviorDescription: String {
+        description
+    }
+
+    public var description: String {
+        if let anchor {
+            return "viewAligned(limitBehavior:\(limitBehavior),anchor:\(anchor.x),\(anchor.y))"
+        }
+        return "viewAligned(limitBehavior:\(limitBehavior),anchor:nil)"
+    }
+}
+
+public struct AnyScrollTargetBehavior: ScrollTargetBehavior, Equatable, Hashable, CustomStringConvertible {
+    private let retainedDescription: String
+
+    public init(_ behavior: some ScrollTargetBehavior) {
+        self.retainedDescription = behavior.retainedScrollTargetBehaviorDescription
+    }
+
+    public func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {}
+
+    public var retainedScrollTargetBehaviorDescription: String {
+        retainedDescription
+    }
+
+    public var description: String {
+        retainedDescription
+    }
+}
+
+public extension ScrollTargetBehavior where Self == PagingScrollTargetBehavior {
+    static var paging: PagingScrollTargetBehavior {
+        PagingScrollTargetBehavior()
+    }
+}
+
+public extension ScrollTargetBehavior where Self == ViewAlignedScrollTargetBehavior {
+    static var viewAligned: ViewAlignedScrollTargetBehavior {
+        ViewAlignedScrollTargetBehavior()
+    }
+
+    static func viewAligned(anchor: UnitPoint?) -> ViewAlignedScrollTargetBehavior {
+        ViewAlignedScrollTargetBehavior(anchor: anchor)
+    }
+
+    static func viewAligned(limitBehavior: ViewAlignedScrollTargetBehavior.LimitBehavior) -> ViewAlignedScrollTargetBehavior {
+        ViewAlignedScrollTargetBehavior(limitBehavior: limitBehavior)
+    }
+
+    static func viewAligned(
+        limitBehavior: ViewAlignedScrollTargetBehavior.LimitBehavior,
+        anchor: UnitPoint?
+    ) -> ViewAlignedScrollTargetBehavior {
+        ViewAlignedScrollTargetBehavior(limitBehavior: limitBehavior, anchor: anchor)
     }
 }
 
@@ -16806,6 +16994,23 @@ public extension View {
                 resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollBounceBehavior, behavior)
             }
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func scrollTargetBehavior(_ behavior: some ScrollTargetBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.scrollTargetBehavior, AnyScrollTargetBehavior(behavior)))
+        }
+    }
+
+    func scrollTargetLayout(isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.isScrollTargetLayout = isEnabled
+                return node
+            }
         }
     }
 

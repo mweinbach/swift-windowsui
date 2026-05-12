@@ -1138,6 +1138,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var scrollTargetBehavior: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var isScrollTargetLayout: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1573,6 +1581,8 @@ public final class ViewNode {
         hasDragPreview: Bool = false,
         horizontalScrollBounceBehavior: String = "automatic",
         verticalScrollBounceBehavior: String = "automatic",
+        scrollTargetBehavior: String? = nil,
+        isScrollTargetLayout: Bool = false,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1699,6 +1709,8 @@ public final class ViewNode {
         self.hasDragPreview = hasDragPreview
         self.horizontalScrollBounceBehavior = horizontalScrollBounceBehavior
         self.verticalScrollBounceBehavior = verticalScrollBounceBehavior
+        self.scrollTargetBehavior = scrollTargetBehavior
+        self.isScrollTargetLayout = isScrollTargetLayout
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

@@ -5904,6 +5904,59 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollTargetBehaviorAndLayoutRetainMetadata() async {
+        await MainActor.run {
+            struct CustomTargetBehavior: ScrollTargetBehavior {
+                func updateTarget(_ target: inout ScrollTarget, context: TargetContext) {
+                    target.anchor = .bottom
+                }
+
+                var retainedScrollTargetBehaviorDescription: String {
+                    "customTarget"
+                }
+            }
+
+            let pagingNode = makeNode(
+                ScrollView {
+                    VStack {
+                        Text("ROW")
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.paging)
+            )
+            let viewAlignedNode = makeNode(
+                ScrollView(.horizontal) {
+                    HStack {
+                        Text("A")
+                        Text("B")
+                    }
+                    .scrollTargetLayout(isEnabled: false)
+                }
+                .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+            )
+            let anchoredListNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollTargetBehavior(.viewAligned(limitBehavior: .never, anchor: .center))
+            )
+            let customSectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollTargetBehavior(CustomTargetBehavior())
+            )
+
+            XCTAssertEqual(pagingNode.scrollTargetBehavior, "paging")
+            XCTAssertEqual(pagingNode.children.first?.isScrollTargetLayout, true)
+            XCTAssertEqual(viewAlignedNode.scrollTargetBehavior, "viewAligned(limitBehavior:always,anchor:nil)")
+            XCTAssertEqual(viewAlignedNode.children.first?.isScrollTargetLayout, false)
+            XCTAssertEqual(anchoredListNode.scrollTargetBehavior, "viewAligned(limitBehavior:never,anchor:0.5,0.5)")
+            XCTAssertEqual(customSectionNode.scrollTargetBehavior, "customTarget")
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

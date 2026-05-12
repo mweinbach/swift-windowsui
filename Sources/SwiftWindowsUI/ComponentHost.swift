@@ -173,6 +173,8 @@ public final class ComponentHost {
         if target.hasDragPreview != source.hasDragPreview { target.hasDragPreview = source.hasDragPreview }
         if target.horizontalScrollBounceBehavior != source.horizontalScrollBounceBehavior { target.horizontalScrollBounceBehavior = source.horizontalScrollBounceBehavior }
         if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior { target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior }
+        if target.scrollTargetBehavior != source.scrollTargetBehavior { target.scrollTargetBehavior = source.scrollTargetBehavior }
+        if target.isScrollTargetLayout != source.isScrollTargetLayout { target.isScrollTargetLayout = source.isScrollTargetLayout }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

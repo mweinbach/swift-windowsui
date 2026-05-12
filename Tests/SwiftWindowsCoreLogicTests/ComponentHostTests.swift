@@ -249,6 +249,8 @@ final class ComponentHostTests: XCTestCase {
                     node.hasDragPreview = useSecondState
                     node.horizontalScrollBounceBehavior = useSecondState ? "always" : "automatic"
                     node.verticalScrollBounceBehavior = useSecondState ? "basedOnSize" : "never"
+                    node.scrollTargetBehavior = useSecondState ? "viewAligned(limitBehavior:always,anchor:nil)" : "paging"
+                    node.isScrollTargetLayout = useSecondState
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -396,6 +398,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.hasDragPreview, false)
             XCTAssertEqual(firstNode?.horizontalScrollBounceBehavior, "automatic")
             XCTAssertEqual(firstNode?.verticalScrollBounceBehavior, "never")
+            XCTAssertEqual(firstNode?.scrollTargetBehavior, "paging")
+            XCTAssertEqual(firstNode?.isScrollTargetLayout, false)
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -530,6 +534,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.hasDragPreview, true)
             XCTAssertEqual(reusedNode?.horizontalScrollBounceBehavior, "always")
             XCTAssertEqual(reusedNode?.verticalScrollBounceBehavior, "basedOnSize")
+            XCTAssertEqual(reusedNode?.scrollTargetBehavior, "viewAligned(limitBehavior:always,anchor:nil)")
+            XCTAssertEqual(reusedNode?.isScrollTargetLayout, true)
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

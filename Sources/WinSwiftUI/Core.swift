@@ -658,6 +658,72 @@ public protocol Publisher {
 }
 
 @MainActor
+public struct MapPublisher<Upstream: Publisher, Output>: Publisher {
+    private let upstream: Upstream
+    private let transform: @MainActor (Upstream.Output) -> Output
+
+    fileprivate init(
+        upstream: Upstream,
+        transform: @escaping @MainActor (Upstream.Output) -> Output
+    ) {
+        self.upstream = upstream
+        self.transform = transform
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        upstream.sink { value in
+            receiveValue(transform(value))
+        }
+    }
+}
+
+@MainActor
+public struct RemoveDuplicatesPublisher<Upstream: Publisher>: Publisher {
+    private let upstream: Upstream
+    private let isDuplicate: @MainActor (Upstream.Output, Upstream.Output) -> Bool
+
+    fileprivate init(
+        upstream: Upstream,
+        isDuplicate: @escaping @MainActor (Upstream.Output, Upstream.Output) -> Bool
+    ) {
+        self.upstream = upstream
+        self.isDuplicate = isDuplicate
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Upstream.Output) -> Void) -> AnyCancellable {
+        var lastValue: Upstream.Output?
+        return upstream.sink { value in
+            if let previous = lastValue, isDuplicate(previous, value) {
+                return
+            }
+
+            lastValue = value
+            receiveValue(value)
+        }
+    }
+}
+
+public extension Publisher {
+    func map<Transformed>(
+        _ transform: @escaping @MainActor (Output) -> Transformed
+    ) -> MapPublisher<Self, Transformed> {
+        MapPublisher(upstream: self, transform: transform)
+    }
+
+    func removeDuplicates(
+        by predicate: @escaping @MainActor (Output, Output) -> Bool
+    ) -> RemoveDuplicatesPublisher<Self> {
+        RemoveDuplicatesPublisher(upstream: self, isDuplicate: predicate)
+    }
+}
+
+public extension Publisher where Output: Equatable {
+    func removeDuplicates() -> RemoveDuplicatesPublisher<Self> {
+        removeDuplicates(by: ==)
+    }
+}
+
+@MainActor
 final class ObservableObjectCenter {
     static let shared = ObservableObjectCenter()
 

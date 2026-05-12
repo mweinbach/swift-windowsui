@@ -16700,6 +16700,67 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPublishedPublisherMapAndRemoveDuplicatesChain() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 1
+            }
+
+            let model = CounterModel()
+            var labels: [String] = []
+
+            let cancellable = model.$value
+                .map { "VALUE \($0)" }
+                .removeDuplicates()
+                .sink { label in
+                    labels.append(label)
+                }
+
+            XCTAssertEqual(labels, ["VALUE 1"])
+
+            model.value = 1
+            model.value = 2
+            model.value = 2
+            model.value = 3
+
+            XCTAssertEqual(labels, ["VALUE 1", "VALUE 2", "VALUE 3"])
+
+            cancellable.cancel()
+            model.value = 4
+
+            XCTAssertEqual(labels, ["VALUE 1", "VALUE 2", "VALUE 3"])
+        }
+    }
+
+    func testPublishedPublisherRemoveDuplicatesSupportsCustomPredicate() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            let model = CounterModel()
+            var values: [Int] = []
+
+            let cancellable = model.$value
+                .removeDuplicates { previous, next in
+                    previous % 2 == next % 2
+                }
+                .sink { value in
+                    values.append(value)
+                }
+
+            model.value = 2
+            model.value = 4
+            model.value = 5
+            model.value = 7
+            model.value = 8
+
+            XCTAssertEqual(values, [0, 5, 8])
+
+            cancellable.cancel()
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

@@ -16438,6 +16438,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPhaseAnimatorContainerRendersInitialPhaseAndRetainsMetadata() async {
+        await MainActor.run {
+            let animatedNode = makeNode(
+                PhaseAnimator(["small", "large"]) { phase in
+                    Text(phase == "small" ? "SMALL" : "LARGE")
+                        .opacity(phase == "small" ? 0.3 : 1)
+                } animation: { phase in
+                    phase == "small" ? .easeOut(duration: 0.15) : nil
+                }
+            )
+            let triggeredNode = makeNode(
+                PhaseAnimator([2, 4], trigger: "refresh") { phase in
+                    Text("PHASE \(phase)")
+                } animation: { _ in
+                    .linear(duration: 0.1)
+                }
+            )
+            let emptyNode = makeNode(
+                PhaseAnimator([Int]()) { phase in
+                    Text("PHASE \(phase)")
+                }
+            )
+
+            XCTAssertEqual(animatedNode.text, "SMALL")
+            XCTAssertEqual(animatedNode.opacity, 0.3)
+            XCTAssertEqual(
+                animatedNode.visualEffects,
+                ["phaseAnimator(phase:small,hasAdditionalPhases:true,animation:easeOut:0.15)"]
+            )
+            XCTAssertEqual(triggeredNode.text, "PHASE 2")
+            XCTAssertEqual(
+                triggeredNode.visualEffects,
+                ["phaseAnimator(phase:2,hasAdditionalPhases:true,trigger:String:refresh,animation:linear:0.1)"]
+            )
+            XCTAssertNil(emptyNode.text)
+            XCTAssertEqual(
+                emptyNode.visualEffects,
+                ["phaseAnimator(phase:nil,hasAdditionalPhases:false,animation:nil)"]
+            )
+        }
+    }
+
     func testAnyTransitionCompatibilityModifierPreservesRenderedContent() async {
         await MainActor.run {
             let combined = AnyTransition.opacity

@@ -11525,7 +11525,7 @@ private func scrollTransitionAnimationDescription(_ animation: Animation) -> Str
     "\(animation.easing):\(animation.duration)"
 }
 
-private func retainedPhaseAnimatorDescription<Phase>(
+func retainedPhaseAnimatorDescription<Phase>(
     phase: Phase?,
     triggerDescription: String?,
     hasAdditionalPhases: Bool,

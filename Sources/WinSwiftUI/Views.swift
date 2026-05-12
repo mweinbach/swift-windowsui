@@ -86,6 +86,91 @@ public struct GeometryProxy3D {
 }
 
 @MainActor
+public struct PhaseAnimator<Phase: Equatable>: View {
+    public typealias Body = Never
+
+    private let initialPhase: Phase?
+    private let hasAdditionalPhases: Bool
+    private let triggerDescription: String?
+    private let content: (Phase) -> [AnyView]
+    private let animation: (Phase) -> Animation?
+
+    public init<Phases: Sequence>(
+        _ phases: Phases,
+        @ViewBuilder content: @escaping (Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation? = { _ in .default }
+    ) where Phases.Element == Phase {
+        let resolved = resolvedInitialPhase(from: phases)
+        self.initialPhase = resolved.initialPhase
+        self.hasAdditionalPhases = resolved.hasAdditionalPhases
+        self.triggerDescription = nil
+        self.content = content
+        self.animation = animation
+    }
+
+    public init<Phases: Sequence, Trigger: Equatable>(
+        _ phases: Phases,
+        trigger: Trigger,
+        @ViewBuilder content: @escaping (Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation? = { _ in .default }
+    ) where Phases.Element == Phase {
+        let resolved = resolvedInitialPhase(from: phases)
+        self.initialPhase = resolved.initialPhase
+        self.hasAdditionalPhases = resolved.hasAdditionalPhases
+        self.triggerDescription = "\(Trigger.self):\(String(describing: trigger))"
+        self.content = content
+        self.animation = animation
+    }
+
+    public var body: Never {
+        fatalError("PhaseAnimator has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let triggerDescription = triggerDescription
+        let hasAdditionalPhases = hasAdditionalPhases
+        guard let initialPhase else {
+            return Component { _ in
+                let node = Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+                node.visualEffects.append(
+                    retainedPhaseAnimatorDescription(
+                        phase: nil as Phase?,
+                        triggerDescription: triggerDescription,
+                        hasAdditionalPhases: false,
+                        animation: nil
+                    )
+                )
+                return node
+            }
+        }
+
+        let component = composeComponent(from: content(initialPhase), context: context)
+        let initialAnimation = animation(initialPhase)
+        return Component { runtime in
+            let node = component.makeNode(runtime: runtime)
+            node.visualEffects.append(
+                retainedPhaseAnimatorDescription(
+                    phase: initialPhase,
+                    triggerDescription: triggerDescription,
+                    hasAdditionalPhases: hasAdditionalPhases,
+                    animation: initialAnimation
+                )
+            )
+            return node
+        }
+    }
+}
+
+private func resolvedInitialPhase<Phases: Sequence>(
+    from phases: Phases
+) -> (initialPhase: Phases.Element?, hasAdditionalPhases: Bool) {
+    var iterator = phases.makeIterator()
+    let initialPhase = iterator.next()
+    let hasAdditionalPhases = iterator.next() != nil
+    return (initialPhase, hasAdditionalPhases)
+}
+
+@MainActor
 public struct ViewThatFits: View {
     public typealias Body = Never
 

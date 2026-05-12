@@ -5852,6 +5852,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollBounceBehaviorPropagatesToRetainedScrollContainers() async {
+        await MainActor.run {
+            struct BounceEnvironmentReader: View {
+                @Environment(\.horizontalScrollBounceBehavior) var horizontal
+                @Environment(\.verticalScrollBounceBehavior) var vertical
+
+                var body: some View {
+                    Text(horizontal == .always && vertical == .basedOnSize ? "CUSTOM" : "DEFAULT")
+                }
+            }
+
+            let defaultVerticalAxesNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            )
+            let horizontalOnlyNode = makeNode(
+                ScrollView(.horizontal) {
+                    Text("ROW")
+                }
+                .scrollBounceBehavior(.always, axes: .horizontal)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollBounceBehavior(.never)
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            )
+            let readerNode = makeNode(
+                BounceEnvironmentReader()
+                    .scrollBounceBehavior(.always, axes: .horizontal)
+                    .scrollBounceBehavior(.basedOnSize, axes: .vertical)
+            )
+
+            XCTAssertEqual(defaultVerticalAxesNode.horizontalScrollBounceBehavior, "automatic")
+            XCTAssertEqual(defaultVerticalAxesNode.verticalScrollBounceBehavior, "basedOnSize")
+            XCTAssertEqual(horizontalOnlyNode.horizontalScrollBounceBehavior, "always")
+            XCTAssertEqual(horizontalOnlyNode.verticalScrollBounceBehavior, "automatic")
+            XCTAssertEqual(listNode.horizontalScrollBounceBehavior, "automatic")
+            XCTAssertEqual(listNode.verticalScrollBounceBehavior, "never")
+            XCTAssertEqual(sectionNode.verticalScrollBounceBehavior, "basedOnSize")
+            XCTAssertEqual(readerNode.text, "CUSTOM")
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

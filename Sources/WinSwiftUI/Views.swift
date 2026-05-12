@@ -5752,6 +5752,8 @@ public struct ScrollView: View {
                 isHitTestVisible: style.isHitTestVisible,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             )
+            node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
+            node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
@@ -5991,6 +5993,8 @@ public struct List: View {
                     return row
                 }
             )
+            node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
+            node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollIndicatorInsets = context.contentInsets(
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
@@ -6494,6 +6498,8 @@ public struct Section: View {
                 node.scrollAxis = axis.scrollAxis
                 node.scrollStep = style.scrollStep
                 node.showsScrollIndicator = context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
+                node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
+                node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
                 node.scrollIndicatorInsets = context.contentInsets(
                     for: .scrollIndicators,
                     defaultInsets: defaultRetainedScrollIndicatorInsets

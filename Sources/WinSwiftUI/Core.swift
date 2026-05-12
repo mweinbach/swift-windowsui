@@ -3053,6 +3053,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultWheelPickerItemHeight: CGFloat
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility
+    public var horizontalScrollBounceBehavior: ScrollBounceBehavior
+    public var verticalScrollBounceBehavior: ScrollBounceBehavior
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
@@ -3177,6 +3179,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultWheelPickerItemHeight: CGFloat = 32,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
         verticalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
+        horizontalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
+        verticalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
@@ -3321,6 +3325,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultWheelPickerItemHeight = defaultWheelPickerItemHeight
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
         self.verticalScrollIndicatorVisibility = verticalScrollIndicatorVisibility
+        self.horizontalScrollBounceBehavior = horizontalScrollBounceBehavior
+        self.verticalScrollBounceBehavior = verticalScrollBounceBehavior
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
@@ -4968,6 +4974,23 @@ public struct ViewBuildContext {
 
     public var verticalScrollIndicatorVisibility: ScrollIndicatorVisibility {
         environmentValuesProvider().verticalScrollIndicatorVisibility
+    }
+
+    public var horizontalScrollBounceBehavior: ScrollBounceBehavior {
+        environmentValuesProvider().horizontalScrollBounceBehavior
+    }
+
+    public var verticalScrollBounceBehavior: ScrollBounceBehavior {
+        environmentValuesProvider().verticalScrollBounceBehavior
+    }
+
+    func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
+        switch axis {
+        case .horizontal:
+            return horizontalScrollBounceBehavior
+        case .vertical:
+            return verticalScrollBounceBehavior
+        }
     }
 
     func scrollIndicatorVisibility(for axis: Axis) -> ScrollIndicatorVisibility {
@@ -9655,6 +9678,39 @@ public struct ScrollIndicatorVisibility: Sendable, Equatable {
             return true
         case .hidden, .never:
             return false
+        }
+    }
+}
+
+public struct ScrollBounceBehavior: Sendable, Equatable, Hashable, CustomStringConvertible {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case always
+        case basedOnSize
+        case never
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ScrollBounceBehavior(kind: .automatic)
+    public static let always = ScrollBounceBehavior(kind: .always)
+    public static let basedOnSize = ScrollBounceBehavior(kind: .basedOnSize)
+    public static let never = ScrollBounceBehavior(kind: .never)
+
+    public var description: String {
+        switch kind {
+        case .automatic:
+            return "automatic"
+        case .always:
+            return "always"
+        case .basedOnSize:
+            return "basedOnSize"
+        case .never:
+            return "never"
         }
     }
 }
@@ -16735,6 +16791,19 @@ public extension View {
             }
             if axes.contains(.vertical) {
                 resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollIndicatorVisibility, visibility)
+            }
+            return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func scrollBounceBehavior(_ behavior: ScrollBounceBehavior, axes: Axis.Set = .vertical) -> some View {
+        ModifiedView(content: self) { content, context in
+            var resolvedContext = context
+            if axes.contains(.horizontal) {
+                resolvedContext = resolvedContext.withEnvironmentValue(\.horizontalScrollBounceBehavior, behavior)
+            }
+            if axes.contains(.vertical) {
+                resolvedContext = resolvedContext.withEnvironmentValue(\.verticalScrollBounceBehavior, behavior)
             }
             return content.makeComponent(context: resolvedContext)
         }

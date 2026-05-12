@@ -171,6 +171,8 @@ public final class ComponentHost {
         if target.dragContainerItemID != source.dragContainerItemID { target.dragContainerItemID = source.dragContainerItemID }
         if target.dragContainerNamespaceID != source.dragContainerNamespaceID { target.dragContainerNamespaceID = source.dragContainerNamespaceID }
         if target.hasDragPreview != source.hasDragPreview { target.hasDragPreview = source.hasDragPreview }
+        if target.horizontalScrollBounceBehavior != source.horizontalScrollBounceBehavior { target.horizontalScrollBounceBehavior = source.horizontalScrollBounceBehavior }
+        if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior { target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

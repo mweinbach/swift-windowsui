@@ -752,6 +752,131 @@ public struct Ellipse: View {
     }
 }
 
+@MainActor
+public struct ContainerRelativeShape: View {
+    public typealias Body = Never
+
+    private var fillStyle: ForegroundStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init() {
+        self.fillStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public var body: Never {
+        fatalError("ContainerRelativeShape has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        capsuleComponent(
+            fillStyle: fillStyle ?? context.foregroundStyle,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
+            lineWidth: lineWidth,
+            strokeLineStyle: strokeLineStyle
+        )
+    }
+
+    public func fill(_ color: Color) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> ContainerRelativeShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> ContainerRelativeShape {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> ContainerRelativeShape {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> ContainerRelativeShape {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> ContainerRelativeShape {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> ContainerRelativeShape {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> ContainerRelativeShape {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> ContainerRelativeShape {
+        stroke(gradient, style: style)
+    }
+}
+
 extension Rectangle: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle
@@ -777,6 +902,12 @@ extension Circle: Shape, RetainedClipShape {
 }
 
 extension Ellipse: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .capsule
+    }
+}
+
+extension ContainerRelativeShape: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }

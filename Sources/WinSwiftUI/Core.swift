@@ -2187,6 +2187,38 @@ public struct ContentMarginPlacement: Sendable, Equatable, Hashable {
     public static let scrollIndicators = ContentMarginPlacement(kind: .scrollIndicators)
 }
 
+public struct ListSectionSpacing: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case `default`
+        case compact
+        case custom(CGFloat)
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let `default` = ListSectionSpacing(kind: .default)
+    public static let compact = ListSectionSpacing(kind: .compact)
+
+    public static func custom(_ spacing: CGFloat) -> ListSectionSpacing {
+        ListSectionSpacing(kind: .custom(spacing))
+    }
+
+    func resolved(defaultSpacing: Double) -> Double {
+        switch kind {
+        case .default:
+            return defaultSpacing
+        case .compact:
+            return min(defaultSpacing, 4)
+        case .custom(let spacing):
+            return Double(spacing)
+        }
+    }
+}
+
 struct ContentMarginEdges: Sendable, Equatable {
     var top: CGFloat?
     var leading: CGFloat?
@@ -3125,6 +3157,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var contentMargins: ContentMarginValues
     var defaultScrollAnchors: DefaultScrollAnchorValues
     var listRowSpacing: Double?
+    var listSectionSpacing: ListSectionSpacing?
     var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
     public var defaultMinListHeaderHeight: CGFloat?
@@ -3407,6 +3440,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.contentMargins = .empty
         self.defaultScrollAnchors = .empty
         self.listRowSpacing = nil
+        self.listSectionSpacing = nil
         self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
@@ -5038,6 +5072,10 @@ public struct ViewBuildContext {
 
     var listRowSpacing: Double? {
         environmentValuesProvider().listRowSpacing
+    }
+
+    func listSectionSpacing(defaultSpacing: Double) -> Double {
+        environmentValuesProvider().listSectionSpacing?.resolved(defaultSpacing: defaultSpacing) ?? defaultSpacing
     }
 
     var gridHorizontalSpacing: Double? {
@@ -18146,6 +18184,16 @@ public extension View {
     func listRowSpacing(_ spacing: Double?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.listRowSpacing, spacing))
+        }
+    }
+
+    func listSectionSpacing(_ spacing: CGFloat) -> some View {
+        listSectionSpacing(.custom(spacing))
+    }
+
+    func listSectionSpacing(_ spacing: ListSectionSpacing) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.listSectionSpacing, Optional(spacing)))
         }
     }
 

@@ -6850,6 +6850,86 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListSectionSpacingMapsToRetainedListStackSpacing() async {
+        await MainActor.run {
+            let customListNode = makeNode(
+                List {
+                    Section("COLORS") {
+                        Text("BLUE")
+                    }
+                    Section("SHAPES") {
+                        Text("SQUARE")
+                    }
+                }
+                .listSectionSpacing(14)
+            )
+            let compactListNode = makeNode(
+                List {
+                    Section("COLORS") {
+                        Text("BLUE")
+                    }
+                    Section("SHAPES") {
+                        Text("SQUARE")
+                    }
+                }
+                .listStyle(GroupedListStyle())
+                .listSectionSpacing(.compact)
+            )
+            let defaultListNode = makeNode(
+                List {
+                    Section("COLORS") {
+                        Text("BLUE")
+                    }
+                    Section("SHAPES") {
+                        Text("SQUARE")
+                    }
+                }
+                .listStyle(GroupedListStyle())
+                .listSectionSpacing(.default)
+            )
+            let rowSpacingWinsNode = makeNode(
+                List {
+                    Section("COLORS") {
+                        Text("BLUE")
+                    }
+                    Section("SHAPES") {
+                        Text("SQUARE")
+                    }
+                }
+                .listSectionSpacing(30)
+                .listRowSpacing(9)
+            )
+
+            guard case .stack(let customLayout) = customListNode.layoutMode,
+                  case .stack(let compactLayout) = compactListNode.layoutMode,
+                  case .stack(let defaultLayout) = defaultListNode.layoutMode,
+                  case .stack(let rowSpacingWinsLayout) = rowSpacingWinsNode.layoutMode else {
+                return XCTFail("Expected List to keep retained stack layout")
+            }
+
+            XCTAssertEqual(customLayout, .vertical(spacing: 14, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(
+                compactLayout,
+                .vertical(
+                    spacing: 4,
+                    padding: EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(
+                defaultLayout,
+                .vertical(
+                    spacing: 8,
+                    padding: EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0),
+                    alignment: .stretch
+                )
+            )
+            XCTAssertEqual(rowSpacingWinsLayout, .vertical(spacing: 9, padding: .zero, alignment: .stretch))
+            XCTAssertEqual(ListSectionSpacing.custom(12), .custom(12))
+            XCTAssertNotEqual(ListSectionSpacing.compact, .default)
+        }
+    }
+
     func testListStyleModifierMapsToRetainedListChrome() async {
         await MainActor.run {
             let plainNode = makeNode(

@@ -5981,7 +5981,7 @@ public struct List: View {
                 borderWidth: listChrome.borderWidth,
                 cornerRadius: listChrome.cornerRadius,
                 stackLayout: .vertical(
-                    spacing: context.listRowSpacing ?? listChrome.defaultSpacing,
+                    spacing: context.listRowSpacing ?? context.listSectionSpacing(defaultSpacing: listChrome.defaultSpacing),
                     padding: context.contentInsets(for: .scrollContent, defaultInsets: listChrome.padding),
                     alignment: .stretch,
                     mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start

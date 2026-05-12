@@ -96,6 +96,22 @@ private extension FocusedValues {
     }
 }
 
+private struct TestStringPreferenceKey: PreferenceKey {
+    static let defaultValue = "DEFAULT"
+
+    static func reduce(value: inout String, nextValue: () -> String) {
+        value = nextValue()
+    }
+}
+
+private struct TestSumPreferenceKey: PreferenceKey {
+    static let defaultValue = 0
+
+    static func reduce(value: inout Int, nextValue: () -> Int) {
+        value += nextValue()
+    }
+}
+
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -13351,6 +13367,94 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.children[0].text, "OUTER-2")
             XCTAssertEqual(node.children[1].text, "OUTER-INNER-3")
+        }
+    }
+
+    func testPreferenceKeyReducesDescendantValuesAndReportsChanges() async {
+        await MainActor.run {
+            var observedValues: [Int] = []
+
+            @MainActor
+            func observedView(first: Bool, second: Bool) -> some View {
+                VStack {
+                    if first {
+                        Text("FIRST")
+                            .preference(key: TestSumPreferenceKey.self, value: 2)
+                    }
+                    if second {
+                        Text("SECOND")
+                            .preference(key: TestSumPreferenceKey.self, value: 3)
+                    }
+                }
+                .onPreferenceChange(TestSumPreferenceKey.self) { value in
+                    observedValues.append(value)
+                }
+            }
+
+            _ = makeNode(observedView(first: true, second: false))
+            _ = makeNode(observedView(first: true, second: false))
+            _ = makeNode(observedView(first: true, second: true))
+            _ = makeNode(observedView(first: false, second: false))
+
+            XCTAssertEqual(observedValues, [2, 5, 0])
+        }
+    }
+
+    func testTransformPreferenceRewritesSubtreeValueBeforeAncestorObservation() async {
+        await MainActor.run {
+            var observedValues: [Int] = []
+
+            @MainActor
+            func observedView(multiplier: Int) -> some View {
+                VStack {
+                    VStack {
+                        Text("FIRST")
+                            .preference(key: TestSumPreferenceKey.self, value: 2)
+                        Text("SECOND")
+                            .preference(key: TestSumPreferenceKey.self, value: 3)
+                    }
+                    .transformPreference(TestSumPreferenceKey.self) { value in
+                        value *= multiplier
+                    }
+
+                    Text("OUTSIDE")
+                        .preference(key: TestSumPreferenceKey.self, value: 1)
+                }
+                .onPreferenceChange(TestSumPreferenceKey.self) { value in
+                    observedValues.append(value)
+                }
+            }
+
+            _ = makeNode(observedView(multiplier: 10))
+            _ = makeNode(observedView(multiplier: 10))
+            _ = makeNode(observedView(multiplier: 20))
+
+            XCTAssertEqual(observedValues, [51, 101])
+        }
+    }
+
+    func testStringPreferenceUsesLastReducedValue() async {
+        await MainActor.run {
+            var observedValues: [String] = []
+
+            @MainActor
+            func observedView(_ suffix: String) -> some View {
+                VStack {
+                    Text("BASE")
+                        .preference(key: TestStringPreferenceKey.self, value: "BASE")
+                    Text("DETAIL")
+                        .preference(key: TestStringPreferenceKey.self, value: "DETAIL-\(suffix)")
+                }
+                .onPreferenceChange(TestStringPreferenceKey.self) { value in
+                    observedValues.append(value)
+                }
+            }
+
+            _ = makeNode(observedView("A"))
+            _ = makeNode(observedView("A"))
+            _ = makeNode(observedView("B"))
+
+            XCTAssertEqual(observedValues, ["DETAIL-A", "DETAIL-B"])
         }
     }
 

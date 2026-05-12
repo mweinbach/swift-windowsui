@@ -57,6 +57,7 @@ final class ComponentHostTests: XCTestCase {
             var pointerDownEvents: [String] = []
             var contextMenuEvents: [String] = []
             var accessibilityActionEvents: [String] = []
+            let preferenceIdentifier = ObjectIdentifier(ComponentHostTests.self)
 
             host.setContent {
                 Component { _ in
@@ -236,6 +237,8 @@ final class ComponentHostTests: XCTestCase {
                     node.toolbarPlacementTags = toolbarPlacementTags
                     node.sectionHeaderChildCount = sectionHeaderChildCount
                     node.sectionFooterChildCount = sectionFooterChildCount
+                    node.retainedPreferenceValues[preferenceIdentifier] = useSecondState ? "second-preference" : "first-preference"
+                    node.retainedPreferenceTransformBoundaries = useSecondState ? [preferenceIdentifier] : []
                     node.isFocusable = useSecondState
                     node.animationStates = [
                         .opacity: AnimationState(
@@ -340,6 +343,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.toolbarPlacementTags, Set(["bottomBar"]))
             XCTAssertEqual(firstNode?.sectionHeaderChildCount, 0)
             XCTAssertEqual(firstNode?.sectionFooterChildCount, 0)
+            XCTAssertEqual(firstNode?.retainedPreferenceValues[preferenceIdentifier] as? String, "first-preference")
+            XCTAssertEqual(firstNode?.retainedPreferenceTransformBoundaries, Set<ObjectIdentifier>())
             XCTAssertEqual(firstNode?.isFocusable, false)
             XCTAssertEqual(firstNode?.animationStates[.opacity]?.endValue, 0.15)
 
@@ -434,6 +439,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.toolbarPlacementTags, Set(["primaryAction", "navigationBar"]))
             XCTAssertEqual(reusedNode?.sectionHeaderChildCount, 2)
             XCTAssertEqual(reusedNode?.sectionFooterChildCount, 1)
+            XCTAssertEqual(reusedNode?.retainedPreferenceValues[preferenceIdentifier] as? String, "second-preference")
+            XCTAssertEqual(reusedNode?.retainedPreferenceTransformBoundaries, [preferenceIdentifier])
             XCTAssertEqual(reusedNode?.isFocusable, true)
             XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
 

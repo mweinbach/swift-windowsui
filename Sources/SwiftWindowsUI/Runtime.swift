@@ -1135,6 +1135,12 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    /// Type-erased preference values emitted by SwiftUI-shaped compatibility modifiers.
+    /// The retained runtime keeps them as metadata so ancestor modifiers can
+    /// inspect rebuilt subtrees without coupling the renderer to WinSwiftUI.
+    public var retainedPreferenceValues: [ObjectIdentifier: Any] = [:]
+    public var retainedPreferenceTransformBoundaries: Set<ObjectIdentifier> = []
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place

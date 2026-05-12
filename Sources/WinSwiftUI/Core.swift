@@ -1522,6 +1522,13 @@ public protocol EnvironmentKey {
     static var defaultValue: Value { get }
 }
 
+public protocol PreferenceKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+    static func reduce(value: inout Value, nextValue: () -> Value)
+}
+
 public protocol FocusedValueKey {
     associatedtype Value
 }
@@ -8526,6 +8533,61 @@ private final class OnChangeObservationRegistry {
     }
 }
 
+private func retainedPreferenceIdentifier<Key: PreferenceKey>(_ key: Key.Type) -> ObjectIdentifier {
+    ObjectIdentifier(key)
+}
+
+@MainActor
+private func setRetainedPreference<Key: PreferenceKey>(
+    _ key: Key.Type,
+    value: Key.Value,
+    on node: ViewNode
+) {
+    node.retainedPreferenceValues[retainedPreferenceIdentifier(key)] = value
+}
+
+@MainActor
+private func retainedPreferenceValueIfPresent<Key: PreferenceKey>(
+    in node: ViewNode,
+    key: Key.Type
+) -> Key.Value? {
+    let identifier = retainedPreferenceIdentifier(key)
+    var resolvedValue = Key.defaultValue
+    var hasValue = false
+
+    if let directValue = node.retainedPreferenceValues[identifier] as? Key.Value {
+        Key.reduce(value: &resolvedValue) {
+            directValue
+        }
+        hasValue = true
+    }
+
+    guard !node.retainedPreferenceTransformBoundaries.contains(identifier) else {
+        return hasValue ? resolvedValue : nil
+    }
+
+    for child in node.children {
+        guard let childValue = retainedPreferenceValueIfPresent(in: child, key: key) else {
+            continue
+        }
+
+        Key.reduce(value: &resolvedValue) {
+            childValue
+        }
+        hasValue = true
+    }
+
+    return hasValue ? resolvedValue : nil
+}
+
+@MainActor
+private func retainedPreferenceValue<Key: PreferenceKey>(
+    in node: ViewNode,
+    key: Key.Type
+) -> Key.Value {
+    retainedPreferenceValueIfPresent(in: node, key: key) ?? Key.defaultValue
+}
+
 private func mergedPresentationChrome(
     _ base: RetainedPresentationChrome,
     applying override: RetainedPresentationChrome
@@ -11818,6 +11880,63 @@ public extension View {
     ) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTransformedEnvironmentValue(keyPath, transform))
+        }
+    }
+
+    func preference<Key: PreferenceKey>(
+        key: Key.Type = Key.self,
+        value: Key.Value
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                setRetainedPreference(key, value: value, on: childNode)
+                return childNode
+            }
+        }
+    }
+
+    func transformPreference<Key: PreferenceKey>(
+        _ key: Key.Type = Key.self,
+        _ transform: @escaping (inout Key.Value) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                var value = retainedPreferenceValue(in: childNode, key: key)
+                transform(&value)
+                setRetainedPreference(key, value: value, on: childNode)
+                childNode.retainedPreferenceTransformBoundaries.insert(retainedPreferenceIdentifier(key))
+                return childNode
+            }
+        }
+    }
+
+    func onPreferenceChange<Key: PreferenceKey>(
+        _ key: Key.Type = Key.self,
+        perform action: @escaping (Key.Value) -> Void,
+        fileID: String = #fileID,
+        line: Int = #line,
+        column: Int = #column
+    ) -> some View where Key.Value: Equatable {
+        let observationKey = "\(fileID):\(line):\(column):preference:\(Key.self)"
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let preferenceValue = retainedPreferenceValueIfPresent(in: childNode, key: key)
+                let resolvedValue = preferenceValue ?? Key.defaultValue
+                if let change = OnChangeObservationRegistry.shared.observe(
+                    value: resolvedValue,
+                    key: observationKey,
+                    initial: preferenceValue != nil
+                ) {
+                    action(change.newValue)
+                }
+                return childNode
+            }
         }
     }
 

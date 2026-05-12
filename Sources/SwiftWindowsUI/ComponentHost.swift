@@ -206,6 +206,8 @@ public final class ComponentHost {
         if target.toolbarPlacementTags != source.toolbarPlacementTags { target.toolbarPlacementTags = source.toolbarPlacementTags }
         if target.sectionHeaderChildCount != source.sectionHeaderChildCount { target.sectionHeaderChildCount = source.sectionHeaderChildCount }
         if target.sectionFooterChildCount != source.sectionFooterChildCount { target.sectionFooterChildCount = source.sectionFooterChildCount }
+        target.retainedPreferenceValues = source.retainedPreferenceValues
+        target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

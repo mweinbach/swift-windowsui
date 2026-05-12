@@ -158,6 +158,8 @@ public final class ComponentHost {
         if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
         if target.moveDisabledOverride != source.moveDisabledOverride { target.moveDisabledOverride = source.moveDisabledOverride }
         if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
+        if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes { target.dynamicInsertContentTypes = source.dynamicInsertContentTypes }
+        if target.dynamicDropPayloadType != source.dynamicDropPayloadType { target.dynamicDropPayloadType = source.dynamicDropPayloadType }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
@@ -249,6 +251,8 @@ public final class ComponentHost {
         target.onRepeatActivate = source.onRepeatActivate
         target.onDeleteRows = source.onDeleteRows
         target.onMoveRows = source.onMoveRows
+        target.onInsertRows = source.onInsertRows
+        target.onDropRows = source.onDropRows
         target.onDragStart = source.onDragStart
         target.onDragChange = source.onDragChange
         target.onDragEnd = source.onDragEnd

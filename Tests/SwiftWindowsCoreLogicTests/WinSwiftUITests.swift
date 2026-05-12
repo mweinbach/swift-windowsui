@@ -10783,6 +10783,88 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachRetainsDynamicInsertActionsForListRows() async {
+        await MainActor.run {
+            var insertedOffsets: [Int] = []
+            var insertedProviderCounts: [Int] = []
+            let provider = NSItemProvider(object: "payload")
+
+            let node = makeNode(
+                List {
+                    ForEach(["ONE", "TWO"], id: \.self) { title in
+                        Text(title)
+                    }
+                    .onInsert(of: [.plainText, .url]) { offset, providers in
+                        insertedOffsets.append(offset)
+                        insertedProviderCounts.append(providers.count)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children[0].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
+            XCTAssertEqual(node.children[1].dynamicInsertContentTypes, ["public.plain-text", "public.url"])
+            XCTAssertNotNil(node.children[0].onInsertRows)
+
+            node.children[0].onInsertRows?(1, [provider])
+
+            XCTAssertEqual(insertedOffsets, [1])
+            XCTAssertEqual(insertedProviderCounts, [1])
+        }
+    }
+
+    func testForEachRetainsDeprecatedStringInsertIdentifiers() async {
+        await MainActor.run {
+            var insertedOffsets: [Int] = []
+
+            let node = makeNode(
+                List {
+                    ForEach(["ONE"], id: \.self) { title in
+                        Text(title)
+                    }
+                    .onInsert(of: ["public.text"]) { offset, _ in
+                        insertedOffsets.append(offset)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children[0].dynamicInsertContentTypes, ["public.text"])
+            node.children[0].onInsertRows?(0, [NSItemProvider()])
+
+            XCTAssertEqual(insertedOffsets, [0])
+        }
+    }
+
+    func testForEachRetainsDynamicDropDestinationForListRows() async {
+        await MainActor.run {
+            struct DropPayload: Transferable, Equatable {
+                let value: String
+            }
+
+            var droppedPayloads: [[DropPayload]] = []
+            var droppedOffsets: [Int] = []
+
+            let node = makeNode(
+                List {
+                    ForEach(["ONE"], id: \.self) { title in
+                        Text(title)
+                    }
+                    .dropDestination(for: DropPayload.self) { payloads, offset in
+                        droppedPayloads.append(payloads)
+                        droppedOffsets.append(offset)
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children[0].dynamicDropPayloadType, String(reflecting: DropPayload.self))
+            XCTAssertNotNil(node.children[0].onDropRows)
+
+            node.children[0].onDropRows?([DropPayload(value: "one"), "ignored"], 2)
+
+            XCTAssertEqual(droppedPayloads, [[DropPayload(value: "one")]])
+            XCTAssertEqual(droppedOffsets, [2])
+        }
+    }
+
     func testForEachBindingCollectionFeedsRetainedControls() async {
         await MainActor.run {
             struct Item: Identifiable {

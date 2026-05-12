@@ -3185,6 +3185,63 @@ public extension ForEach {
             }
         )
     }
+
+    func onInsert(
+        of supportedContentTypes: [UTType],
+        perform action: @escaping (Int, [NSItemProvider]) -> Void
+    ) -> ForEach<Data, ID> {
+        let identifiers = supportedContentTypes.map(\.identifier)
+        return ForEach(
+            data: data,
+            contentViews: contentViews.map { view in
+                AnyView(
+                    DynamicListEditMetadataView(
+                        content: view,
+                        insertContentTypes: identifiers,
+                        insertAction: action
+                    )
+                )
+            }
+        )
+    }
+
+    func onInsert(
+        of acceptedTypeIdentifiers: [String],
+        perform action: @escaping (Int, [NSItemProvider]) -> Void
+    ) -> ForEach<Data, ID> {
+        ForEach(
+            data: data,
+            contentViews: contentViews.map { view in
+                AnyView(
+                    DynamicListEditMetadataView(
+                        content: view,
+                        insertContentTypes: acceptedTypeIdentifiers,
+                        insertAction: action
+                    )
+                )
+            }
+        )
+    }
+
+    func dropDestination<T: Transferable>(
+        for payloadType: T.Type = T.self,
+        action: @escaping ([T], Int) -> Void
+    ) -> ForEach<Data, ID> {
+        ForEach(
+            data: data,
+            contentViews: contentViews.map { view in
+                AnyView(
+                    DynamicListEditMetadataView(
+                        content: view,
+                        dropPayloadType: String(reflecting: payloadType),
+                        dropAction: { payloads, offset in
+                            action(payloads.compactMap { $0 as? T }, offset)
+                        }
+                    )
+                )
+            }
+        )
+    }
 }
 
 @MainActor
@@ -3195,6 +3252,10 @@ private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
     var dynamicContentIndex: Int? = nil
     var deleteAction: (((IndexSet) -> Void)?)? = nil
     var moveAction: (((IndexSet, Int) -> Void)?)? = nil
+    var insertContentTypes: [String]? = nil
+    var insertAction: ((Int, [NSItemProvider]) -> Void)? = nil
+    var dropPayloadType: String? = nil
+    var dropAction: (([Any], Int) -> Void)? = nil
 
     var anySelectionTag: AnyHashable? {
         content.selectionTag
@@ -3256,6 +3317,20 @@ private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
             }
             if let moveAction {
                 node.onMoveRows = moveAction
+            }
+            if let insertContentTypes {
+                node.dynamicInsertContentTypes = insertContentTypes
+            }
+            if let insertAction {
+                node.onInsertRows = { offset, items in
+                    insertAction(offset, items.compactMap { $0 as? NSItemProvider })
+                }
+            }
+            if let dropPayloadType {
+                node.dynamicDropPayloadType = dropPayloadType
+            }
+            if let dropAction {
+                node.onDropRows = dropAction
             }
             return node
         }

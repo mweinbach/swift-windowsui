@@ -20,6 +20,73 @@ public typealias ControlAnimationStyle = SwiftWindowsUI.ControlAnimationStyle
 public typealias SurfaceChrome = SwiftWindowsUI.SurfaceChrome
 public typealias SurfacePalette = SwiftWindowsUI.SurfacePalette
 
+public protocol Transferable {}
+
+extension String: Transferable {}
+extension URL: Transferable {}
+extension Data: Transferable {}
+
+public struct UTType: Sendable, Equatable, Hashable, ExpressibleByStringLiteral, CustomStringConvertible {
+    public var identifier: String
+
+    public init(_ identifier: String) {
+        self.identifier = identifier
+    }
+
+    public init(filenameExtension: String) {
+        self.identifier = "public.filename-extension.\(filenameExtension)"
+    }
+
+    public init(mimeType: String) {
+        self.identifier = mimeType
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    public var description: String {
+        identifier
+    }
+
+    public static let data = UTType("public.data")
+    public static let text = UTType("public.text")
+    public static let plainText = UTType("public.plain-text")
+    public static let utf8PlainText = UTType("public.utf8-plain-text")
+    public static let url = UTType("public.url")
+    public static let fileURL = UTType("public.file-url")
+    public static let image = UTType("public.image")
+    public static let png = UTType("public.png")
+    public static let jpeg = UTType("public.jpeg")
+    public static let json = UTType("public.json")
+}
+
+public final class NSItemProvider: @unchecked Sendable {
+    public var registeredTypeIdentifiers: [String]
+    public var payload: Any?
+
+    public init() {
+        self.registeredTypeIdentifiers = []
+        self.payload = nil
+    }
+
+    public init(object: Any) {
+        self.registeredTypeIdentifiers = []
+        self.payload = object
+    }
+
+    public init(contentsOf url: URL) {
+        self.registeredTypeIdentifiers = [UTType.url.identifier]
+        self.payload = url
+    }
+
+    public func registerDataRepresentation(forTypeIdentifier typeIdentifier: String) {
+        if !registeredTypeIdentifiers.contains(typeIdentifier) {
+            registeredTypeIdentifiers.append(typeIdentifier)
+        }
+    }
+}
+
 public struct LocalizedStringKey: Sendable, Equatable, ExpressibleByStringLiteral, ExpressibleByStringInterpolation, CustomStringConvertible {
     let resolvedString: String
 

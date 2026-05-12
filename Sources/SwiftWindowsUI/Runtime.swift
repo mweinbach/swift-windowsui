@@ -1078,6 +1078,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var dynamicInsertContentTypes: [String] {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var dynamicDropPayloadType: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1404,6 +1412,8 @@ public final class ViewNode {
     public var onRepeatActivate: (() -> Void)?
     public var onDeleteRows: ((IndexSet) -> Void)?
     public var onMoveRows: ((IndexSet, Int) -> Void)?
+    public var onInsertRows: ((Int, [Any]) -> Void)?
+    public var onDropRows: (([Any], Int) -> Void)?
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
     public var onDragEnd: ((Point, Point) -> Void)?
@@ -1487,6 +1497,8 @@ public final class ViewNode {
         moveDisabled: Bool = false,
         moveDisabledOverride: Bool? = nil,
         dynamicContentIndex: Int? = nil,
+        dynamicInsertContentTypes: [String] = [],
+        dynamicDropPayloadType: String? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1598,6 +1610,8 @@ public final class ViewNode {
         self.moveDisabled = moveDisabled
         self.moveDisabledOverride = moveDisabledOverride
         self.dynamicContentIndex = dynamicContentIndex
+        self.dynamicInsertContentTypes = dynamicInsertContentTypes
+        self.dynamicDropPayloadType = dynamicDropPayloadType
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis
@@ -1678,6 +1692,8 @@ public final class ViewNode {
         self.onRepeatActivate = nil
         self.onDeleteRows = nil
         self.onMoveRows = nil
+        self.onInsertRows = nil
+        self.onDropRows = nil
         self.onDragStart = nil
         self.onDragChange = nil
         self.onDragEnd = nil

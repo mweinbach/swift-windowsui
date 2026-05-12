@@ -59,6 +59,8 @@ final class ComponentHostTests: XCTestCase {
             var accessibilityActionEvents: [String] = []
             var dynamicDeleteEvents: [String] = []
             var dynamicMoveEvents: [String] = []
+            var dynamicInsertEvents: [String] = []
+            var dynamicDropEvents: [String] = []
             let preferenceIdentifier = ObjectIdentifier(ComponentHostTests.self)
 
             host.setContent {
@@ -228,6 +230,8 @@ final class ComponentHostTests: XCTestCase {
                     node.moveDisabled = useSecondState
                     node.moveDisabledOverride = useSecondState
                     node.dynamicContentIndex = useSecondState ? 6 : 3
+                    node.dynamicInsertContentTypes = useSecondState ? ["public.text", "public.url"] : ["public.image"]
+                    node.dynamicDropPayloadType = useSecondState ? "SecondPayload" : "FirstPayload"
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -295,6 +299,12 @@ final class ComponentHostTests: XCTestCase {
                     node.onMoveRows = { offsets, destination in
                         dynamicMoveEvents.append("\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))->\(destination)")
                     }
+                    node.onInsertRows = { offset, items in
+                        dynamicInsertEvents.append("\(eventLabel):\(offset):\(items.count)")
+                    }
+                    node.onDropRows = { payloads, offset in
+                        dynamicDropEvents.append("\(eventLabel):\(offset):\(payloads.count)")
+                    }
                     return node
                 }
             }
@@ -320,6 +330,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.moveDisabled, false)
             XCTAssertEqual(firstNode?.moveDisabledOverride, false)
             XCTAssertEqual(firstNode?.dynamicContentIndex, 3)
+            XCTAssertEqual(firstNode?.dynamicInsertContentTypes, ["public.image"])
+            XCTAssertEqual(firstNode?.dynamicDropPayloadType, "FirstPayload")
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -439,6 +451,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.moveDisabled, true)
             XCTAssertEqual(reusedNode?.moveDisabledOverride, true)
             XCTAssertEqual(reusedNode?.dynamicContentIndex, 6)
+            XCTAssertEqual(reusedNode?.dynamicInsertContentTypes, ["public.text", "public.url"])
+            XCTAssertEqual(reusedNode?.dynamicDropPayloadType, "SecondPayload")
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
@@ -538,6 +552,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(dynamicDeleteEvents, ["second:6"])
             reusedNode?.onMoveRows?(IndexSet(integer: 6), 1)
             XCTAssertEqual(dynamicMoveEvents, ["second:6->1"])
+            reusedNode?.onInsertRows?(2, ["payload"])
+            XCTAssertEqual(dynamicInsertEvents, ["second:2:1"])
+            reusedNode?.onDropRows?(["payload"], 4)
+            XCTAssertEqual(dynamicDropEvents, ["second:4:1"])
         }
     }
 }

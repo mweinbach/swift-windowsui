@@ -3247,6 +3247,18 @@ public struct Text: View {
         public static let secondary = Scale("secondary")
     }
 
+    public struct Layout: Sendable {
+        public struct Run: Sendable {
+            public struct Slice: Sendable {
+                public init() {}
+            }
+
+            public init() {}
+        }
+
+        public init() {}
+    }
+
     public struct DateStyle: Sendable, Equatable, Hashable, Codable {
         fileprivate enum Kind: String, Sendable, Equatable, Hashable, Codable {
             case date

@@ -202,6 +202,103 @@ public struct Transaction: Sendable {
     }
 }
 
+public protocol VectorArithmetic: AdditiveArithmetic {
+    mutating func scale(by rhs: Double)
+    var magnitudeSquared: Double { get }
+}
+
+public struct EmptyAnimatableData: VectorArithmetic, Sendable, Equatable {
+    public init() {}
+
+    public static let zero = EmptyAnimatableData()
+
+    public static func + (lhs: EmptyAnimatableData, rhs: EmptyAnimatableData) -> EmptyAnimatableData {
+        EmptyAnimatableData()
+    }
+
+    public static func - (lhs: EmptyAnimatableData, rhs: EmptyAnimatableData) -> EmptyAnimatableData {
+        EmptyAnimatableData()
+    }
+
+    public mutating func scale(by rhs: Double) {
+        _ = rhs
+    }
+
+    public var magnitudeSquared: Double {
+        0
+    }
+}
+
+public protocol Animatable {
+    associatedtype AnimatableData: VectorArithmetic = EmptyAnimatableData
+    var animatableData: AnimatableData { get set }
+}
+
+public extension Animatable where AnimatableData == EmptyAnimatableData {
+    var animatableData: EmptyAnimatableData {
+        get { EmptyAnimatableData() }
+        set { _ = newValue }
+    }
+}
+
+public struct ProposedViewSize: Sendable, Equatable {
+    public var width: CGFloat?
+    public var height: CGFloat?
+
+    public init(width: CGFloat? = nil, height: CGFloat? = nil) {
+        self.width = width
+        self.height = height
+    }
+
+    public init(_ size: CGSize) {
+        self.init(width: size.width, height: size.height)
+    }
+
+    public static let zero = ProposedViewSize(width: 0, height: 0)
+    public static let unspecified = ProposedViewSize()
+    public static let infinity = ProposedViewSize(width: .infinity, height: .infinity)
+}
+
+public struct TextProxy: Sendable {
+    public init() {}
+
+    public func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+}
+
+public struct GraphicsContext: Sendable {
+    public init() {}
+
+    public mutating func draw(_ text: Text, at point: CGPoint) {
+        _ = text
+        _ = point
+    }
+
+    public mutating func draw(_ text: Text, in rect: CGRect) {
+        _ = text
+        _ = rect
+    }
+}
+
+public protocol TextRenderer: Animatable {
+    var displayPadding: EdgeInsets { get }
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext)
+    func sizeThatFits(proposal: ProposedViewSize, text: TextProxy) -> CGSize
+}
+
+public extension TextRenderer {
+    var displayPadding: EdgeInsets {
+        EdgeInsets()
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, text: TextProxy) -> CGSize {
+        text.sizeThatFits(proposal)
+    }
+}
+
+public protocol TextAttribute {}
+
 @discardableResult
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
     try body()
@@ -14411,6 +14508,13 @@ public extension View {
         ModifiedView(content: self) { content, context in
             let resolvedContext = isEnabled ? context.withEnvironmentValue(\.textScale, scale) : context
             return content.makeComponent(context: resolvedContext)
+        }
+    }
+
+    func textRenderer<T: TextRenderer>(_ renderer: T) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = renderer
+            return content.makeComponent(context: context)
         }
     }
 

@@ -3042,6 +3042,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextRendererCompatibilityShimAcceptsCustomRenderer() async {
+        struct ProbeTextAttribute: TextAttribute {}
+
+        struct ProbeTextRenderer: TextRenderer {
+            func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+                _ = layout
+                _ = ctx
+            }
+        }
+
+        await MainActor.run {
+            let renderer = ProbeTextRenderer()
+            let attribute = ProbeTextAttribute()
+            var context = GraphicsContext()
+
+            renderer.draw(layout: Text.Layout(), in: &context)
+
+            let measuredSize = renderer.sizeThatFits(
+                proposal: ProposedViewSize(width: 80, height: 24),
+                text: TextProxy()
+            )
+            let node = makeNode(
+                Text("RENDERED")
+                    .textRenderer(renderer)
+            )
+            let baselineNode = makeNode(Text("RENDERED"))
+
+            XCTAssertEqual(renderer.displayPadding, EdgeInsets())
+            XCTAssertEqual(measuredSize, CGSize(width: 80, height: 24))
+            XCTAssertEqual(node.text, "RENDERED")
+            XCTAssertEqual(node.textStyle.nativeFontSize, baselineNode.textStyle.nativeFontSize)
+            _ = attribute
+        }
+    }
+
     func testFontLeadingMapsToRetainedLineSpacing() async {
         await MainActor.run {
             let tightNode = makeNode(

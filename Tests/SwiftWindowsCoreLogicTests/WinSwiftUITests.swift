@@ -9764,6 +9764,67 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBindingDynamicMemberProjectionReadsWritesNestedValues() async {
+        await MainActor.run {
+            struct Settings {
+                var isEnabled: Bool
+                var title: String
+            }
+
+            var settings = Settings(isEnabled: false, title: "ALPHA")
+            let settingsBinding = Binding(
+                get: { settings },
+                set: { settings = $0 }
+            )
+
+            XCTAssertFalse(settingsBinding.isEnabled.wrappedValue)
+            XCTAssertEqual(settingsBinding.title.wrappedValue, "ALPHA")
+
+            settingsBinding.isEnabled.wrappedValue = true
+            settingsBinding.title.animation(.linear).wrappedValue = "BETA"
+
+            XCTAssertTrue(settings.isEnabled)
+            XCTAssertEqual(settings.title, "BETA")
+        }
+    }
+
+    func testBindingDynamicMemberProjectionFeedsRetainedControls() async {
+        await MainActor.run {
+            struct Settings {
+                var isEnabled: Bool
+                var title: String
+            }
+
+            struct SettingsEditor: View {
+                @Binding var settings: Settings
+
+                var body: some View {
+                    VStack {
+                        Toggle("ENABLED", isOn: $settings.isEnabled)
+                        TextField("TITLE", text: $settings.title.transaction(Transaction()))
+                    }
+                }
+            }
+
+            var settings = Settings(isEnabled: false, title: "ALPHA")
+            let node = makeNode(
+                SettingsEditor(
+                    settings: Binding(
+                        get: { settings },
+                        set: { settings = $0 }
+                    )
+                )
+            )
+
+            firstFocusable(in: node)?.onActivate?()
+            let textInput = focusableNodes(in: node).last
+            textInput?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertTrue(settings.isEnabled)
+            XCTAssertEqual(settings.title, "ALPHAz")
+        }
+    }
+
     func testDynamicPropertyProtocolAcceptsWinSwiftUIWrappers() async {
         await MainActor.run {
             final class DynamicModel: ObservableObject {

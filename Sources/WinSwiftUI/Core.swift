@@ -2453,6 +2453,7 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
 
 @MainActor
 @propertyWrapper
+@dynamicMemberLookup
 public struct Binding<Value>: DynamicProperty {
     private let getValue: @MainActor () -> Value
     private let setValue: @MainActor (Value) -> Void
@@ -2460,6 +2461,16 @@ public struct Binding<Value>: DynamicProperty {
     public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
         self.getValue = get
         self.setValue = set
+    }
+
+    public init(
+        get: @escaping @MainActor () -> Value,
+        set: @escaping @MainActor (Value, Transaction) -> Void
+    ) {
+        self.getValue = get
+        self.setValue = { value in
+            set(value, Transaction())
+        }
     }
 
     public var wrappedValue: Value {
@@ -2473,6 +2484,29 @@ public struct Binding<Value>: DynamicProperty {
 
     public var projectedValue: Binding<Value> {
         self
+    }
+
+    public subscript<Subject>(dynamicMember keyPath: WritableKeyPath<Value, Subject>) -> Binding<Subject> {
+        Binding<Subject>(
+            get: {
+                wrappedValue[keyPath: keyPath]
+            },
+            set: { newValue in
+                var value = wrappedValue
+                value[keyPath: keyPath] = newValue
+                wrappedValue = value
+            }
+        )
+    }
+
+    public func transaction(_ transaction: Transaction) -> Binding<Value> {
+        let _ = transaction
+        return self
+    }
+
+    public func animation(_ animation: Animation? = .default) -> Binding<Value> {
+        let _ = animation
+        return self
     }
 
     public static func constant(_ value: Value) -> Binding<Value> {

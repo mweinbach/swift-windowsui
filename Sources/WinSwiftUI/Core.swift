@@ -10550,6 +10550,38 @@ public struct EmptyVisualEffect: VisualEffect, Equatable, Hashable, CustomString
 }
 
 public extension VisualEffect {
+    func brightness(_ amount: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).brightness(\(amount))")
+    }
+
+    func contrast(_ amount: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).contrast(\(amount))")
+    }
+
+    func colorInvert() -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorInvert")
+    }
+
+    func colorMultiply(_ color: Color) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorMultiply(\(retainedVisualEffectColorDescription(color)))")
+    }
+
+    func saturation(_ amount: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).saturation(\(amount))")
+    }
+
+    func grayscale(_ amount: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).grayscale(\(amount))")
+    }
+
+    func hueRotation(_ angle: Angle) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).hueRotation(\(angle.radians))")
+    }
+
+    func luminanceToAlpha() -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).luminanceToAlpha")
+    }
+
     func opacity(_ value: Double) -> EmptyVisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).opacity(\(value))")
     }
@@ -10581,6 +10613,11 @@ public extension VisualEffect {
             retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))"
         )
     }
+}
+
+private func retainedVisualEffectColorDescription(_ color: Color) -> String {
+    let rgba = color.rgba
+    return "red:\(rgba.0),green:\(rgba.1),blue:\(rgba.2),alpha:\(rgba.3)"
 }
 
 public struct UnitCurve: Sendable, Equatable, Hashable, CustomStringConvertible {

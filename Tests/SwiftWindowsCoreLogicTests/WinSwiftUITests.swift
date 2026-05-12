@@ -15669,24 +15669,36 @@ final class WinSwiftUITests: XCTestCase {
             var value = 0
             var transaction = Transaction(animation: .easeIn(duration: 0.2))
             transaction.disablesAnimations = true
+            transaction.scrollTargetAnchor = .bottom
 
             let result = withTransaction(transaction) {
                 value = 7
                 return value + 1
             }
 
+            let anchoredResult = withTransaction(\.scrollTargetAnchor, .top) {
+                value += 2
+                return value
+            }
+
             var didTransform = false
+            var transformedAnchor: UnitPoint?
             let node = makeNode(
                 Text("TX")
                     .transaction { transaction in
                         transaction.disablesAnimations = true
+                        transaction.scrollTargetAnchor = .center
+                        transformedAnchor = transaction.scrollTargetAnchor
                         didTransform = true
                     }
             )
 
             XCTAssertEqual(result, 8)
-            XCTAssertEqual(value, 7)
+            XCTAssertEqual(anchoredResult, 9)
+            XCTAssertEqual(value, 9)
             XCTAssertTrue(didTransform)
+            XCTAssertEqual(transaction.scrollTargetAnchor, .bottom)
+            XCTAssertEqual(transformedAnchor, .center)
             XCTAssertEqual(node.text, "TX")
         }
     }

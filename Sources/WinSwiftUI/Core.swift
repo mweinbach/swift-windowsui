@@ -606,10 +606,12 @@ public struct Animation: Sendable {
 public struct Transaction: Sendable {
     public var animation: Animation?
     public var disablesAnimations: Bool
+    public var scrollTargetAnchor: UnitPoint?
 
     public init(animation: Animation? = nil) {
         self.animation = animation
         self.disablesAnimations = false
+        self.scrollTargetAnchor = nil
     }
 }
 
@@ -718,6 +720,17 @@ public func withAnimation<Result>(_ animation: Animation? = .default, _ body: ()
 @discardableResult
 public func withTransaction<Result>(_ transaction: Transaction, _ body: () throws -> Result) rethrows -> Result {
     try body()
+}
+
+@discardableResult
+public func withTransaction<Value, Result>(
+    _ keyPath: WritableKeyPath<Transaction, Value>,
+    _ value: Value,
+    _ body: () throws -> Result
+) rethrows -> Result {
+    var transaction = Transaction()
+    transaction[keyPath: keyPath] = value
+    return try withTransaction(transaction, body)
 }
 
 public struct UnitPoint: Sendable, Equatable {

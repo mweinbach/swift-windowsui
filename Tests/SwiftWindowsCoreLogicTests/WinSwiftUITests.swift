@@ -9554,6 +9554,75 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachBindingCollectionFeedsRetainedControls() async {
+        await MainActor.run {
+            struct Item: Identifiable {
+                let id: Int
+                var title: String
+                var isEnabled: Bool
+            }
+
+            var items = [
+                Item(id: 1, title: "FIRST", isEnabled: false),
+                Item(id: 2, title: "SECOND", isEnabled: true)
+            ]
+            let itemsBinding = Binding(
+                get: { items },
+                set: { items = $0 }
+            )
+
+            let node = makeNode(
+                VStack {
+                    ForEach(itemsBinding) { item in
+                        Toggle(item.wrappedValue.title, isOn: item.isEnabled)
+                        TextField("TITLE", text: item.title)
+                    }
+                }
+            )
+            let controls = focusableNodes(in: node)
+
+            controls[0].onActivate?()
+            controls[3].onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertTrue(items[0].isEnabled)
+            XCTAssertEqual(items[1].title, "SECONDz")
+            XCTAssertEqual(node.children[0].nodeTag, "1#0")
+            XCTAssertEqual(node.children[2].nodeTag, "2#0")
+        }
+    }
+
+    func testForEachBindingCollectionSupportsExplicitIDKeyPath() async {
+        await MainActor.run {
+            struct Item {
+                let key: String
+                var title: String
+            }
+
+            var items = [
+                Item(key: "alpha", title: "ALPHA"),
+                Item(key: "beta", title: "BETA")
+            ]
+            let itemsBinding = Binding(
+                get: { items },
+                set: { items = $0 }
+            )
+
+            let node = makeNode(
+                VStack {
+                    ForEach(itemsBinding, id: \.key) { item in
+                        TextField("TITLE", text: item.title)
+                    }
+                }
+            )
+
+            firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertEqual(items[0].title, "ALPHAz")
+            XCTAssertEqual(node.children[0].nodeTag, "alpha#0")
+            XCTAssertEqual(node.children[1].nodeTag, "beta#0")
+        }
+    }
+
     func testToggleWritesBindingAndInvalidates() async {
         await MainActor.run {
             var isEnabled = false

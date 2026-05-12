@@ -2145,9 +2145,78 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     }
 }
 
+@MainActor
+public struct BindingCollectionElement<Element, ID: Hashable> {
+    public let id: ID
+    public let binding: Binding<Element>
+}
+
 public extension ForEach where Data.Element: Identifiable, ID == Data.Element.ID {
     init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) {
         self.init(data, id: \.id, content: content)
+    }
+}
+
+public extension ForEach {
+    init<Collection>(
+        _ data: Binding<Collection>,
+        @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
+    ) where
+        Data == [BindingCollectionElement<Collection.Element, ID>],
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Element: Identifiable,
+        Collection.Index: Hashable,
+        ID == Collection.Element.ID
+    {
+        let elements = data.wrappedValue.indices.map { index in
+            BindingCollectionElement(
+                id: data.wrappedValue[index].id,
+                binding: Binding<Collection.Element>(
+                    get: {
+                        data.wrappedValue[index]
+                    },
+                    set: { newValue in
+                        var collection = data.wrappedValue
+                        collection[index] = newValue
+                        data.wrappedValue = collection
+                    }
+                )
+            )
+        }
+
+        self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
+            content(element.binding)
+        }
+    }
+
+    init<Collection>(
+        _ data: Binding<Collection>,
+        id: KeyPath<Collection.Element, ID>,
+        @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
+    ) where
+        Data == [BindingCollectionElement<Collection.Element, ID>],
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Index: Hashable
+    {
+        let elements = data.wrappedValue.indices.map { index in
+            BindingCollectionElement(
+                id: data.wrappedValue[index][keyPath: id],
+                binding: Binding<Collection.Element>(
+                    get: {
+                        data.wrappedValue[index]
+                    },
+                    set: { newValue in
+                        var collection = data.wrappedValue
+                        collection[index] = newValue
+                        data.wrappedValue = collection
+                    }
+                )
+            )
+        }
+
+        self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
+            content(element.binding)
+        }
     }
 }
 

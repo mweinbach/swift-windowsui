@@ -6508,10 +6508,21 @@ public struct EmptyView: View {
     }
 }
 
+public protocol AlignmentID: Sendable {
+    static func defaultValue(in context: ViewDimensions) -> CGFloat
+}
+
 public enum HorizontalAlignment: Sendable {
     case leading
     case center
     case trailing
+    case custom(String, @Sendable (ViewDimensions) -> CGFloat)
+
+    public init(_ id: any AlignmentID.Type) {
+        self = .custom(String(reflecting: id), { dimensions in
+            id.defaultValue(in: dimensions)
+        })
+    }
 
     var retainedGuideName: String {
         switch self {
@@ -6521,6 +6532,8 @@ public enum HorizontalAlignment: Sendable {
             return "center"
         case .trailing:
             return "trailing"
+        case let .custom(name, _):
+            return "custom:\(name)"
         }
     }
 }
@@ -6531,6 +6544,13 @@ public enum VerticalAlignment: Sendable {
     case bottom
     case firstTextBaseline
     case lastTextBaseline
+    case custom(String, @Sendable (ViewDimensions) -> CGFloat)
+
+    public init(_ id: any AlignmentID.Type) {
+        self = .custom(String(reflecting: id), { dimensions in
+            id.defaultValue(in: dimensions)
+        })
+    }
 
     var retainedGuideName: String {
         switch self {
@@ -6544,6 +6564,8 @@ public enum VerticalAlignment: Sendable {
             return "firstTextBaseline"
         case .lastTextBaseline:
             return "lastTextBaseline"
+        case let .custom(name, _):
+            return "custom:\(name)"
         }
     }
 }
@@ -6600,6 +6622,8 @@ public struct ViewDimensions: Sendable, Equatable {
             return width / 2
         case .trailing:
             return width
+        case let .custom(_, defaultValue):
+            return defaultValue(self)
         }
     }
 
@@ -6613,6 +6637,8 @@ public struct ViewDimensions: Sendable, Equatable {
             return height
         case .firstTextBaseline, .lastTextBaseline:
             return height * 0.8
+        case let .custom(_, defaultValue):
+            return defaultValue(self)
         }
     }
 
@@ -11044,7 +11070,7 @@ extension HorizontalAlignment {
             return .trailing
         case (.trailing, .rightToLeft):
             return .leading
-        case (.leading, .leftToRight), (.center, _), (.trailing, .leftToRight):
+        case (.leading, .leftToRight), (.center, _), (.trailing, .leftToRight), (.custom, _):
             return self
         }
     }
@@ -11061,6 +11087,8 @@ extension HorizontalAlignment {
             return .center
         case .trailing:
             return .trailing
+        case let .custom(name, _):
+            return .customHorizontal("custom:\(name)")
         }
     }
 
@@ -11076,6 +11104,8 @@ extension HorizontalAlignment {
             return .center
         case .trailing:
             return .trailing
+        case .custom:
+            return .center
         }
     }
 }
@@ -11093,12 +11123,14 @@ extension VerticalAlignment {
             return .firstTextBaseline
         case .lastTextBaseline:
             return .lastTextBaseline
+        case let .custom(name, _):
+            return .customVertical("custom:\(name)")
         }
     }
 
     var mainAlignment: StackMainAlignment {
         switch self {
-        case .top, .firstTextBaseline:
+        case .top, .firstTextBaseline, .custom:
             return .start
         case .center:
             return .center
@@ -11143,6 +11175,8 @@ extension HorizontalAlignment {
             return .center
         case .trailing:
             return .trailing
+        case .custom:
+            return .center
         }
     }
 }
@@ -11150,7 +11184,7 @@ extension HorizontalAlignment {
 extension VerticalAlignment {
     var retainedVerticalAlignment: RetainedVerticalAlignment {
         switch self {
-        case .top, .firstTextBaseline:
+        case .top, .firstTextBaseline, .custom:
             return .top
         case .center:
             return .center
@@ -12095,6 +12129,8 @@ extension Alignment {
             x = max(0, (containerSize.width - childSize.width) * 0.5)
         case .trailing:
             x = max(0, containerSize.width - childSize.width)
+        case .custom:
+            x = max(0, (containerSize.width - childSize.width) * 0.5)
         }
 
         let y: Double
@@ -12105,6 +12141,8 @@ extension Alignment {
             y = max(0, (containerSize.height - childSize.height) * 0.5)
         case .bottom, .lastTextBaseline:
             y = max(0, containerSize.height - childSize.height)
+        case .custom:
+            y = 0
         }
 
         return Point(x: x, y: y)

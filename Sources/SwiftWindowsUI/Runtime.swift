@@ -2212,12 +2212,14 @@ public final class ViewNode {
                     } else {
                         usesCustomAlignmentGuide = false
                         switch stackLayout.alignment {
-                        case .leading, .stretch, .firstTextBaseline:
+                        case .leading, .stretch, .firstTextBaseline, .customVertical:
                             x = contentRect.origin.x
                         case .center:
                             x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
                         case .trailing, .lastTextBaseline:
                             x = contentRect.maxX - width
+                        case .customHorizontal:
+                            x = contentRect.origin.x
                         }
                     }
 
@@ -2257,6 +2259,10 @@ public final class ViewNode {
                             y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
                         case .lastTextBaseline:
                             y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
+                        case .customHorizontal:
+                            y = contentRect.origin.y
+                        case .customVertical:
+                            y = contentRect.origin.y
                         }
                     }
 
@@ -3909,6 +3915,10 @@ private func stackCrossAlignmentGuide(
             return nil
         case .lastTextBaseline:
             return nil
+        case let .customHorizontal(name):
+            return (.horizontal, name)
+        case .customVertical:
+            return nil
         case .stretch:
             return nil
         }
@@ -3924,6 +3934,10 @@ private func stackCrossAlignmentGuide(
             return (.vertical, "firstTextBaseline")
         case .lastTextBaseline:
             return (.vertical, "lastTextBaseline")
+        case .customHorizontal:
+            return nil
+        case let .customVertical(name):
+            return (.vertical, name)
         case .stretch:
             return nil
         }
@@ -3940,6 +3954,8 @@ private func stackCrossReference(for alignment: StackCrossAlignment, contentExte
         return contentExtent
     case .firstTextBaseline, .lastTextBaseline:
         return defaultStackCrossBaselineGuideValue(for: contentExtent)
+    case .customHorizontal, .customVertical:
+        return 0
     }
 }
 

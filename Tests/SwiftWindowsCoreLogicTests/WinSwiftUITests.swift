@@ -6,6 +6,18 @@ import SwiftWindowsLayout
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
+private struct OneThirdHorizontalAlignmentID: AlignmentID {
+    static func defaultValue(in context: ViewDimensions) -> Double {
+        context.width / 3
+    }
+}
+
+private struct ThreeQuarterVerticalAlignmentID: AlignmentID {
+    static func defaultValue(in context: ViewDimensions) -> Double {
+        context.height * 0.75
+    }
+}
+
 @MainActor
 private struct PointerHandlerProbe: View {
     typealias Body = Never
@@ -5240,9 +5252,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(dimensions[VerticalAlignment.bottom], 20)
             XCTAssertEqual(dimensions[VerticalAlignment.firstTextBaseline], 16)
             XCTAssertEqual(dimensions[VerticalAlignment.lastTextBaseline], 16)
+            XCTAssertEqual(dimensions[HorizontalAlignment(OneThirdHorizontalAlignmentID.self)], 40.0 / 3.0)
+            XCTAssertEqual(dimensions[VerticalAlignment(ThreeQuarterVerticalAlignmentID.self)], 15)
             XCTAssertEqual(dimensions[explicit: HorizontalAlignment.trailing], 40)
             XCTAssertEqual(dimensions[explicit: VerticalAlignment.bottom], 20)
             XCTAssertEqual(dimensions[explicit: VerticalAlignment.firstTextBaseline], 16)
+            XCTAssertEqual(dimensions[explicit: HorizontalAlignment(OneThirdHorizontalAlignmentID.self)], 40.0 / 3.0)
+            XCTAssertEqual(dimensions[explicit: VerticalAlignment(ThreeQuarterVerticalAlignmentID.self)], 15)
 
             let node = makeNode(
                 Text("GUIDE")
@@ -5256,6 +5272,12 @@ final class WinSwiftUITests: XCTestCase {
                     .alignmentGuide(.firstTextBaseline) { dimensions in
                         dimensions[VerticalAlignment.firstTextBaseline] + 2
                     }
+                    .alignmentGuide(HorizontalAlignment(OneThirdHorizontalAlignmentID.self)) { dimensions in
+                        dimensions[HorizontalAlignment(OneThirdHorizontalAlignmentID.self)] + 4
+                    }
+                    .alignmentGuide(VerticalAlignment(ThreeQuarterVerticalAlignmentID.self)) { dimensions in
+                        dimensions[VerticalAlignment(ThreeQuarterVerticalAlignmentID.self)] + 1
+                    }
                     .alignmentGuide(.leading) { _ in
                         11
                     }
@@ -5266,6 +5288,16 @@ final class WinSwiftUITests: XCTestCase {
                 [
                     RetainedAlignmentGuide(axis: .vertical, guide: "bottom", value: 23),
                     RetainedAlignmentGuide(axis: .vertical, guide: "firstTextBaseline", value: 18),
+                    RetainedAlignmentGuide(
+                        axis: .horizontal,
+                        guide: "custom:\(String(reflecting: OneThirdHorizontalAlignmentID.self))",
+                        value: 40.0 / 3.0 + 4
+                    ),
+                    RetainedAlignmentGuide(
+                        axis: .vertical,
+                        guide: "custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))",
+                        value: 16
+                    ),
                     RetainedAlignmentGuide(axis: .horizontal, guide: "leading", value: 11)
                 ]
             )
@@ -5321,6 +5353,18 @@ final class WinSwiftUITests: XCTestCase {
                     Text("TWO")
                 }
             )
+            let customVStackNode = makeNode(
+                VStack(alignment: HorizontalAlignment(OneThirdHorizontalAlignmentID.self), spacing: nil) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
+            let customHStackNode = makeNode(
+                HStack(alignment: VerticalAlignment(ThreeQuarterVerticalAlignmentID.self), spacing: nil) {
+                    Text("ONE")
+                    Text("TWO")
+                }
+            )
             let firstBaselineHStackNode = makeNode(
                 HStack(alignment: .firstTextBaseline, spacing: nil) {
                     Text("ONE")
@@ -5340,6 +5384,12 @@ final class WinSwiftUITests: XCTestCase {
             guard case .stack(let hStackLayout) = hStackNode.layoutMode else {
                 return XCTFail("Expected horizontal stack layout")
             }
+            guard case .stack(let customVStackLayout) = customVStackNode.layoutMode else {
+                return XCTFail("Expected vertical stack layout")
+            }
+            guard case .stack(let customHStackLayout) = customHStackNode.layoutMode else {
+                return XCTFail("Expected horizontal stack layout")
+            }
             guard case .stack(let firstBaselineHStackLayout) = firstBaselineHStackNode.layoutMode else {
                 return XCTFail("Expected horizontal stack layout")
             }
@@ -5349,6 +5399,14 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(vStackLayout, .vertical(spacing: 0, alignment: .trailing))
             XCTAssertEqual(hStackLayout, .horizontal(spacing: 0, alignment: .trailing))
+            XCTAssertEqual(
+                customVStackLayout,
+                .vertical(spacing: 0, alignment: .customHorizontal("custom:\(String(reflecting: OneThirdHorizontalAlignmentID.self))"))
+            )
+            XCTAssertEqual(
+                customHStackLayout,
+                .horizontal(spacing: 0, alignment: .customVertical("custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))"))
+            )
             XCTAssertEqual(firstBaselineHStackLayout, .horizontal(spacing: 0, alignment: .firstTextBaseline))
             XCTAssertEqual(lastBaselineHStackLayout, .horizontal(spacing: 0, alignment: .lastTextBaseline))
         }

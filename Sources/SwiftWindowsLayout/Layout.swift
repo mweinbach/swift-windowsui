@@ -56,6 +56,8 @@ public enum StackCrossAlignment: Equatable, Sendable {
     case trailing
     case firstTextBaseline
     case lastTextBaseline
+    case customHorizontal(String)
+    case customVertical(String)
     case stretch
 }
 

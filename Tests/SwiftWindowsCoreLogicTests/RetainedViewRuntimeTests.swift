@@ -131,10 +131,34 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 layoutMode: .stack(.horizontal(alignment: .firstTextBaseline)),
                 children: [baselineShort, baselineTall]
             )
+            let customHorizontalGuided = ViewNode(
+                preferredSize: Size(width: 20, height: 10),
+                alignmentGuides: [
+                    RetainedAlignmentGuide(axis: .horizontal, guide: "custom:test", value: 7)
+                ]
+            )
+            let customHorizontalRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .stack(.vertical(alignment: .customHorizontal("custom:test"))),
+                children: [customHorizontalGuided]
+            )
+            let customVerticalGuided = ViewNode(
+                preferredSize: Size(width: 10, height: 20),
+                alignmentGuides: [
+                    RetainedAlignmentGuide(axis: .vertical, guide: "custom:test", value: 9)
+                ]
+            )
+            let customVerticalRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .stack(.horizontal(alignment: .customVertical("custom:test"))),
+                children: [customVerticalGuided]
+            )
 
             _ = RetainedViewRuntime(root: verticalRoot).renderFrame()
             _ = RetainedViewRuntime(root: horizontalRoot).renderFrame()
             _ = RetainedViewRuntime(root: baselineRoot).renderFrame()
+            _ = RetainedViewRuntime(root: customHorizontalRoot).renderFrame()
+            _ = RetainedViewRuntime(root: customVerticalRoot).renderFrame()
 
             XCTAssertEqual(verticalGuided.resolvedFrame, Rect(x: 45, y: 0, width: 20, height: 10))
             XCTAssertEqual(verticalDefault.resolvedFrame, Rect(x: 40, y: 10, width: 20, height: 10))
@@ -142,6 +166,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
             XCTAssertEqual(horizontalDefault.resolvedFrame, Rect(x: 10, y: 20, width: 10, height: 20))
             XCTAssertEqual(baselineShort.resolvedFrame, Rect(x: 0, y: 32, width: 10, height: 20))
             XCTAssertEqual(baselineTall.resolvedFrame, Rect(x: 10, y: 16, width: 10, height: 40))
+            XCTAssertEqual(customHorizontalGuided.resolvedFrame, Rect(x: -7, y: 0, width: 20, height: 10))
+            XCTAssertEqual(customVerticalGuided.resolvedFrame, Rect(x: 0, y: -9, width: 10, height: 20))
         }
     }
 

@@ -3652,6 +3652,60 @@ public struct FocusState<Value>: DynamicProperty {
 }
 
 @MainActor
+@propertyWrapper
+public struct GestureState<Value>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        let initialValue: Value
+        var value: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: Value) {
+            self.initialValue = value
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init(wrappedValue: Value) {
+        self.storage = Storage(value: wrappedValue)
+    }
+
+    public init(initialValue: Value) {
+        self.storage = Storage(value: initialValue)
+    }
+
+    public var wrappedValue: Value {
+        if let context = ViewBuildContextScope.current {
+            storage.invalidate = {
+                context.invalidate()
+            }
+        }
+        return storage.value
+    }
+
+    public var projectedValue: GestureState<Value> {
+        self
+    }
+
+    fileprivate func update(
+        with updateBody: @MainActor (inout Value, inout Transaction) -> Void
+    ) {
+        var value = storage.value
+        var transaction = Transaction()
+        updateBody(&value, &transaction)
+        storage.value = value
+        storage.invalidate?()
+    }
+
+    fileprivate func reset() {
+        storage.value = storage.initialValue
+        storage.invalidate?()
+    }
+}
+
+@MainActor
 public struct ViewBuildContext {
     typealias NavigationDestinationDismissHandler = @MainActor () -> Void
     typealias NavigationDestinationPushHandler = @MainActor ([AnyView], NavigationDestinationDismissHandler?) -> Void
@@ -6433,24 +6487,32 @@ public struct LongPressGesture: Gesture {
     public var maximumDistance: CGFloat
     private let changedAction: (@MainActor (Bool) -> Void)?
     private let endedAction: (@MainActor (Bool) -> Void)?
+    private let updatingActions: [@MainActor (Bool) -> Void]
+    private let resetActions: [@MainActor () -> Void]
 
     public init(minimumDuration: Double = 0.5, maximumDistance: CGFloat = 10) {
         self.minimumDuration = minimumDuration
         self.maximumDistance = maximumDistance
         self.changedAction = nil
         self.endedAction = nil
+        self.updatingActions = []
+        self.resetActions = []
     }
 
     private init(
         minimumDuration: Double,
         maximumDistance: CGFloat,
         changedAction: (@MainActor (Bool) -> Void)?,
-        endedAction: (@MainActor (Bool) -> Void)?
+        endedAction: (@MainActor (Bool) -> Void)?,
+        updatingActions: [@MainActor (Bool) -> Void],
+        resetActions: [@MainActor () -> Void]
     ) {
         self.minimumDuration = minimumDuration
         self.maximumDistance = maximumDistance
         self.changedAction = changedAction
         self.endedAction = endedAction
+        self.updatingActions = updatingActions
+        self.resetActions = resetActions
     }
 
     public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> LongPressGesture {
@@ -6458,7 +6520,9 @@ public struct LongPressGesture: Gesture {
             minimumDuration: minimumDuration,
             maximumDistance: maximumDistance,
             changedAction: action,
-            endedAction: endedAction
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
         )
     }
 
@@ -6467,7 +6531,34 @@ public struct LongPressGesture: Gesture {
             minimumDuration: minimumDuration,
             maximumDistance: maximumDistance,
             changedAction: changedAction,
-            endedAction: action
+            endedAction: action,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> LongPressGesture {
+        var updatingActions = self.updatingActions
+        var resetActions = self.resetActions
+        updatingActions.append { value in
+            state.update { stateValue, transaction in
+                body(value, &stateValue, &transaction)
+            }
+        }
+        resetActions.append {
+            state.reset()
+        }
+
+        return LongPressGesture(
+            minimumDuration: minimumDuration,
+            maximumDistance: maximumDistance,
+            changedAction: changedAction,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
         )
     }
 
@@ -6482,9 +6573,20 @@ public struct LongPressGesture: Gesture {
                 maximumDistance: maximumDistance,
                 perform: {
                     endedAction?(true)
+                    for resetAction in resetActions {
+                        resetAction()
+                    }
                 },
                 onPressingChanged: { isPressing in
+                    for updatingAction in updatingActions {
+                        updatingAction(isPressing)
+                    }
                     changedAction?(isPressing)
+                    if !isPressing {
+                        for resetAction in resetActions {
+                            resetAction()
+                        }
+                    }
                 }
             )
         )
@@ -6521,24 +6623,32 @@ public struct DragGesture: Gesture {
     public var coordinateSpace: CoordinateSpace
     private let changedAction: (@MainActor (Value) -> Void)?
     private let endedAction: (@MainActor (Value) -> Void)?
+    private let updatingActions: [@MainActor (Value) -> Void]
+    private let resetActions: [@MainActor () -> Void]
 
     public init(minimumDistance: CGFloat = 10, coordinateSpace: CoordinateSpace = .local) {
         self.minimumDistance = minimumDistance
         self.coordinateSpace = coordinateSpace
         self.changedAction = nil
         self.endedAction = nil
+        self.updatingActions = []
+        self.resetActions = []
     }
 
     private init(
         minimumDistance: CGFloat,
         coordinateSpace: CoordinateSpace,
         changedAction: (@MainActor (Value) -> Void)?,
-        endedAction: (@MainActor (Value) -> Void)?
+        endedAction: (@MainActor (Value) -> Void)?,
+        updatingActions: [@MainActor (Value) -> Void],
+        resetActions: [@MainActor () -> Void]
     ) {
         self.minimumDistance = minimumDistance
         self.coordinateSpace = coordinateSpace
         self.changedAction = changedAction
         self.endedAction = endedAction
+        self.updatingActions = updatingActions
+        self.resetActions = resetActions
     }
 
     public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> DragGesture {
@@ -6546,7 +6656,9 @@ public struct DragGesture: Gesture {
             minimumDistance: minimumDistance,
             coordinateSpace: coordinateSpace,
             changedAction: action,
-            endedAction: endedAction
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
         )
     }
 
@@ -6555,7 +6667,34 @@ public struct DragGesture: Gesture {
             minimumDistance: minimumDistance,
             coordinateSpace: coordinateSpace,
             changedAction: changedAction,
-            endedAction: action
+            endedAction: action,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> DragGesture {
+        var updatingActions = self.updatingActions
+        var resetActions = self.resetActions
+        updatingActions.append { value in
+            state.update { stateValue, transaction in
+                body(value, &stateValue, &transaction)
+            }
+        }
+        resetActions.append {
+            state.reset()
+        }
+
+        return DragGesture(
+            minimumDistance: minimumDistance,
+            coordinateSpace: coordinateSpace,
+            changedAction: changedAction,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
         )
     }
 
@@ -6595,7 +6734,11 @@ public struct DragGesture: Gesture {
                         startLocation = point
                         hasRecognized = minimumDistance == 0
                         if hasRecognized {
-                            changedAction?(makeValue(location: point, translation: CGSize(width: 0, height: 0)))
+                            let value = makeValue(location: point, translation: CGSize(width: 0, height: 0))
+                            for updatingAction in updatingActions {
+                                updatingAction(value)
+                            }
+                            changedAction?(value)
                         }
                     }
 
@@ -6608,7 +6751,11 @@ public struct DragGesture: Gesture {
                         }
 
                         hasRecognized = true
-                        changedAction?(makeValue(location: point, translation: CGSize(width: delta.x, height: delta.y)))
+                        let value = makeValue(location: point, translation: CGSize(width: delta.x, height: delta.y))
+                        for updatingAction in updatingActions {
+                            updatingAction(value)
+                        }
+                        changedAction?(value)
                     }
 
                     let existingOnDragEnd = childNode.onDragEnd
@@ -6625,6 +6772,9 @@ public struct DragGesture: Gesture {
                         }
 
                         endedAction?(makeValue(location: point, translation: CGSize(width: delta.x, height: delta.y)))
+                        for resetAction in resetActions {
+                            resetAction()
+                        }
                     }
 
                     return childNode

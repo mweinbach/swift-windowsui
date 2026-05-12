@@ -10095,6 +10095,7 @@ final class WinSwiftUITests: XCTestCase {
             acceptDynamicProperty(SceneStorage(wrappedValue: "value", "dynamicProperty"))
             acceptDynamicProperty(ScaledMetric(wrappedValue: 1.0))
             acceptDynamicProperty(FocusState<Bool>())
+            acceptDynamicProperty(GestureState(wrappedValue: false))
             acceptDynamicProperty(Namespace())
         }
     }
@@ -15952,6 +15953,57 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(globalChanges.map(\.location), [Point(x: 1, y: 2)])
             XCTAssertEqual(namedEndings.map(\.startLocation), [Point(x: 3, y: 4)])
             XCTAssertEqual(namedEndings.map(\.translation), [Size(width: 5, height: 6)])
+        }
+    }
+
+    func testGestureStateUpdatesDuringDragAndResetsOnEnd() async {
+        await MainActor.run {
+            let translationState = GestureState(wrappedValue: Size(width: 0, height: 0))
+            var transactions: [Transaction] = []
+            let node = makeNode(
+                Text("DRAG")
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .updating(translationState.projectedValue) { value, state, transaction in
+                                state = value.translation
+                                transactions.append(transaction)
+                            }
+                    )
+            )
+
+            XCTAssertEqual(translationState.wrappedValue, Size(width: 0, height: 0))
+
+            node.onDragStart?(Point(x: 2, y: 3))
+            XCTAssertEqual(translationState.wrappedValue, Size(width: 0, height: 0))
+
+            node.onDragChange?(Point(x: 12, y: 18), Point(x: 10, y: 15))
+            XCTAssertEqual(translationState.wrappedValue, Size(width: 10, height: 15))
+
+            node.onDragEnd?(Point(x: 14, y: 20), Point(x: 12, y: 17))
+            XCTAssertEqual(translationState.wrappedValue, Size(width: 0, height: 0))
+            XCTAssertEqual(transactions.count, 2)
+        }
+    }
+
+    func testGestureStateSyntaxWorksInRetainedViewBodies() async {
+        await MainActor.run {
+            struct GestureStateProbe: View {
+                @GestureState var isPressing = false
+
+                var body: some View {
+                    Text(isPressing ? "PRESSING" : "IDLE")
+                        .gesture(
+                            LongPressGesture(minimumDuration: 0.1)
+                                .updating($isPressing) { value, state, _ in
+                                    state = value
+                                }
+                        )
+                }
+            }
+
+            let node = makeNode(GestureStateProbe())
+            XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertEqual(node.text, "IDLE")
         }
     }
 

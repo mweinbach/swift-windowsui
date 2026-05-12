@@ -10596,12 +10596,31 @@ public extension VisualEffect {
         )
     }
 
+    func scaleEffect(_ scale: Double, anchor: UnitPoint3D) -> EmptyVisualEffect {
+        scaleEffect(x: scale, y: scale, z: scale, anchor: anchor)
+    }
+
+    func scaleEffect(
+        x: Double = 1,
+        y: Double = 1,
+        z: Double = 1,
+        anchor: UnitPoint3D = .center
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect3D(x:\(x),y:\(y),z:\(z),anchor:\(anchor.x),\(anchor.y),\(anchor.z))"
+        )
+    }
+
     func offset(x: Double = 0, y: Double = 0) -> EmptyVisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(x:\(x),y:\(y))")
     }
 
     func offset(_ offset: CGSize) -> EmptyVisualEffect {
         self.offset(x: offset.width, y: offset.height)
+    }
+
+    func offset(z: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(z:\(z))")
     }
 
     func blur(radius: Double, opaque: Bool = false) -> EmptyVisualEffect {

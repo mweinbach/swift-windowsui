@@ -6587,6 +6587,15 @@ final class WinSwiftUITests: XCTestCase {
                             .luminanceToAlpha()
                     }
             )
+            let depthEffectNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(.identity, axis: .vertical) { content, _ in
+                        content
+                            .scaleEffect(0.5, anchor: .front)
+                            .scaleEffect(x: 2, y: 3, z: 4, anchor: .back)
+                            .offset(z: 8)
+                    }
+            )
 
             XCTAssertEqual(
                 symmetricNode.scrollTransition,
@@ -6607,6 +6616,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 colorEffectNode.scrollTransition,
                 "symmetric,configuration:identity,axis:vertical,identityEffect:identity.brightness(0.1).contrast(1.2).colorInvert.colorMultiply(red:0.25,green:0.5,blue:0.75,alpha:0.8).saturation(0.6).grayscale(0.3).hueRotation(0.7853981633974483).luminanceToAlpha"
+            )
+            XCTAssertEqual(
+                depthEffectNode.scrollTransition,
+                "symmetric,configuration:identity,axis:vertical,identityEffect:identity.scaleEffect3D(x:0.5,y:0.5,z:0.5,anchor:0.5,0.5,0.0).scaleEffect3D(x:2.0,y:3.0,z:4.0,anchor:0.5,0.5,1.0).offset(z:8.0)"
             )
             XCTAssertTrue(ScrollTransitionPhase.identity.isIdentity)
             XCTAssertEqual(ScrollTransitionPhase.topLeading.value, -1)

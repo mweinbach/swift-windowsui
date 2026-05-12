@@ -5250,6 +5250,10 @@ public struct ViewModifierContent: View, TaggedViewMetadata {
         content.navigationTitle
     }
 
+    var anyNavigationSubtitle: [AnyView]? {
+        content.navigationSubtitle
+    }
+
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
         content.navigationTitleDisplayMode
     }
@@ -5311,6 +5315,10 @@ public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, Tagg
         (content as? any TaggedViewMetadata)?.anyNavigationTitle
     }
 
+    var anyNavigationSubtitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationSubtitle
+    }
+
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
         (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
     }
@@ -5370,6 +5378,10 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
 
     var anyNavigationTitle: [AnyView]? {
         (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationSubtitle
     }
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
@@ -5487,6 +5499,7 @@ public struct AnyView: View {
     let tabItem: [AnyView]?
     let badge: [AnyView]?
     let navigationTitle: [AnyView]?
+    let navigationSubtitle: [AnyView]?
     let navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     let navigationBarBackButtonHidden: Bool?
     let navigationBarHidden: Bool?
@@ -5499,6 +5512,7 @@ public struct AnyView: View {
         self.tabItem = (view as? any TaggedViewMetadata)?.anyTabItem
         self.badge = (view as? any TaggedViewMetadata)?.anyBadge
         self.navigationTitle = (view as? any TaggedViewMetadata)?.anyNavigationTitle
+        self.navigationSubtitle = (view as? any TaggedViewMetadata)?.anyNavigationSubtitle
         self.navigationTitleDisplayMode = (view as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
         self.navigationBarBackButtonHidden = (view as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
         self.navigationBarHidden = (view as? any TaggedViewMetadata)?.anyNavigationBarHidden
@@ -5565,6 +5579,10 @@ extension Optional: TaggedViewMetadata where Wrapped: View {
 
     var anyNavigationTitle: [AnyView]? {
         (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationTitle
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
+        (self.flatMap { $0 as? any TaggedViewMetadata })?.anyNavigationSubtitle
     }
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
@@ -8837,6 +8855,7 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
     var tabItem: [AnyView]?
     var badge: [AnyView]?
     var navigationTitle: [AnyView]?
+    var navigationSubtitle: [AnyView]?
     var navigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode?
     var navigationBarBackButtonHidden: Bool?
     var navigationBarHidden: Bool?
@@ -8857,6 +8876,10 @@ struct ModifiedView<Content: View>: View, TaggedViewMetadata {
 
     var anyNavigationTitle: [AnyView]? {
         navigationTitle ?? (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
+        navigationSubtitle ?? (content as? any TaggedViewMetadata)?.anyNavigationSubtitle
     }
 
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
@@ -8909,6 +8932,7 @@ protocol TaggedViewMetadata {
     var anyTabItem: [AnyView]? { get }
     var anyBadge: [AnyView]? { get }
     var anyNavigationTitle: [AnyView]? { get }
+    var anyNavigationSubtitle: [AnyView]? { get }
     var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? { get }
     var anyNavigationBarBackButtonHidden: Bool? { get }
     var anyNavigationBarHidden: Bool? { get }
@@ -8931,6 +8955,10 @@ extension TaggedViewMetadata {
     }
 
     var anyNavigationTitle: [AnyView]? {
+        nil
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
         nil
     }
 
@@ -13252,6 +13280,22 @@ public extension View {
             content.makeComponent(context: context)
         }
         modified.navigationTitle = [AnyView(title)]
+        return modified
+    }
+
+    func navigationSubtitle<S: StringProtocol>(_ subtitle: S) -> some View {
+        navigationSubtitle(Text(String(subtitle)))
+    }
+
+    func navigationSubtitle(_ subtitleKey: LocalizedStringKey) -> some View {
+        navigationSubtitle(Text(subtitleKey))
+    }
+
+    func navigationSubtitle(_ subtitle: Text) -> some View {
+        var modified = ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+        modified.navigationSubtitle = [AnyView(subtitle)]
         return modified
     }
 

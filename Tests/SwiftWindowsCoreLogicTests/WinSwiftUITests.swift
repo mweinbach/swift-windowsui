@@ -7009,6 +7009,50 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testNavigationSubtitleRendersInRetainedChrome() async {
+        await MainActor.run {
+            let detailSubtitle: Substring = "DETAIL SUBTITLE"[...]
+            let stack = NavigationStack {
+                NavigationLink(
+                    "OPEN",
+                    destination: Text("DETAIL")
+                        .navigationTitle("DETAIL TITLE")
+                        .navigationSubtitle(detailSubtitle)
+                )
+                .navigationTitle("ROOT TITLE")
+                .navigationSubtitle(LocalizedStringKey("ROOT SUBTITLE"))
+            }
+
+            let rootNode = makeNode(stack)
+            let rootHeaderTexts = allTexts(in: rootNode.children[0])
+
+            XCTAssertTrue(rootHeaderTexts.contains("ROOT TITLE"))
+            XCTAssertTrue(rootHeaderTexts.contains("ROOT SUBTITLE"))
+            guard case .stack(let rootTitleLayout) = rootNode.children[0].children[0].layoutMode else {
+                return XCTFail("Expected titled navigation header to stack title and subtitle")
+            }
+            XCTAssertEqual(rootTitleLayout, .vertical(spacing: 2, padding: .zero, alignment: .leading))
+
+            let textSubtitleNode = makeNode(
+                NavigationStack {
+                    Text("TEXT")
+                        .navigationTitle("TEXT TITLE")
+                        .navigationSubtitle(Text("TEXT SUBTITLE"))
+                }
+            )
+            XCTAssertTrue(allTexts(in: textSubtitleNode.children[0]).contains("TEXT SUBTITLE"))
+
+            rootNode.children[1].onActivate?()
+
+            let detailNode = makeNode(stack)
+            let detailHeaderTexts = allTexts(in: detailNode.children[0])
+
+            XCTAssertTrue(detailHeaderTexts.contains("DETAIL TITLE"))
+            XCTAssertTrue(detailHeaderTexts.contains("DETAIL SUBTITLE"))
+            XCTAssertEqual(detailNode.children[1].text, "DETAIL")
+        }
+    }
+
     func testNavigationContainersWithoutTitlePreserveRootLayout() async {
         await MainActor.run {
             let stackNode = makeNode(

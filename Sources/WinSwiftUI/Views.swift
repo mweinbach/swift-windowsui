@@ -1179,12 +1179,13 @@ private func navigationContainerComponent(
     )
 
     let title = navigationTitle(in: visibleContent) ?? navigationTitle(in: content)
+    let subtitle = navigationSubtitle(in: visibleContent) ?? navigationSubtitle(in: content)
     let hidesNavigationBar = navigationBarHidden(in: visibleContent) ?? navigationBarHidden(in: content) ?? false
     guard !hidesNavigationBar else {
         return body
     }
 
-    let shouldShowChrome = title != nil || !combinedDestinationStack.isEmpty
+    let shouldShowChrome = title != nil || subtitle != nil || !combinedDestinationStack.isEmpty
     guard shouldShowChrome else {
         return body
     }
@@ -1198,15 +1199,26 @@ private func navigationContainerComponent(
     let titleContext = context
         .withForegroundColor(Color(red: 0.92, green: 0.96, blue: 1.0))
         .withFont(titleFont)
+    let subtitleContext = context
+        .withForegroundColor(Color(red: 0.70, green: 0.78, blue: 0.90, alpha: 0.86))
+        .withFont(.system(size: 1.35, weight: .regular))
 
     let titleComponent = composeComponent(
         from: title ?? [AnyView(Text("BACK"))],
         context: titleContext,
         fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
     )
+    let subtitleComponent = subtitle.map {
+        composeComponent(
+            from: $0,
+            context: subtitleContext,
+            fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
+        )
+    }
 
     return Component { runtime in
         let titleNode = titleComponent.makeNode(runtime: runtime)
+        let subtitleNode = subtitleComponent?.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
         var headerChildren: [ViewNode] = []
         if !combinedDestinationStack.isEmpty && !hidesBackButton {
@@ -1237,7 +1249,21 @@ private func navigationContainerComponent(
             )
             headerChildren.append(backButton)
         }
-        headerChildren.append(titleNode)
+        if let subtitleNode {
+            headerChildren.append(
+                Controls.stackPanel(
+                    stackLayout: .vertical(
+                        spacing: 2,
+                        padding: .zero,
+                        alignment: .leading
+                    ),
+                    isHitTestVisible: false,
+                    children: [titleNode, subtitleNode]
+                )
+            )
+        } else {
+            headerChildren.append(titleNode)
+        }
 
         let headerNode = Controls.stackPanel(
             backgroundColor: chrome.headerBackground,
@@ -1268,6 +1294,11 @@ private func navigationContainerComponent(
 @MainActor
 private func navigationTitle(in content: [AnyView]) -> [AnyView]? {
     content.lazy.compactMap(\.navigationTitle).first
+}
+
+@MainActor
+private func navigationSubtitle(in content: [AnyView]) -> [AnyView]? {
+    content.lazy.compactMap(\.navigationSubtitle).first
 }
 
 @MainActor

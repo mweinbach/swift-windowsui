@@ -608,6 +608,38 @@ public final class ObservationToken {
 }
 
 @MainActor
+public protocol Cancellable {
+    func cancel()
+}
+
+@MainActor
+public final class AnyCancellable: Cancellable, Hashable {
+    private let id = UUID()
+    private var cancelHandler: (@MainActor () -> Void)?
+
+    public init(_ cancelHandler: @escaping @MainActor () -> Void) {
+        self.cancelHandler = cancelHandler
+    }
+
+    public func cancel() {
+        cancelHandler?()
+        cancelHandler = nil
+    }
+
+    public func store(in set: inout Set<AnyCancellable>) {
+        set.insert(self)
+    }
+
+    public nonisolated static func == (lhs: AnyCancellable, rhs: AnyCancellable) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    public nonisolated func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
+}
+
+@MainActor
 final class ObservableObjectCenter {
     static let shared = ObservableObjectCenter()
 
@@ -649,10 +681,57 @@ final class ObservableObjectCenter {
 @MainActor
 @propertyWrapper
 public struct Published<Value> {
-    private var value: Value
+    @MainActor
+    fileprivate final class Storage {
+        var value: Value
+        var subscribers: [UUID: @MainActor (Value) -> Void] = [:]
+
+        init(value: Value) {
+            self.value = value
+        }
+
+        func setValue(_ newValue: Value) {
+            value = newValue
+            notify(newValue)
+        }
+
+        func publisher() -> Publisher {
+            Publisher(storage: self)
+        }
+
+        func addSubscriber(_ receiveValue: @escaping @MainActor (Value) -> Void) -> AnyCancellable {
+            let id = UUID()
+            subscribers[id] = receiveValue
+            receiveValue(value)
+            return AnyCancellable { [weak self] in
+                self?.subscribers.removeValue(forKey: id)
+            }
+        }
+
+        private func notify(_ value: Value) {
+            for subscriber in subscribers.values {
+                subscriber(value)
+            }
+        }
+    }
+
+    @MainActor
+    public struct Publisher {
+        private let storage: Storage
+
+        fileprivate init(storage: Storage) {
+            self.storage = storage
+        }
+
+        public func sink(receiveValue: @escaping @MainActor (Value) -> Void) -> AnyCancellable {
+            storage.addSubscriber(receiveValue)
+        }
+    }
+
+    private var storage: Storage
 
     public init(wrappedValue: Value) {
-        self.value = wrappedValue
+        self.storage = Storage(value: wrappedValue)
     }
 
     public static subscript<EnclosingSelf: ObservableObject>(
@@ -661,11 +740,22 @@ public struct Published<Value> {
         storage storageKeyPath: ReferenceWritableKeyPath<EnclosingSelf, Published<Value>>
     ) -> Value {
         get {
-            instance[keyPath: storageKeyPath].value
+            instance[keyPath: storageKeyPath].storage.value
         }
         set {
-            instance[keyPath: storageKeyPath].value = newValue
+            instance[keyPath: storageKeyPath].storage.setValue(newValue)
             ObservableObjectCenter.shared.notify(instance)
+        }
+    }
+
+    public static subscript<EnclosingSelf: ObservableObject>(
+        _enclosingInstance instance: EnclosingSelf,
+        projected projectedKeyPath: KeyPath<EnclosingSelf, Publisher>,
+        storage storageKeyPath: ReferenceWritableKeyPath<EnclosingSelf, Published<Value>>
+    ) -> Publisher {
+        get {
+            _ = projectedKeyPath
+            return instance[keyPath: storageKeyPath].storage.publisher()
         }
     }
 
@@ -676,6 +766,10 @@ public struct Published<Value> {
         set {
             fatalError("@Published can only be used on properties of ObservableObject classes")
         }
+    }
+
+    public var projectedValue: Publisher {
+        storage.publisher()
     }
 }
 

@@ -16523,6 +16523,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPublishedProjectedPublisherSendsInitialAndUpdatedValues() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+                @Published var title = "ALPHA"
+            }
+
+            let model = CounterModel()
+            var values: [Int] = []
+            var titles: [String] = []
+            var cancellables = Set<AnyCancellable>()
+
+            let valueCancellable = model.$value.sink { value in
+                values.append(value)
+            }
+            model.$title.sink { title in
+                titles.append(title)
+            }.store(in: &cancellables)
+
+            XCTAssertEqual(values, [0])
+            XCTAssertEqual(titles, ["ALPHA"])
+
+            model.value = 1
+            model.title = "BETA"
+
+            XCTAssertEqual(values, [0, 1])
+            XCTAssertEqual(titles, ["ALPHA", "BETA"])
+            XCTAssertEqual(cancellables.count, 1)
+
+            valueCancellable.cancel()
+            model.value = 2
+
+            XCTAssertEqual(values, [0, 1])
+        }
+    }
+
     func testObservedObjectDynamicMemberProjectionFeedsRetainedControls() async {
         await MainActor.run {
             final class FormModel: ObservableObject {

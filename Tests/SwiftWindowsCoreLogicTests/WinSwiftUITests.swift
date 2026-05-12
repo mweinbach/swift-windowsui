@@ -6121,6 +6121,72 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollObservationModifiersStoreRetainedCallbackMetadata() async {
+        await MainActor.run {
+            var geometryChanges: [(Double, Double)] = []
+            var phaseChanges: [(ScrollPhase, ScrollPhase)] = []
+            var phaseContextChanges: [(ScrollPhase, CGVector?)] = []
+            var visibilityChanges: [Bool] = []
+            var visibleIDs: [[String]] = []
+
+            let node = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .onScrollGeometryChange(for: Double.self) { geometry in
+                    geometry.contentOffset.y
+                } action: { oldValue, newValue in
+                    geometryChanges.append((oldValue, newValue))
+                }
+                .onScrollPhaseChange { oldPhase, newPhase in
+                    phaseChanges.append((oldPhase, newPhase))
+                }
+                .onScrollPhaseChange { _, newPhase, context in
+                    phaseContextChanges.append((newPhase, context.velocity))
+                }
+                .onScrollVisibilityChange { isVisible in
+                    visibilityChanges.append(isVisible)
+                }
+                .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.25) { ids in
+                    visibleIDs.append(ids)
+                }
+            )
+
+            XCTAssertEqual(
+                node.scrollObservations,
+                [
+                    "geometry:type:Double",
+                    "phase",
+                    "phase:context",
+                    "visibility:threshold:0.5",
+                    "targetVisibility:idType:String,threshold:0.25"
+                ]
+            )
+            XCTAssertTrue(geometryChanges.isEmpty)
+            XCTAssertTrue(phaseChanges.isEmpty)
+            XCTAssertTrue(phaseContextChanges.isEmpty)
+            XCTAssertTrue(visibilityChanges.isEmpty)
+            XCTAssertTrue(visibleIDs.isEmpty)
+
+            let geometry = ScrollGeometry(
+                contentOffset: CGPoint(x: 4, y: 8),
+                contentSize: CGSize(width: 200, height: 400),
+                contentInsets: EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4),
+                containerSize: CGSize(width: 80, height: 100)
+            )
+            XCTAssertEqual(geometry.bounds, CGRect(x: 4, y: 8, width: 80, height: 100))
+            XCTAssertEqual(geometry.visibleRect, CGRect(x: 6, y: 9, width: 74, height: 96))
+            XCTAssertFalse(ScrollPhase.idle.isScrolling)
+            XCTAssertFalse(ScrollPhase.tracking.isScrolling)
+            XCTAssertTrue(ScrollPhase.interacting.isScrolling)
+            XCTAssertTrue(ScrollPhase.decelerating.isScrolling)
+            XCTAssertTrue(ScrollPhase.animating.isScrolling)
+
+            let context = ScrollPhaseChangeContext(geometry: geometry, velocity: CGVector(dx: 1, dy: -2))
+            XCTAssertEqual(context.velocity, CGVector(dx: 1, dy: -2))
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

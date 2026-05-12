@@ -180,6 +180,7 @@ public final class ComponentHost {
         if target.scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger { target.scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger }
         if target.scrollTransition != source.scrollTransition { target.scrollTransition = source.scrollTransition }
         if target.scrollPosition != source.scrollPosition { target.scrollPosition = source.scrollPosition }
+        if target.scrollObservations != source.scrollObservations { target.scrollObservations = source.scrollObservations }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

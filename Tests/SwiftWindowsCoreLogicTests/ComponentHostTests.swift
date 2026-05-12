@@ -260,6 +260,9 @@ final class ComponentHostTests: XCTestCase {
                     node.scrollPosition = useSecondState
                         ? "position,idType:String,id:second,anchor:0.5,1.0,bindingAnchor:0.5,1.0"
                         : "idBinding,idType:Int,id:1,anchor:0.5,0.0"
+                    node.scrollObservations = useSecondState
+                        ? ["phase:context", "targetVisibility:idType:String,threshold:0.25"]
+                        : ["geometry:type:Bool", "visibility:threshold:0.5"]
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -417,6 +420,7 @@ final class ComponentHostTests: XCTestCase {
                 "symmetric,configuration:interactive,timingCurve:linear,axis:all,identityEffect:identity.opacity(0.5)"
             )
             XCTAssertEqual(firstNode?.scrollPosition, "idBinding,idType:Int,id:1,anchor:0.5,0.0")
+            XCTAssertEqual(firstNode?.scrollObservations, ["geometry:type:Bool", "visibility:threshold:0.5"])
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -563,6 +567,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(
                 reusedNode?.scrollPosition,
                 "position,idType:String,id:second,anchor:0.5,1.0,bindingAnchor:0.5,1.0"
+            )
+            XCTAssertEqual(
+                reusedNode?.scrollObservations,
+                ["phase:context", "targetVisibility:idType:String,threshold:0.25"]
             )
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))

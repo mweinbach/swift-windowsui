@@ -10253,6 +10253,91 @@ public struct ScrollPosition: Equatable, CustomStringConvertible, @unchecked Sen
     }
 }
 
+public struct CGVector: Sendable, Equatable, Hashable {
+    public var dx: CGFloat
+    public var dy: CGFloat
+
+    public init(dx: CGFloat, dy: CGFloat) {
+        self.dx = dx
+        self.dy = dy
+    }
+
+    public static let zero = CGVector(dx: 0, dy: 0)
+}
+
+public struct ScrollGeometry: Sendable, Equatable, CustomDebugStringConvertible {
+    public var contentOffset: CGPoint
+    public var contentSize: CGSize
+    public var contentInsets: EdgeInsets
+    public var containerSize: CGSize
+
+    public init(
+        contentOffset: CGPoint,
+        contentSize: CGSize,
+        contentInsets: EdgeInsets,
+        containerSize: CGSize
+    ) {
+        self.contentOffset = contentOffset
+        self.contentSize = contentSize
+        self.contentInsets = contentInsets
+        self.containerSize = containerSize
+    }
+
+    public var bounds: CGRect {
+        CGRect(origin: contentOffset, size: containerSize)
+    }
+
+    public var visibleRect: CGRect {
+        bounds.inset(by: contentInsets)
+    }
+
+    public var debugDescription: String {
+        "ScrollGeometry(contentOffset:\(contentOffset.x),\(contentOffset.y),contentSize:\(contentSize.width),\(contentSize.height),containerSize:\(containerSize.width),\(containerSize.height))"
+    }
+}
+
+public enum ScrollPhase: Sendable, Equatable, Hashable, CustomDebugStringConvertible {
+    case idle
+    case tracking
+    case interacting
+    case decelerating
+    case animating
+
+    public var isScrolling: Bool {
+        switch self {
+        case .idle, .tracking:
+            return false
+        case .interacting, .decelerating, .animating:
+            return true
+        }
+    }
+
+    public var debugDescription: String {
+        switch self {
+        case .idle:
+            return "idle"
+        case .tracking:
+            return "tracking"
+        case .interacting:
+            return "interacting"
+        case .decelerating:
+            return "decelerating"
+        case .animating:
+            return "animating"
+        }
+    }
+}
+
+public struct ScrollPhaseChangeContext: Sendable, Equatable {
+    public var geometry: ScrollGeometry
+    public var velocity: CGVector?
+
+    public init(geometry: ScrollGeometry, velocity: CGVector? = nil) {
+        self.geometry = geometry
+        self.velocity = velocity
+    }
+}
+
 public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, CustomStringConvertible {
     public struct Threshold: Sendable, Equatable, Hashable, CustomStringConvertible {
         private var descriptionValue: String
@@ -17557,6 +17642,56 @@ public extension View {
                     scrollPositionIDMetadataDescription(id.wrappedValue, anchor: anchor)
                 )
             )
+        }
+    }
+
+    func onScrollGeometryChange<Value: Equatable>(
+        for type: Value.Type,
+        of transform: @escaping (ScrollGeometry) -> Value,
+        action: @escaping (Value, Value) -> Void
+    ) -> some View {
+        let _ = transform
+        let _ = action
+        return scrollObservation("geometry:type:\(String(describing: Value.self))")
+    }
+
+    func onScrollPhaseChange(_ action: @escaping (ScrollPhase, ScrollPhase) -> Void) -> some View {
+        let _ = action
+        return scrollObservation("phase")
+    }
+
+    func onScrollPhaseChange(
+        _ action: @escaping (ScrollPhase, ScrollPhase, ScrollPhaseChangeContext) -> Void
+    ) -> some View {
+        let _ = action
+        return scrollObservation("phase:context")
+    }
+
+    func onScrollVisibilityChange(
+        threshold: Double = 0.5,
+        _ action: @escaping (Bool) -> Void
+    ) -> some View {
+        let _ = action
+        return scrollObservation("visibility:threshold:\(threshold)")
+    }
+
+    func onScrollTargetVisibilityChange<ID: Hashable>(
+        idType: ID.Type,
+        threshold: Double = 0.5,
+        _ action: @escaping ([ID]) -> Void
+    ) -> some View {
+        let _ = action
+        return scrollObservation("targetVisibility:idType:\(String(describing: ID.self)),threshold:\(threshold)")
+    }
+
+    private func scrollObservation(_ description: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.scrollObservations.append(description)
+                return node
+            }
         }
     }
 

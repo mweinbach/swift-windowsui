@@ -57,6 +57,34 @@ public struct GeometryProxy {
     }
 }
 
+public struct GeometryProxy3D {
+    public let size: Size3D
+    public let safeAreaInsets: EdgeInsets3D
+
+    public init(size: Size3D, safeAreaInsets: EdgeInsets3D = .zero) {
+        self.size = size
+        self.safeAreaInsets = safeAreaInsets
+    }
+
+    public func frame(in coordinateSpace: CoordinateSpace) -> Rect3D {
+        let _ = coordinateSpace
+        return Rect3D(origin: .zero, size: size)
+    }
+
+    public func frame(in coordinateSpace: some CoordinateSpaceProtocol) -> Rect3D {
+        frame(in: coordinateSpace.coordinateSpace)
+    }
+
+    public func transform(in coordinateSpace: some CoordinateSpaceProtocol) -> AffineTransform3D? {
+        let _ = coordinateSpace
+        return .identity
+    }
+
+    public subscript<Value>(anchor: Anchor<Value>) -> Value {
+        anchor.value
+    }
+}
+
 @MainActor
 public struct ViewThatFits: View {
     public typealias Body = Never

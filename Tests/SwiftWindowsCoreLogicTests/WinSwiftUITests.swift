@@ -6688,6 +6688,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testVisualEffect3DModifierStoresRetainedMetadataAndGeometry() async {
+        await MainActor.run {
+            var observedSize: Size3D?
+            var observedFrame: Rect3D?
+            var observedTransform: AffineTransform3D?
+            let rotation = Rotation3D(angle: .degrees(30), axis: .z)
+            let transform = AffineTransform3D(
+                translation: Size3D(width: 1, height: 2, depth: 3),
+                scale: Size3D(width: 2, height: 3, depth: 4),
+                rotation: rotation
+            )
+            let node = makeNode(
+                Text("CARD")
+                    .visualEffect3D { content, geometry in
+                        observedSize = geometry.size
+                        observedFrame = geometry.frame(in: .local)
+                        observedTransform = geometry.transform(in: .global)
+                        return content
+                            .rotation3DEffect(rotation, anchor: .back)
+                            .transform3DEffect(transform)
+                    },
+                size: Size(width: 320, height: 240)
+            )
+
+            XCTAssertEqual(observedSize, Size3D(width: 320, height: 240, depth: 0))
+            XCTAssertEqual(
+                observedFrame,
+                Rect3D(origin: .zero, size: Size3D(width: 320, height: 240, depth: 0))
+            )
+            XCTAssertEqual(observedTransform, .identity)
+            XCTAssertEqual(
+                node.visualEffects,
+                ["identity.rotation3DEffect(angle:0.5235987755982988,axis:0.0,0.0,1.0,anchor3D:0.5,0.5,1.0).transform3DEffect(translation:1.0,2.0,3.0,scale:2.0,3.0,4.0,rotation:angle:0.5235987755982988,axis:0.0,0.0,1.0)"]
+            )
+        }
+    }
+
     func testScrollPositionMetadataPropagatesToRetainedScrollContainers() async {
         await MainActor.run {
             var position = ScrollPosition(id: "item-2", anchor: .bottom)
@@ -16242,6 +16279,14 @@ final class WinSwiftUITests: XCTestCase {
             let scaledFrom2DAnchor = makeNode(Text("SCALE").scaleEffect(1.5, anchor: UnitPoint.topLeading))
             let scaledFrom3DAnchor = makeNode(Text("DEPTH").scaleEffect(x: 2, y: 3, z: 4, anchor: .front))
             let rotatedFromAnchor = makeNode(Text("TURN").rotationEffect(.degrees(180), anchor: .bottomTrailing))
+            let rotatedFrom3DRotation = makeNode(
+                Text("ROTATION3D")
+                    .rotation3DEffect(Rotation3D(angle: .degrees(45), axis: .z), anchor: .back)
+            )
+            let transformed3DNode = makeNode(
+                Text("TRANSFORM3D")
+                    .transform3DEffect(AffineTransform3D(translation: Size3D(width: 1, height: 2, depth: 3)))
+            )
             let affineNode = makeNode(Text("MOVE").transformEffect(translation))
             let projectionNode = makeNode(Text("PROJECT").projectionEffect(projection))
 
@@ -16254,6 +16299,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(scaledFrom2DAnchor.transform, Transform2D.scale(x: 1.5, y: 1.5))
             XCTAssertEqual(scaledFrom3DAnchor.transform, Transform2D.scale(x: 2, y: 3))
             XCTAssertEqual(rotatedFromAnchor.transform, Transform2D(rotation: .pi))
+            XCTAssertEqual(rotatedFrom3DRotation.transform, Transform2D(rotation: .pi / 4))
+            XCTAssertEqual(transformed3DNode.visualEffects, ["transform3DEffect(translation:1.0,2.0,3.0,scale:1.0,1.0,1.0,rotation:nil)"])
             XCTAssertEqual(affineNode.transform, Transform2D.translation(x: 8, y: 10))
             XCTAssertEqual(projectionNode.transform, Transform2D.scale(x: 2, y: 3))
         }

@@ -431,6 +431,137 @@ public struct CGAffineTransform: Sendable, Equatable {
     }
 }
 
+public struct Size3D: Sendable, Equatable, Hashable, CustomStringConvertible {
+    public var width: CGFloat
+    public var height: CGFloat
+    public var depth: CGFloat
+
+    public init(width: CGFloat = 0, height: CGFloat = 0, depth: CGFloat = 0) {
+        self.width = width
+        self.height = height
+        self.depth = depth
+    }
+
+    public init(_ size: CGSize, depth: CGFloat = 0) {
+        self.init(width: size.width, height: size.height, depth: depth)
+    }
+
+    public static let zero = Size3D()
+
+    public var description: String {
+        "\(width),\(height),\(depth)"
+    }
+}
+
+public struct Point3D: Sendable, Equatable, Hashable, CustomStringConvertible {
+    public var x: CGFloat
+    public var y: CGFloat
+    public var z: CGFloat
+
+    public init(x: CGFloat = 0, y: CGFloat = 0, z: CGFloat = 0) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    public init(_ point: CGPoint, z: CGFloat = 0) {
+        self.init(x: point.x, y: point.y, z: z)
+    }
+
+    public static let zero = Point3D()
+
+    public var description: String {
+        "\(x),\(y),\(z)"
+    }
+}
+
+public struct Rect3D: Sendable, Equatable, Hashable, CustomStringConvertible {
+    public var origin: Point3D
+    public var size: Size3D
+
+    public init(origin: Point3D = .zero, size: Size3D = .zero) {
+        self.origin = origin
+        self.size = size
+    }
+
+    public init(x: CGFloat, y: CGFloat, z: CGFloat = 0, width: CGFloat, height: CGFloat, depth: CGFloat = 0) {
+        self.init(origin: Point3D(x: x, y: y, z: z), size: Size3D(width: width, height: height, depth: depth))
+    }
+
+    public var description: String {
+        "origin:\(origin),size:\(size)"
+    }
+}
+
+public struct EdgeInsets3D: Sendable, Equatable, Hashable {
+    public var top: CGFloat
+    public var leading: CGFloat
+    public var bottom: CGFloat
+    public var trailing: CGFloat
+    public var front: CGFloat
+    public var back: CGFloat
+
+    public init(
+        top: CGFloat = 0,
+        leading: CGFloat = 0,
+        bottom: CGFloat = 0,
+        trailing: CGFloat = 0,
+        front: CGFloat = 0,
+        back: CGFloat = 0
+    ) {
+        self.top = top
+        self.leading = leading
+        self.bottom = bottom
+        self.trailing = trailing
+        self.front = front
+        self.back = back
+    }
+
+    public static let zero = EdgeInsets3D()
+}
+
+public struct Rotation3D: Sendable, Equatable, CustomStringConvertible {
+    public var angle: Angle
+    public var axis: RotationAxis3D
+
+    public init(angle: Angle, axis: RotationAxis3D) {
+        self.angle = angle
+        self.axis = axis
+    }
+
+    public static let identity = Rotation3D(angle: .radians(0), axis: .z)
+
+    public var description: String {
+        "angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z)"
+    }
+}
+
+public struct AffineTransform3D: Sendable, Equatable, CustomStringConvertible {
+    public var translation: Size3D
+    public var scale: Size3D
+    public var rotation: Rotation3D?
+
+    public init(
+        translation: Size3D = .zero,
+        scale: Size3D = Size3D(width: 1, height: 1, depth: 1),
+        rotation: Rotation3D? = nil
+    ) {
+        self.translation = translation
+        self.scale = scale
+        self.rotation = rotation
+    }
+
+    public static let identity = AffineTransform3D()
+
+    public var description: String {
+        [
+            "translation:\(translation)",
+            "scale:\(scale)",
+            "rotation:\(rotation?.description ?? "nil")"
+        ].joined(separator: ",")
+    }
+}
+
 public struct ProjectionTransform: Sendable, Equatable {
     public var m11: CGFloat
     public var m12: CGFloat
@@ -10799,6 +10930,12 @@ public extension VisualEffect {
         )
     }
 
+    func rotation3DEffect(_ rotation: Rotation3D, anchor: UnitPoint3D = .center) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(\(rotation.description),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))"
+        )
+    }
+
     func perspectiveRotationEffect(
         _ angle: Angle,
         axis: (x: CGFloat, y: CGFloat, z: CGFloat),
@@ -10819,6 +10956,12 @@ public extension VisualEffect {
     func transformEffect(_ transform: ProjectionTransform) -> EmptyVisualEffect {
         EmptyVisualEffect(
             retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectProjectionTransformDescription(transform)))"
+        )
+    }
+
+    func transform3DEffect(_ transform: AffineTransform3D) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transform3DEffect(\(transform.description))"
         )
     }
 }
@@ -18672,6 +18815,11 @@ public extension View {
         }
     }
 
+    func rotation3DEffect(_ rotation: Rotation3D, anchor: UnitPoint3D = .center) -> some View {
+        _ = anchor
+        return rotation3DEffect(rotation.angle, axis: rotation.axis)
+    }
+
     func perspectiveRotationEffect(
         _ angle: Angle,
         axis: (x: CGFloat, y: CGFloat, z: CGFloat),
@@ -18686,6 +18834,17 @@ public extension View {
             anchorZ: anchorZ,
             perspective: perspective
         )
+    }
+
+    func transform3DEffect(_ transform: AffineTransform3D) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.visualEffects.append("transform3DEffect(\(transform.description))")
+                return childNode
+            }
+        }
     }
 
     func blur(radius: Double, opaque: Bool = false) -> some View {
@@ -18910,6 +19069,23 @@ public extension View {
         ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             let geometry = GeometryProxy(size: context.canvasSize)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.visualEffects.append(
+                    effect(EmptyVisualEffect(), geometry).retainedVisualEffectDescription
+                )
+                return node
+            }
+        }
+    }
+
+    func visualEffect3D<Effect: VisualEffect>(
+        _ effect: @escaping (EmptyVisualEffect, GeometryProxy3D) -> Effect
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            let size = context.canvasSize
+            let geometry = GeometryProxy3D(size: Size3D(width: size.width, height: size.height, depth: 0))
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
                 node.visualEffects.append(

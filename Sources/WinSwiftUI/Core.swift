@@ -1529,6 +1529,30 @@ public protocol PreferenceKey {
     static func reduce(value: inout Value, nextValue: () -> Value)
 }
 
+public struct Anchor<Value>: @unchecked Sendable {
+    public struct Source: Sendable, Equatable {
+        enum Kind: Sendable {
+            case bounds
+        }
+
+        let kind: Kind
+
+        init(kind: Kind) {
+            self.kind = kind
+        }
+    }
+
+    let value: Value
+
+    init(_ value: Value) {
+        self.value = value
+    }
+}
+
+public extension Anchor.Source where Value == Rect {
+    static let bounds = Anchor<Rect>.Source(kind: .bounds)
+}
+
 public protocol FocusedValueKey {
     associatedtype Value
 }
@@ -8538,6 +8562,15 @@ private func retainedPreferenceIdentifier<Key: PreferenceKey>(_ key: Key.Type) -
 }
 
 @MainActor
+private func retainedBoundsAnchor(for node: ViewNode, context: ViewBuildContext) -> Anchor<Rect> {
+    var size = node.intrinsicContentSize()
+    if size.width <= 0 && size.height <= 0 {
+        size = context.canvasSize
+    }
+    return Anchor(Rect(origin: .zero, size: size))
+}
+
+@MainActor
 private func setRetainedPreference<Key: PreferenceKey>(
     _ key: Key.Type,
     value: Key.Value,
@@ -10911,6 +10944,54 @@ public extension View {
         }
     }
 
+    func backgroundPreferenceValue<Key: PreferenceKey>(
+        _ key: Key.Type = Key.self,
+        alignment: Alignment = .center,
+        @ViewBuilder _ transform: @escaping (Key.Value) -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let preferenceValue = retainedPreferenceValue(in: baseNode, key: key)
+                let background = composeComponent(
+                    from: transform(preferenceValue),
+                    context: context,
+                    fallbackLayout: .absolute
+                )
+                let backgroundNode = background.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let backgroundSize = backgroundNode.intrinsicContentSize()
+                    let backgroundOrigin = alignment.frameOrigin(
+                        for: backgroundSize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
+                    let backgroundFrame = Rect(origin: backgroundOrigin, size: backgroundSize)
+                    if backgroundNode.frame != backgroundFrame {
+                        backgroundNode.frame = backgroundFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
     func overlay<Overlay: View>(_ overlay: Overlay, alignment: Alignment = .center) -> some View {
         self.overlay(alignment: alignment) {
             overlay
@@ -10974,6 +11055,54 @@ public extension View {
 
             return Component { runtime in
                 let baseNode = base.makeNode(runtime: runtime)
+                let overlayNode = overlay.makeNode(runtime: runtime)
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [baseNode, overlayNode]
+                )
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let overlaySize = overlayNode.intrinsicContentSize()
+                    let overlayOrigin = alignment.frameOrigin(
+                        for: overlaySize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
+                    let overlayFrame = Rect(origin: overlayOrigin, size: overlaySize)
+                    if overlayNode.frame != overlayFrame {
+                        overlayNode.frame = overlayFrame
+                    }
+                }
+
+                return root
+            }
+        }
+    }
+
+    func overlayPreferenceValue<Key: PreferenceKey>(
+        _ key: Key.Type = Key.self,
+        alignment: Alignment = .center,
+        @ViewBuilder _ transform: @escaping (Key.Value) -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let preferenceValue = retainedPreferenceValue(in: baseNode, key: key)
+                let overlay = composeComponent(
+                    from: transform(preferenceValue),
+                    context: context,
+                    fallbackLayout: .absolute
+                )
                 let overlayNode = overlay.makeNode(runtime: runtime)
                 let preferredSize = baseNode.intrinsicContentSize()
                 let root = Controls.panel(
@@ -11907,6 +12036,43 @@ public extension View {
                 let childNode = child.makeNode(runtime: runtime)
                 var value = retainedPreferenceValue(in: childNode, key: key)
                 transform(&value)
+                setRetainedPreference(key, value: value, on: childNode)
+                childNode.retainedPreferenceTransformBoundaries.insert(retainedPreferenceIdentifier(key))
+                return childNode
+            }
+        }
+    }
+
+    func anchorPreference<Key: PreferenceKey>(
+        key: Key.Type = Key.self,
+        value source: Anchor<Rect>.Source = .bounds,
+        transform: @escaping (Anchor<Rect>) -> Key.Value
+    ) -> some View {
+        let _ = source
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let anchor = retainedBoundsAnchor(for: childNode, context: context)
+                setRetainedPreference(key, value: transform(anchor), on: childNode)
+                return childNode
+            }
+        }
+    }
+
+    func transformAnchorPreference<Key: PreferenceKey>(
+        key: Key.Type = Key.self,
+        value source: Anchor<Rect>.Source = .bounds,
+        transform: @escaping (inout Key.Value, Anchor<Rect>) -> Void
+    ) -> some View {
+        let _ = source
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let anchor = retainedBoundsAnchor(for: childNode, context: context)
+                var value = retainedPreferenceValue(in: childNode, key: key)
+                transform(&value, anchor)
                 setRetainedPreference(key, value: value, on: childNode)
                 childNode.retainedPreferenceTransformBoundaries.insert(retainedPreferenceIdentifier(key))
                 return childNode

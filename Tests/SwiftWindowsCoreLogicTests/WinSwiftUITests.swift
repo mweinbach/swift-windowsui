@@ -112,6 +112,14 @@ private struct TestSumPreferenceKey: PreferenceKey {
     }
 }
 
+private struct TestAnchorListPreferenceKey: PreferenceKey {
+    static let defaultValue: [Anchor<Rect>] = []
+
+    static func reduce(value: inout [Anchor<Rect>], nextValue: () -> [Anchor<Rect>]) {
+        value.append(contentsOf: nextValue())
+    }
+}
+
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -13455,6 +13463,68 @@ final class WinSwiftUITests: XCTestCase {
             _ = makeNode(observedView("B"))
 
             XCTAssertEqual(observedValues, ["DETAIL-A", "DETAIL-B"])
+        }
+    }
+
+    func testAnchorPreferenceResolvesBoundsThroughGeometryProxy() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("BASE")
+                    .frame(width: 80, height: 24)
+                    .anchorPreference(key: TestAnchorListPreferenceKey.self, value: .bounds) { anchor in
+                        [anchor]
+                    }
+                    .overlayPreferenceValue(TestAnchorListPreferenceKey.self) { anchors in
+                        if let anchor = anchors.first {
+                            GeometryReader { proxy in
+                                let bounds = proxy[anchor]
+                                Text("\(Int(bounds.size.width))X\(Int(bounds.size.height))")
+                            }
+                        }
+                    }
+            )
+
+            XCTAssertTrue(allTexts(in: node).contains("BASE"))
+            XCTAssertTrue(allTexts(in: node).contains("80X24"), "\(allTexts(in: node))")
+        }
+    }
+
+    func testTransformAnchorPreferenceCanAppendContainerAnchor() async {
+        await MainActor.run {
+            let node = makeNode(
+                VStack {
+                    Text("CHILD")
+                        .frame(width: 40, height: 12)
+                        .anchorPreference(key: TestAnchorListPreferenceKey.self, value: .bounds) { anchor in
+                            [anchor]
+                        }
+                }
+                .frame(width: 100, height: 50)
+                .transformAnchorPreference(key: TestAnchorListPreferenceKey.self, value: .bounds) { anchors, containerAnchor in
+                    anchors.append(containerAnchor)
+                }
+                .overlayPreferenceValue(TestAnchorListPreferenceKey.self) { anchors in
+                    Text("ANCHORS \(anchors.count)")
+                }
+            )
+
+            XCTAssertTrue(allTexts(in: node).contains("CHILD"))
+            XCTAssertTrue(allTexts(in: node).contains("ANCHORS 2"))
+        }
+    }
+
+    func testBackgroundPreferenceValueComposesPreferenceDrivenBackground() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("BASE")
+                    .preference(key: TestStringPreferenceKey.self, value: "BACKGROUND")
+                    .backgroundPreferenceValue(TestStringPreferenceKey.self) { value in
+                        Text(value)
+                    }
+            )
+
+            XCTAssertTrue(allTexts(in: node).contains("BASE"))
+            XCTAssertTrue(allTexts(in: node).contains("BACKGROUND"))
         }
     }
 

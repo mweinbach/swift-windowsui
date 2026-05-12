@@ -43,6 +43,10 @@ public struct GeometryProxy {
         let _ = coordinateSpace
         return Rect(x: 0, y: 0, width: size.width, height: size.height)
     }
+
+    public subscript<Value>(anchor: Anchor<Value>) -> Value {
+        anchor.value
+    }
 }
 
 @MainActor

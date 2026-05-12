@@ -6585,6 +6585,8 @@ final class WinSwiftUITests: XCTestCase {
                             .grayscale(0.3)
                             .hueRotation(.degrees(45))
                             .luminanceToAlpha()
+                            .blendMode(.screen)
+                            .blendMode(.plusLighter)
                     }
             )
             let depthEffectNode = makeNode(
@@ -6637,7 +6639,7 @@ final class WinSwiftUITests: XCTestCase {
             )
             XCTAssertEqual(
                 colorEffectNode.scrollTransition,
-                "symmetric,configuration:identity,axis:vertical,identityEffect:identity.brightness(0.1).contrast(1.2).colorInvert.colorMultiply(red:0.25,green:0.5,blue:0.75,alpha:0.8).saturation(0.6).grayscale(0.3).hueRotation(0.7853981633974483).luminanceToAlpha"
+                "symmetric,configuration:identity,axis:vertical,identityEffect:identity.brightness(0.1).contrast(1.2).colorInvert.colorMultiply(red:0.25,green:0.5,blue:0.75,alpha:0.8).saturation(0.6).grayscale(0.3).hueRotation(0.7853981633974483).luminanceToAlpha.blendMode(screen).blendMode(plusLighter)"
             )
             XCTAssertEqual(
                 depthEffectNode.scrollTransition,

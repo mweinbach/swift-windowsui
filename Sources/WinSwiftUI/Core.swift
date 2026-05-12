@@ -10582,6 +10582,12 @@ public extension VisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).luminanceToAlpha")
     }
 
+    func blendMode(_ blendMode: BlendMode) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blendMode(\(retainedVisualEffectBlendModeDescription(blendMode)))"
+        )
+    }
+
     func opacity(_ value: Double) -> EmptyVisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).opacity(\(value))")
     }
@@ -10682,6 +10688,53 @@ public extension VisualEffect {
 private func retainedVisualEffectColorDescription(_ color: Color) -> String {
     let rgba = color.rgba
     return "red:\(rgba.0),green:\(rgba.1),blue:\(rgba.2),alpha:\(rgba.3)"
+}
+
+private func retainedVisualEffectBlendModeDescription(_ blendMode: BlendMode) -> String {
+    switch blendMode {
+    case .normal:
+        return "normal"
+    case .multiply:
+        return "multiply"
+    case .screen:
+        return "screen"
+    case .overlay:
+        return "overlay"
+    case .darken:
+        return "darken"
+    case .lighten:
+        return "lighten"
+    case .colorDodge:
+        return "colorDodge"
+    case .colorBurn:
+        return "colorBurn"
+    case .softLight:
+        return "softLight"
+    case .hardLight:
+        return "hardLight"
+    case .difference:
+        return "difference"
+    case .exclusion:
+        return "exclusion"
+    case .hue:
+        return "hue"
+    case .saturation:
+        return "saturation"
+    case .color:
+        return "color"
+    case .luminosity:
+        return "luminosity"
+    case .sourceAtop:
+        return "sourceAtop"
+    case .destinationOver:
+        return "destinationOver"
+    case .destinationOut:
+        return "destinationOut"
+    case .plusDarker:
+        return "plusDarker"
+    case .plusLighter:
+        return "plusLighter"
+    }
 }
 
 private func retainedVisualEffectAffineTransformDescription(_ transform: CGAffineTransform) -> String {

@@ -16392,6 +16392,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPhaseAnimatorCompatibilityRendersInitialPhaseAndRetainsMetadata() async {
+        await MainActor.run {
+            let animatedNode = makeNode(
+                Text("PHASE")
+                    .phaseAnimator(["initial", "expanded"]) { content, phase in
+                        content
+                            .opacity(phase == "initial" ? 0.4 : 1)
+                    } animation: { phase in
+                        phase == "initial" ? .linear(duration: 0.2) : .easeInOut(duration: 0.5)
+                    }
+            )
+            let triggeredNode = makeNode(
+                Text("TRIGGER")
+                    .phaseAnimator([1, 2, 3], trigger: true) { content, phase in
+                        content
+                            .opacity(Double(phase) / 10)
+                    } animation: { _ in nil }
+            )
+            let emptyNode = makeNode(
+                Text("EMPTY")
+                    .phaseAnimator([String]()) { content, _ in
+                        content.opacity(0.1)
+                    }
+            )
+
+            XCTAssertEqual(animatedNode.text, "PHASE")
+            XCTAssertEqual(animatedNode.opacity, 0.4)
+            XCTAssertEqual(
+                animatedNode.visualEffects,
+                ["phaseAnimator(phase:initial,hasAdditionalPhases:true,animation:linear:0.2)"]
+            )
+            XCTAssertEqual(triggeredNode.text, "TRIGGER")
+            XCTAssertEqual(triggeredNode.opacity, 0.1)
+            XCTAssertEqual(
+                triggeredNode.visualEffects,
+                ["phaseAnimator(phase:1,hasAdditionalPhases:true,trigger:Bool:true,animation:nil)"]
+            )
+            XCTAssertEqual(emptyNode.text, "EMPTY")
+            XCTAssertEqual(emptyNode.opacity, 1)
+            XCTAssertEqual(
+                emptyNode.visualEffects,
+                ["phaseAnimator(phase:nil,hasAdditionalPhases:false,animation:nil)"]
+            )
+        }
+    }
+
     func testAnyTransitionCompatibilityModifierPreservesRenderedContent() async {
         await MainActor.run {
             let combined = AnyTransition.opacity

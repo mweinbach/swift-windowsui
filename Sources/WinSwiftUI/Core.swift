@@ -6453,6 +6453,69 @@ public struct ViewModifierContent: View, TaggedViewMetadata {
 }
 
 @MainActor
+public struct PlaceholderContentView<Content: View>: View, TaggedViewMetadata {
+    public typealias Body = Never
+
+    private let content: Content
+
+    public init(_ content: Content) {
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("PlaceholderContentView has no body")
+    }
+
+    var anySelectionTag: AnyHashable? {
+        (content as? any TaggedViewMetadata)?.anySelectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyTabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyBadge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitle
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
+        (content as? any TaggedViewMetadata)?.anyNavigationSubtitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        (content as? any TaggedViewMetadata)?.anyNavigationTitleDisplayMode
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
+        (content as? any TaggedViewMetadata)?.anyNavigationBarBackButtonHidden
+    }
+
+    var anyNavigationBarHidden: Bool? {
+        (content as? any TaggedViewMetadata)?.anyNavigationBarHidden
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        (content as? any TaggedViewMetadata)?.anyToolbarItemPlacement
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        (content as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        (content as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct ModifiedContent<Content: View, Modifier: ViewModifier>: View, TaggedViewMetadata {
     public typealias Body = Never
 
@@ -11460,6 +11523,27 @@ public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, Cust
 
 private func scrollTransitionAnimationDescription(_ animation: Animation) -> String {
     "\(animation.easing):\(animation.duration)"
+}
+
+private func retainedPhaseAnimatorDescription<Phase>(
+    phase: Phase?,
+    triggerDescription: String?,
+    hasAdditionalPhases: Bool,
+    animation: Animation?
+) -> String {
+    var parts = [
+        "phase:\(phase.map { String(describing: $0) } ?? "nil")",
+        "hasAdditionalPhases:\(hasAdditionalPhases)",
+    ]
+    if let triggerDescription {
+        parts.append("trigger:\(triggerDescription)")
+    }
+    if let animation {
+        parts.append("animation:\(scrollTransitionAnimationDescription(animation))")
+    } else {
+        parts.append("animation:nil")
+    }
+    return "phaseAnimator(\(parts.joined(separator: ",")))"
 }
 
 private func scrollTransitionAxisDescription(_ axis: Axis?) -> String {
@@ -19980,6 +20064,84 @@ public extension View {
         ModifiedView(content: self) { content, context in
             _ = transition
             return content.makeComponent(context: context)
+        }
+    }
+
+    func phaseAnimator<Phase, Phases: Sequence>(
+        _ phases: Phases,
+        @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation? = { _ in .default }
+    ) -> some View where Phase: Equatable, Phases.Element == Phase {
+        var iterator = phases.makeIterator()
+        let initialPhase = iterator.next()
+        let hasAdditionalPhases = iterator.next() != nil
+        return retainedPhaseAnimator(
+            initialPhase: initialPhase,
+            triggerDescription: nil,
+            hasAdditionalPhases: hasAdditionalPhases,
+            content: phaseContent,
+            animation: animation
+        )
+    }
+
+    func phaseAnimator<Phase, Phases: Sequence, Trigger: Equatable>(
+        _ phases: Phases,
+        trigger: Trigger,
+        @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation? = { _ in .default }
+    ) -> some View where Phase: Equatable, Phases.Element == Phase {
+        var iterator = phases.makeIterator()
+        let initialPhase = iterator.next()
+        let hasAdditionalPhases = iterator.next() != nil
+        return retainedPhaseAnimator(
+            initialPhase: initialPhase,
+            triggerDescription: "\(Trigger.self):\(String(describing: trigger))",
+            hasAdditionalPhases: hasAdditionalPhases,
+            content: phaseContent,
+            animation: animation
+        )
+    }
+
+    private func retainedPhaseAnimator<Phase: Equatable>(
+        initialPhase: Phase?,
+        triggerDescription: String?,
+        hasAdditionalPhases: Bool,
+        @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation?
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            guard let initialPhase else {
+                let base = content.makeComponent(context: context)
+                return Component { runtime in
+                    let node = base.makeNode(runtime: runtime)
+                    node.visualEffects.append(
+                        retainedPhaseAnimatorDescription(
+                            phase: nil as Phase?,
+                            triggerDescription: triggerDescription,
+                            hasAdditionalPhases: false,
+                            animation: nil
+                        )
+                    )
+                    return node
+                }
+            }
+
+            let phaseViews = phaseContent(PlaceholderContentView(self), initialPhase)
+            let phaseComponent = composeComponent(from: phaseViews, context: context)
+            let phaseAnimation = animation(initialPhase)
+
+            return Component { runtime in
+                let node = phaseComponent.makeNode(runtime: runtime)
+                node.visualEffects.append(
+                    retainedPhaseAnimatorDescription(
+                        phase: initialPhase,
+                        triggerDescription: triggerDescription,
+                        hasAdditionalPhases: hasAdditionalPhases,
+                        animation: phaseAnimation
+                    )
+                )
+                return node
+            }
         }
     }
 

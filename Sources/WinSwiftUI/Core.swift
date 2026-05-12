@@ -8391,6 +8391,55 @@ extension SwiftWindowsGraphics.LinearGradient: ShapeStyle {
     }
 }
 
+public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
+    enum Level: Sendable, Equatable {
+        case primary
+        case secondary
+        case tertiary
+        case quaternary
+        case quinary
+    }
+
+    let level: Level
+
+    private init(level: Level) {
+        self.level = level
+    }
+
+    public static let primary = HierarchicalShapeStyle(level: .primary)
+    public static let secondary = HierarchicalShapeStyle(level: .secondary)
+    public static let tertiary = HierarchicalShapeStyle(level: .tertiary)
+    public static let quaternary = HierarchicalShapeStyle(level: .quaternary)
+    public static let quinary = HierarchicalShapeStyle(level: .quinary)
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        switch level {
+        case .primary:
+            return .primary
+        case .secondary:
+            return .secondary
+        case .tertiary:
+            return Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1)
+        case .quaternary:
+            return Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1)
+        case .quinary:
+            return Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1)
+        }
+    }
+}
+
+public extension ShapeStyle where Self == HierarchicalShapeStyle {
+    static var primary: HierarchicalShapeStyle { .primary }
+    static var secondary: HierarchicalShapeStyle { .secondary }
+    static var tertiary: HierarchicalShapeStyle { .tertiary }
+    static var quaternary: HierarchicalShapeStyle { .quaternary }
+    static var quinary: HierarchicalShapeStyle { .quinary }
+}
+
 public struct Material: ShapeStyle, Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case ultraThin

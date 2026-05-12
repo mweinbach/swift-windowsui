@@ -3443,6 +3443,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testHierarchicalShapeStylesMapToRetainedSemanticFallbacks() async {
+        await MainActor.run {
+            XCTAssertEqual(HierarchicalShapeStyle.primary.retainedFallbackColor, .primary)
+            XCTAssertEqual(HierarchicalShapeStyle.secondary.retainedFallbackColor, .secondary)
+            XCTAssertEqual(HierarchicalShapeStyle.tertiary.retainedFallbackColor, Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1))
+            XCTAssertEqual(HierarchicalShapeStyle.quaternary.retainedFallbackColor, Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1))
+            XCTAssertEqual(HierarchicalShapeStyle.quinary.retainedFallbackColor, Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1))
+            XCTAssertEqual(ForegroundStyle(HierarchicalShapeStyle.tertiary), .color(HierarchicalShapeStyle.tertiary.retainedFallbackColor))
+
+            let tertiaryTextNode = makeNode(Text("TERTIARY").foregroundStyle(.tertiary))
+            let quaternaryBackgroundNode = makeNode(Text("BACKGROUND").background(.quaternary))
+            let quinaryOverlayNode = renderedNode(
+                Text("OVERLAY")
+                    .frame(width: 80, height: 32)
+                    .overlay(.quinary, alignment: .center)
+            )
+            let filledShapeNode = makeNode(Rectangle().fill(.tertiary))
+            let strokedShapeNode = makeNode(Capsule().strokeBorder(.quaternary, lineWidth: 2))
+            let erasedStyle = AnyShapeStyle(.quinary)
+
+            XCTAssertEqual(tertiaryTextNode.textStyle.color, HierarchicalShapeStyle.tertiary.retainedFallbackColor)
+            XCTAssertEqual(quaternaryBackgroundNode.backgroundColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
+            XCTAssertEqual(firstText(in: quaternaryBackgroundNode.children[0]), "BACKGROUND")
+            XCTAssertEqual(quinaryOverlayNode.children[1].backgroundColor, HierarchicalShapeStyle.quinary.retainedFallbackColor)
+            XCTAssertEqual(quinaryOverlayNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+            XCTAssertEqual(filledShapeNode.backgroundColor, HierarchicalShapeStyle.tertiary.retainedFallbackColor)
+            XCTAssertEqual(strokedShapeNode.borderColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
+            XCTAssertEqual(strokedShapeNode.borderWidth, 2)
+            XCTAssertEqual(erasedStyle, .color(HierarchicalShapeStyle.quinary.retainedFallbackColor))
+        }
+    }
+
     func testGenericShapeStyleOverloadsMapToRetainedForegroundStyle() async {
         struct TestShapeStyle: ShapeStyle {
             let retainedForegroundStyle: ForegroundStyle

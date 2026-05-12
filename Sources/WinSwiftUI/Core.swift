@@ -9578,6 +9578,15 @@ public enum ForegroundStyle: Sendable, Equatable {
 
 public typealias AnyShapeStyle = ForegroundStyle
 
+public struct OpacityShapeStyle<Base: ShapeStyle>: ShapeStyle, Sendable {
+    let base: Base
+    let opacity: Double
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        base.retainedForegroundStyle.retainedWithOpacity(opacity)
+    }
+}
+
 public struct BackgroundStyle: ShapeStyle, Sendable, Equatable {
     public init() {}
 
@@ -9777,6 +9786,12 @@ public extension ShapeStyle where Self == FillShapeStyle {
 
 public extension ShapeStyle where Self == WindowBackgroundShapeStyle {
     static var windowBackground: WindowBackgroundShapeStyle { WindowBackgroundShapeStyle() }
+}
+
+public extension ShapeStyle {
+    func opacity(_ opacity: Double) -> some ShapeStyle {
+        OpacityShapeStyle(base: self, opacity: opacity)
+    }
 }
 
 public struct Material: ShapeStyle, Sendable, Equatable {
@@ -11750,6 +11765,17 @@ public extension SwiftWindowsCore.Color {
         return SwiftWindowsCore.Color(red: components.0, green: components.1, blue: components.2, alpha: Float(value))
     }
 
+    func retainedWithMultipliedOpacity(_ opacity: Double) -> SwiftWindowsCore.Color {
+        let clampedOpacity = Float(min(max(opacity, 0), 1))
+        let components = rgba
+        return SwiftWindowsCore.Color(
+            red: components.0,
+            green: components.1,
+            blue: components.2,
+            alpha: components.3 * clampedOpacity
+        )
+    }
+
     func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
         guard contrast == .increased, self == .secondary else {
             return self
@@ -11787,6 +11813,15 @@ public extension SwiftWindowsCore.Color {
 }
 
 extension ForegroundStyle {
+    func retainedWithOpacity(_ opacity: Double) -> ForegroundStyle {
+        switch self {
+        case .color(let color):
+            return .color(color.retainedWithMultipliedOpacity(opacity))
+        case .linearGradient(let gradient):
+            return .linearGradient(gradient.retainedWithMultipliedOpacity(opacity))
+        }
+    }
+
     func resolvedForContrast(_ contrast: ColorSchemeContrast) -> ForegroundStyle {
         switch self {
         case .color(let color):
@@ -11820,6 +11855,17 @@ extension ForegroundStyle {
 }
 
 extension LinearGradient {
+    func retainedWithMultipliedOpacity(_ opacity: Double) -> LinearGradient {
+        var resolved = self
+        resolved.stops = stops.map { stop in
+            GradientStop(
+                color: stop.color.retainedWithMultipliedOpacity(opacity),
+                position: stop.position
+            )
+        }
+        return resolved
+    }
+
     func resolvedForContrast(_ contrast: ColorSchemeContrast) -> LinearGradient {
         LinearGradient(
             startColor: startColor.resolvedForContrast(contrast),

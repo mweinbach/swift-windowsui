@@ -3759,6 +3759,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeStyleOpacityAppliesToRetainedColorAndGradientFills() async {
+        await MainActor.run {
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.8),
+                    Color(red: 0.8, green: 0.2, blue: 0.4, alpha: 0.4),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            let textNode = makeNode(
+                Text("SECONDARY")
+                    .foregroundStyle(HierarchicalShapeStyle.secondary.opacity(0.25))
+            )
+            let backgroundNode = makeNode(
+                Text("GRADIENT")
+                    .background(gradient.opacity(0.5))
+            )
+            let overlayNode = renderedNode(
+                Text("CLAMPED")
+                    .frame(width: 70, height: 24)
+                    .overlay(LinkShapeStyle().opacity(2))
+            )
+            let fillNode = makeNode(Rectangle().fill(FillShapeStyle().opacity(-1)))
+
+            XCTAssertEqual(textNode.textStyle.color, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.25))
+            XCTAssertEqual(backgroundNode.backgroundGradient?.startColor, Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.4))
+            XCTAssertEqual(backgroundNode.backgroundGradient?.endColor, Color(red: 0.8, green: 0.2, blue: 0.4, alpha: 0.2))
+            XCTAssertEqual(overlayNode.children[1].backgroundColor, LinkShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(fillNode.backgroundColor, Color(red: 1, green: 1, blue: 1, alpha: 0))
+        }
+    }
+
     func testMaterialShapeStyleDegradesToRetainedTranslucentFill() async {
         await MainActor.run {
             XCTAssertEqual(Material.ultraThin.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.18))

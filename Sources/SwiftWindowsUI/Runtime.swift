@@ -48,6 +48,31 @@ public enum RetainedColorEffect: Sendable, Equatable {
     case luminanceToAlpha
 }
 
+public enum RetainedHorizontalAlignment: Sendable, Equatable, Hashable {
+    case leading
+    case center
+    case trailing
+}
+
+public enum RetainedVerticalAlignment: Sendable, Equatable, Hashable {
+    case top
+    case center
+    case bottom
+}
+
+public struct RetainedViewMask: Sendable, Equatable, Hashable {
+    public var horizontal: RetainedHorizontalAlignment
+    public var vertical: RetainedVerticalAlignment
+
+    public init(
+        horizontal: RetainedHorizontalAlignment = .center,
+        vertical: RetainedVerticalAlignment = .center
+    ) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+    }
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -56,6 +81,7 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var isCompositingGroup: Bool
     var drawingGroup: RetainedDrawingGroup?
     var colorEffects: [RetainedColorEffect]
+    var viewMask: RetainedViewMask?
     var displayScale: Double
     var isHovered: Bool
     var hoverEffect: RetainedHoverEffect?
@@ -923,6 +949,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var viewMask: RetainedViewMask? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1317,6 +1347,7 @@ public final class ViewNode {
         isCompositingGroup: Bool = false,
         drawingGroup: RetainedDrawingGroup? = nil,
         colorEffects: [RetainedColorEffect] = [],
+        viewMask: RetainedViewMask? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1415,6 +1446,7 @@ public final class ViewNode {
         self.isCompositingGroup = isCompositingGroup
         self.drawingGroup = drawingGroup
         self.colorEffects = colorEffects
+        self.viewMask = viewMask
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis
@@ -2003,6 +2035,7 @@ public final class ViewNode {
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
             colorEffects: colorEffects,
+            viewMask: viewMask,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,
@@ -2313,6 +2346,7 @@ public final class ViewNode {
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
             colorEffects: colorEffects,
+            viewMask: viewMask,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,

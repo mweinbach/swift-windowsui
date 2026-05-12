@@ -9776,6 +9776,41 @@ extension TextAlignment {
     }
 }
 
+extension Alignment {
+    var retainedViewMask: RetainedViewMask {
+        RetainedViewMask(
+            horizontal: horizontal.retainedHorizontalAlignment,
+            vertical: vertical.retainedVerticalAlignment
+        )
+    }
+}
+
+extension HorizontalAlignment {
+    var retainedHorizontalAlignment: RetainedHorizontalAlignment {
+        switch self {
+        case .leading:
+            return .leading
+        case .center:
+            return .center
+        case .trailing:
+            return .trailing
+        }
+    }
+}
+
+extension VerticalAlignment {
+    var retainedVerticalAlignment: RetainedVerticalAlignment {
+        switch self {
+        case .top:
+            return .top
+        case .center:
+            return .center
+        case .bottom:
+            return .bottom
+        }
+    }
+}
+
 extension Axis {
     var scrollAxis: ScrollAxis {
         switch self {
@@ -15462,6 +15497,56 @@ public extension View {
 
     func luminanceToAlpha() -> some View {
         retainedColorEffect(.luminanceToAlpha)
+    }
+
+    func mask<Mask: View>(_ mask: Mask) -> some View {
+        self.mask(alignment: .center) {
+            mask
+        }
+    }
+
+    func mask(alignment: Alignment = .center, @ViewBuilder _ mask: () -> [AnyView]) -> some View {
+        let maskViews = mask()
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let maskSource = composeComponent(from: maskViews, context: context, fallbackLayout: .absolute)
+            let retainedMask = alignment.retainedViewMask
+
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let maskNode = maskSource.makeNode(runtime: runtime)
+                maskNode.isHidden = true
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [baseNode, maskNode]
+                )
+                root.viewMask = retainedMask
+
+                root.onLayout = { bounds in
+                    let containerSize = bounds.size
+                    let baseFrame = Rect(origin: .zero, size: containerSize)
+                    if baseNode.frame != baseFrame {
+                        baseNode.frame = baseFrame
+                    }
+
+                    let maskSize = maskNode.intrinsicContentSize()
+                    let maskOrigin = alignment.frameOrigin(
+                        for: maskSize,
+                        in: containerSize,
+                        layoutDirection: context.layoutDirection
+                    )
+                    let maskFrame = Rect(origin: maskOrigin, size: maskSize)
+                    if maskNode.frame != maskFrame {
+                        maskNode.frame = maskFrame
+                    }
+                }
+
+                return root
+            }
+        }
     }
 
     func hidden(_ shouldHide: Bool = true) -> some View {

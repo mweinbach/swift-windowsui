@@ -13379,6 +13379,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMaskModifierStoresRetainedMetadataAndMaskSource() async {
+        await MainActor.run {
+            let centeredNode = makeNode(
+                Text("BASE")
+                    .mask {
+                        Rectangle()
+                            .frame(width: 24, height: 12)
+                    }
+            )
+            let alignedNode = makeNode(
+                Text("BASE")
+                    .mask(alignment: .topTrailing) {
+                        Text("MASK")
+                    }
+            )
+
+            XCTAssertEqual(centeredNode.viewMask, RetainedViewMask())
+            XCTAssertEqual(centeredNode.children.count, 2)
+            XCTAssertEqual(centeredNode.children[0].text, "BASE")
+            XCTAssertTrue(centeredNode.children[1].isHidden)
+            XCTAssertEqual(
+                alignedNode.viewMask,
+                RetainedViewMask(horizontal: .trailing, vertical: .top)
+            )
+            XCTAssertEqual(alignedNode.children.count, 2)
+            XCTAssertEqual(alignedNode.children[1].text, "MASK")
+            XCTAssertTrue(alignedNode.children[1].isHidden)
+        }
+    }
+
     func testHiddenModifierMapsToRetainedNodeVisibility() async {
         await MainActor.run {
             let hiddenNode = makeNode(Text("SECRET").hidden())

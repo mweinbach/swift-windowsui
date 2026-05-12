@@ -179,6 +179,33 @@ public struct Rectangle: View {
         return copy
     }
 
+    public func fill(style: FillStyle) -> Rectangle {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> Rectangle {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Rectangle {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Rectangle {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> Rectangle {
+        _ = style
+        return fill(gradient)
+    }
+
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -340,6 +367,33 @@ public struct RoundedRectangle: View {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
         return copy
+    }
+
+    public func fill(style: FillStyle) -> RoundedRectangle {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> RoundedRectangle {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> RoundedRectangle {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> RoundedRectangle {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> RoundedRectangle {
+        _ = style
+        return fill(gradient)
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
@@ -549,6 +603,33 @@ public struct UnevenRoundedRectangle: View {
         return copy
     }
 
+    public func fill(style: FillStyle) -> UnevenRoundedRectangle {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> UnevenRoundedRectangle {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> UnevenRoundedRectangle {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> UnevenRoundedRectangle {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> UnevenRoundedRectangle {
+        _ = style
+        return fill(gradient)
+    }
+
     public func stroke(_ color: Color, lineWidth: Double = 1) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -704,6 +785,33 @@ public struct Capsule: View {
         return copy
     }
 
+    public func fill(style: FillStyle) -> Capsule {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> Capsule {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Capsule {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Capsule {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> Capsule {
+        _ = style
+        return fill(gradient)
+    }
+
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -855,6 +963,33 @@ public struct Circle: View {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
         return copy
+    }
+
+    public func fill(style: FillStyle) -> Circle {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> Circle {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Circle {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Circle {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> Circle {
+        _ = style
+        return fill(gradient)
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Circle {
@@ -1010,6 +1145,33 @@ public struct Ellipse: View {
         return copy
     }
 
+    public func fill(style: FillStyle) -> Ellipse {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> Ellipse {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Ellipse {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Ellipse {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> Ellipse {
+        _ = style
+        return fill(gradient)
+    }
+
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -1161,6 +1323,33 @@ public struct ContainerRelativeShape: View {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
         return copy
+    }
+
+    public func fill(style: FillStyle) -> ContainerRelativeShape {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> ContainerRelativeShape {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> ContainerRelativeShape {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> ContainerRelativeShape {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> ContainerRelativeShape {
+        _ = style
+        return fill(gradient)
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> ContainerRelativeShape {
@@ -1357,6 +1546,33 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
         return copy
+    }
+
+    public func fill(style: FillStyle) -> AnyShape {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> AnyShape {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> AnyShape {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> AnyShape {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> AnyShape {
+        _ = style
+        return fill(gradient)
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> AnyShape {
@@ -1593,6 +1809,33 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
         return copy
+    }
+
+    public func fill(style: FillStyle) -> InsetShape<Content> {
+        _ = style
+        var copy = self
+        copy.fillStyle = nil
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> InsetShape<Content> {
+        _ = style
+        return fill(color)
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> InsetShape<Content> {
+        _ = style
+        return fill(foregroundStyle)
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> InsetShape<Content> {
+        _ = style
+        return fill(foregroundStyle.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> InsetShape<Content> {
+        _ = style
+        return fill(gradient)
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> InsetShape<Content> {

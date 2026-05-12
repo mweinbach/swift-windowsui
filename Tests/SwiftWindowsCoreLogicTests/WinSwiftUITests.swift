@@ -2431,6 +2431,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeFillStyleOverloadsForwardToRetainedFillColors() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.6, green: 0.35, blue: 0.85, alpha: 1)
+            let explicitColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .leading, endPoint: .trailing)
+            let root = renderedNode(
+                VStack {
+                    Rectangle()
+                        .fill(style: FillStyle(eoFill: true, antialiased: false))
+                        .frame(width: 18, height: 10)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(explicitColor, style: FillStyle(antialiased: false))
+                        .frame(width: 20, height: 12)
+                    Circle()
+                        .fill(gradient, style: FillStyle(eoFill: true))
+                        .frame(width: 14, height: 14)
+                    AnyShape(Ellipse())
+                        .fill(.placeholder, style: FillStyle(eoFill: true, antialiased: false))
+                        .frame(width: 22, height: 12)
+                }
+                .foregroundStyle(inheritedColor)
+            )
+
+            let inheritedFill = root.children[0].children[0]
+            let colorFill = root.children[1].children[0]
+            let gradientFill = root.children[2].children[0]
+            let semanticFill = root.children[3].children[0]
+
+            XCTAssertEqual(inheritedFill.backgroundColor, inheritedColor)
+            XCTAssertEqual(colorFill.backgroundColor, explicitColor)
+            XCTAssertEqual(colorFill.cornerRadius, 5)
+            XCTAssertEqual(gradientFill.backgroundColor, gradient.startColor)
+            XCTAssertEqual(gradientFill.backgroundGradient, gradient)
+            XCTAssertEqual(semanticFill.backgroundColor, PlaceholderTextShapeStyle().retainedFallbackColor)
+        }
+    }
+
     func testCapsuleMapsToDynamicRoundedRetainedShapeNode() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

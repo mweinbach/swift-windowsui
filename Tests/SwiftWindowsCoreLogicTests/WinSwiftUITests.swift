@@ -10865,6 +10865,121 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testItemProviderAndOnDragRetainDragSourceMetadata() async {
+        await MainActor.run {
+            var itemProviderCalls = 0
+            let itemProviderNode = makeNode(
+                Text("DRAG")
+                    .itemProvider {
+                        itemProviderCalls += 1
+                        let provider = NSItemProvider(object: "payload")
+                        provider.registerDataRepresentation(forTypeIdentifier: UTType.plainText.identifier)
+                        return provider
+                    }
+            )
+
+            XCTAssertTrue(itemProviderNode.isHitTestVisible)
+            XCTAssertEqual(itemProviderNode.dragItemProviderTypeIdentifiers, [])
+            XCTAssertNotNil(itemProviderNode.onMakeDragItemProvider)
+            XCTAssertEqual(
+                (itemProviderNode.onMakeDragItemProvider?() as? NSItemProvider)?.registeredTypeIdentifiers,
+                [UTType.plainText.identifier]
+            )
+
+            itemProviderNode.onDragStart?(Point(x: 1, y: 2))
+            XCTAssertEqual(itemProviderCalls, 2)
+
+            var onDragCalls = 0
+            let onDragNode = makeNode(
+                Text("SOURCE")
+                    .onDrag {
+                        onDragCalls += 1
+                        return NSItemProvider(object: "drag")
+                    } preview: {
+                        Text("PREVIEW")
+                    }
+            )
+
+            XCTAssertEqual(onDragNode.dragItemProviderTypeIdentifiers, [UTType.data.identifier])
+            XCTAssertEqual(onDragNode.hasDragPreview, true)
+            onDragNode.onDragStart?(Point(x: 3, y: 4))
+
+            XCTAssertEqual(onDragCalls, 1)
+        }
+    }
+
+    func testDraggableRetainsTransferablePayloadMetadata() async {
+        await MainActor.run {
+            struct DragPayload: Transferable, Equatable {
+                let value: String
+            }
+
+            var payloadCalls = 0
+            func makePayload() -> DragPayload {
+                payloadCalls += 1
+                return DragPayload(value: "one")
+            }
+            let node = makeNode(
+                Text("DRAG")
+                    .draggable(makePayload()) {
+                        Text("PREVIEW")
+                    }
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertEqual(node.dragPayloadType, String(reflecting: DragPayload.self))
+            XCTAssertEqual(node.hasDragPreview, true)
+            XCTAssertEqual(node.onMakeDragPayload?() as? DragPayload, DragPayload(value: "one"))
+
+            node.onDragStart?(Point(x: 5, y: 6))
+
+            XCTAssertEqual(payloadCalls, 2)
+        }
+    }
+
+    func testContainerDraggableRetainsItemAndNamespaceMetadata() async {
+        await MainActor.run {
+            struct DragPayload: Transferable, Identifiable, Equatable {
+                let id: String
+                let value: String
+            }
+
+            let namespaceID = Namespace().wrappedValue
+            var payloadCalls = 0
+            let node = makeNode(
+                Text("DRAG")
+                    .draggable(DragPayload.self, containerNamespace: namespaceID) {
+                        payloadCalls += 1
+                        return DragPayload(id: "row-1", value: "one")
+                    }
+            )
+
+            XCTAssertEqual(node.dragPayloadType, String(reflecting: DragPayload.self))
+            XCTAssertEqual(node.dragContainerNamespaceID, namespaceID.description)
+            XCTAssertEqual(node.onMakeDragPayload?() as? DragPayload, DragPayload(id: "row-1", value: "one"))
+            node.onDragStart?(Point(x: 7, y: 8))
+            XCTAssertEqual(payloadCalls, 2)
+
+            let keyedNode = makeNode(
+                Text("KEYED")
+                    .draggable(DragPayload.self, id: \.value, containerNamespace: namespaceID) {
+                        DragPayload(id: "row-2", value: "two")
+                    }
+            )
+            XCTAssertEqual(keyedNode.dragPayloadType, String(reflecting: DragPayload.self))
+            XCTAssertEqual(keyedNode.dragContainerNamespaceID, namespaceID.description)
+            XCTAssertEqual(keyedNode.onMakeDragPayload?() as? DragPayload, DragPayload(id: "row-2", value: "two"))
+
+            let lazyNode = makeNode(
+                Text("LAZY")
+                    .draggable(containerItemID: "row-3", containerNamespace: namespaceID)
+            )
+            XCTAssertEqual(lazyNode.dragContainerItemID, AnyHashable("row-3"))
+            XCTAssertEqual(lazyNode.dragContainerNamespaceID, namespaceID.description)
+            XCTAssertNotNil(lazyNode.onDragStart)
+        }
+    }
+
     func testForEachBindingCollectionFeedsRetainedControls() async {
         await MainActor.run {
             struct Item: Identifiable {

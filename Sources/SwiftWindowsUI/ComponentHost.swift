@@ -160,6 +160,11 @@ public final class ComponentHost {
         if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
         if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes { target.dynamicInsertContentTypes = source.dynamicInsertContentTypes }
         if target.dynamicDropPayloadType != source.dynamicDropPayloadType { target.dynamicDropPayloadType = source.dynamicDropPayloadType }
+        if target.dragPayloadType != source.dragPayloadType { target.dragPayloadType = source.dragPayloadType }
+        if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers { target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers }
+        if target.dragContainerItemID != source.dragContainerItemID { target.dragContainerItemID = source.dragContainerItemID }
+        if target.dragContainerNamespaceID != source.dragContainerNamespaceID { target.dragContainerNamespaceID = source.dragContainerNamespaceID }
+        if target.hasDragPreview != source.hasDragPreview { target.hasDragPreview = source.hasDragPreview }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
@@ -253,6 +258,8 @@ public final class ComponentHost {
         target.onMoveRows = source.onMoveRows
         target.onInsertRows = source.onInsertRows
         target.onDropRows = source.onDropRows
+        target.onMakeDragPayload = source.onMakeDragPayload
+        target.onMakeDragItemProvider = source.onMakeDragItemProvider
         target.onDragStart = source.onDragStart
         target.onDragChange = source.onDragChange
         target.onDragEnd = source.onDragEnd

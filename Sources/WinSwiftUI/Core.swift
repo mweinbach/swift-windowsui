@@ -15417,6 +15417,127 @@ public extension View {
         }
     }
 
+    private func retainedDragSource(
+        payloadType: String? = nil,
+        providerTypeIdentifiers: [String] = [],
+        containerItemID: AnyHashable? = nil,
+        containerNamespaceID: String? = nil,
+        hasPreview: Bool = false,
+        payloadAction: (() -> Any?)? = nil,
+        providerAction: (() -> NSItemProvider?)? = nil
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.dragPayloadType = payloadType
+                childNode.dragItemProviderTypeIdentifiers = providerTypeIdentifiers
+                childNode.dragContainerItemID = containerItemID
+                childNode.dragContainerNamespaceID = containerNamespaceID
+                childNode.hasDragPreview = hasPreview
+                childNode.onMakeDragPayload = payloadAction
+                childNode.onMakeDragItemProvider = providerAction.map { action in
+                    { action() as Any? }
+                }
+
+                if payloadAction != nil || providerAction != nil || containerItemID != nil {
+                    let existingOnDragStart = childNode.onDragStart
+                    childNode.onDragStart = { point in
+                        existingOnDragStart?(point)
+                        _ = childNode.onMakeDragPayload?()
+                        _ = childNode.onMakeDragItemProvider?()
+                    }
+                    childNode.isHitTestVisible = true
+                }
+
+                return childNode
+            }
+        }
+    }
+
+    func itemProvider(_ action: (() -> NSItemProvider?)?) -> some View {
+        retainedDragSource(
+            providerTypeIdentifiers: [],
+            providerAction: action
+        )
+    }
+
+    func onDrag(_ data: @escaping () -> NSItemProvider) -> some View {
+        retainedDragSource(
+            providerTypeIdentifiers: [UTType.data.identifier],
+            hasPreview: true,
+            providerAction: { data() }
+        )
+    }
+
+    func onDrag<Preview: View>(
+        _ data: @escaping () -> NSItemProvider,
+        @ViewBuilder preview: () -> Preview
+    ) -> some View {
+        retainedDragSource(
+            providerTypeIdentifiers: [UTType.data.identifier],
+            hasPreview: true,
+            providerAction: { data() }
+        )
+    }
+
+    func draggable<T: Transferable>(_ payload: @autoclosure @escaping () -> T) -> some View {
+        retainedDragSource(
+            payloadType: String(reflecting: T.self),
+            hasPreview: true,
+            payloadAction: { payload() }
+        )
+    }
+
+    func draggable<T: Transferable, Preview: View>(
+        _ payload: @autoclosure @escaping () -> T,
+        @ViewBuilder preview: () -> Preview
+    ) -> some View {
+        retainedDragSource(
+            payloadType: String(reflecting: T.self),
+            hasPreview: true,
+            payloadAction: { payload() }
+        )
+    }
+
+    func draggable<Item>(
+        _ itemType: Item.Type = Item.self,
+        containerNamespace: Namespace.ID? = nil,
+        _ item: @escaping () -> Item?
+    ) -> some View where Item: Transferable, Item: Identifiable, Item.ID: Sendable {
+        retainedDragSource(
+            payloadType: String(reflecting: itemType),
+            containerNamespaceID: containerNamespace?.description,
+            hasPreview: true,
+            payloadAction: { item() }
+        )
+    }
+
+    func draggable<Item, ItemID>(
+        _ itemType: Item.Type = Item.self,
+        id: KeyPath<Item, ItemID>,
+        containerNamespace: Namespace.ID? = nil,
+        _ payload: @escaping () -> Item?
+    ) -> some View where Item: Transferable, ItemID: Hashable, ItemID: Sendable {
+        retainedDragSource(
+            payloadType: String(reflecting: itemType),
+            containerNamespaceID: containerNamespace?.description,
+            hasPreview: true,
+            payloadAction: { payload() }
+        )
+    }
+
+    func draggable<ItemID>(
+        containerItemID: ItemID,
+        containerNamespace: Namespace.ID? = nil
+    ) -> some View where ItemID: Hashable, ItemID: Sendable {
+        retainedDragSource(
+            containerItemID: AnyHashable(containerItemID),
+            containerNamespaceID: containerNamespace?.description,
+            hasPreview: true
+        )
+    }
+
     func defaultHoverEffect(_ effect: HoverEffect?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(

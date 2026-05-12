@@ -621,6 +621,12 @@ public final class AnyCancellable: Cancellable, Hashable {
         self.cancelHandler = cancelHandler
     }
 
+    deinit {
+        MainActor.assumeIsolated {
+            cancelHandler?()
+        }
+    }
+
     public func cancel() {
         cancelHandler?()
         cancelHandler = nil
@@ -628,6 +634,10 @@ public final class AnyCancellable: Cancellable, Hashable {
 
     public func store(in set: inout Set<AnyCancellable>) {
         set.insert(self)
+    }
+
+    public func store<C: RangeReplaceableCollection>(in collection: inout C) where C.Element == AnyCancellable {
+        collection.append(self)
     }
 
     public nonisolated static func == (lhs: AnyCancellable, rhs: AnyCancellable) -> Bool {

@@ -16673,6 +16673,33 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAnyCancellableStoresInArrayCollections() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            let model = CounterModel()
+            var values: [Int] = []
+            var cancellables: [AnyCancellable] = []
+
+            model.$value.sink { value in
+                values.append(value)
+            }.store(in: &cancellables)
+
+            XCTAssertEqual(cancellables.count, 1)
+            XCTAssertEqual(values, [0])
+
+            model.value = 1
+            XCTAssertEqual(values, [0, 1])
+
+            cancellables.removeAll()
+            model.value = 2
+
+            XCTAssertEqual(values, [0, 1])
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

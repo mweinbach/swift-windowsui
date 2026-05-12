@@ -10142,6 +10142,79 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDefaultAppStorageProvidesStoreForAppStorageAndEnvironmentReads() async {
+        await MainActor.run {
+            struct DefaultStoreAppStorageView: View {
+                @Environment(\.defaultAppStorage) private var defaultStore
+                @AppStorage private var title: String
+
+                init() {
+                    _title = AppStorage(wrappedValue: "DEFAULT", "title")
+                }
+
+                var body: some View {
+                    VStack {
+                        Text(defaultStore.string(forKey: "environmentTitle") ?? "NO ENV")
+                        Button(title) {
+                            title = "WRITTEN"
+                        }
+                    }
+                }
+            }
+
+            struct ExplicitStoreAppStorageView: View {
+                @AppStorage private var title: String
+
+                init(store: UserDefaults) {
+                    _title = AppStorage(wrappedValue: "DEFAULT", "title", store: store)
+                }
+
+                var body: some View {
+                    Button(title) {
+                        title = "EXPLICIT WRITTEN"
+                    }
+                }
+            }
+
+            let defaultSuiteName = "WinSwiftUITests.DefaultAppStorage.\(UUID().uuidString)"
+            let explicitSuiteName = "WinSwiftUITests.DefaultAppStorageExplicit.\(UUID().uuidString)"
+            guard let defaultStore = UserDefaults(suiteName: defaultSuiteName),
+                  let explicitStore = UserDefaults(suiteName: explicitSuiteName) else {
+                return XCTFail("Expected test UserDefaults suites")
+            }
+            defer {
+                defaultStore.removePersistentDomain(forName: defaultSuiteName)
+                explicitStore.removePersistentDomain(forName: explicitSuiteName)
+            }
+
+            defaultStore.set("ENVIRONMENT", forKey: "environmentTitle")
+            defaultStore.set("INHERITED", forKey: "title")
+            explicitStore.set("EXPLICIT", forKey: "title")
+
+            let inheritedNode = makeNode(DefaultStoreAppStorageView().defaultAppStorage(defaultStore))
+
+            XCTAssertTrue(allTexts(in: inheritedNode).contains("ENVIRONMENT"))
+            XCTAssertTrue(allTexts(in: inheritedNode).contains("INHERITED"))
+
+            firstFocusable(in: inheritedNode)?.onActivate?()
+
+            XCTAssertEqual(defaultStore.string(forKey: "title"), "WRITTEN")
+            XCTAssertEqual(explicitStore.string(forKey: "title"), "EXPLICIT")
+
+            let explicitNode = makeNode(
+                ExplicitStoreAppStorageView(store: explicitStore)
+                    .defaultAppStorage(defaultStore)
+            )
+
+            XCTAssertTrue(allTexts(in: explicitNode).contains("EXPLICIT"))
+
+            explicitNode.onActivate?()
+
+            XCTAssertEqual(explicitStore.string(forKey: "title"), "EXPLICIT WRITTEN")
+            XCTAssertEqual(defaultStore.string(forKey: "title"), "WRITTEN")
+        }
+    }
+
     func testAppStorageWriteTriggersInvalidation() async {
         await MainActor.run {
             struct AppStorageWriterView: View {

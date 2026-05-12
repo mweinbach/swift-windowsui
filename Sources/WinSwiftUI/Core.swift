@@ -2103,6 +2103,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var dismissWindow: DismissWindowAction
     public var openSettings: OpenSettingsAction
     public var requestReview: RequestReviewAction
+    public var defaultAppStorage: UserDefaults
     public var focusedValues: FocusedValues
     public var environmentObjects: EnvironmentObjectValues
     private var customValues: [ObjectIdentifier: Any]
@@ -2217,6 +2218,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         dismissWindow: DismissWindowAction = .noop,
         openSettings: OpenSettingsAction = .noop,
         requestReview: RequestReviewAction = .noop,
+        defaultAppStorage: UserDefaults = .standard,
         focusedValues: FocusedValues = FocusedValues(),
         environmentObjects: EnvironmentObjectValues = EnvironmentObjectValues()
     ) {
@@ -2351,6 +2353,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.dismissWindow = dismissWindow
         self.openSettings = openSettings
         self.requestReview = requestReview
+        self.defaultAppStorage = defaultAppStorage
         self.focusedValues = focusedValues
         self.environmentObjects = environmentObjects
         self.customValues = [:]
@@ -2713,33 +2716,53 @@ public struct AppStorage<Value>: DynamicProperty {
     private final class Storage {
         let key: String
         let defaultValue: Value
-        let store: UserDefaults
+        let explicitStore: UserDefaults?
         let readValue: @MainActor (UserDefaults, String, Value) -> Value
         let writeValue: @MainActor (UserDefaults, String, Value) -> Void
+        var lastResolvedStore: UserDefaults?
         var invalidate: (@MainActor () -> Void)?
 
         init(
             key: String,
             defaultValue: Value,
-            store: UserDefaults,
+            store: UserDefaults?,
             readValue: @escaping @MainActor (UserDefaults, String, Value) -> Value = Storage.defaultReadValue,
             writeValue: @escaping @MainActor (UserDefaults, String, Value) -> Void = Storage.defaultWriteValue
         ) {
             self.key = key
             self.defaultValue = defaultValue
-            self.store = store
+            self.explicitStore = store
             self.readValue = readValue
             self.writeValue = writeValue
         }
 
         var value: Value {
             get {
-                readValue(store, key, defaultValue)
+                let store = resolvedStore()
+                return readValue(store, key, defaultValue)
             }
             set {
+                let store = resolvedStore()
                 writeValue(store, key, newValue)
                 invalidate?()
             }
+        }
+
+        private func resolvedStore() -> UserDefaults {
+            if let explicitStore {
+                return explicitStore
+            }
+
+            if let environmentStore = ViewBuildContextScope.current?.environmentValues.defaultAppStorage {
+                lastResolvedStore = environmentStore
+                return environmentStore
+            }
+
+            if let lastResolvedStore {
+                return lastResolvedStore
+            }
+
+            return .standard
         }
 
         private static func defaultReadValue(store: UserDefaults, key: String, defaultValue: Value) -> Value {
@@ -2801,14 +2824,14 @@ public struct AppStorage<Value>: DynamicProperty {
     private let storage: Storage
 
     public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
-        self.storage = Storage(key: key, defaultValue: wrappedValue, store: store ?? .standard)
+        self.storage = Storage(key: key, defaultValue: wrappedValue, store: store)
     }
 
     public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value: RawRepresentable, Value.RawValue == String {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard let rawValue = store.string(forKey: key), let value = Value(rawValue: rawValue) else {
                     return defaultValue
@@ -2825,7 +2848,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil, let value = Value(rawValue: store.integer(forKey: key)) else {
                     return defaultValue
@@ -2842,7 +2865,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard let rawValue = store.string(forKey: key) else {
                     return defaultValue
@@ -2863,7 +2886,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2884,7 +2907,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2905,7 +2928,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2926,7 +2949,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2947,7 +2970,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2968,7 +2991,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -2989,7 +3012,7 @@ public struct AppStorage<Value>: DynamicProperty {
         self.storage = Storage(
             key: key,
             defaultValue: wrappedValue,
-            store: store ?? .standard,
+            store: store,
             readValue: { store, key, defaultValue in
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
@@ -12699,6 +12722,10 @@ public extension View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(keyPath, value))
         }
+    }
+
+    func defaultAppStorage(_ store: UserDefaults) -> some View {
+        environment(\.defaultAppStorage, store)
     }
 
     func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some View {

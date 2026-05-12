@@ -2390,6 +2390,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeLineWidthOnlyStrokeOverloadsUseInheritedForegroundStyle() async {
+        await MainActor.run {
+            let inheritedColor = Color(red: 0.2, green: 0.7, blue: 0.9, alpha: 1)
+            let root = renderedNode(
+                VStack {
+                    Rectangle()
+                        .stroke(lineWidth: 4)
+                        .frame(width: 24, height: 12)
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(lineWidth: 3)
+                        .frame(width: 26, height: 14)
+                    AnyShape(Capsule())
+                        .stroke(lineWidth: 2)
+                        .frame(width: 28, height: 16)
+                    Circle()
+                        .inset(by: 2)
+                        .strokeBorder(lineWidth: 5)
+                        .frame(width: 30, height: 30)
+                }
+                .foregroundStyle(inheritedColor)
+            )
+
+            let rectangle = root.children[0].children[0]
+            let roundedRectangle = root.children[1].children[0]
+            let anyShape = root.children[2].children[0]
+            let insetShape = root.children[3].children[0].children[0]
+
+            XCTAssertEqual(rectangle.backgroundColor, .clear)
+            XCTAssertEqual(rectangle.borderColor, inheritedColor)
+            XCTAssertEqual(rectangle.borderWidth, 4)
+            XCTAssertEqual(rectangle.borderStrokeStyle, StrokeStyle(lineWidth: 4, dashPattern: []))
+            XCTAssertEqual(roundedRectangle.borderColor, inheritedColor)
+            XCTAssertEqual(roundedRectangle.borderWidth, 3)
+            XCTAssertEqual(roundedRectangle.cornerRadius, 6)
+            XCTAssertEqual(anyShape.borderColor, inheritedColor)
+            XCTAssertEqual(anyShape.borderWidth, 2)
+            XCTAssertEqual(insetShape.borderColor, inheritedColor)
+            XCTAssertEqual(insetShape.borderWidth, 5)
+        }
+    }
+
     func testCapsuleMapsToDynamicRoundedRetainedShapeNode() async {
         await MainActor.run {
             let runtime = RetainedViewRuntime(root: ViewNode())

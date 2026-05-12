@@ -205,6 +205,10 @@ public struct Rectangle: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> Rectangle {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -250,6 +254,10 @@ public struct Rectangle: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Rectangle {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> Rectangle {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> Rectangle {
@@ -360,6 +368,10 @@ public struct RoundedRectangle: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -405,6 +417,10 @@ public struct RoundedRectangle: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> RoundedRectangle {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> RoundedRectangle {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> RoundedRectangle {
@@ -559,6 +575,10 @@ public struct UnevenRoundedRectangle: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -604,6 +624,10 @@ public struct UnevenRoundedRectangle: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> UnevenRoundedRectangle {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> UnevenRoundedRectangle {
@@ -706,6 +730,10 @@ public struct Capsule: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> Capsule {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -751,6 +779,10 @@ public struct Capsule: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Capsule {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> Capsule {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> Capsule {
@@ -851,6 +883,10 @@ public struct Circle: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> Circle {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> Circle {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -896,6 +932,10 @@ public struct Circle: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Circle {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> Circle {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> Circle {
@@ -996,6 +1036,10 @@ public struct Ellipse: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> Ellipse {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -1041,6 +1085,10 @@ public struct Ellipse: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Ellipse {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> Ellipse {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> Ellipse {
@@ -1141,6 +1189,10 @@ public struct ContainerRelativeShape: View {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -1186,6 +1238,10 @@ public struct ContainerRelativeShape: View {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> ContainerRelativeShape {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> ContainerRelativeShape {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> ContainerRelativeShape {
@@ -1329,6 +1385,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> AnyShape {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> AnyShape {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -1374,6 +1434,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> AnyShape {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> AnyShape {
@@ -1557,6 +1621,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         stroke(.linearGradient(gradient), lineWidth: lineWidth)
     }
 
+    public func stroke(lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
     public func stroke(style: StrokeStyle) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .color(.clear)
@@ -1602,6 +1670,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> InsetShape<Content> {
         stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> InsetShape<Content> {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
     }
 
     public func strokeBorder(style: StrokeStyle) -> InsetShape<Content> {

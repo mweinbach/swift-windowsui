@@ -16152,11 +16152,13 @@ final class WinSwiftUITests: XCTestCase {
 
     func testBlurModifierMapsToRetainedNodeBlurRadius() async {
         await MainActor.run {
-            let blurredNode = makeNode(Text("SOFT").blur(radius: 12))
+            let blurredNode = makeNode(Text("SOFT").blur(radius: 12, opaque: true))
             let clampedNode = makeNode(Text("SHARP").blur(radius: -3))
 
             XCTAssertEqual(blurredNode.blurRadius, 12)
+            XCTAssertEqual(blurredNode.blurOpaque, true)
             XCTAssertEqual(clampedNode.blurRadius, 0)
+            XCTAssertEqual(clampedNode.blurOpaque, false)
         }
     }
 

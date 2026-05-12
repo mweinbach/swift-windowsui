@@ -200,6 +200,8 @@ final class ComponentHostTests: XCTestCase {
                         )
 
                     node.text = label
+                    node.blurRadius = useSecondState ? 9 : 3
+                    node.blurOpaque = useSecondState
                     node.opacity = opacity
                     node.blendMode = useSecondState ? .screen : .multiply
                     node.isCompositingGroup = useSecondState
@@ -381,6 +383,8 @@ final class ComponentHostTests: XCTestCase {
             let firstNode = runtime.root.children.first
             XCTAssertNotNil(firstNode)
             XCTAssertEqual(firstNode?.text, "FIRST")
+            XCTAssertEqual(firstNode?.blurRadius, 3)
+            XCTAssertEqual(firstNode?.blurOpaque, false)
             XCTAssertEqual(firstNode?.opacity, 0.25)
             XCTAssertEqual(firstNode?.blendMode, .multiply)
             XCTAssertEqual(firstNode?.isCompositingGroup, false)
@@ -519,6 +523,8 @@ final class ComponentHostTests: XCTestCase {
             let reusedNode = runtime.root.children.first
             XCTAssertTrue(firstNode === reusedNode)
             XCTAssertEqual(reusedNode?.text, "SECOND")
+            XCTAssertEqual(reusedNode?.blurRadius, 9)
+            XCTAssertEqual(reusedNode?.blurOpaque, true)
             XCTAssertEqual(reusedNode?.opacity, 0.85)
             XCTAssertEqual(reusedNode?.blendMode, .screen)
             XCTAssertEqual(reusedNode?.isCompositingGroup, true)

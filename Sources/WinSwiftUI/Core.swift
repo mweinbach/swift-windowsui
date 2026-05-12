@@ -18311,12 +18311,13 @@ public extension View {
         }
     }
 
-    func blur(radius: Double) -> some View {
+    func blur(radius: Double, opaque: Bool = false) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.blurRadius = max(0, radius)
+                childNode.blurOpaque = opaque
                 return childNode
             }
         }

@@ -424,7 +424,7 @@ Modifiers:
 - `rotation3DEffect`
 - `transformEffect`
 - `projectionEffect`
-- `blur`
+- `blur(radius:opaque:)`
 - `transition`
 - `contentTransition`
 - `contentTransitionAddsDrawingGroup`
@@ -827,7 +827,7 @@ Surface direction:
 - `brightness(_:)`, `contrast(_:)`, `colorInvert()`, `colorMultiply(_:)`, `saturation(_:)`, `grayscale(_:)`, `hueRotation(_:)`, and `luminanceToAlpha()` store ordered retained color-effect metadata for source compatibility and cache invalidation. The current renderers do not apply these filters visually yet; backend shader/filter work is still required.
 - `zIndex(_:)`, `offset`, `scaleEffect`, anchor-aware scale overloads, `flipsForRightToLeftLayoutDirection(_:)`, `rotationEffect`, anchor-aware rotation overloads, `transformEffect(_:)`, and `projectionEffect(_:)` map directly onto retained node ordering and `Transform2D` state. `CGAffineTransform` and `ProjectionTransform` are lightweight compatibility values backed by the retained affine transform path. `UnitPoint3D`, `RotationAxis3D`, and `rotation3DEffect(...)` accept modern SwiftUI-shaped 3D call sites; retained rendering maps z-axis rotation to the existing 2D transform and leaves x/y-axis perspective projection unchanged until a renderer-neutral 3D transform contract exists.
 - `@Namespace` creates stable SwiftUI-shaped namespace IDs, and `matchedGeometryEffect(id:in:properties:anchor:isSource:)` records retained metadata on the node. WinSwiftUI does not yet interpolate geometry across matched source/destination pairs, but the metadata is available to the retained runtime for future animation work.
-- `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
+- `blur(radius:opaque:)` maps directly onto retained node blur radius state and preserves SwiftUI's opaque-output hint as renderer-neutral metadata. Blur commands are still backend-limited as noted below.
 - `transition(_:)` accepts common `AnyTransition` values such as `.identity`, `.opacity`, `.move(edge:)`, `.offset(...)`, `.push(from:)`, `.scale`, `.slide`, `.asymmetric(...)`, and `.combined(with:)` for source compatibility. Retained insertion/removal animation semantics are not modeled yet, so the modifier currently preserves the rendered subtree unchanged.
 - `contentTransition(_:)`, `EnvironmentValues.contentTransition`, and `EnvironmentValues.contentTransitionAddsDrawingGroup` accept SwiftUI-shaped content transition metadata including `.identity`, `.interpolate`, `.opacity`, `.numericText(...)`, and `.symbolEffect`. Retained content-change interpolation is not modeled yet, so this currently propagates source-compatible environment metadata without changing rendered nodes.
 - `SymbolEffect`, `SymbolEffectOptions`, `symbolEffect(...)`, `symbolEffectsRemoved(_:)`, and `ContentTransition.symbolEffect(...)` accept common SF Symbols effect call sites such as `.pulse`, `.bounce`, `.variableColor.reversing`, `.replace`, `.repeat(...)`, `.repeating`, and `.speed(...)`. WinSwiftUI currently preserves source compatibility and rendered symbol/text content; it does not yet animate SF Symbol layers on the retained renderer.

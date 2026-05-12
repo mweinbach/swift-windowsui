@@ -185,6 +185,8 @@ public enum ScenePainter {
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: opacity,
+            blurRadius: node.blurRadius,
+            blurOpaque: node.blurOpaque,
             blendMode: node.blendMode,
             isCompositingGroup: node.isCompositingGroup,
             drawingGroup: node.drawingGroup,

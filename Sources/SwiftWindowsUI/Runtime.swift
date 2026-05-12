@@ -183,6 +183,8 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
     var opacity: Float
+    var blurRadius: Double
+    var blurOpaque: Bool
     var blendMode: BlendMode
     var isCompositingGroup: Bool
     var drawingGroup: RetainedDrawingGroup?
@@ -1047,6 +1049,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var blurOpaque: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Opacity — per-node opacity multiplier (0..1).
     public var opacity: Double {
         didSet { invalidateRuntime(.paint) }
@@ -1641,6 +1647,7 @@ public final class ViewNode {
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
+        blurOpaque: Bool = false,
         opacity: Double = 1.0,
         blendMode: BlendMode = .normal,
         isCompositingGroup: Bool = false,
@@ -1781,6 +1788,7 @@ public final class ViewNode {
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius
+        self.blurOpaque = blurOpaque
         self.opacity = opacity
         self.blendMode = blendMode
         self.isCompositingGroup = isCompositingGroup
@@ -2465,6 +2473,8 @@ public final class ViewNode {
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
+            blurRadius: blurRadius,
+            blurOpaque: blurOpaque,
             blendMode: blendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
@@ -2776,6 +2786,8 @@ public final class ViewNode {
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
+            blurRadius: blurRadius,
+            blurOpaque: blurOpaque,
             blendMode: effectiveBlendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,

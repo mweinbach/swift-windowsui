@@ -4817,6 +4817,30 @@ public struct List: View {
 }
 
 public extension List {
+    init<Collection>(
+        _ data: Binding<Collection>,
+        @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
+    ) where
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Element: Identifiable,
+        Collection.Index: Hashable
+    {
+        self.content = ForEach(data, content: rowContent).contentViews
+        self.selectionMode = nil
+    }
+
+    init<Collection, ID: Hashable>(
+        _ data: Binding<Collection>,
+        id: KeyPath<Collection.Element, ID>,
+        @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
+    ) where
+        Collection: MutableCollection & RandomAccessCollection,
+        Collection.Index: Hashable
+    {
+        self.content = ForEach(data, id: id, content: rowContent).contentViews
+        self.selectionMode = nil
+    }
+
     init<Data: RandomAccessCollection>(
         _ data: Data,
         @ViewBuilder rowContent: (Data.Element) -> [AnyView]

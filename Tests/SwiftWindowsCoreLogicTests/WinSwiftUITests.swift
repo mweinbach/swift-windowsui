@@ -5714,6 +5714,71 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListBindingCollectionInitializerFeedsRetainedControls() async {
+        await MainActor.run {
+            struct Row: Identifiable {
+                let id: Int
+                var title: String
+                var isEnabled: Bool
+            }
+
+            var rows = [
+                Row(id: 7, title: "SEVEN", isEnabled: false),
+                Row(id: 9, title: "NINE", isEnabled: true),
+            ]
+            let rowsBinding = Binding(
+                get: { rows },
+                set: { rows = $0 }
+            )
+
+            let node = makeNode(
+                List(rowsBinding) { row in
+                    Toggle(row.wrappedValue.title, isOn: row.isEnabled)
+                    TextField("TITLE", text: row.title)
+                }
+            )
+            let controls = focusableNodes(in: node)
+
+            controls[0].onActivate?()
+            controls[3].onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertTrue(rows[0].isEnabled)
+            XCTAssertEqual(rows[1].title, "NINEz")
+            XCTAssertEqual(node.children[0].nodeTag, "7#0")
+            XCTAssertEqual(node.children[2].nodeTag, "9#0")
+        }
+    }
+
+    func testListBindingCollectionInitializerSupportsExplicitIDKeyPath() async {
+        await MainActor.run {
+            struct Row {
+                let key: String
+                var title: String
+            }
+
+            var rows = [
+                Row(key: "alpha", title: "ALPHA"),
+                Row(key: "beta", title: "BETA"),
+            ]
+            let rowsBinding = Binding(
+                get: { rows },
+                set: { rows = $0 }
+            )
+
+            let node = makeNode(
+                List(rowsBinding, id: \.key) { row in
+                    TextField("TITLE", text: row.title)
+                }
+            )
+
+            firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertEqual(rows[0].title, "ALPHAz")
+            XCTAssertEqual(node.children[0].nodeTag, "alpha#0")
+            XCTAssertEqual(node.children[1].nodeTag, "beta#0")
+        }
+    }
+
     func testListSelectionContentInitializerSelectsTaggedRows() async {
         await MainActor.run {
             var selected: String? = "one"

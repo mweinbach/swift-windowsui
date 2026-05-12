@@ -9592,6 +9592,90 @@ public struct BackgroundStyle: ShapeStyle, Sendable, Equatable {
     }
 }
 
+public struct SelectionShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.42)
+    }
+}
+
+public struct SeparatorShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36)
+    }
+}
+
+public struct TintShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+    }
+}
+
+public struct PlaceholderTextShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62)
+    }
+}
+
+public struct LinkShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.34, green: 0.70, blue: 1.0, alpha: 1)
+    }
+}
+
+public struct FillShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 1, green: 1, blue: 1, alpha: 0.12)
+    }
+}
+
+public struct WindowBackgroundShapeStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1)
+    }
+}
+
 extension ForegroundStyle: ShapeStyle {
     public var retainedForegroundStyle: ForegroundStyle {
         self
@@ -9651,6 +9735,10 @@ public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
     }
 }
 
+public extension ShapeStyle where Self == ForegroundStyle {
+    static var foreground: ForegroundStyle { .color(.primary) }
+}
+
 public extension ShapeStyle where Self == HierarchicalShapeStyle {
     static var primary: HierarchicalShapeStyle { .primary }
     static var secondary: HierarchicalShapeStyle { .secondary }
@@ -9661,6 +9749,34 @@ public extension ShapeStyle where Self == HierarchicalShapeStyle {
 
 public extension ShapeStyle where Self == BackgroundStyle {
     static var background: BackgroundStyle { .background }
+}
+
+public extension ShapeStyle where Self == SelectionShapeStyle {
+    static var selection: SelectionShapeStyle { SelectionShapeStyle() }
+}
+
+public extension ShapeStyle where Self == SeparatorShapeStyle {
+    static var separator: SeparatorShapeStyle { SeparatorShapeStyle() }
+}
+
+public extension ShapeStyle where Self == TintShapeStyle {
+    static var tint: TintShapeStyle { TintShapeStyle() }
+}
+
+public extension ShapeStyle where Self == PlaceholderTextShapeStyle {
+    static var placeholder: PlaceholderTextShapeStyle { PlaceholderTextShapeStyle() }
+}
+
+public extension ShapeStyle where Self == LinkShapeStyle {
+    static var link: LinkShapeStyle { LinkShapeStyle() }
+}
+
+public extension ShapeStyle where Self == FillShapeStyle {
+    static var fill: FillShapeStyle { FillShapeStyle() }
+}
+
+public extension ShapeStyle where Self == WindowBackgroundShapeStyle {
+    static var windowBackground: WindowBackgroundShapeStyle { WindowBackgroundShapeStyle() }
 }
 
 public struct Material: ShapeStyle, Sendable, Equatable {

@@ -3827,6 +3827,40 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSemanticShapeStylesMapToRetainedFallbackColors() async {
+        await MainActor.run {
+            let foregroundNode = makeNode(Text("FOREGROUND").foregroundStyle(.foreground))
+            let tintNode = makeNode(Text("TINT").foregroundStyle(.tint))
+            let placeholderNode = makeNode(Text("PLACEHOLDER").foregroundStyle(.placeholder))
+            let linkNode = makeNode(Text("LINK").foregroundStyle(.link))
+            let separatorNode = makeNode(Text("SEPARATOR").background(.separator))
+            let selectionNode = renderedNode(
+                Text("SELECTION")
+                    .frame(width: 72, height: 24)
+                    .overlay(.selection)
+            )
+            let fillNode = makeNode(Rectangle().fill(.fill))
+            let windowBackgroundNode = makeNode(Text("WINDOW").background(.windowBackground))
+
+            XCTAssertEqual(ForegroundStyle.foreground, .color(.primary))
+            XCTAssertEqual(SelectionShapeStyle().retainedFallbackColor, Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.42))
+            XCTAssertEqual(SeparatorShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36))
+            XCTAssertEqual(TintShapeStyle().retainedFallbackColor, ViewBuildContext.defaultTint)
+            XCTAssertEqual(PlaceholderTextShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62))
+            XCTAssertEqual(LinkShapeStyle().retainedFallbackColor, Color(red: 0.34, green: 0.70, blue: 1.0, alpha: 1))
+            XCTAssertEqual(FillShapeStyle().retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.12))
+            XCTAssertEqual(WindowBackgroundShapeStyle().retainedFallbackColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+            XCTAssertEqual(foregroundNode.textStyle.color, .primary)
+            XCTAssertEqual(tintNode.textStyle.color, ViewBuildContext.defaultTint)
+            XCTAssertEqual(placeholderNode.textStyle.color, PlaceholderTextShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(linkNode.textStyle.color, LinkShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(separatorNode.backgroundColor, SeparatorShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(selectionNode.children[1].backgroundColor, SelectionShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(fillNode.backgroundColor, FillShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(windowBackgroundNode.backgroundColor, WindowBackgroundShapeStyle().retainedFallbackColor)
+        }
+    }
+
     func testShapedBackgroundAndOverlayStyleOverloadsFillBaseLayout() async {
         await MainActor.run {
             let color = Color(red: 0.2, green: 0.6, blue: 0.8, alpha: 0.9)

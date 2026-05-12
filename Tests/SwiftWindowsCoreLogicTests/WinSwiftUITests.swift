@@ -6174,6 +6174,56 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListRowSeparatorTintStoresMetadataAndColorsVisibleDividers() async {
+        await MainActor.run {
+            let topTint = Color(red: 1, green: 0.2, blue: 0.1, alpha: 1)
+            let bottomTint = Color(red: 0.1, green: 0.7, blue: 1, alpha: 1)
+            let defaultSeparatorTint = Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+            let listNode = makeNode(
+                List {
+                    Text("BEFORE")
+                        .listRowSeparatorTint(topTint, edges: .top)
+                        .listRowSeparator(.visible)
+                    Text("AFTER")
+                        .listRowSeparator(.visible)
+                        .listRowSeparatorTint(bottomTint, edges: .bottom)
+                    Text("RESET")
+                        .listRowSeparatorTint(nil, edges: .top)
+                    Text("CLEAR")
+                        .listRowSeparatorTint(topTint, edges: .top)
+                        .listRowSeparator(.visible)
+                        .listRowSeparatorTint(nil, edges: .top)
+                }
+            )
+
+            XCTAssertEqual(
+                listNode.children[0].listRowSeparatorTint,
+                RetainedListSeparatorTint(color: topTint, edges: .top)
+            )
+            XCTAssertEqual(listNode.children[0].children[0].backgroundColor, topTint)
+            XCTAssertNotEqual(listNode.children[0].children[2].backgroundColor, topTint)
+
+            XCTAssertEqual(
+                listNode.children[1].listRowSeparatorTint,
+                RetainedListSeparatorTint(color: bottomTint, edges: .bottom)
+            )
+            XCTAssertNotEqual(listNode.children[1].children[0].backgroundColor, bottomTint)
+            XCTAssertEqual(listNode.children[1].children[2].backgroundColor, bottomTint)
+
+            XCTAssertEqual(
+                listNode.children[2].listRowSeparatorTint,
+                RetainedListSeparatorTint(color: nil, edges: .top)
+            )
+            XCTAssertEqual(listNode.children[2].text, "RESET")
+
+            XCTAssertEqual(
+                listNode.children[3].listRowSeparatorTint,
+                RetainedListSeparatorTint(color: nil, edges: .top)
+            )
+            XCTAssertEqual(listNode.children[3].children[0].backgroundColor, defaultSeparatorTint)
+        }
+    }
+
     func testListRowSpacingMapsToRetainedListStackSpacing() async {
         await MainActor.run {
             let spacedListNode = makeNode(

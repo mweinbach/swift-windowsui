@@ -10558,12 +10558,39 @@ private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility, b
 }
 
 @MainActor
-private func retainedListSeparatorNode() -> ViewNode {
+private func retainedListSeparatorDefaultColor() -> Color {
+    Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22)
+}
+
+@MainActor
+private func retainedListSeparatorNode(tint: Color? = nil) -> ViewNode {
     Controls.panel(
         preferredSize: Size(width: 16, height: 1),
-        backgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+        backgroundColor: tint ?? retainedListSeparatorDefaultColor(),
         isHitTestVisible: false
     )
+}
+
+@MainActor
+private func applyRetainedListSeparatorTint(to node: ViewNode, tint: RetainedListSeparatorTint) {
+    node.listRowSeparatorTint = tint
+
+    guard let separator = node.listRowSeparator, separator.visibility == .visible else {
+        return
+    }
+
+    let color = tint.color ?? retainedListSeparatorDefaultColor()
+    var visibleSeparatorIndex = 0
+    if separator.edges.contains(.top), node.children.indices.contains(visibleSeparatorIndex) {
+        if tint.edges.contains(.top) {
+            node.children[visibleSeparatorIndex].backgroundColor = color
+        }
+        visibleSeparatorIndex += 1
+    }
+
+    if separator.edges.contains(.bottom), let bottomSeparator = node.children.last, tint.edges.contains(.bottom) {
+        bottomSeparator.backgroundColor = color
+    }
 }
 
 @MainActor
@@ -16170,13 +16197,14 @@ public extension View {
                     return childNode
                 }
 
+                let separatorTint = childNode.listRowSeparatorTint
                 var children: [ViewNode] = []
                 if edges.contains(.top) {
-                    children.append(retainedListSeparatorNode())
+                    children.append(retainedListSeparatorNode(tint: separatorTint?.edges.contains(.top) == true ? separatorTint?.color : nil))
                 }
                 children.append(childNode)
                 if edges.contains(.bottom) {
-                    children.append(retainedListSeparatorNode())
+                    children.append(retainedListSeparatorNode(tint: separatorTint?.edges.contains(.bottom) == true ? separatorTint?.color : nil))
                 }
 
                 let row = Controls.stackPanel(
@@ -16185,7 +16213,23 @@ public extension View {
                     children: children
                 )
                 row.listRowSeparator = retainedSeparator
+                row.listRowSeparatorTint = separatorTint
                 return row
+            }
+        }
+    }
+
+    func listRowSeparatorTint(_ color: Color?, edges: VerticalEdge.Set = .all) -> some View {
+        let retainedTint = RetainedListSeparatorTint(
+            color: color,
+            edges: edges.retainedListSeparatorEdges
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                applyRetainedListSeparatorTint(to: childNode, tint: retainedTint)
+                return childNode
             }
         }
     }

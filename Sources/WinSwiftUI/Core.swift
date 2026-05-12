@@ -9925,6 +9925,28 @@ private func normalizedFrameIdeal(_ value: Double?) -> Double? {
     return max(0, value)
 }
 
+private func normalizedContainerRelativeLength(_ value: Double) -> Double {
+    guard value.isFinite else {
+        return 0
+    }
+
+    return max(0, value)
+}
+
+private func containerRelativeSpanLength(
+    availableLength: Double,
+    count: Int,
+    span: Int,
+    spacing: Double
+) -> Double {
+    let resolvedCount = max(1, count)
+    let resolvedSpan = min(max(1, span), resolvedCount)
+    let resolvedSpacing = max(0, spacing)
+    let totalSpacing = Double(resolvedCount - 1) * resolvedSpacing
+    let slotLength = max(0, availableLength - totalSpacing) / Double(resolvedCount)
+    return slotLength * Double(resolvedSpan) + Double(resolvedSpan - 1) * resolvedSpacing
+}
+
 private func aspectRatioPreferredSize(
     baseSize: Size,
     requestedAspectRatio: Double?,
@@ -11091,6 +11113,67 @@ public extension View {
                 )
                 root.layoutConstraints = constraints
                 return root
+            }
+        }
+    }
+
+    func containerRelativeFrame(_ axes: Axis.Set, alignment: Alignment = .center) -> some View {
+        containerRelativeFrame(axes, alignment: alignment) { length, _ in
+            length
+        }
+    }
+
+    func containerRelativeFrame(
+        _ axes: Axis.Set,
+        count: Int,
+        span: Int = 1,
+        spacing: CGFloat,
+        alignment: Alignment = .center
+    ) -> some View {
+        containerRelativeFrame(axes, alignment: alignment) { length, _ in
+            containerRelativeSpanLength(
+                availableLength: length,
+                count: count,
+                span: span,
+                spacing: spacing
+            )
+        }
+    }
+
+    func containerRelativeFrame(
+        _ axes: Axis.Set,
+        alignment: Alignment = .center,
+        _ length: @escaping (CGFloat, Axis) -> CGFloat
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let canvasSize = context.canvasSize
+            let width = axes.contains(.horizontal)
+                ? normalizedContainerRelativeLength(length(canvasSize.width, .horizontal))
+                : nil
+            let height = axes.contains(.vertical)
+                ? normalizedContainerRelativeLength(length(canvasSize.height, .vertical))
+                : nil
+
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                if width != nil || height != nil {
+                    let existingPreferredSize = childNode.preferredSize ?? .zero
+                    childNode.preferredSize = Size(
+                        width: width ?? existingPreferredSize.width,
+                        height: height ?? existingPreferredSize.height
+                    )
+                }
+                return Controls.stackPanel(
+                    preferredSize: Size(width: width ?? 0, height: height ?? 0),
+                    stackLayout: .vertical(
+                        padding: .zero,
+                        alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection),
+                        mainAlignment: alignment.vertical.mainAlignment
+                    ),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
             }
         }
     }

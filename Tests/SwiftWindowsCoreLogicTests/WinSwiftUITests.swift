@@ -3809,6 +3809,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContainerRelativeFrameUsesBuildContextCanvasSize() async {
+        await MainActor.run {
+            let fullNode = makeNode(
+                Text("FULL")
+                    .containerRelativeFrame([.horizontal, .vertical], alignment: .bottomTrailing),
+                size: Size(width: 320, height: 180)
+            )
+            let transformedNode = makeNode(
+                Text("HALF")
+                    .containerRelativeFrame([.horizontal, .vertical]) { length, axis in
+                        axis == .horizontal ? length * 0.5 : length - 20
+                    },
+                size: Size(width: 200, height: 100)
+            )
+            let countedNode = makeNode(
+                Text("COUNT")
+                    .containerRelativeFrame([.horizontal, .vertical], count: 3, span: 2, spacing: 12),
+                size: Size(width: 300, height: 120)
+            )
+
+            XCTAssertEqual(fullNode.preferredSize, Size(width: 320, height: 180))
+            XCTAssertEqual(fullNode.children[0].preferredSize, Size(width: 320, height: 180))
+            guard case .stack(let fullLayout) = fullNode.layoutMode else {
+                return XCTFail("Expected containerRelativeFrame to wrap content in a stack layout")
+            }
+            XCTAssertEqual(fullLayout, .vertical(padding: .zero, alignment: .trailing, mainAlignment: .end))
+
+            XCTAssertEqual(transformedNode.preferredSize, Size(width: 100, height: 80))
+            XCTAssertEqual(transformedNode.children[0].preferredSize, Size(width: 100, height: 80))
+            XCTAssertEqual(countedNode.preferredSize, Size(width: 196, height: 76))
+        }
+    }
+
     func testPaddingAcceptsSwiftUIOptionalLengthOverloads() async {
         await MainActor.run {
             let allPaddingNode = makeNode(Text("ALL").padding(nil))

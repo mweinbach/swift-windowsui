@@ -658,6 +658,21 @@ public protocol Publisher {
 }
 
 @MainActor
+public struct AnyPublisher<Output>: Publisher {
+    private let subscribe: @MainActor (@escaping @MainActor (Output) -> Void) -> AnyCancellable
+
+    public init<Upstream: Publisher>(_ upstream: Upstream) where Upstream.Output == Output {
+        self.subscribe = { receiveValue in
+            upstream.sink(receiveValue: receiveValue)
+        }
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        subscribe(receiveValue)
+    }
+}
+
+@MainActor
 public struct Just<Output>: Publisher {
     private let output: Output
 
@@ -809,6 +824,10 @@ public extension Publisher {
 
     func dropFirst(_ count: Int = 1) -> DropFirstPublisher<Self> {
         DropFirstPublisher(upstream: self, count: count)
+    }
+
+    func eraseToAnyPublisher() -> AnyPublisher<Output> {
+        AnyPublisher(self)
     }
 
     func assign<Root: AnyObject>(

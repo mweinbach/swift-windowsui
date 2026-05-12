@@ -16896,6 +16896,74 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPublisherEraseToAnyPublisherPreservesSubscriptionBehavior() async {
+        await MainActor.run {
+            final class SourceModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            let source = SourceModel()
+            let publisher = source.$value
+                .dropFirst()
+                .map { "VALUE \($0)" }
+                .eraseToAnyPublisher()
+            var values: [String] = []
+
+            let cancellable = publisher.sink { value in
+                values.append(value)
+            }
+
+            source.value = 1
+            source.value = 2
+
+            XCTAssertEqual(values, ["VALUE 1", "VALUE 2"])
+
+            cancellable.cancel()
+            source.value = 3
+
+            XCTAssertEqual(values, ["VALUE 1", "VALUE 2"])
+        }
+    }
+
+    func testOnReceiveAcceptsAnyPublisher() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            let model = CounterModel()
+            let publisher = model.$value
+                .dropFirst()
+                .filter { $0 > 1 }
+                .eraseToAnyPublisher()
+            var values: [Int] = []
+
+            host.setComponents {
+                [
+                    Text("VALUE")
+                        .onReceive(publisher) { value in
+                            values.append(value)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+            model.value = 1
+            model.value = 2
+            model.value = 3
+
+            XCTAssertEqual(values, [2, 3])
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

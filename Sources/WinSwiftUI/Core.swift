@@ -640,6 +640,14 @@ public final class AnyCancellable: Cancellable, Hashable {
 }
 
 @MainActor
+public protocol Publisher {
+    associatedtype Output
+
+    @discardableResult
+    func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable
+}
+
+@MainActor
 final class ObservableObjectCenter {
     static let shared = ObservableObjectCenter()
 
@@ -716,7 +724,9 @@ public struct Published<Value> {
     }
 
     @MainActor
-    public struct Publisher {
+    public struct Publisher: WinSwiftUI.Publisher {
+        public typealias Output = Value
+
         private let storage: Storage
 
         fileprivate init(storage: Storage) {
@@ -9380,6 +9390,34 @@ private final class OnChangeObservationRegistry {
     }
 }
 
+@MainActor
+private final class OnReceiveSubscription<Source: Publisher> {
+    private let publisher: Source
+    private let action: @MainActor (Source.Output) -> Void
+    private var cancellable: AnyCancellable?
+
+    init(
+        publisher: Source,
+        action: @escaping @MainActor (Source.Output) -> Void
+    ) {
+        self.publisher = publisher
+        self.action = action
+    }
+
+    func subscribeIfNeeded() {
+        guard cancellable == nil else {
+            return
+        }
+
+        cancellable = publisher.sink(receiveValue: action)
+    }
+
+    func cancel() {
+        cancellable?.cancel()
+        cancellable = nil
+    }
+}
+
 private func retainedPreferenceIdentifier<Key: PreferenceKey>(_ key: Key.Type) -> ObjectIdentifier {
     ObjectIdentifier(key)
 }
@@ -14412,6 +14450,33 @@ public extension View {
             line: line,
             column: column
         )
+    }
+
+    func onReceive<Source: Publisher>(
+        _ publisher: Source,
+        perform action: @escaping @MainActor (Source.Output) -> Void
+    ) -> some View {
+        let subscription = OnReceiveSubscription(publisher: publisher, action: action)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+
+                let existingOnAppearWithNode = childNode.onAppearWithNode
+                childNode.onAppearWithNode = { node in
+                    existingOnAppearWithNode?(node)
+                    subscription.subscribeIfNeeded()
+                }
+
+                let existingOnDisappearWithNode = childNode.onDisappearWithNode
+                childNode.onDisappearWithNode = { node in
+                    existingOnDisappearWithNode?(node)
+                    subscription.cancel()
+                }
+
+                return childNode
+            }
+        }
     }
 
     func onSubmit(of triggers: SubmitTriggers = .text, _ action: @escaping () -> Void) -> some View {

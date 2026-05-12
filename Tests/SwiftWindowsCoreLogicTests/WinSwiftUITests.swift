@@ -16559,6 +16559,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            let model = CounterModel()
+            var values: [Int] = []
+            var isVisible = true
+
+            host.setComponents {
+                guard isVisible else {
+                    return []
+                }
+
+                return [
+                    Text("VALUE")
+                        .onReceive(model.$value) { value in
+                            values.append(value)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+            model.value = 1
+
+            isVisible = false
+            host.reload()
+            model.value = 2
+
+            XCTAssertEqual(values, [0, 1])
+        }
+    }
+
     func testObservedObjectDynamicMemberProjectionFeedsRetainedControls() async {
         await MainActor.run {
             final class FormModel: ObservableObject {

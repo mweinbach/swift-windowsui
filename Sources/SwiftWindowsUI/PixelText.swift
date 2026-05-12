@@ -20,6 +20,13 @@ public enum TextWeight: Sendable {
     case bold
 }
 
+public enum TextFontWidth: Sendable, Equatable {
+    case compressed
+    case condensed
+    case standard
+    case expanded
+}
+
 public enum TextLineBreakMode: Sendable {
     case clip
     case truncateTail
@@ -59,6 +66,7 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var fontFamily: String
     public var nativeFontSize: Double?
     public var weight: TextWeight
+    public var fontWidth: TextFontWidth
     public var isItalic: Bool
     public var monospacedDigits: Bool
     public var lineBreakMode: TextLineBreakMode
@@ -86,6 +94,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         fontFamily: String = "Segoe UI",
         nativeFontSize: Double? = nil,
         weight: TextWeight = .regular,
+        fontWidth: TextFontWidth = .standard,
         isItalic: Bool = false,
         monospacedDigits: Bool = false,
         lineBreakMode: TextLineBreakMode = .truncateTail,
@@ -112,6 +121,7 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.fontFamily = fontFamily
         self.nativeFontSize = nativeFontSize
         self.weight = weight
+        self.fontWidth = fontWidth
         self.isItalic = isItalic
         self.monospacedDigits = monospacedDigits
         self.lineBreakMode = lineBreakMode

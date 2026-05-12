@@ -95,6 +95,7 @@ final class NativeGlyphAtlas {
             fontFamily: style.fontFamily,
             fontSize: Float(style.nativeFontPixelSize * scaleFactor),
             weight: style.weight.glyphAtlasWeight,
+            fontWidth: style.fontWidth.glyphAtlasWidth,
             isItalic: style.isItalic,
             monospacedDigits: style.monospacedDigits
         )
@@ -124,6 +125,7 @@ final class NativeGlyphAtlas {
                 fontFamily: fontFamily,
                 fontSize: Float(fontSize * scaleFactor),
                 weight: weight,
+                fontWidth: style.fontWidth.glyphAtlasWidth,
                 isItalic: style.isItalic,
                 monospacedDigits: style.monospacedDigits
             )
@@ -133,6 +135,7 @@ final class NativeGlyphAtlas {
                 fontFamily: fontFamily,
                 fontSize: Float(fontSize * scaleFactor),
                 weight: weight,
+                fontWidth: style.fontWidth.glyphAtlasWidth,
                 isItalic: style.isItalic,
                 monospacedDigits: style.monospacedDigits
             )
@@ -196,6 +199,21 @@ private extension TextWeight {
             return .semibold
         case .bold:
             return .bold
+        }
+    }
+}
+
+private extension TextFontWidth {
+    var glyphAtlasWidth: GlyphKey.GlyphWidth {
+        switch self {
+        case .compressed:
+            return .compressed
+        case .condensed:
+            return .condensed
+        case .standard:
+            return .standard
+        case .expanded:
+            return .expanded
         }
     }
 }

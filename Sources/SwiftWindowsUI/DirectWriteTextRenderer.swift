@@ -817,7 +817,7 @@ private final class DirectWriteSystem {
                     nil,
                     style.weight.dwriteWeight,
                     style.dwriteFontStyle,
-                    dwriteFontStretchNormal,
+                    style.fontWidth.dwriteFontStretch,
                     FLOAT(style.nativeFontPixelSize),
                     localeName,
                     &formatRaw
@@ -1662,6 +1662,21 @@ private extension PixelTextStyle {
             features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagTabularFigures, parameter: 1))
         }
         return features
+    }
+}
+
+private extension TextFontWidth {
+    var dwriteFontStretch: DWriteFontStretch {
+        switch self {
+        case .compressed:
+            return dwriteFontStretchExtraCondensed
+        case .condensed:
+            return dwriteFontStretchCondensed
+        case .standard:
+            return dwriteFontStretchNormal
+        case .expanded:
+            return dwriteFontStretchExpanded
+        }
     }
 }
 

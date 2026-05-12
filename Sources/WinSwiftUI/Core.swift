@@ -2416,6 +2416,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var foregroundStyle: ForegroundStyle?
     public var tint: Color?
     public var font: Font?
+    public var fontWidth: Font.Width?
     var fontItalic: Bool?
     var fontMonospacedDigits: Bool
     var underlineStyle: TextDecorationSetting?
@@ -2551,6 +2552,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         foregroundStyle: ForegroundStyle? = nil,
         tint: Color? = nil,
         font: Font? = nil,
+        fontWidth: Font.Width? = nil,
         multilineTextAlignment: TextAlignment = .center,
         lineLimit: Int? = nil,
         minimumLineLimit: Int? = nil,
@@ -2666,6 +2668,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.foregroundStyle = foregroundStyle
         self.tint = tint
         self.font = font
+        self.fontWidth = fontWidth
         self.fontItalic = nil
         self.fontMonospacedDigits = false
         self.underlineStyle = nil
@@ -4089,6 +4092,9 @@ public struct ViewBuildContext {
         if let design = fontDesignProvider() {
             resolvedFont = resolvedFont.withDesign(design)
         }
+        if let width = environmentValuesProvider().fontWidth {
+            resolvedFont = resolvedFont.width(width)
+        }
         return resolvedFont
     }
 
@@ -4644,6 +4650,39 @@ public struct ViewBuildContext {
             buttonStyleProvider: buttonStyleProvider,
             pickerStyleProvider: pickerStyleProvider,
             environmentValuesProvider: environmentValuesProvider,
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
+    func withFontWidth(_ width: Font.Width?) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: {
+                var values = environmentValuesProvider()
+                values.fontWidth = width
+                return values
+            },
             navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
             navigationValueHandlerProvider: navigationValueHandlerProvider,
             navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
@@ -7308,6 +7347,13 @@ public struct Font: Sendable, Equatable {
         case monospaced
     }
 
+    public enum Width: Sendable, Equatable {
+        case compressed
+        case condensed
+        case standard
+        case expanded
+    }
+
     public enum TextStyle: Sendable, Equatable {
         case largeTitle
         case title
@@ -7331,6 +7377,7 @@ public struct Font: Sendable, Equatable {
     public var size: Double
     public var weight: Weight
     public var design: Design
+    public var width: Width
     public var family: String?
     public var leading: Leading
     public var scalesWithDynamicType: Bool
@@ -7339,6 +7386,7 @@ public struct Font: Sendable, Equatable {
         size: Double,
         weight: Weight = .regular,
         design: Design = .default,
+        width: Width = .standard,
         family: String? = nil,
         leading: Leading = .standard,
         scalesWithDynamicType: Bool = true
@@ -7346,6 +7394,7 @@ public struct Font: Sendable, Equatable {
         self.size = size
         self.weight = weight
         self.design = design
+        self.width = width
         self.family = family
         self.leading = leading
         self.scalesWithDynamicType = scalesWithDynamicType
@@ -7361,6 +7410,7 @@ public struct Font: Sendable, Equatable {
             size: font.size,
             weight: weight ?? font.weight,
             design: design ?? font.design,
+            width: font.width,
             family: font.family,
             leading: font.leading,
             scalesWithDynamicType: font.scalesWithDynamicType
@@ -7381,6 +7431,7 @@ public struct Font: Sendable, Equatable {
             size: size,
             weight: font.weight,
             design: font.design,
+            width: font.width,
             family: name,
             leading: font.leading,
             scalesWithDynamicType: font.scalesWithDynamicType
@@ -7404,6 +7455,7 @@ public struct Font: Sendable, Equatable {
             size: size,
             weight: weight,
             design: design,
+            width: width,
             family: family,
             leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
@@ -7423,6 +7475,19 @@ public struct Font: Sendable, Equatable {
             size: size,
             weight: weight,
             design: design,
+            width: width,
+            family: family,
+            leading: leading,
+            scalesWithDynamicType: scalesWithDynamicType
+        )
+    }
+
+    public func width(_ width: Width) -> Font {
+        Font(
+            size: size,
+            weight: weight,
+            design: design,
+            width: width,
             family: family,
             leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
@@ -9297,6 +9362,7 @@ extension Font {
             size: size,
             weight: weight,
             design: design,
+            width: width,
             family: family,
             leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
@@ -9308,6 +9374,7 @@ extension Font {
             size: scalesWithDynamicType ? size * dynamicTypeSize.retainedFontScale : size,
             weight: weight,
             design: design,
+            width: width,
             family: family,
             leading: leading,
             scalesWithDynamicType: scalesWithDynamicType
@@ -9345,6 +9412,21 @@ extension Font {
             return 0
         case .loose:
             return 6
+        }
+    }
+}
+
+extension Font.Width {
+    var retainedTextFontWidth: TextFontWidth {
+        switch self {
+        case .compressed:
+            return .compressed
+        case .condensed:
+            return .condensed
+        case .standard:
+            return .standard
+        case .expanded:
+            return .expanded
         }
     }
 }
@@ -14079,6 +14161,12 @@ public extension View {
     func fontDesign(_ design: Font.Design?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withFontDesign(design))
+        }
+    }
+
+    func fontWidth(_ width: Font.Width?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withFontWidth(width))
         }
     }
 

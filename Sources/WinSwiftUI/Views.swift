@@ -3297,6 +3297,7 @@ public struct Text: View {
     private var color: Color?
     private var font: Font??
     private var fontDesign: Font.Design?
+    private var fontWidth: Font.Width??
     private var isItalic: Bool?
     private var monospacedDigits: Bool
     private var alignment: TextAlignment?
@@ -3322,6 +3323,7 @@ public struct Text: View {
         self.color = nil
         self.font = nil
         self.fontDesign = nil
+        self.fontWidth = nil
         self.isItalic = nil
         self.monospacedDigits = false
         self.alignment = nil
@@ -3348,6 +3350,7 @@ public struct Text: View {
         color: Color?,
         font: Font??,
         fontDesign: Font.Design?,
+        fontWidth: Font.Width??,
         isItalic: Bool?,
         monospacedDigits: Bool,
         alignment: TextAlignment?,
@@ -3372,6 +3375,7 @@ public struct Text: View {
         self.color = color
         self.font = font
         self.fontDesign = fontDesign
+        self.fontWidth = fontWidth
         self.isItalic = isItalic
         self.monospacedDigits = monospacedDigits
         self.alignment = alignment
@@ -3545,6 +3549,7 @@ public struct Text: View {
             color: lhs.color ?? rhs.color,
             font: lhs.font != nil ? lhs.font : rhs.font,
             fontDesign: lhs.fontDesign ?? rhs.fontDesign,
+            fontWidth: lhs.fontWidth != nil ? lhs.fontWidth : rhs.fontWidth,
             isItalic: lhs.isItalic != nil ? lhs.isItalic : rhs.isItalic,
             monospacedDigits: lhs.monospacedDigits || rhs.monospacedDigits,
             alignment: lhs.alignment ?? rhs.alignment,
@@ -3583,6 +3588,9 @@ public struct Text: View {
         if let fontDesign {
             resolvedFont = resolvedFont.withDesign(fontDesign)
         }
+        if let fontWidth {
+            resolvedFont = resolvedFont.width(fontWidth ?? .standard)
+        }
         resolvedFont = resolvedFont.scaled(for: context.dynamicTypeSize)
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
@@ -3620,6 +3628,7 @@ public struct Text: View {
                 monospacedDigits: monospacedDigits || context.usesMonospacedDigits,
                 fontFamily: resolvedFont.resolvedFamily,
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
+                fontWidth: resolvedFont.width.retainedTextFontWidth,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
@@ -3755,6 +3764,12 @@ public struct Text: View {
     public func fontDesign(_ design: Font.Design?) -> Text {
         var copy = self
         copy.fontDesign = design
+        return copy
+    }
+
+    public func fontWidth(_ width: Font.Width?) -> Text {
+        var copy = self
+        copy.fontWidth = .some(width)
         return copy
     }
 
@@ -8085,6 +8100,7 @@ private func textInputComponent(
             weight: resolvedFont.weight.textWeight,
             fontFamily: resolvedFont.resolvedFamily,
             nativeFontSize: resolvedFont.resolvedNativeTextSize,
+            fontWidth: resolvedFont.width.retainedTextFontWidth,
             alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
             lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,

@@ -2832,6 +2832,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontWidthMapsToRetainedTextMetadata() async {
+        await MainActor.run {
+            struct FontWidthReaderView: View {
+                @Environment(\.fontWidth) var fontWidth
+
+                var body: some View {
+                    Text(fontWidth == .expanded ? "EXPANDED" : fontWidth == nil ? "NONE" : "OTHER")
+                }
+            }
+
+            let fontNode = makeNode(
+                Text("COMPRESSED")
+                    .font(.system(size: 18, weight: .semibold).width(.compressed))
+            )
+            let textNode = makeNode(
+                Text("CONDENSED")
+                    .fontWidth(.condensed)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                    Text("RESET")
+                        .fontWidth(nil)
+                }
+                .fontWidth(.expanded)
+            )
+            let combinedNode = makeNode(
+                Text("LEFT").fontWidth(.condensed)
+                    + Text("RIGHT").fontWidth(.expanded)
+            )
+            let fieldNode = makeNode(
+                TextField("NAME", text: .constant("VALUE"))
+                    .fontWidth(.compressed)
+            )
+            let environmentNode = makeNode(
+                Text("ENVIRONMENT")
+                    .environment(\.fontWidth, Font.Width.condensed)
+            )
+            let readerNode = makeNode(
+                FontWidthReaderView()
+                    .fontWidth(.expanded)
+            )
+
+            XCTAssertEqual(fontNode.textStyle.fontWidth, .compressed)
+            XCTAssertEqual(fontNode.textStyle.nativeFontSize, 18)
+            XCTAssertEqual(fontNode.textStyle.weight, .semibold)
+            XCTAssertEqual(textNode.textStyle.fontWidth, .condensed)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.fontWidth, .expanded)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.fontWidth, .standard)
+            XCTAssertEqual(combinedNode.textStyle.fontWidth, .condensed)
+            XCTAssertEqual(fieldNode.children[0].textStyle.fontWidth, .compressed)
+            XCTAssertEqual(environmentNode.textStyle.fontWidth, .condensed)
+            XCTAssertEqual(readerNode.text, "EXPANDED")
+        }
+    }
+
     func testSerifFontDesignMapsToRetainedFontFamily() async {
         await MainActor.run {
             let directNode = makeNode(

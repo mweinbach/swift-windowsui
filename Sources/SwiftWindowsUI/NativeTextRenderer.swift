@@ -404,7 +404,7 @@ enum GDIRasterTextRenderer {
         withWideString(style.fontFamily) { family in
             CreateFontW(
                 -Int32((style.nativeFontPixelSize * scaleFactor).rounded()),
-                0,
+                style.fontWidth.gdiAverageCharacterWidth(fontSize: style.nativeFontPixelSize, scaleFactor: scaleFactor),
                 0,
                 0,
                 Int32(style.weight.gdiWeight),
@@ -518,6 +518,23 @@ extension TextWeight {
         case .bold:
             return 700
         }
+    }
+}
+
+private extension TextFontWidth {
+    func gdiAverageCharacterWidth(fontSize: Double, scaleFactor: Double) -> Int32 {
+        let multiplier: Double
+        switch self {
+        case .compressed:
+            multiplier = 0.36
+        case .condensed:
+            multiplier = 0.44
+        case .standard:
+            return 0
+        case .expanded:
+            multiplier = 0.66
+        }
+        return Int32(max(1, (fontSize * scaleFactor * multiplier).rounded()))
     }
 }
 

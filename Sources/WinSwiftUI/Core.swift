@@ -10594,6 +10594,28 @@ private func applyRetainedListSeparatorTint(to node: ViewNode, tint: RetainedLis
 }
 
 @MainActor
+private func applyRetainedListSectionSeparatorTint(to node: ViewNode, tint: RetainedListSeparatorTint) {
+    node.listSectionSeparatorTint = tint
+
+    guard let separator = node.listSectionSeparator, separator.visibility == .visible else {
+        return
+    }
+
+    let color = tint.color ?? retainedListSeparatorDefaultColor()
+    var visibleSeparatorIndex = 0
+    if separator.edges.contains(.top), node.children.indices.contains(visibleSeparatorIndex) {
+        if tint.edges.contains(.top) {
+            node.children[visibleSeparatorIndex].backgroundColor = color
+        }
+        visibleSeparatorIndex += 1
+    }
+
+    if separator.edges.contains(.bottom), let bottomSeparator = node.children.last, tint.edges.contains(.bottom) {
+        bottomSeparator.backgroundColor = color
+    }
+}
+
+@MainActor
 private func applyToolbarColorScheme(
     to node: ViewNode,
     colorScheme: ColorScheme?,
@@ -16229,6 +16251,57 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 applyRetainedListSeparatorTint(to: childNode, tint: retainedTint)
+                return childNode
+            }
+        }
+    }
+
+    func listSectionSeparator(_ visibility: Visibility, edges: VerticalEdge.Set = .all) -> some View {
+        let retainedSeparator = RetainedListSectionSeparator(
+            visibility: visibility.retainedListSeparatorVisibility,
+            edges: edges.retainedListSeparatorEdges
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                guard visibility == .visible else {
+                    childNode.listSectionSeparator = retainedSeparator
+                    return childNode
+                }
+
+                let separatorTint = childNode.listSectionSeparatorTint
+                var children: [ViewNode] = []
+                if edges.contains(.top) {
+                    children.append(retainedListSeparatorNode(tint: separatorTint?.edges.contains(.top) == true ? separatorTint?.color : nil))
+                }
+                children.append(childNode)
+                if edges.contains(.bottom) {
+                    children.append(retainedListSeparatorNode(tint: separatorTint?.edges.contains(.bottom) == true ? separatorTint?.color : nil))
+                }
+
+                let section = Controls.stackPanel(
+                    stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: children
+                )
+                section.listSectionSeparator = retainedSeparator
+                section.listSectionSeparatorTint = separatorTint
+                return section
+            }
+        }
+    }
+
+    func listSectionSeparatorTint(_ color: Color?, edges: VerticalEdge.Set = .all) -> some View {
+        let retainedTint = RetainedListSeparatorTint(
+            color: color,
+            edges: edges.retainedListSeparatorEdges
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                applyRetainedListSectionSeparatorTint(to: childNode, tint: retainedTint)
                 return childNode
             }
         }

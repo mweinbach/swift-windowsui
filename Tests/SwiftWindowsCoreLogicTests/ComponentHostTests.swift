@@ -210,6 +210,12 @@ final class ComponentHostTests: XCTestCase {
                     node.listRowSeparatorTint = useSecondState
                         ? RetainedListSeparatorTint(color: Color(red: 0.1, green: 0.8, blue: 0.7, alpha: 1), edges: .bottom)
                         : RetainedListSeparatorTint(color: nil, edges: .top)
+                    node.listSectionSeparator = useSecondState
+                        ? RetainedListSectionSeparator(visibility: .visible, edges: .top)
+                        : RetainedListSectionSeparator(visibility: .hidden, edges: .bottom)
+                    node.listSectionSeparatorTint = useSecondState
+                        ? RetainedListSeparatorTint(color: Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1), edges: .top)
+                        : RetainedListSeparatorTint(color: nil, edges: .bottom)
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -286,6 +292,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.viewMask, RetainedViewMask(horizontal: .center, vertical: .bottom))
             XCTAssertEqual(firstNode?.listRowSeparator, RetainedListRowSeparator(visibility: .hidden, edges: .all))
             XCTAssertEqual(firstNode?.listRowSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .top))
+            XCTAssertEqual(firstNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .hidden, edges: .bottom))
+            XCTAssertEqual(firstNode?.listSectionSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .bottom))
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -388,6 +396,11 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(
                 reusedNode?.listRowSeparatorTint,
                 RetainedListSeparatorTint(color: Color(red: 0.1, green: 0.8, blue: 0.7, alpha: 1), edges: .bottom)
+            )
+            XCTAssertEqual(reusedNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .visible, edges: .top))
+            XCTAssertEqual(
+                reusedNode?.listSectionSeparatorTint,
+                RetainedListSeparatorTint(color: Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1), edges: .top)
             )
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))

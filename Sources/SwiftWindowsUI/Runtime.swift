@@ -104,6 +104,19 @@ public struct RetainedListRowSeparator: Sendable, Equatable, Hashable {
     }
 }
 
+public struct RetainedListSectionSeparator: Sendable, Equatable, Hashable {
+    public var visibility: RetainedListSeparatorVisibility
+    public var edges: RetainedListSeparatorEdges
+
+    public init(
+        visibility: RetainedListSeparatorVisibility = .automatic,
+        edges: RetainedListSeparatorEdges = .all
+    ) {
+        self.visibility = visibility
+        self.edges = edges
+    }
+}
+
 public struct RetainedListSeparatorTint: Sendable, Equatable {
     public var color: Color?
     public var edges: RetainedListSeparatorEdges
@@ -1005,6 +1018,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var listSectionSeparator: RetainedListSectionSeparator? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var listSectionSeparatorTint: RetainedListSeparatorTint? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1402,6 +1423,8 @@ public final class ViewNode {
         viewMask: RetainedViewMask? = nil,
         listRowSeparator: RetainedListRowSeparator? = nil,
         listRowSeparatorTint: RetainedListSeparatorTint? = nil,
+        listSectionSeparator: RetainedListSectionSeparator? = nil,
+        listSectionSeparatorTint: RetainedListSeparatorTint? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1503,6 +1526,8 @@ public final class ViewNode {
         self.viewMask = viewMask
         self.listRowSeparator = listRowSeparator
         self.listRowSeparatorTint = listRowSeparatorTint
+        self.listSectionSeparator = listSectionSeparator
+        self.listSectionSeparatorTint = listSectionSeparatorTint
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

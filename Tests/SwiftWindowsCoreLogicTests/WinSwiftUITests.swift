@@ -15669,7 +15669,13 @@ final class WinSwiftUITests: XCTestCase {
             var value = 0
             var transaction = Transaction(animation: .easeIn(duration: 0.2))
             transaction.disablesAnimations = true
+            transaction.isContinuous = true
             transaction.scrollTargetAnchor = .bottom
+            transaction.tracksVelocity = true
+            var transactionCompletionCount = 0
+            transaction.addAnimationCompletion(criteria: .removed) {
+                transactionCompletionCount += 1
+            }
 
             let result = withTransaction(transaction) {
                 value = 7
@@ -15681,13 +15687,23 @@ final class WinSwiftUITests: XCTestCase {
                 return value
             }
 
+            var animationCompletionCount = 0
+            let animationResult = withAnimation(.easeOut(duration: 0.15), completionCriteria: .removed) {
+                value += 3
+                return value
+            } completion: {
+                animationCompletionCount += 1
+            }
+
             var didTransform = false
             var transformedAnchor: UnitPoint?
             let node = makeNode(
                 Text("TX")
                     .transaction { transaction in
                         transaction.disablesAnimations = true
+                        transaction.isContinuous = true
                         transaction.scrollTargetAnchor = .center
+                        transaction.tracksVelocity = true
                         transformedAnchor = transaction.scrollTargetAnchor
                         didTransform = true
                     }
@@ -15695,10 +15711,18 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(result, 8)
             XCTAssertEqual(anchoredResult, 9)
-            XCTAssertEqual(value, 9)
+            XCTAssertEqual(animationResult, 12)
+            XCTAssertEqual(value, 12)
+            XCTAssertEqual(transactionCompletionCount, 1)
+            XCTAssertEqual(animationCompletionCount, 1)
             XCTAssertTrue(didTransform)
+            XCTAssertTrue(transaction.isContinuous)
             XCTAssertEqual(transaction.scrollTargetAnchor, .bottom)
+            XCTAssertTrue(transaction.tracksVelocity)
             XCTAssertEqual(transformedAnchor, .center)
+            XCTAssertEqual(AnimationCompletionCriteria.logicallyComplete, .logicallyComplete)
+            XCTAssertEqual(AnimationCompletionCriteria.removed, .removed)
+            XCTAssertNotEqual(AnimationCompletionCriteria.logicallyComplete, .removed)
             XCTAssertEqual(node.text, "TX")
         }
     }

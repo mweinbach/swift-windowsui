@@ -603,15 +603,43 @@ public struct Animation: Sendable {
     }
 }
 
+public struct AnimationCompletionCriteria: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case logicallyComplete
+        case removed
+    }
+
+    private var kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let logicallyComplete = AnimationCompletionCriteria(kind: .logicallyComplete)
+    public static let removed = AnimationCompletionCriteria(kind: .removed)
+}
+
 public struct Transaction: Sendable {
     public var animation: Animation?
     public var disablesAnimations: Bool
+    public var isContinuous: Bool
     public var scrollTargetAnchor: UnitPoint?
+    public var tracksVelocity: Bool
 
     public init(animation: Animation? = nil) {
         self.animation = animation
         self.disablesAnimations = false
+        self.isContinuous = false
         self.scrollTargetAnchor = nil
+        self.tracksVelocity = false
+    }
+
+    public mutating func addAnimationCompletion(
+        criteria: AnimationCompletionCriteria = .logicallyComplete,
+        _ completion: @escaping () -> Void
+    ) {
+        _ = criteria
+        completion()
     }
 }
 
@@ -715,6 +743,20 @@ public protocol TextAttribute {}
 @discardableResult
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
     try body()
+}
+
+@discardableResult
+public func withAnimation<Result>(
+    _ animation: Animation? = .default,
+    completionCriteria: AnimationCompletionCriteria = .logicallyComplete,
+    _ body: () throws -> Result,
+    completion: @escaping () -> Void
+) rethrows -> Result {
+    _ = animation
+    _ = completionCriteria
+    let result = try body()
+    completion()
+    return result
 }
 
 @discardableResult

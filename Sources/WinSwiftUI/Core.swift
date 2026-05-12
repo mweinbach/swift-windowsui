@@ -658,6 +658,20 @@ public protocol Publisher {
 }
 
 @MainActor
+public struct Just<Output>: Publisher {
+    private let output: Output
+
+    public init(_ output: Output) {
+        self.output = output
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        receiveValue(output)
+        return AnyCancellable {}
+    }
+}
+
+@MainActor
 public struct MapPublisher<Upstream: Publisher, Output>: Publisher {
     private let upstream: Upstream
     private let transform: @MainActor (Upstream.Output) -> Output
@@ -795,6 +809,15 @@ public extension Publisher {
 
     func dropFirst(_ count: Int = 1) -> DropFirstPublisher<Self> {
         DropFirstPublisher(upstream: self, count: count)
+    }
+
+    func assign<Root: AnyObject>(
+        to keyPath: ReferenceWritableKeyPath<Root, Output>,
+        on object: Root
+    ) -> AnyCancellable {
+        sink { [weak object] value in
+            object?[keyPath: keyPath] = value
+        }
     }
 
     func removeDuplicates(

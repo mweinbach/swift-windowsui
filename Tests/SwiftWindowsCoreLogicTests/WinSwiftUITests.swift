@@ -16828,6 +16828,74 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testJustPublisherSendsImmediateValueAndSupportsOperators() async {
+        await MainActor.run {
+            var values: [String] = []
+
+            _ = Just(4)
+                .map { $0 * 2 }
+                .filter { $0 > 4 }
+                .sink { value in
+                    values.append("VALUE \(value)")
+                }
+
+            XCTAssertEqual(values, ["VALUE 8"])
+        }
+    }
+
+    func testPublisherAssignWritesReferenceKeyPathAndCancels() async {
+        await MainActor.run {
+            final class SourceModel: ObservableObject {
+                @Published var value = 0
+            }
+
+            final class TargetModel {
+                var value = -1
+            }
+
+            let source = SourceModel()
+            let target = TargetModel()
+            let cancellable = source.$value.assign(to: \.value, on: target)
+
+            XCTAssertEqual(target.value, 0)
+
+            source.value = 3
+            XCTAssertEqual(target.value, 3)
+
+            cancellable.cancel()
+            source.value = 4
+
+            XCTAssertEqual(target.value, 3)
+        }
+    }
+
+    func testOnReceiveAcceptsJustPublisher() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            var values: [String] = []
+
+            host.setComponents {
+                [
+                    Text("VALUE")
+                        .onReceive(Just("READY")) { value in
+                            values.append(value)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(values, ["READY"])
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

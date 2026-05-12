@@ -73,6 +73,37 @@ public struct RetainedViewMask: Sendable, Equatable, Hashable {
     }
 }
 
+public enum RetainedListSeparatorVisibility: Sendable, Equatable, Hashable {
+    case automatic
+    case visible
+    case hidden
+}
+
+public struct RetainedListSeparatorEdges: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let top = RetainedListSeparatorEdges(rawValue: 1 << 0)
+    public static let bottom = RetainedListSeparatorEdges(rawValue: 1 << 1)
+    public static let all: RetainedListSeparatorEdges = [.top, .bottom]
+}
+
+public struct RetainedListRowSeparator: Sendable, Equatable, Hashable {
+    public var visibility: RetainedListSeparatorVisibility
+    public var edges: RetainedListSeparatorEdges
+
+    public init(
+        visibility: RetainedListSeparatorVisibility = .automatic,
+        edges: RetainedListSeparatorEdges = .all
+    ) {
+        self.visibility = visibility
+        self.edges = edges
+    }
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -953,6 +984,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var listRowSeparator: RetainedListRowSeparator? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1348,6 +1383,7 @@ public final class ViewNode {
         drawingGroup: RetainedDrawingGroup? = nil,
         colorEffects: [RetainedColorEffect] = [],
         viewMask: RetainedViewMask? = nil,
+        listRowSeparator: RetainedListRowSeparator? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1447,6 +1483,7 @@ public final class ViewNode {
         self.drawingGroup = drawingGroup
         self.colorEffects = colorEffects
         self.viewMask = viewMask
+        self.listRowSeparator = listRowSeparator
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

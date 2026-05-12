@@ -204,6 +204,9 @@ final class ComponentHostTests: XCTestCase {
                     node.viewMask = useSecondState
                         ? RetainedViewMask(horizontal: .trailing, vertical: .top)
                         : RetainedViewMask(horizontal: .center, vertical: .bottom)
+                    node.listRowSeparator = useSecondState
+                        ? RetainedListRowSeparator(visibility: .visible, edges: .bottom)
+                        : RetainedListRowSeparator(visibility: .hidden, edges: .all)
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -278,6 +281,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.drawingGroup, RetainedDrawingGroup(opaque: false, colorMode: .nonLinear))
             XCTAssertEqual(firstNode?.colorEffects, [.brightness(0.1), .colorInvert])
             XCTAssertEqual(firstNode?.viewMask, RetainedViewMask(horizontal: .center, vertical: .bottom))
+            XCTAssertEqual(firstNode?.listRowSeparator, RetainedListRowSeparator(visibility: .hidden, edges: .all))
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -376,6 +380,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.drawingGroup, RetainedDrawingGroup(opaque: true, colorMode: .linear))
             XCTAssertEqual(reusedNode?.colorEffects, [.contrast(1.2), .luminanceToAlpha])
             XCTAssertEqual(reusedNode?.viewMask, RetainedViewMask(horizontal: .trailing, vertical: .top))
+            XCTAssertEqual(reusedNode?.listRowSeparator, RetainedListRowSeparator(visibility: .visible, edges: .bottom))
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

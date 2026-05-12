@@ -6128,6 +6128,52 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListRowSeparatorModifierStoresMetadataAndVisibleDividers() async {
+        await MainActor.run {
+            let listNode = makeNode(
+                List {
+                    Text("HIDDEN")
+                        .listRowSeparator(.hidden)
+                    Text("TOP")
+                        .listRowSeparator(.visible, edges: .top)
+                    Text("BOTTOM")
+                        .listRowSeparator(.visible, edges: .bottom)
+                    Text("BOTH")
+                        .listRowSeparator(.visible)
+                }
+            )
+
+            XCTAssertEqual(
+                listNode.children[0].listRowSeparator,
+                RetainedListRowSeparator(visibility: .hidden, edges: .all)
+            )
+            XCTAssertEqual(listNode.children[0].text, "HIDDEN")
+
+            XCTAssertEqual(
+                listNode.children[1].listRowSeparator,
+                RetainedListRowSeparator(visibility: .visible, edges: .top)
+            )
+            XCTAssertEqual(listNode.children[1].children.count, 2)
+            XCTAssertEqual(listNode.children[1].children[0].preferredSize, Size(width: 16, height: 1))
+            XCTAssertEqual(listNode.children[1].children[1].text, "TOP")
+
+            XCTAssertEqual(
+                listNode.children[2].listRowSeparator,
+                RetainedListRowSeparator(visibility: .visible, edges: .bottom)
+            )
+            XCTAssertEqual(listNode.children[2].children.count, 2)
+            XCTAssertEqual(listNode.children[2].children[0].text, "BOTTOM")
+            XCTAssertEqual(listNode.children[2].children[1].preferredSize, Size(width: 16, height: 1))
+
+            XCTAssertEqual(
+                listNode.children[3].listRowSeparator,
+                RetainedListRowSeparator(visibility: .visible, edges: .all)
+            )
+            XCTAssertEqual(listNode.children[3].children.count, 3)
+            XCTAssertEqual(listNode.children[3].children[1].text, "BOTH")
+        }
+    }
+
     func testListRowSpacingMapsToRetainedListStackSpacing() async {
         await MainActor.run {
             let spacedListNode = makeNode(

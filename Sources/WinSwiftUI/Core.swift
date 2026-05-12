@@ -6882,6 +6882,18 @@ public struct SensoryFeedback: Sendable, Equatable, Hashable {
 public enum VerticalEdge: Sendable, Equatable {
     case top
     case bottom
+
+    public struct Set: OptionSet, Sendable, Equatable {
+        public let rawValue: Int
+
+        public init(rawValue: Int) {
+            self.rawValue = rawValue
+        }
+
+        public static let top = Set(rawValue: 1 << 0)
+        public static let bottom = Set(rawValue: 1 << 1)
+        public static let all: Set = [.top, .bottom]
+    }
 }
 
 public enum HorizontalEdge: Sendable, Equatable {
@@ -9811,6 +9823,32 @@ extension VerticalAlignment {
     }
 }
 
+extension VerticalEdge.Set {
+    var retainedListSeparatorEdges: RetainedListSeparatorEdges {
+        var edges: RetainedListSeparatorEdges = []
+        if contains(.top) {
+            edges.insert(.top)
+        }
+        if contains(.bottom) {
+            edges.insert(.bottom)
+        }
+        return edges
+    }
+}
+
+extension Visibility {
+    var retainedListSeparatorVisibility: RetainedListSeparatorVisibility {
+        switch self {
+        case .automatic:
+            return .automatic
+        case .visible:
+            return .visible
+        case .hidden:
+            return .hidden
+        }
+    }
+}
+
 extension Axis {
     var scrollAxis: ScrollAxis {
         switch self {
@@ -10517,6 +10555,15 @@ private func applyToolbarVisibility(to node: ViewNode, visibility: Visibility, b
     for child in node.children {
         applyToolbarVisibility(to: child, visibility: visibility, bars: bars)
     }
+}
+
+@MainActor
+private func retainedListSeparatorNode() -> ViewNode {
+    Controls.panel(
+        preferredSize: Size(width: 16, height: 1),
+        backgroundColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+        isHitTestVisible: false
+    )
 }
 
 @MainActor
@@ -16107,6 +16154,40 @@ public extension View {
                 trailing: edges.contains(.trailing) ? length ?? 16 : 0
             )
         )
+    }
+
+    func listRowSeparator(_ visibility: Visibility, edges: VerticalEdge.Set = .all) -> some View {
+        let retainedSeparator = RetainedListRowSeparator(
+            visibility: visibility.retainedListSeparatorVisibility,
+            edges: edges.retainedListSeparatorEdges
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                guard visibility == .visible, !edges.isEmpty else {
+                    childNode.listRowSeparator = retainedSeparator
+                    return childNode
+                }
+
+                var children: [ViewNode] = []
+                if edges.contains(.top) {
+                    children.append(retainedListSeparatorNode())
+                }
+                children.append(childNode)
+                if edges.contains(.bottom) {
+                    children.append(retainedListSeparatorNode())
+                }
+
+                let row = Controls.stackPanel(
+                    stackLayout: .vertical(spacing: 0, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: children
+                )
+                row.listRowSeparator = retainedSeparator
+                return row
+            }
+        }
     }
 
     func listRowSpacing(_ spacing: Double?) -> some View {

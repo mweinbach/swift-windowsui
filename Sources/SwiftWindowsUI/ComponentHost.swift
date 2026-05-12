@@ -146,6 +146,7 @@ public final class ComponentHost {
         if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
         if target.colorEffects != source.colorEffects { target.colorEffects = source.colorEffects }
         if target.viewMask != source.viewMask { target.viewMask = source.viewMask }
+        if target.listRowSeparator != source.listRowSeparator { target.listRowSeparator = source.listRowSeparator }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

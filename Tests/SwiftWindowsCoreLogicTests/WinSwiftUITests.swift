@@ -14169,6 +14169,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testProjectionAndAnchoredTransformEffectsMapToRetainedTransform() async {
+        await MainActor.run {
+            let translation = CGAffineTransform(translationX: 8, y: 10)
+            let projection = ProjectionTransform(CGAffineTransform(scaleX: 2, y: 3))
+            let scaledFrom2DAnchor = makeNode(Text("SCALE").scaleEffect(1.5, anchor: UnitPoint.topLeading))
+            let scaledFrom3DAnchor = makeNode(Text("DEPTH").scaleEffect(x: 2, y: 3, z: 4, anchor: .front))
+            let rotatedFromAnchor = makeNode(Text("TURN").rotationEffect(.degrees(180), anchor: .bottomTrailing))
+            let affineNode = makeNode(Text("MOVE").transformEffect(translation))
+            let projectionNode = makeNode(Text("PROJECT").projectionEffect(projection))
+
+            XCTAssertEqual(translation.translatedBy(x: 1, y: 2), CGAffineTransform(translationX: 9, y: 12))
+            XCTAssertEqual(translation.scaledBy(x: 2, y: 2).tx, 16)
+            XCTAssertEqual(CGAffineTransform(), .identity)
+            XCTAssertEqual(CGAffineTransform.identity, CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0))
+            XCTAssertEqual(ProjectionTransform().affineTransform, .identity)
+            XCTAssertEqual(UnitPoint3D(.topLeading, z: 0.25), UnitPoint3D(x: 0, y: 0, z: 0.25))
+            XCTAssertEqual(scaledFrom2DAnchor.transform, Transform2D.scale(x: 1.5, y: 1.5))
+            XCTAssertEqual(scaledFrom3DAnchor.transform, Transform2D.scale(x: 2, y: 3))
+            XCTAssertEqual(rotatedFromAnchor.transform, Transform2D(rotation: .pi))
+            XCTAssertEqual(affineNode.transform, Transform2D.translation(x: 8, y: 10))
+            XCTAssertEqual(projectionNode.transform, Transform2D.scale(x: 2, y: 3))
+        }
+    }
+
+    func testRotation3DEffectUsesRetainedZAxisFallback() async {
+        await MainActor.run {
+            let tupleZNode = makeNode(
+                Text("Z")
+                    .rotation3DEffect(
+                        .degrees(90),
+                        axis: (x: 0, y: 0, z: 1),
+                        anchor: .center,
+                        anchorZ: 2,
+                        perspective: 0.5
+                    )
+            )
+            let namedZNode = makeNode(
+                Text("NAMED")
+                    .rotation3DEffect(.degrees(45), axis: .z, anchor: .center)
+            )
+            let invertedZNode = makeNode(
+                Text("INVERTED")
+                    .rotation3DEffect(.degrees(90), axis: RotationAxis3D(x: 0, y: 0, z: -1))
+            )
+            let xAxisNode = makeNode(
+                Text("X")
+                    .rotation3DEffect(.degrees(90), axis: .x)
+            )
+
+            XCTAssertEqual(tupleZNode.transform, Transform2D(rotation: .pi / 2))
+            XCTAssertEqual(namedZNode.transform, Transform2D(rotation: .pi / 4))
+            XCTAssertEqual(invertedZNode.transform, Transform2D(rotation: -.pi / 2))
+            XCTAssertEqual(xAxisNode.transform, .identity)
+        }
+    }
+
     func testBlurModifierMapsToRetainedNodeBlurRadius() async {
         await MainActor.run {
             let blurredNode = makeNode(Text("SOFT").blur(radius: 12))

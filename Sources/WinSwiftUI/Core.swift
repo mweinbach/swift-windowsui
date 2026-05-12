@@ -160,6 +160,134 @@ public struct Angle: Sendable, Equatable {
     }
 }
 
+public struct CGAffineTransform: Sendable, Equatable {
+    public var a: CGFloat
+    public var b: CGFloat
+    public var c: CGFloat
+    public var d: CGFloat
+    public var tx: CGFloat
+    public var ty: CGFloat
+
+    public init() {
+        self = .identity
+    }
+
+    public init(a: CGFloat, b: CGFloat, c: CGFloat, d: CGFloat, tx: CGFloat, ty: CGFloat) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.tx = tx
+        self.ty = ty
+    }
+
+    public init(translationX tx: CGFloat, y ty: CGFloat) {
+        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
+    }
+
+    public init(scaleX sx: CGFloat, y sy: CGFloat) {
+        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
+    }
+
+    public init(rotationAngle angle: CGFloat) {
+        let cosine = cos(angle)
+        let sine = sin(angle)
+        self.init(a: cosine, b: sine, c: -sine, d: cosine, tx: 0, ty: 0)
+    }
+
+    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+
+    public func concatenating(_ other: CGAffineTransform) -> CGAffineTransform {
+        CGAffineTransform(
+            a: a * other.a + b * other.c,
+            b: a * other.b + b * other.d,
+            c: c * other.a + d * other.c,
+            d: c * other.b + d * other.d,
+            tx: tx * other.a + ty * other.c + other.tx,
+            ty: tx * other.b + ty * other.d + other.ty
+        )
+    }
+
+    public func translatedBy(x: CGFloat, y: CGFloat) -> CGAffineTransform {
+        concatenating(CGAffineTransform(translationX: x, y: y))
+    }
+
+    public func scaledBy(x sx: CGFloat, y sy: CGFloat) -> CGAffineTransform {
+        concatenating(CGAffineTransform(scaleX: sx, y: sy))
+    }
+
+    public func rotated(by angle: CGFloat) -> CGAffineTransform {
+        concatenating(CGAffineTransform(rotationAngle: angle))
+    }
+}
+
+public struct ProjectionTransform: Sendable, Equatable {
+    public var m11: CGFloat
+    public var m12: CGFloat
+    public var m13: CGFloat
+    public var m21: CGFloat
+    public var m22: CGFloat
+    public var m23: CGFloat
+    public var m31: CGFloat
+    public var m32: CGFloat
+    public var m33: CGFloat
+
+    public init() {
+        self.init(.identity)
+    }
+
+    public init(_ transform: CGAffineTransform) {
+        self.init(
+            m11: transform.a,
+            m12: transform.b,
+            m13: 0,
+            m21: transform.c,
+            m22: transform.d,
+            m23: 0,
+            m31: transform.tx,
+            m32: transform.ty,
+            m33: 1
+        )
+    }
+
+    public init(
+        m11: CGFloat,
+        m12: CGFloat,
+        m13: CGFloat,
+        m21: CGFloat,
+        m22: CGFloat,
+        m23: CGFloat,
+        m31: CGFloat,
+        m32: CGFloat,
+        m33: CGFloat
+    ) {
+        self.m11 = m11
+        self.m12 = m12
+        self.m13 = m13
+        self.m21 = m21
+        self.m22 = m22
+        self.m23 = m23
+        self.m31 = m31
+        self.m32 = m32
+        self.m33 = m33
+    }
+
+    public var affineTransform: CGAffineTransform {
+        guard m33 != 0 else {
+            return .identity
+        }
+
+        return CGAffineTransform(
+            a: m11 / m33,
+            b: m12 / m33,
+            c: m21 / m33,
+            d: m22 / m33,
+            tx: m31 / m33,
+            ty: m32 / m33
+        )
+    }
+}
+
 public struct Animation: Sendable {
     public var duration: Double
     public var easing: AnimationEasing
@@ -327,6 +455,50 @@ public struct UnitPoint: Sendable, Equatable {
     public static let topTrailing = UnitPoint(x: 1.0, y: 0.0)
     public static let bottomLeading = UnitPoint(x: 0.0, y: 1.0)
     public static let bottomTrailing = UnitPoint(x: 1.0, y: 1.0)
+}
+
+public struct UnitPoint3D: Sendable, Equatable {
+    public var x: CGFloat
+    public var y: CGFloat
+    public var z: CGFloat
+
+    public init(x: CGFloat, y: CGFloat, z: CGFloat = 0) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    public init(_ point: UnitPoint, z: CGFloat = 0) {
+        self.init(x: point.x, y: point.y, z: z)
+    }
+
+    public static let center = UnitPoint3D(x: 0.5, y: 0.5, z: 0.5)
+    public static let top = UnitPoint3D(x: 0.5, y: 0.0, z: 0.5)
+    public static let bottom = UnitPoint3D(x: 0.5, y: 1.0, z: 0.5)
+    public static let leading = UnitPoint3D(x: 0.0, y: 0.5, z: 0.5)
+    public static let trailing = UnitPoint3D(x: 1.0, y: 0.5, z: 0.5)
+    public static let front = UnitPoint3D(x: 0.5, y: 0.5, z: 0.0)
+    public static let back = UnitPoint3D(x: 0.5, y: 0.5, z: 1.0)
+    public static let topLeading = UnitPoint3D(x: 0.0, y: 0.0, z: 0.5)
+    public static let topTrailing = UnitPoint3D(x: 1.0, y: 0.0, z: 0.5)
+    public static let bottomLeading = UnitPoint3D(x: 0.0, y: 1.0, z: 0.5)
+    public static let bottomTrailing = UnitPoint3D(x: 1.0, y: 1.0, z: 0.5)
+}
+
+public struct RotationAxis3D: Sendable, Equatable {
+    public var x: CGFloat
+    public var y: CGFloat
+    public var z: CGFloat
+
+    public init(x: CGFloat, y: CGFloat, z: CGFloat) {
+        self.x = x
+        self.y = y
+        self.z = z
+    }
+
+    public static let x = RotationAxis3D(x: 1, y: 0, z: 0)
+    public static let y = RotationAxis3D(x: 0, y: 1, z: 0)
+    public static let z = RotationAxis3D(x: 0, y: 0, z: 1)
 }
 
 public struct PopoverAttachmentAnchor: Sendable, Equatable {
@@ -15353,6 +15525,31 @@ public extension View {
         }
     }
 
+    func transformEffect(_ transform: CGAffineTransform) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let retainedTransform = Transform2D(
+                    fromMatrix: AffineMatrix(
+                        a: transform.a,
+                        b: transform.b,
+                        c: transform.c,
+                        d: transform.d,
+                        tx: transform.tx,
+                        ty: transform.ty
+                    )
+                )
+                childNode.transform = childNode.transform.concatenating(retainedTransform)
+                return childNode
+            }
+        }
+    }
+
+    func projectionEffect(_ transform: ProjectionTransform) -> some View {
+        transformEffect(transform.affineTransform)
+    }
+
     func offset(x: Double = 0, y: Double = 0) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -15372,6 +15569,11 @@ public extension View {
         scaleEffect(x: scale, y: scale)
     }
 
+    func scaleEffect(_ scale: Double, anchor: UnitPoint) -> some View {
+        _ = anchor
+        return scaleEffect(x: scale, y: scale)
+    }
+
     func scaleEffect(x: Double = 1, y: Double = 1) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -15381,6 +15583,17 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func scaleEffect(x: Double = 1, y: Double = 1, anchor: UnitPoint) -> some View {
+        _ = anchor
+        return scaleEffect(x: x, y: y)
+    }
+
+    func scaleEffect(x: Double = 1, y: Double = 1, z: Double = 1, anchor: UnitPoint3D = .center) -> some View {
+        _ = z
+        _ = anchor
+        return scaleEffect(x: x, y: y)
     }
 
     func flipsForRightToLeftLayoutDirection(_ enabled: Bool) -> some View {
@@ -15406,6 +15619,49 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.transform = childNode.transform.concatenating(Transform2D(rotation: angle.radians))
+                return childNode
+            }
+        }
+    }
+
+    func rotationEffect(_ angle: Angle, anchor: UnitPoint) -> some View {
+        _ = anchor
+        return rotationEffect(angle)
+    }
+
+    func rotation3DEffect(
+        _ angle: Angle,
+        axis: (x: CGFloat, y: CGFloat, z: CGFloat),
+        anchor: UnitPoint = .center,
+        anchorZ: CGFloat = 0,
+        perspective: CGFloat = 1
+    ) -> some View {
+        _ = anchor
+        _ = anchorZ
+        _ = perspective
+        let retainedAngle = axis.z == 0 ? 0 : angle.radians * (axis.z < 0 ? -1 : 1)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(Transform2D(rotation: retainedAngle))
+                return childNode
+            }
+        }
+    }
+
+    func rotation3DEffect(
+        _ angle: Angle,
+        axis: RotationAxis3D,
+        anchor: UnitPoint3D = .center
+    ) -> some View {
+        _ = anchor
+        let retainedAngle = axis.z == 0 ? 0 : angle.radians * (axis.z < 0 ? -1 : 1)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.transform = childNode.transform.concatenating(Transform2D(rotation: retainedAngle))
                 return childNode
             }
         }

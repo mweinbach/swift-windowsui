@@ -388,6 +388,9 @@ Modifiers:
 - `scaleEffect`
 - `flipsForRightToLeftLayoutDirection`
 - `rotationEffect`
+- `rotation3DEffect`
+- `transformEffect`
+- `projectionEffect`
 - `blur`
 - `transition`
 - `contentTransition`
@@ -502,6 +505,10 @@ Compatibility helpers:
 - `withTransaction`
 - `LinearGradient(colors:startPoint:endPoint)`
 - `UnitPoint`
+- `UnitPoint3D`
+- `RotationAxis3D`
+- `CGAffineTransform`
+- `ProjectionTransform`
 - `Angle`
 - `Axis`
 - `HoverEffect`
@@ -700,7 +707,7 @@ Surface direction:
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, and `AnyShape` wrappers around those retained shapes to retained bounds clipping with matching retained corner-radius behavior, and preserves `FillStyle` even-odd plus antialiasing metadata for future renderer-neutral path clipping. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.
 - `border` maps to retained panel border fields. Stored `ForegroundStyle.color` values map directly, and stored or direct `LinearGradient` inputs retain the gradient for renderer-neutral border fill commands.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.
-- `zIndex(_:)`, `offset`, `scaleEffect`, `flipsForRightToLeftLayoutDirection(_:)`, and `rotationEffect` map directly onto retained node ordering and `Transform2D` state.
+- `zIndex(_:)`, `offset`, `scaleEffect`, anchor-aware scale overloads, `flipsForRightToLeftLayoutDirection(_:)`, `rotationEffect`, anchor-aware rotation overloads, `transformEffect(_:)`, and `projectionEffect(_:)` map directly onto retained node ordering and `Transform2D` state. `CGAffineTransform` and `ProjectionTransform` are lightweight compatibility values backed by the retained affine transform path. `UnitPoint3D`, `RotationAxis3D`, and `rotation3DEffect(...)` accept modern SwiftUI-shaped 3D call sites; retained rendering maps z-axis rotation to the existing 2D transform and leaves x/y-axis perspective projection unchanged until a renderer-neutral 3D transform contract exists.
 - `@Namespace` creates stable SwiftUI-shaped namespace IDs, and `matchedGeometryEffect(id:in:properties:anchor:isSource:)` records retained metadata on the node. WinSwiftUI does not yet interpolate geometry across matched source/destination pairs, but the metadata is available to the retained runtime for future animation work.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.
 - `transition(_:)` accepts common `AnyTransition` values such as `.identity`, `.opacity`, `.move(edge:)`, `.offset(...)`, `.push(from:)`, `.scale`, `.slide`, `.asymmetric(...)`, and `.combined(with:)` for source compatibility. Retained insertion/removal animation semantics are not modeled yet, so the modifier currently preserves the rendered subtree unchanged.

@@ -288,6 +288,62 @@ public struct ProjectionTransform: Sendable, Equatable {
     }
 }
 
+public enum BlendMode: Sendable, Equatable, Hashable {
+    case normal
+    case multiply
+    case screen
+    case overlay
+    case darken
+    case lighten
+    case colorDodge
+    case colorBurn
+    case softLight
+    case hardLight
+    case difference
+    case exclusion
+    case hue
+    case saturation
+    case color
+    case luminosity
+    case sourceAtop
+    case destinationOver
+    case destinationOut
+    case plusDarker
+    case plusLighter
+
+    var retainedBlendMode: SwiftWindowsGraphics.BlendMode {
+        switch self {
+        case .normal:
+            return .normal
+        case .multiply:
+            return .multiply
+        case .screen:
+            return .screen
+        case .overlay:
+            return .overlay
+        case .plusLighter:
+            return .additive
+        case .darken,
+             .lighten,
+             .colorDodge,
+             .colorBurn,
+             .softLight,
+             .hardLight,
+             .difference,
+             .exclusion,
+             .hue,
+             .saturation,
+             .color,
+             .luminosity,
+             .sourceAtop,
+             .destinationOver,
+             .destinationOut,
+             .plusDarker:
+            return .normal
+        }
+    }
+}
+
 public struct Animation: Sendable {
     public var duration: Double
     public var easing: AnimationEasing
@@ -15306,6 +15362,17 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.opacity = max(0, min(1, opacity))
+                return childNode
+            }
+        }
+    }
+
+    func blendMode(_ blendMode: BlendMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.blendMode = blendMode.retainedBlendMode
                 return childNode
             }
         }

@@ -13300,6 +13300,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBlendModeModifierMapsSupportedModesToRetainedFrameCommands() async {
+        await MainActor.run {
+            let directNode = makeNode(Rectangle().fill(.red).blendMode(.screen))
+            let additiveNode = makeNode(Rectangle().fill(.red).blendMode(.plusLighter))
+            let fallbackNode = makeNode(Rectangle().fill(.red).blendMode(.color))
+            let inherited = makeRuntimeNode(
+                VStack {
+                    Rectangle()
+                        .fill(.red)
+                        .frame(width: 20, height: 10)
+                }
+                .blendMode(.multiply),
+                size: Size(width: 100, height: 80)
+            )
+            let inheritedFrame = inherited.runtime.renderFrame()
+
+            let fillBlendModes = inheritedFrame.commands.compactMap { command -> SwiftWindowsGraphics.BlendMode? in
+                guard case .fillRect(let fill) = command, fill.color == .red else {
+                    return nil
+                }
+
+                return fill.blendMode
+            }
+
+            XCTAssertEqual(directNode.blendMode, SwiftWindowsGraphics.BlendMode.screen)
+            XCTAssertEqual(additiveNode.blendMode, SwiftWindowsGraphics.BlendMode.additive)
+            XCTAssertEqual(fallbackNode.blendMode, SwiftWindowsGraphics.BlendMode.normal)
+            XCTAssertTrue(fillBlendModes.contains(.multiply))
+        }
+    }
+
     func testHiddenModifierMapsToRetainedNodeVisibility() async {
         await MainActor.run {
             let hiddenNode = makeNode(Text("SECRET").hidden())

@@ -25,6 +25,7 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
     var opacity: Float
+    var blendMode: BlendMode
     var displayScale: Double
     var isHovered: Bool
     var hoverEffect: RetainedHoverEffect?
@@ -35,6 +36,34 @@ struct ViewPaintCacheKey: Equatable, Sendable {
 struct ViewMeasureCacheKey: Equatable, Sendable {
     var constraints: LayoutConstraints
     var displayScale: Double
+}
+
+private extension RenderCommand {
+    mutating func applyBlendMode(_ blendMode: BlendMode) {
+        guard blendMode != .normal else {
+            return
+        }
+
+        switch self {
+        case .fillRect(var command):
+            command.blendMode = blendMode
+            self = .fillRect(command)
+        case .drawBitmap(var command):
+            command.blendMode = blendMode
+            self = .drawBitmap(command)
+        case .fillPath(var command):
+            command.blendMode = blendMode
+            self = .fillPath(command)
+        case .strokePath(var command):
+            command.blendMode = blendMode
+            self = .strokePath(command)
+        case .drawText(var command):
+            command.blendMode = blendMode
+            self = .drawText(command)
+        case .pushClip, .popClip, .applyBlur:
+            break
+        }
+    }
 }
 
 public struct KeyboardShortcutBinding: Sendable, Equatable {
@@ -845,6 +874,13 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    // Renderer-neutral blend mode metadata. The RenderFrame fallback forwards
+    // supported modes to per-command blend fields; the GPUI scene path keeps
+    // normal compositing until typed primitives grow blend fields.
+    public var blendMode: BlendMode {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1235,6 +1271,7 @@ public final class ViewNode {
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
         opacity: Double = 1.0,
+        blendMode: BlendMode = .normal,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1329,6 +1366,7 @@ public final class ViewNode {
         self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius
         self.opacity = opacity
+        self.blendMode = blendMode
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis
@@ -1913,6 +1951,7 @@ public final class ViewNode {
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
+            blendMode: blendMode,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,
@@ -2145,6 +2184,7 @@ public final class ViewNode {
         parentOrigin: Point,
         inheritedClip: Rect?,
         inheritedOpacity: Float = 1,
+        inheritedBlendMode: BlendMode = .normal,
         previousRenderedFrame: RenderFrame? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
@@ -2212,11 +2252,13 @@ public final class ViewNode {
         // TODO: Opacity < 1 with overlapping children double-blends. Requires render-to-texture for correct compositing.
         // GPUI/Zed instead carries opacity as an inherited paint scalar.
         let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
         let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
+            blendMode: effectiveBlendMode,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,
@@ -2255,6 +2297,7 @@ public final class ViewNode {
             x: absoluteOrigin.x - (scrollAxis == .horizontal ? resolvedScrollOffset : 0),
             y: absoluteOrigin.y - (scrollAxis == .vertical ? resolvedScrollOffset : 0)
         )
+        let directCommandStartIndex = commands.count
 
         if let hoverShadow = hoverEffectShadowCommand(
             for: absoluteFrame,
@@ -2446,6 +2489,12 @@ public final class ViewNode {
         // views should be added at the root level or to a dedicated
         // overlay container rather than relying on zIndex across
         // different subtrees.
+        if effectiveBlendMode != .normal {
+            for index in directCommandStartIndex..<commands.count {
+                commands[index].applyBlendMode(effectiveBlendMode)
+            }
+        }
+
         for child in orderedChildrenForPaint() {
             guard !child.paintsInDeferredPhase else {
                 continue
@@ -2455,6 +2504,7 @@ public final class ViewNode {
                 parentOrigin: childOrigin,
                 inheritedClip: effectiveClip,
                 inheritedOpacity: effectiveOpacity,
+                inheritedBlendMode: effectiveBlendMode,
                 previousRenderedFrame: previousRenderedFrame,
                 displayScale: displayScale,
                 replayCount: &replayCount

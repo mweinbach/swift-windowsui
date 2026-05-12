@@ -185,6 +185,7 @@ public enum ScenePainter {
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: opacity,
+            blendMode: node.blendMode,
             displayScale: displayScale,
             isHovered: node.isHovered,
             hoverEffect: resolvedHoverEffect,

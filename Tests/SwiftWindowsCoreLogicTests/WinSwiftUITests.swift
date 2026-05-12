@@ -13702,6 +13702,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentObjectManualObjectWillChangeTriggersInvalidation() async {
+        await MainActor.run {
+            final class ThemeModel: ObservableObject {
+                var label = "MODEL"
+
+                func updateLabel(_ value: String) {
+                    label = value
+                    objectWillChange.send()
+                }
+            }
+
+            struct EnvironmentObjectReaderView: View {
+                @EnvironmentObject var model: ThemeModel
+
+                var body: some View {
+                    Text(model.label)
+                }
+            }
+
+            let model = ThemeModel()
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = EnvironmentObjectReaderView()
+                .environmentObject(model)
+                .makeComponent(context: context)
+            model.updateLabel("UPDATED")
+
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
     func testEnvironmentObjectDynamicMemberProjectionFeedsRetainedControls() async {
         await MainActor.run {
             final class FormModel: ObservableObject {
@@ -15698,6 +15738,44 @@ final class WinSwiftUITests: XCTestCase {
 
             _ = CounterView(model: model).makeComponent(context: context)
             model.value = 1
+
+            XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testObservedObjectManualObjectWillChangeTriggersInvalidation() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                var value = 0
+
+                func increment() {
+                    value += 1
+                    objectWillChange.send()
+                }
+            }
+
+            struct CounterView: View {
+                @ObservedObject var model: CounterModel
+
+                var body: some View {
+                    Text("\(model.value)")
+                }
+            }
+
+            let model = CounterModel()
+            var invalidationCount = 0
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 320, height: 180) },
+                invalidateHandler: {},
+                observedObjectHandler: { object in
+                    _ = ObservableObjectCenter.shared.addObserver(for: object) {
+                        invalidationCount += 1
+                    }
+                }
+            )
+
+            _ = CounterView(model: model).makeComponent(context: context)
+            model.increment()
 
             XCTAssertEqual(invalidationCount, 1)
         }

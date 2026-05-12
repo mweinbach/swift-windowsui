@@ -525,6 +525,32 @@ struct NavigationPresentedDestination {
 public protocol ObservableObject: AnyObject {}
 
 @MainActor
+public final class ObservableObjectPublisher {
+    private weak var object: (any ObservableObject)?
+
+    public init() {
+        self.object = nil
+    }
+
+    init(object: any ObservableObject) {
+        self.object = object
+    }
+
+    public func send() {
+        guard let object else {
+            return
+        }
+        ObservableObjectCenter.shared.notify(object)
+    }
+}
+
+public extension ObservableObject {
+    var objectWillChange: ObservableObjectPublisher {
+        ObservableObjectPublisher(object: self)
+    }
+}
+
+@MainActor
 public protocol DynamicProperty {
     mutating func update()
 }

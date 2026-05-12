@@ -2704,7 +2704,8 @@ public struct AppStorage<Value>: DynamicProperty {
                 } else if Value.self == Data.self {
                     return (store.data(forKey: key) ?? defaultValue as! Data) as! Value
                 } else if Value.self == URL.self {
-                    return (store.url(forKey: key) ?? defaultValue as! URL) as! Value
+                    let url = store.string(forKey: key).flatMap(URL.init(string:)) ?? store.url(forKey: key)
+                    return (url ?? defaultValue as! URL) as! Value
                 }
 
                 return (store.object(forKey: key) as? Value) ?? defaultValue
@@ -2712,7 +2713,7 @@ public struct AppStorage<Value>: DynamicProperty {
 
         private static func defaultWriteValue(store: UserDefaults, key: String, value: Value) {
             if let url = value as? URL {
-                store.set(url, forKey: key)
+                store.set(url.absoluteString, forKey: key)
             } else {
                 store.set(value, forKey: key)
             }
@@ -2759,6 +2760,132 @@ public struct AppStorage<Value>: DynamicProperty {
         )
     }
 
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Bool? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.bool(forKey: key)
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Int? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.integer(forKey: key)
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Double? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.double(forKey: key)
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == String? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.string(forKey: key) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Data? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.data(forKey: key) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == URL? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.string(forKey: key).flatMap(URL.init(string:)) ?? store.url(forKey: key) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value.absoluteString, forKey: key)
+            }
+        )
+    }
+
     public init(_ key: String, store: UserDefaults? = nil) where Value == Bool {
         self.init(wrappedValue: false, key, store: store)
     }
@@ -2773,6 +2900,30 @@ public struct AppStorage<Value>: DynamicProperty {
 
     public init(_ key: String, store: UserDefaults? = nil) where Value == String {
         self.init(wrappedValue: "", key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Bool? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Int? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Double? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == String? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Data? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == URL? {
+        self.init(wrappedValue: nil, key, store: store)
     }
 
     public var wrappedValue: Value {
@@ -2811,8 +2962,16 @@ private final class SceneStorageCenter {
         values[key] as? Value ?? defaultValue
     }
 
+    func optionalValue<Value>(for key: String) -> Value? {
+        values[key] as? Value
+    }
+
     func setValue<Value>(_ value: Value, for key: String) {
         values[key] = value
+    }
+
+    func removeValue(for key: String) {
+        values.removeValue(forKey: key)
     }
 }
 
@@ -2892,6 +3051,108 @@ public struct SceneStorage<Value>: DynamicProperty {
         )
     }
 
+    public init(wrappedValue: Value, _ key: String) where Value == Bool? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value == Int? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value == Double? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value == String? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value == Data? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value == URL? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                SceneStorageCenter.shared.optionalValue(for: key) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
+        )
+    }
+
     public init(_ key: String) where Value == Bool {
         self.init(wrappedValue: false, key)
     }
@@ -2906,6 +3167,30 @@ public struct SceneStorage<Value>: DynamicProperty {
 
     public init(_ key: String) where Value == String {
         self.init(wrappedValue: "", key)
+    }
+
+    public init(_ key: String) where Value == Bool? {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init(_ key: String) where Value == Int? {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init(_ key: String) where Value == Double? {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init(_ key: String) where Value == String? {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init(_ key: String) where Value == Data? {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init(_ key: String) where Value == URL? {
+        self.init(wrappedValue: nil, key)
     }
 
     public var wrappedValue: Value {

@@ -10277,6 +10277,83 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAppStorageOptionalValuesReadWriteAndRemoveUserDefaults() async {
+        await MainActor.run {
+            struct AppStorageOptionalView: View {
+                @AppStorage private var title: String?
+
+                init(store: UserDefaults) {
+                    _title = AppStorage("title", store: store)
+                }
+
+                var body: some View {
+                    Button(title ?? "MISSING") {
+                        title = title == nil ? "STORED" : nil
+                    }
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorageOptional.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            let optionalFlag = AppStorage<Bool?>("flag", store: store)
+            let optionalCount = AppStorage<Int?>("count", store: store)
+            let optionalScale = AppStorage<Double?>("scale", store: store)
+            let optionalData = AppStorage<Data?>("data", store: store)
+            let optionalURL = AppStorage<URL?>("url", store: store)
+            let appURL = URL(string: "https://example.com/app")!
+
+            XCTAssertNil(optionalFlag.wrappedValue)
+            XCTAssertNil(optionalCount.wrappedValue)
+            XCTAssertNil(optionalScale.wrappedValue)
+            XCTAssertNil(optionalData.wrappedValue)
+            XCTAssertNil(optionalURL.wrappedValue)
+
+            optionalFlag.wrappedValue = true
+            optionalCount.wrappedValue = 7
+            optionalScale.wrappedValue = 1.5
+            optionalData.wrappedValue = Data([1, 2, 3])
+            optionalURL.wrappedValue = appURL
+
+            XCTAssertEqual(store.bool(forKey: "flag"), true)
+            XCTAssertEqual(store.integer(forKey: "count"), 7)
+            XCTAssertEqual(store.double(forKey: "scale"), 1.5)
+            XCTAssertEqual(store.data(forKey: "data"), Data([1, 2, 3]))
+            XCTAssertEqual(store.string(forKey: "url"), appURL.absoluteString)
+            XCTAssertEqual(optionalURL.wrappedValue, appURL)
+
+            optionalFlag.wrappedValue = nil
+            optionalCount.wrappedValue = nil
+            optionalScale.wrappedValue = nil
+            optionalData.wrappedValue = nil
+            optionalURL.wrappedValue = nil
+
+            XCTAssertNil(store.object(forKey: "flag"))
+            XCTAssertNil(store.object(forKey: "count"))
+            XCTAssertNil(store.object(forKey: "scale"))
+            XCTAssertNil(store.object(forKey: "data"))
+            XCTAssertNil(store.object(forKey: "url"))
+
+            store.set("READY", forKey: "title")
+            let readyNode = makeNode(AppStorageOptionalView(store: store))
+            XCTAssertTrue(allTexts(in: readyNode).contains("READY"))
+
+            readyNode.onActivate?()
+            XCTAssertNil(store.object(forKey: "title"))
+
+            let missingNode = makeNode(AppStorageOptionalView(store: store))
+            XCTAssertTrue(allTexts(in: missingNode).contains("MISSING"))
+
+            missingNode.onActivate?()
+            XCTAssertEqual(store.string(forKey: "title"), "STORED")
+        }
+    }
+
     func testSceneStoragePersistsValuesAcrossViewInstancesAndProvidesBinding() async {
         await MainActor.run {
             struct SceneStorageReaderView: View {
@@ -10417,6 +10494,79 @@ final class WinSwiftUITests: XCTestCase {
             let fallbackNode = makeNode(SceneStorageIntEnumView(key: key))
 
             XCTAssertTrue(allTexts(in: fallbackNode).contains("LOW VALUE"))
+        }
+    }
+
+    func testSceneStorageOptionalValuesReadWriteAndRemoveRetainedState() async {
+        await MainActor.run {
+            struct SceneStorageOptionalView: View {
+                @SceneStorage private var count: Int?
+
+                init(key: String) {
+                    _count = SceneStorage(key)
+                }
+
+                var body: some View {
+                    Button(count.map { "\($0)" } ?? "EMPTY") {
+                        count = count == nil ? 5 : nil
+                    }
+                }
+            }
+
+            let keyPrefix = "WinSwiftUITests.SceneStorageOptional.\(UUID().uuidString)"
+            let optionalFlag = SceneStorage<Bool?>("\(keyPrefix).flag")
+            let optionalCount = SceneStorage<Int?>("\(keyPrefix).count")
+            let optionalScale = SceneStorage<Double?>("\(keyPrefix).scale")
+            let optionalTitle = SceneStorage<String?>("\(keyPrefix).title")
+            let optionalData = SceneStorage<Data?>("\(keyPrefix).data")
+            let optionalURL = SceneStorage<URL?>("\(keyPrefix).url")
+
+            XCTAssertNil(optionalFlag.wrappedValue)
+            XCTAssertNil(optionalCount.wrappedValue)
+            XCTAssertNil(optionalScale.wrappedValue)
+            XCTAssertNil(optionalTitle.wrappedValue)
+            XCTAssertNil(optionalData.wrappedValue)
+            XCTAssertNil(optionalURL.wrappedValue)
+
+            optionalFlag.wrappedValue = true
+            optionalCount.wrappedValue = 7
+            optionalScale.wrappedValue = 1.5
+            optionalTitle.wrappedValue = "READY"
+            optionalData.wrappedValue = Data([1, 2, 3])
+            optionalURL.wrappedValue = URL(string: "https://example.com/scene")
+
+            XCTAssertEqual(SceneStorage<Bool?>("\(keyPrefix).flag").wrappedValue, true)
+            XCTAssertEqual(SceneStorage<Int?>("\(keyPrefix).count").wrappedValue, 7)
+            XCTAssertEqual(SceneStorage<Double?>("\(keyPrefix).scale").wrappedValue, 1.5)
+            XCTAssertEqual(SceneStorage<String?>("\(keyPrefix).title").wrappedValue, "READY")
+            XCTAssertEqual(SceneStorage<Data?>("\(keyPrefix).data").wrappedValue, Data([1, 2, 3]))
+            XCTAssertEqual(SceneStorage<URL?>("\(keyPrefix).url").wrappedValue, URL(string: "https://example.com/scene"))
+
+            optionalFlag.wrappedValue = nil
+            optionalCount.wrappedValue = nil
+            optionalScale.wrappedValue = nil
+            optionalTitle.wrappedValue = nil
+            optionalData.wrappedValue = nil
+            optionalURL.wrappedValue = nil
+
+            XCTAssertNil(SceneStorage<Bool?>("\(keyPrefix).flag").wrappedValue)
+            XCTAssertNil(SceneStorage<Int?>("\(keyPrefix).count").wrappedValue)
+            XCTAssertNil(SceneStorage<Double?>("\(keyPrefix).scale").wrappedValue)
+            XCTAssertNil(SceneStorage<String?>("\(keyPrefix).title").wrappedValue)
+            XCTAssertNil(SceneStorage<Data?>("\(keyPrefix).data").wrappedValue)
+            XCTAssertNil(SceneStorage<URL?>("\(keyPrefix).url").wrappedValue)
+
+            let countKey = "\(keyPrefix).buttonCount"
+            let emptyNode = makeNode(SceneStorageOptionalView(key: countKey))
+            XCTAssertTrue(allTexts(in: emptyNode).contains("EMPTY"))
+
+            emptyNode.onActivate?()
+            let filledNode = makeNode(SceneStorageOptionalView(key: countKey))
+            XCTAssertTrue(allTexts(in: filledNode).contains("5"))
+
+            filledNode.onActivate?()
+            let removedNode = makeNode(SceneStorageOptionalView(key: countKey))
+            XCTAssertTrue(allTexts(in: removedNode).contains("EMPTY"))
         }
     }
 

@@ -428,6 +428,7 @@ Modifiers:
 - `scrollContentBackground`
 - `scrollIndicators`
 - `scrollIndicatorsFlash`
+- `scrollPosition`
 - `scrollTransition`
 - `scrollBounceBehavior`
 - `scrollTargetBehavior`
@@ -587,6 +588,7 @@ Compatibility helpers:
 - `AnyScrollTargetBehavior`
 - `ScrollInputBehavior`
 - `ScrollInputKind`
+- `ScrollPosition`
 - `VisualEffect`
 - `EmptyVisualEffect`
 - `UnitCurve`
@@ -790,6 +792,7 @@ Surface direction:
 - `scrollContentBackground(_:)` accepts SwiftUI `Visibility` values. `.hidden` clears retained scroll-container background chrome for `ScrollView` and scrolling `Section` nodes; `.automatic` and `.visible` preserve the current retained style background. Non-scroll `Section` panels keep their normal background.
 - `scrollIndicators(_:axes:)` propagates horizontal and vertical `ScrollIndicatorVisibility` environment values. `.hidden` and `.never` suppress retained indicators for matching axes, while `.automatic` and `.visible` keep the current retained indicator behavior.
 - `scrollIndicatorsFlash(onAppear:)` and `scrollIndicatorsFlash(trigger:)` store inherited retained flash metadata on `ScrollView`, `List`, and scrolling `Section` nodes. The current runtime records the on-appear Boolean and trigger identity for source compatibility; it does not yet schedule timed indicator flash animation.
+- `scrollPosition(_:,anchor:)` and `scrollPosition(id:anchor:)` accept SwiftUI-shaped `Binding<ScrollPosition>` and ID bindings, then store semantic position metadata on retained `ScrollView`, `List`, and scrolling `Section` nodes. `ScrollPosition` supports ID, edge, point, x, and y construction plus `scrollTo(...)` mutations for shared-source code; retained runtime updates and programmatic scrolling are not wired yet.
 - `scrollTransition(...)` accepts symmetric and asymmetric `ScrollTransitionConfiguration` values plus SwiftUI-shaped `VisualEffect` closures. The retained node stores transition configuration, axis, and identity-effect metadata for source compatibility; the runtime does not yet apply phase-driven scroll transition rendering.
 - `scrollBounceBehavior(_:axes:)` propagates horizontal and vertical `ScrollBounceBehavior` environment values, defaulting to the vertical axis like SwiftUI. `.automatic`, `.always`, `.basedOnSize`, and `.never` are stored as retained metadata on `ScrollView`, `List`, and scrolling `Section` nodes; the retained runtime still clamps scroll offsets and does not model overscroll physics yet.
 - `scrollTargetBehavior(_:)` accepts SwiftUI-shaped `ScrollTargetBehavior` values such as `.paging`, `.viewAligned`, and custom behavior conformers, then stores retained behavior metadata on `ScrollView`, `List`, and scrolling `Section` nodes. `scrollTargetLayout(isEnabled:)` marks the modified retained node as the layout that contributes scroll targets. The current runtime does not yet perform paging or view-aligned deceleration.

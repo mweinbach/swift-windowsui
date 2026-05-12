@@ -5758,6 +5758,7 @@ public struct ScrollView: View {
             node.scrollInputBehaviors = context.retainedScrollInputBehaviors
             node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
             node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
+            node.scrollPosition = context.scrollPositionMetadata
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
@@ -6003,6 +6004,7 @@ public struct List: View {
             node.scrollInputBehaviors = context.retainedScrollInputBehaviors
             node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
             node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
+            node.scrollPosition = context.scrollPositionMetadata
             node.scrollIndicatorInsets = context.contentInsets(
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
@@ -6512,6 +6514,7 @@ public struct Section: View {
                 node.scrollInputBehaviors = context.retainedScrollInputBehaviors
                 node.scrollIndicatorsFlashOnAppear = context.scrollIndicatorsFlashOnAppear
                 node.scrollIndicatorsFlashTrigger = context.scrollIndicatorsFlashTrigger
+                node.scrollPosition = context.scrollPositionMetadata
                 node.scrollIndicatorInsets = context.contentInsets(
                     for: .scrollIndicators,
                     defaultInsets: defaultRetainedScrollIndicatorInsets

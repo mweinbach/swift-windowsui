@@ -3059,6 +3059,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior]
     public var scrollIndicatorsFlashOnAppear: Bool
     public var scrollIndicatorsFlashTrigger: String?
+    var scrollPositionMetadata: String?
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
@@ -3189,6 +3190,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior] = [:],
         scrollIndicatorsFlashOnAppear: Bool = false,
         scrollIndicatorsFlashTrigger: String? = nil,
+        scrollPositionMetadata: String? = nil,
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
@@ -3339,6 +3341,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.scrollInputBehaviors = scrollInputBehaviors
         self.scrollIndicatorsFlashOnAppear = scrollIndicatorsFlashOnAppear
         self.scrollIndicatorsFlashTrigger = scrollIndicatorsFlashTrigger
+        self.scrollPositionMetadata = scrollPositionMetadata
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
@@ -5014,6 +5017,10 @@ public struct ViewBuildContext {
 
     var scrollIndicatorsFlashTrigger: String? {
         environmentValuesProvider().scrollIndicatorsFlashTrigger
+    }
+
+    var scrollPositionMetadata: String? {
+        environmentValuesProvider().scrollPositionMetadata
     }
 
     func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
@@ -10098,6 +10105,154 @@ public enum ScrollTransitionPhase: Sendable, Equatable, Hashable, CustomStringCo
     }
 }
 
+public struct ScrollPosition: Equatable, CustomStringConvertible, @unchecked Sendable {
+    private var idTypeDescription: String
+    private var rawViewID: Any?
+    private var viewIDValue: AnyHashable?
+    private var anchorValue: UnitPoint?
+    private var edgeValue: Edge?
+    private var pointValue: CGPoint?
+    public private(set) var isPositionedByUser: Bool
+
+    public init<ID: Hashable & Sendable>(id: ID, anchor: UnitPoint? = nil) {
+        self.idTypeDescription = String(describing: ID.self)
+        self.rawViewID = id
+        self.viewIDValue = AnyHashable(id)
+        self.anchorValue = anchor
+        self.edgeValue = nil
+        self.pointValue = nil
+        self.isPositionedByUser = false
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type) {
+        self.idTypeDescription = String(describing: ID.self)
+        self.rawViewID = nil
+        self.viewIDValue = nil
+        self.anchorValue = nil
+        self.edgeValue = nil
+        self.pointValue = nil
+        self.isPositionedByUser = false
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type, edge: Edge) {
+        self.init(idType: ID.self)
+        self.edgeValue = edge
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type, point: CGPoint) {
+        self.init(idType: ID.self)
+        self.pointValue = point
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type, x: CGFloat) {
+        self.init(idType: ID.self, point: CGPoint(x: x, y: 0))
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type, x: CGFloat, y: CGFloat) {
+        self.init(idType: ID.self, point: CGPoint(x: x, y: y))
+    }
+
+    public init<ID: Hashable & Sendable>(idType: ID.Type, y: CGFloat) {
+        self.init(idType: ID.self, point: CGPoint(x: 0, y: y))
+    }
+
+    public var edge: Edge? {
+        edgeValue
+    }
+
+    public var point: CGPoint? {
+        pointValue
+    }
+
+    public var x: CGFloat? {
+        pointValue?.x
+    }
+
+    public var y: CGFloat? {
+        pointValue?.y
+    }
+
+    public var viewID: AnyHashable? {
+        viewIDValue
+    }
+
+    public func viewID<ID: Hashable & Sendable>(type: ID.Type) -> ID? {
+        rawViewID as? ID
+    }
+
+    public mutating func scrollTo(edge: Edge) {
+        clearPosition()
+        edgeValue = edge
+    }
+
+    public mutating func scrollTo<ID: Hashable & Sendable>(id: ID, anchor: UnitPoint? = nil) {
+        idTypeDescription = String(describing: ID.self)
+        rawViewID = id
+        viewIDValue = AnyHashable(id)
+        anchorValue = anchor
+        edgeValue = nil
+        pointValue = nil
+    }
+
+    public mutating func scrollTo(point: CGPoint) {
+        clearPosition()
+        pointValue = point
+    }
+
+    public mutating func scrollTo(x: CGFloat) {
+        clearPosition()
+        pointValue = CGPoint(x: x, y: 0)
+    }
+
+    public mutating func scrollTo(x: CGFloat, y: CGFloat) {
+        clearPosition()
+        pointValue = CGPoint(x: x, y: y)
+    }
+
+    public mutating func scrollTo(y: CGFloat) {
+        clearPosition()
+        pointValue = CGPoint(x: 0, y: y)
+    }
+
+    public static func == (lhs: ScrollPosition, rhs: ScrollPosition) -> Bool {
+        lhs.idTypeDescription == rhs.idTypeDescription
+            && lhs.viewIDValue == rhs.viewIDValue
+            && lhs.anchorValue == rhs.anchorValue
+            && lhs.edgeValue == rhs.edgeValue
+            && lhs.pointValue == rhs.pointValue
+            && lhs.isPositionedByUser == rhs.isPositionedByUser
+    }
+
+    public var description: String {
+        var parts = ["idType:\(idTypeDescription)"]
+        if let viewIDValue {
+            parts.append("id:\(String(describing: viewIDValue.base))")
+        }
+        if let anchorValue {
+            parts.append("anchor:\(scrollPositionAnchorDescription(anchorValue))")
+        }
+        if let edgeValue {
+            parts.append("edge:\(scrollPositionEdgeDescription(edgeValue))")
+        }
+        if let pointValue {
+            parts.append("point:\(pointValue.x),\(pointValue.y)")
+        }
+        if isPositionedByUser {
+            parts.append("user:true")
+        }
+        return parts.joined(separator: ",")
+    }
+
+    private mutating func clearPosition() {
+        rawViewID = nil
+        viewIDValue = nil
+        anchorValue = nil
+        edgeValue = nil
+        pointValue = nil
+        isPositionedByUser = false
+    }
+}
+
 public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, CustomStringConvertible {
     public struct Threshold: Sendable, Equatable, Hashable, CustomStringConvertible {
         private var descriptionValue: String
@@ -10209,6 +10364,44 @@ private func scrollTransitionAxisDescription(_ axis: Axis?) -> String {
     case nil:
         return "all"
     }
+}
+
+private func scrollPositionAnchorDescription(_ anchor: UnitPoint) -> String {
+    "\(anchor.x),\(anchor.y)"
+}
+
+private func scrollPositionEdgeDescription(_ edge: Edge) -> String {
+    switch edge {
+    case .top:
+        return "top"
+    case .leading:
+        return "leading"
+    case .bottom:
+        return "bottom"
+    case .trailing:
+        return "trailing"
+    }
+}
+
+private func scrollPositionMetadataDescription(_ position: ScrollPosition, anchor: UnitPoint?) -> String {
+    var parts = ["position", position.description]
+    if let anchor {
+        parts.append("bindingAnchor:\(scrollPositionAnchorDescription(anchor))")
+    }
+    return parts.joined(separator: ",")
+}
+
+private func scrollPositionIDMetadataDescription<ID: Hashable>(_ id: ID?, anchor: UnitPoint?) -> String {
+    var parts = ["idBinding", "idType:\(String(describing: ID.self))"]
+    if let id {
+        parts.append("id:\(String(describing: id))")
+    } else {
+        parts.append("id:nil")
+    }
+    if let anchor {
+        parts.append("anchor:\(scrollPositionAnchorDescription(anchor))")
+    }
+    return parts.joined(separator: ",")
 }
 
 public struct ScrollDismissesKeyboardMode: Sendable, Equatable, Hashable {
@@ -17342,6 +17535,28 @@ public extension View {
         ModifiedView(content: self) { content, context in
             let trigger = "\(type(of: value)):\(String(describing: value))"
             return content.makeComponent(context: context.withEnvironmentValue(\.scrollIndicatorsFlashTrigger, trigger))
+        }
+    }
+
+    func scrollPosition(_ position: Binding<ScrollPosition>, anchor: UnitPoint? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.scrollPositionMetadata,
+                    scrollPositionMetadataDescription(position.wrappedValue, anchor: anchor)
+                )
+            )
+        }
+    }
+
+    func scrollPosition<ID: Hashable>(id: Binding<ID?>, anchor: UnitPoint? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.scrollPositionMetadata,
+                    scrollPositionIDMetadataDescription(id.wrappedValue, anchor: anchor)
+                )
+            )
         }
     }
 

@@ -6064,6 +6064,63 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollPositionMetadataPropagatesToRetainedScrollContainers() async {
+        await MainActor.run {
+            var position = ScrollPosition(id: "item-2", anchor: .bottom)
+            var selectedID: Int? = 7
+            var nilID: String?
+            let positionBinding = Binding<ScrollPosition>(
+                get: { position },
+                set: { position = $0 }
+            )
+            let idBinding = Binding<Int?>(
+                get: { selectedID },
+                set: { selectedID = $0 }
+            )
+            let nilIDBinding = Binding<String?>(
+                get: { nilID },
+                set: { nilID = $0 }
+            )
+
+            let scrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollPosition(positionBinding, anchor: .top)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollPosition(id: idBinding, anchor: .center)
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollPosition(id: nilIDBinding)
+            )
+
+            XCTAssertEqual(
+                scrollViewNode.scrollPosition,
+                "position,idType:String,id:item-2,anchor:0.5,1.0,bindingAnchor:0.5,0.0"
+            )
+            XCTAssertEqual(listNode.scrollPosition, "idBinding,idType:Int,id:7,anchor:0.5,0.5")
+            XCTAssertEqual(sectionNode.scrollPosition, "idBinding,idType:String,id:nil")
+            XCTAssertEqual(position.viewID(type: String.self), "item-2")
+
+            position.scrollTo(edge: .bottom)
+            XCTAssertEqual(position.edge, .bottom)
+            position.scrollTo(point: CGPoint(x: 12, y: 34))
+            XCTAssertEqual(position.point, CGPoint(x: 12, y: 34))
+            XCTAssertEqual(position.x, 12)
+            XCTAssertEqual(position.y, 34)
+            position.scrollTo(id: 99, anchor: .center)
+            XCTAssertEqual(position.viewID(type: Int.self), 99)
+            XCTAssertNil(position.viewID(type: String.self))
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

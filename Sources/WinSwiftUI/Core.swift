@@ -344,6 +344,23 @@ public enum BlendMode: Sendable, Equatable, Hashable {
     }
 }
 
+public enum ColorRenderingMode: Sendable, Equatable, Hashable {
+    case nonLinear
+    case linear
+    case extendedLinear
+
+    var retainedColorRenderingMode: RetainedColorRenderingMode {
+        switch self {
+        case .nonLinear:
+            return .nonLinear
+        case .linear:
+            return .linear
+        case .extendedLinear:
+            return .extendedLinear
+        }
+    }
+}
+
 public struct Animation: Sendable {
     public var duration: Double
     public var easing: AnimationEasing
@@ -15373,6 +15390,32 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.blendMode = blendMode.retainedBlendMode
+                return childNode
+            }
+        }
+    }
+
+    func compositingGroup() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isCompositingGroup = true
+                return childNode
+            }
+        }
+    }
+
+    func drawingGroup(opaque: Bool = false, colorMode: ColorRenderingMode = .nonLinear) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isCompositingGroup = true
+                childNode.drawingGroup = RetainedDrawingGroup(
+                    opaque: opaque,
+                    colorMode: colorMode.retainedColorRenderingMode
+                )
                 return childNode
             }
         }

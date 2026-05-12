@@ -13331,6 +13331,23 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testCompositingAndDrawingGroupStoreRetainedMetadata() async {
+        await MainActor.run {
+            let compositingNode = makeNode(Text("GROUP").compositingGroup())
+            let defaultDrawingNode = makeNode(Text("DRAW").drawingGroup())
+            let linearDrawingNode = makeNode(Text("LINEAR").drawingGroup(opaque: true, colorMode: .linear))
+            let extendedDrawingNode = makeNode(Text("EXTENDED").drawingGroup(colorMode: .extendedLinear))
+
+            XCTAssertTrue(compositingNode.isCompositingGroup)
+            XCTAssertNil(compositingNode.drawingGroup)
+            XCTAssertTrue(defaultDrawingNode.isCompositingGroup)
+            XCTAssertEqual(defaultDrawingNode.drawingGroup, RetainedDrawingGroup(opaque: false, colorMode: .nonLinear))
+            XCTAssertTrue(linearDrawingNode.isCompositingGroup)
+            XCTAssertEqual(linearDrawingNode.drawingGroup, RetainedDrawingGroup(opaque: true, colorMode: .linear))
+            XCTAssertEqual(extendedDrawingNode.drawingGroup?.colorMode, .extendedLinear)
+        }
+    }
+
     func testHiddenModifierMapsToRetainedNodeVisibility() async {
         await MainActor.run {
             let hiddenNode = makeNode(Text("SECRET").hidden())

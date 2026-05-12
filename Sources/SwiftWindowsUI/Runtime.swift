@@ -21,11 +21,29 @@ public struct DirtyFlags: OptionSet, Sendable {
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
 
+public enum RetainedColorRenderingMode: Sendable, Equatable, Hashable {
+    case nonLinear
+    case linear
+    case extendedLinear
+}
+
+public struct RetainedDrawingGroup: Sendable, Equatable, Hashable {
+    public var opaque: Bool
+    public var colorMode: RetainedColorRenderingMode
+
+    public init(opaque: Bool = false, colorMode: RetainedColorRenderingMode = .nonLinear) {
+        self.opaque = opaque
+        self.colorMode = colorMode
+    }
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
     var opacity: Float
     var blendMode: BlendMode
+    var isCompositingGroup: Bool
+    var drawingGroup: RetainedDrawingGroup?
     var displayScale: Double
     var isHovered: Bool
     var hoverEffect: RetainedHoverEffect?
@@ -881,6 +899,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var isCompositingGroup: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var drawingGroup: RetainedDrawingGroup? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1272,6 +1298,8 @@ public final class ViewNode {
         blurRadius: Double = 0,
         opacity: Double = 1.0,
         blendMode: BlendMode = .normal,
+        isCompositingGroup: Bool = false,
+        drawingGroup: RetainedDrawingGroup? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1367,6 +1395,8 @@ public final class ViewNode {
         self.blurRadius = blurRadius
         self.opacity = opacity
         self.blendMode = blendMode
+        self.isCompositingGroup = isCompositingGroup
+        self.drawingGroup = drawingGroup
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis
@@ -1952,6 +1982,8 @@ public final class ViewNode {
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blendMode: blendMode,
+            isCompositingGroup: isCompositingGroup,
+            drawingGroup: drawingGroup,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,
@@ -2259,6 +2291,8 @@ public final class ViewNode {
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blendMode: effectiveBlendMode,
+            isCompositingGroup: isCompositingGroup,
+            drawingGroup: drawingGroup,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,

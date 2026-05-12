@@ -3236,6 +3236,17 @@ public struct Text: View {
         case lowercase
     }
 
+    public struct Scale: Sendable, Equatable, Hashable {
+        private let rawValue: String
+
+        private init(_ rawValue: String) {
+            self.rawValue = rawValue
+        }
+
+        public static let `default` = Scale("default")
+        public static let secondary = Scale("secondary")
+    }
+
     public struct DateStyle: Sendable, Equatable, Hashable, Codable {
         fileprivate enum Kind: String, Sendable, Equatable, Hashable, Codable {
             case date
@@ -3307,6 +3318,7 @@ public struct Text: View {
     private var truncationMode: TruncationMode?
     private var letterSpacing: Double?
     private var lineSpacing: Double?
+    private var textScale: Scale?
     private var minimumScaleFactor: CGFloat?
     private var allowsTightening: Bool?
     private var textCase: Case??
@@ -3333,6 +3345,7 @@ public struct Text: View {
         self.truncationMode = nil
         self.letterSpacing = nil
         self.lineSpacing = nil
+        self.textScale = nil
         self.minimumScaleFactor = nil
         self.allowsTightening = nil
         self.textCase = nil
@@ -3360,6 +3373,7 @@ public struct Text: View {
         truncationMode: TruncationMode?,
         letterSpacing: Double?,
         lineSpacing: Double?,
+        textScale: Scale?,
         minimumScaleFactor: CGFloat?,
         allowsTightening: Bool?,
         textCase: Case??,
@@ -3385,6 +3399,7 @@ public struct Text: View {
         self.truncationMode = truncationMode
         self.letterSpacing = letterSpacing
         self.lineSpacing = lineSpacing
+        self.textScale = textScale
         self.minimumScaleFactor = minimumScaleFactor
         self.allowsTightening = allowsTightening
         self.textCase = textCase
@@ -3559,6 +3574,7 @@ public struct Text: View {
             truncationMode: lhs.truncationMode ?? rhs.truncationMode,
             letterSpacing: lhs.letterSpacing ?? rhs.letterSpacing,
             lineSpacing: lhs.lineSpacing ?? rhs.lineSpacing,
+            textScale: lhs.textScale ?? rhs.textScale,
             minimumScaleFactor: lhs.minimumScaleFactor ?? rhs.minimumScaleFactor,
             allowsTightening: lhs.allowsTightening ?? rhs.allowsTightening,
             textCase: lhs.textCase != nil ? lhs.textCase : rhs.textCase,
@@ -3591,7 +3607,9 @@ public struct Text: View {
         if let fontWidth {
             resolvedFont = resolvedFont.width(fontWidth ?? .standard)
         }
-        resolvedFont = resolvedFont.scaled(for: context.dynamicTypeSize)
+        resolvedFont = resolvedFont
+            .scaled(for: context.dynamicTypeSize)
+            .scaled(by: textScale ?? context.textScale)
         let resolvedAlignment = alignment ?? context.textAlignment
         let resolvedLineLimit: Int?
         if let lineLimit {
@@ -3874,6 +3892,16 @@ public struct Text: View {
     public func lineSpacing(_ lineSpacing: Double) -> Text {
         var copy = self
         copy.lineSpacing = lineSpacing
+        return copy
+    }
+
+    public func textScale(_ scale: Scale, isEnabled: Bool = true) -> Text {
+        guard isEnabled else {
+            return self
+        }
+
+        var copy = self
+        copy.textScale = scale
         return copy
     }
 
@@ -8095,6 +8123,7 @@ private func textInputComponent(
 
         let resolvedFont = (context.fontWeight.map { context.font.weight($0) } ?? context.font)
             .scaled(for: context.dynamicTypeSize)
+            .scaled(by: context.textScale)
 
         let labelNode = Controls.label(
             isShowingPlaceholder ? (resolvedPlaceholder ?? "") : displayText,

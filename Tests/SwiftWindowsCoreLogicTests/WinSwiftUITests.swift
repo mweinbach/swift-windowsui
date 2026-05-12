@@ -3000,6 +3000,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testTextScaleModifiersMapToRetainedTextSizing() async {
+        await MainActor.run {
+            var fieldValue = "VALUE"
+            let fieldBinding = Binding<String>(
+                get: { fieldValue },
+                set: { fieldValue = $0 }
+            )
+            let baseFont = Font.system(size: 20)
+            let expectedSecondarySize = 20 * Text.Scale.secondary.retainedMultiplier
+
+            let directNode = makeNode(
+                Text("SECONDARY")
+                    .font(baseFont)
+                    .textScale(.secondary)
+            )
+            let disabledNode = makeNode(
+                Text("DISABLED")
+                    .font(baseFont)
+                    .textScale(.secondary, isEnabled: false)
+            )
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("INHERITED")
+                        .font(baseFont)
+                    Text("RESET")
+                        .font(baseFont)
+                        .textScale(.default)
+                    TextField("FIELD", text: fieldBinding)
+                        .font(baseFont)
+                }
+                .textScale(.secondary)
+            )
+
+            XCTAssertEqual(directNode.textStyle.nativeFontSize, expectedSecondarySize)
+            XCTAssertEqual(directNode.textStyle.scale, expectedSecondarySize / 10)
+            XCTAssertEqual(disabledNode.textStyle.nativeFontSize, 20)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.nativeFontSize, expectedSecondarySize)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.nativeFontSize, 20)
+            XCTAssertEqual(inheritedNode.children[2].children[0].textStyle.nativeFontSize, expectedSecondarySize)
+        }
+    }
+
     func testFontLeadingMapsToRetainedLineSpacing() async {
         await MainActor.run {
             let tightNode = makeNode(

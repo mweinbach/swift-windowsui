@@ -2428,6 +2428,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var lineSpacing: Double?
     var letterSpacing: Double?
     var baselineOffset: CGFloat?
+    var textScale: Text.Scale?
     public var truncationMode: Text.TruncationMode?
     public var minimumScaleFactor: CGFloat
     public var allowsTightening: Bool
@@ -2562,6 +2563,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         lineSpacing: Double? = nil,
         letterSpacing: Double? = nil,
         baselineOffset: CGFloat? = nil,
+        textScale: Text.Scale? = nil,
         truncationMode: Text.TruncationMode? = nil,
         minimumScaleFactor: CGFloat = 1,
         allowsTightening: Bool = true,
@@ -2684,6 +2686,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.lineSpacing = lineSpacing
         self.letterSpacing = letterSpacing
         self.baselineOffset = baselineOffset
+        self.textScale = textScale
         self.truncationMode = truncationMode
         self.minimumScaleFactor = Self.clampedMinimumScaleFactor(minimumScaleFactor)
         self.allowsTightening = allowsTightening
@@ -4154,6 +4157,10 @@ public struct ViewBuildContext {
 
     var baselineOffset: CGFloat? {
         environmentValuesProvider().baselineOffset
+    }
+
+    var textScale: Text.Scale? {
+        environmentValuesProvider().textScale
     }
 
     public var truncationMode: Text.TruncationMode? {
@@ -9490,6 +9497,22 @@ extension Font {
         )
     }
 
+    func scaled(by textScale: Text.Scale?) -> Font {
+        Font(
+            size: size * (textScale?.retainedMultiplier ?? 1),
+            weight: weight,
+            design: design,
+            width: width,
+            family: family,
+            leading: leading,
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
+        )
+    }
+
     var resolvedScale: Double {
         size >= 8 ? size / 10.0 : size
     }
@@ -9537,6 +9560,12 @@ extension Font.Width {
         case .expanded:
             return .expanded
         }
+    }
+}
+
+extension Text.Scale {
+    var retainedMultiplier: Double {
+        self == .secondary ? 0.85 : 1
     }
 }
 
@@ -14375,6 +14404,13 @@ public extension View {
     func baselineOffset(_ baselineOffset: CGFloat) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.baselineOffset, baselineOffset))
+        }
+    }
+
+    func textScale(_ scale: Text.Scale, isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let resolvedContext = isEnabled ? context.withEnvironmentValue(\.textScale, scale) : context
+            return content.makeComponent(context: resolvedContext)
         }
     }
 

@@ -6567,6 +6567,12 @@ final class WinSwiftUITests: XCTestCase {
                         content.blur(radius: 2, opaque: true)
                     }
             )
+            let rotatedNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(.identity, axis: .horizontal) { content, _ in
+                        content.rotationEffect(.degrees(90), anchor: .topLeading)
+                    }
+            )
 
             XCTAssertEqual(
                 symmetricNode.scrollTransition,
@@ -6579,6 +6585,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 blurredNode.scrollTransition,
                 "symmetric,configuration:interactive,timingCurve:linear,axis:vertical,identityEffect:identity.blur(radius:2.0,opaque:true)"
+            )
+            XCTAssertEqual(
+                rotatedNode.scrollTransition,
+                "symmetric,configuration:identity,axis:horizontal,identityEffect:identity.rotationEffect(angle:1.5707963267948966,anchor:0.0,0.0)"
             )
             XCTAssertTrue(ScrollTransitionPhase.identity.isIdentity)
             XCTAssertEqual(ScrollTransitionPhase.topLeading.value, -1)

@@ -10575,6 +10575,12 @@ public extension VisualEffect {
     func blur(radius: Double, opaque: Bool = false) -> EmptyVisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)),opaque:\(opaque))")
     }
+
+    func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))"
+        )
+    }
 }
 
 public struct UnitCurve: Sendable, Equatable, Hashable, CustomStringConvertible {

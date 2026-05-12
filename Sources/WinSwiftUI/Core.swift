@@ -3056,6 +3056,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var horizontalScrollBounceBehavior: ScrollBounceBehavior
     public var verticalScrollBounceBehavior: ScrollBounceBehavior
     public var scrollTargetBehavior: AnyScrollTargetBehavior?
+    public var scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior]
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
@@ -3183,6 +3184,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         horizontalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
         verticalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
         scrollTargetBehavior: AnyScrollTargetBehavior? = nil,
+        scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior] = [:],
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
@@ -3330,6 +3332,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.horizontalScrollBounceBehavior = horizontalScrollBounceBehavior
         self.verticalScrollBounceBehavior = verticalScrollBounceBehavior
         self.scrollTargetBehavior = scrollTargetBehavior
+        self.scrollInputBehaviors = scrollInputBehaviors
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
@@ -4989,6 +4992,14 @@ public struct ViewBuildContext {
 
     public var scrollTargetBehavior: AnyScrollTargetBehavior? {
         environmentValuesProvider().scrollTargetBehavior
+    }
+
+    var retainedScrollInputBehaviors: [String: String] {
+        Dictionary(
+            uniqueKeysWithValues: environmentValuesProvider().scrollInputBehaviors.map { kind, behavior in
+                (kind.description, behavior.description)
+            }
+        )
     }
 
     func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
@@ -9900,6 +9911,80 @@ public extension ScrollTargetBehavior where Self == ViewAlignedScrollTargetBehav
         anchor: UnitPoint?
     ) -> ViewAlignedScrollTargetBehavior {
         ViewAlignedScrollTargetBehavior(limitBehavior: limitBehavior, anchor: anchor)
+    }
+}
+
+public struct ScrollInputBehavior: Sendable, Equatable, Hashable, CustomStringConvertible {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case enabled
+        case disabled
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ScrollInputBehavior(.automatic)
+    public static let enabled = ScrollInputBehavior(.enabled)
+    public static let disabled = ScrollInputBehavior(.disabled)
+
+    public var description: String {
+        switch kind {
+        case .automatic:
+            return "automatic"
+        case .enabled:
+            return "enabled"
+        case .disabled:
+            return "disabled"
+        }
+    }
+}
+
+public struct ScrollInputKind: Sendable, Equatable, Hashable, CustomStringConvertible {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case handGestureShortcut
+        case look(axesRawValue: Int?)
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let handGestureShortcut = ScrollInputKind(.handGestureShortcut)
+    public static let look = ScrollInputKind(.look(axesRawValue: nil))
+
+    public static func look(axes: Axis.Set) -> ScrollInputKind {
+        ScrollInputKind(.look(axesRawValue: axes.rawValue))
+    }
+
+    public var description: String {
+        switch kind {
+        case .handGestureShortcut:
+            return "handGestureShortcut"
+        case .look(nil):
+            return "look"
+        case let .look(.some(rawValue)):
+            return "look(\(axisSetDescription(rawValue: rawValue)))"
+        }
+    }
+
+    private func axisSetDescription(rawValue: Int) -> String {
+        let axes = Axis.Set(rawValue: rawValue)
+        if axes == .all {
+            return "all"
+        }
+        if axes == .horizontal {
+            return "horizontal"
+        }
+        if axes == .vertical {
+            return "vertical"
+        }
+        return "raw:\(rawValue)"
     }
 }
 
@@ -17011,6 +17096,16 @@ public extension View {
                 node.isScrollTargetLayout = isEnabled
                 return node
             }
+        }
+    }
+
+    func scrollInputBehavior(_ behavior: ScrollInputBehavior, for input: ScrollInputKind) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withTransformedEnvironmentValue(\.scrollInputBehaviors) { behaviors in
+                    behaviors[input] = behavior
+                }
+            )
         }
     }
 

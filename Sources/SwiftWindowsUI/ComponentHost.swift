@@ -175,6 +175,7 @@ public final class ComponentHost {
         if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior { target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior }
         if target.scrollTargetBehavior != source.scrollTargetBehavior { target.scrollTargetBehavior = source.scrollTargetBehavior }
         if target.isScrollTargetLayout != source.isScrollTargetLayout { target.isScrollTargetLayout = source.isScrollTargetLayout }
+        if target.scrollInputBehaviors != source.scrollInputBehaviors { target.scrollInputBehaviors = source.scrollInputBehaviors }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

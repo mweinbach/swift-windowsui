@@ -5957,6 +5957,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollInputBehaviorPropagatesToRetainedScrollContainers() async {
+        await MainActor.run {
+            let scrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollInputBehavior(.disabled, for: .handGestureShortcut)
+                .scrollInputBehavior(.enabled, for: .look(axes: .horizontal))
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollInputBehavior(.disabled, for: .look)
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollInputBehavior(.enabled, for: .look(axes: .vertical))
+            )
+            let disabledScrollNode = makeNode(
+                ScrollView {
+                    Text("LOCKED")
+                }
+                .scrollInputBehavior(.enabled, for: .handGestureShortcut)
+                .scrollDisabled()
+            )
+
+            XCTAssertEqual(
+                scrollViewNode.scrollInputBehaviors,
+                ["handGestureShortcut": "disabled", "look(horizontal)": "enabled"]
+            )
+            XCTAssertEqual(listNode.scrollInputBehaviors, ["look": "disabled"])
+            XCTAssertEqual(sectionNode.scrollInputBehaviors, ["look(vertical)": "enabled"])
+            XCTAssertEqual(disabledScrollNode.scrollInputBehaviors, ["handGestureShortcut": "enabled"])
+            XCTAssertNil(disabledScrollNode.scrollAxis)
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

@@ -5755,6 +5755,7 @@ public struct ScrollView: View {
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollTargetBehavior = context.scrollTargetBehavior?.description
+            node.scrollInputBehaviors = context.retainedScrollInputBehaviors
             if !context.isScrollEnabled {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
@@ -5997,6 +5998,7 @@ public struct List: View {
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollTargetBehavior = context.scrollTargetBehavior?.description
+            node.scrollInputBehaviors = context.retainedScrollInputBehaviors
             node.scrollIndicatorInsets = context.contentInsets(
                 for: .scrollIndicators,
                 defaultInsets: defaultRetainedScrollIndicatorInsets
@@ -6503,6 +6505,7 @@ public struct Section: View {
                 node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
                 node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
                 node.scrollTargetBehavior = context.scrollTargetBehavior?.description
+                node.scrollInputBehaviors = context.retainedScrollInputBehaviors
                 node.scrollIndicatorInsets = context.contentInsets(
                     for: .scrollIndicators,
                     defaultInsets: defaultRetainedScrollIndicatorInsets

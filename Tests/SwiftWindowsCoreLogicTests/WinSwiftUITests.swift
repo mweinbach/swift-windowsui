@@ -10338,6 +10338,88 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSceneStorageStringRawRepresentablePersistsRawValues() async {
+        await MainActor.run {
+            enum Mode: String {
+                case compact
+                case expanded
+            }
+
+            struct SceneStorageEnumView: View {
+                @SceneStorage private var mode: Mode
+
+                init(key: String) {
+                    _mode = SceneStorage(wrappedValue: .compact, key)
+                }
+
+                var body: some View {
+                    Button(mode == .expanded ? "EXPANDED" : "COMPACT") {
+                        mode = .expanded
+                    }
+                }
+            }
+
+            let key = "WinSwiftUITests.SceneStorageRawString.\(UUID().uuidString)"
+            let rawStorage = SceneStorage(wrappedValue: "", key)
+
+            rawStorage.wrappedValue = "expanded"
+            let expandedNode = makeNode(SceneStorageEnumView(key: key))
+
+            XCTAssertTrue(allTexts(in: expandedNode).contains("EXPANDED"))
+
+            rawStorage.wrappedValue = "unknown"
+            let defaultNode = makeNode(SceneStorageEnumView(key: key))
+
+            XCTAssertTrue(allTexts(in: defaultNode).contains("COMPACT"))
+
+            defaultNode.onActivate?()
+
+            XCTAssertEqual(rawStorage.wrappedValue, "expanded")
+        }
+    }
+
+    func testSceneStorageIntRawRepresentableFeedsRetainedControls() async {
+        await MainActor.run {
+            enum Level: Int {
+                case low = 1
+                case high = 2
+            }
+
+            struct SceneStorageIntEnumView: View {
+                @SceneStorage private var level: Level
+
+                init(key: String) {
+                    _level = SceneStorage(wrappedValue: .low, key)
+                }
+
+                var body: some View {
+                    VStack {
+                        Toggle("HIGH", isOn: Binding(
+                            get: { level == .high },
+                            set: { level = $0 ? .high : .low }
+                        ))
+                        Text(level == .high ? "HIGH VALUE" : "LOW VALUE")
+                    }
+                }
+            }
+
+            let key = "WinSwiftUITests.SceneStorageRawInt.\(UUID().uuidString)"
+            let rawStorage = SceneStorage(wrappedValue: 1, key)
+
+            rawStorage.wrappedValue = 1
+            let node = makeNode(SceneStorageIntEnumView(key: key))
+
+            firstFocusable(in: node)?.onActivate?()
+
+            XCTAssertEqual(rawStorage.wrappedValue, 2)
+
+            rawStorage.wrappedValue = 99
+            let fallbackNode = makeNode(SceneStorageIntEnumView(key: key))
+
+            XCTAssertTrue(allTexts(in: fallbackNode).contains("LOW VALUE"))
+        }
+    }
+
     func testPickerTaggedContentWritesSelectionAndInvalidates() async {
         await MainActor.run {
             var selection = "compact"

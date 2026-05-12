@@ -2823,21 +2823,38 @@ public struct SceneStorage<Value>: DynamicProperty {
     private final class Storage {
         let key: String
         let defaultValue: Value
+        let readValue: @MainActor (String, Value) -> Value
+        let writeValue: @MainActor (String, Value) -> Void
         var invalidate: (@MainActor () -> Void)?
 
-        init(key: String, defaultValue: Value) {
+        init(
+            key: String,
+            defaultValue: Value,
+            readValue: @escaping @MainActor (String, Value) -> Value = Storage.defaultReadValue,
+            writeValue: @escaping @MainActor (String, Value) -> Void = Storage.defaultWriteValue
+        ) {
             self.key = key
             self.defaultValue = defaultValue
+            self.readValue = readValue
+            self.writeValue = writeValue
         }
 
         var value: Value {
             get {
-                SceneStorageCenter.shared.value(for: key, default: defaultValue)
+                readValue(key, defaultValue)
             }
             set {
-                SceneStorageCenter.shared.setValue(newValue, for: key)
+                writeValue(key, newValue)
                 invalidate?()
             }
+        }
+
+        private static func defaultReadValue(key: String, defaultValue: Value) -> Value {
+            SceneStorageCenter.shared.value(for: key, default: defaultValue)
+        }
+
+        private static func defaultWriteValue(key: String, value: Value) {
+            SceneStorageCenter.shared.setValue(value, for: key)
         }
     }
 
@@ -2845,6 +2862,34 @@ public struct SceneStorage<Value>: DynamicProperty {
 
     public init(wrappedValue: Value, _ key: String) {
         self.storage = Storage(key: key, defaultValue: wrappedValue)
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value: RawRepresentable, Value.RawValue == String {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                let rawValue: String = SceneStorageCenter.shared.value(for: key, default: defaultValue.rawValue)
+                return Value(rawValue: rawValue) ?? defaultValue
+            },
+            writeValue: { key, value in
+                SceneStorageCenter.shared.setValue(value.rawValue, for: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String) where Value: RawRepresentable, Value.RawValue == Int {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                let rawValue: Int = SceneStorageCenter.shared.value(for: key, default: defaultValue.rawValue)
+                return Value(rawValue: rawValue) ?? defaultValue
+            },
+            writeValue: { key, value in
+                SceneStorageCenter.shared.setValue(value.rawValue, for: key)
+            }
+        )
     }
 
     public init(_ key: String) where Value == Bool {

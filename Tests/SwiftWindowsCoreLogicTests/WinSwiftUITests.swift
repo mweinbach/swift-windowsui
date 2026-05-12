@@ -5478,6 +5478,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testLayoutAdaptersMapToRetainedStackNodes() async {
+        await MainActor.run {
+            let verticalProperties = VStackLayout.layoutProperties
+            let horizontalProperties = HStackLayout.layoutProperties
+            let zProperties = ZStackLayout.layoutProperties
+            let spacingA = ViewSpacing(horizontal: 3, vertical: 8)
+            let spacingB = ViewSpacing(horizontal: 5, vertical: 2)
+            let hStackLayout = HStackLayout(alignment: .bottom, spacing: 6)
+            let vStackLayout = VStackLayout(alignment: .trailing, spacing: 7)
+            let zStackLayout = ZStackLayout(alignment: .bottomTrailing)
+            let anyLayout = AnyLayout(hStackLayout)
+
+            let hStackNode = makeNode(
+                hStackLayout.callAsFunction {
+                    Text("A")
+                    Text("B")
+                }
+            )
+            let vStackNode = makeNode(
+                vStackLayout.callAsFunction {
+                    Text("A")
+                    Text("B")
+                }
+            )
+            let zStackNode = makeNode(
+                zStackLayout.callAsFunction {
+                    Text("A")
+                    Text("B")
+                }
+            )
+            let anyLayoutNode = makeNode(
+                anyLayout.callAsFunction {
+                    Text("A")
+                    Text("B")
+                }
+            )
+
+            guard case .stack(let hStack) = hStackNode.layoutMode else {
+                return XCTFail("Expected HStackLayout to use retained horizontal stack layout")
+            }
+            guard case .stack(let vStack) = vStackNode.layoutMode else {
+                return XCTFail("Expected VStackLayout to use retained vertical stack layout")
+            }
+            guard case .stack(let anyStack) = anyLayoutNode.layoutMode else {
+                return XCTFail("Expected AnyLayout(HStackLayout) to use retained horizontal stack layout")
+            }
+            guard case .absolute = zStackNode.layoutMode else {
+                return XCTFail("Expected ZStackLayout to use retained absolute layout")
+            }
+
+            XCTAssertEqual(verticalProperties.stackOrientation, .vertical)
+            XCTAssertEqual(horizontalProperties.stackOrientation, .horizontal)
+            XCTAssertNil(zProperties.stackOrientation)
+            XCTAssertEqual(spacingA.distance(to: spacingB, along: .horizontal), 5)
+            XCTAssertEqual(spacingA.distance(to: spacingB, along: .vertical), 8)
+            XCTAssertEqual(hStack, .horizontal(spacing: 6, alignment: .trailing))
+            XCTAssertEqual(vStack, .vertical(spacing: 7, alignment: .trailing))
+            XCTAssertEqual(anyStack, .horizontal(spacing: 6, alignment: .trailing))
+            XCTAssertEqual(zStackNode.children.count, 2)
+        }
+    }
+
     func testSpacerMinLengthAppliesOnlyAlongStackAxis() async {
         await MainActor.run {
             let verticalStack = makeNode(

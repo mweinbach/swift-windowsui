@@ -700,6 +700,33 @@ public struct ProposedViewSize: Sendable, Equatable {
     public static let infinity = ProposedViewSize(width: .infinity, height: .infinity)
 }
 
+public struct ViewSpacing: Sendable, Equatable {
+    private var horizontal: CGFloat
+    private var vertical: CGFloat
+
+    public init(horizontal: CGFloat = 0, vertical: CGFloat = 0) {
+        self.horizontal = horizontal
+        self.vertical = vertical
+    }
+
+    public func distance(to next: ViewSpacing, along axis: Axis) -> CGFloat {
+        switch axis {
+        case .horizontal:
+            return max(horizontal, next.horizontal)
+        case .vertical:
+            return max(vertical, next.vertical)
+        }
+    }
+}
+
+public struct LayoutProperties: Sendable, Equatable {
+    public var stackOrientation: Axis?
+
+    public init() {
+        stackOrientation = nil
+    }
+}
+
 public struct TextProxy: Sendable {
     public init() {}
 

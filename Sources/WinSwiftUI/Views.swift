@@ -5428,6 +5428,119 @@ public struct HStack: View {
 }
 
 @MainActor
+public struct VStackLayout {
+    public var alignment: HorizontalAlignment
+    public var spacing: Double?
+
+    public init(alignment: HorizontalAlignment = .center, spacing: Double? = nil) {
+        self.alignment = alignment
+        self.spacing = spacing
+    }
+
+    public static var layoutProperties: LayoutProperties {
+        var properties = LayoutProperties()
+        properties.stackOrientation = .vertical
+        return properties
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        VStack(alignment: alignment, spacing: spacing, content: content)
+    }
+}
+
+@MainActor
+public struct HStackLayout {
+    public var alignment: VerticalAlignment
+    public var spacing: Double?
+
+    public init(alignment: VerticalAlignment = .center, spacing: Double? = nil) {
+        self.alignment = alignment
+        self.spacing = spacing
+    }
+
+    public static var layoutProperties: LayoutProperties {
+        var properties = LayoutProperties()
+        properties.stackOrientation = .horizontal
+        return properties
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        HStack(alignment: alignment, spacing: spacing, content: content)
+    }
+}
+
+@MainActor
+public struct ZStackLayout {
+    public var alignment: Alignment
+
+    public init(alignment: Alignment = .center) {
+        self.alignment = alignment
+    }
+
+    public static var layoutProperties: LayoutProperties {
+        LayoutProperties()
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        ZStack(alignment: alignment, content: content)
+    }
+}
+
+@MainActor
+public struct AnyLayout {
+    private enum Storage {
+        case horizontal(HStackLayout)
+        case vertical(VStackLayout)
+        case zStack(ZStackLayout)
+    }
+
+    private let storage: Storage
+
+    public init(_ layout: HStackLayout) {
+        storage = .horizontal(layout)
+    }
+
+    public init(_ layout: VStackLayout) {
+        storage = .vertical(layout)
+    }
+
+    public init(_ layout: ZStackLayout) {
+        storage = .zStack(layout)
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        AnyLayoutView(layout: self, content: content())
+    }
+
+    fileprivate func makeView(content: [AnyView]) -> AnyView {
+        switch storage {
+        case .horizontal(let layout):
+            return AnyView(HStack(alignment: layout.alignment, spacing: layout.spacing) { content })
+        case .vertical(let layout):
+            return AnyView(VStack(alignment: layout.alignment, spacing: layout.spacing) { content })
+        case .zStack(let layout):
+            return AnyView(ZStack(alignment: layout.alignment) { content })
+        }
+    }
+}
+
+@MainActor
+private struct AnyLayoutView: View {
+    typealias Body = Never
+
+    let layout: AnyLayout
+    let content: [AnyView]
+
+    var body: Never {
+        fatalError("AnyLayoutView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        layout.makeView(content: content).makeComponent(context: context)
+    }
+}
+
+@MainActor
 public struct LazyVStack: View {
     public typealias Body = Never
 

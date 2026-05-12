@@ -3500,6 +3500,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testMaterialShapeStyleDegradesToRetainedTranslucentFill() async {
+        await MainActor.run {
+            XCTAssertEqual(Material.ultraThin.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.18))
+            XCTAssertEqual(Material.thin.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.28))
+            XCTAssertEqual(Material.regular.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.40))
+            XCTAssertEqual(Material.thick.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.58))
+            XCTAssertEqual(Material.ultraThick.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.72))
+            XCTAssertEqual(Material.bar.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.64))
+            XCTAssertEqual(ForegroundStyle(Material.regular), .color(Material.regular.retainedFallbackColor))
+
+            let backgroundNode = makeNode(Text("MATERIAL").background(.regularMaterial))
+            let overlayNode = renderedNode(
+                Text("BAR")
+                    .frame(width: 72, height: 28)
+                    .overlay(.bar, alignment: .topLeading)
+            )
+            let filledShapeNode = makeNode(RoundedRectangle(cornerRadius: 6).fill(.thinMaterial))
+            let strokedShapeNode = makeNode(Capsule().strokeBorder(.ultraThickMaterial, lineWidth: 3))
+            let foregroundNode = makeNode(Text("FOREGROUND").foregroundStyle(.thickMaterial))
+
+            XCTAssertEqual(backgroundNode.backgroundColor, Material.regular.retainedFallbackColor)
+            XCTAssertEqual(firstText(in: backgroundNode.children[0]), "MATERIAL")
+            XCTAssertEqual(overlayNode.children[1].backgroundColor, Material.bar.retainedFallbackColor)
+            XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
+            XCTAssertEqual(filledShapeNode.backgroundColor, Material.thin.retainedFallbackColor)
+            XCTAssertEqual(strokedShapeNode.borderColor, Material.ultraThick.retainedFallbackColor)
+            XCTAssertEqual(strokedShapeNode.borderWidth, 3)
+            XCTAssertEqual(foregroundNode.textStyle.color, Material.thick.retainedFallbackColor)
+        }
+    }
+
     func testCustomViewModifierMapsThroughRetainedComponentPipeline() async {
         await MainActor.run {
             let node = makeNode(

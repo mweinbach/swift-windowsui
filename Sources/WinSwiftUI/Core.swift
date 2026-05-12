@@ -8391,6 +8391,60 @@ extension SwiftWindowsGraphics.LinearGradient: ShapeStyle {
     }
 }
 
+public struct Material: ShapeStyle, Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case ultraThin
+        case thin
+        case regular
+        case thick
+        case ultraThick
+        case bar
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let ultraThin = Material(kind: .ultraThin)
+    public static let thin = Material(kind: .thin)
+    public static let regular = Material(kind: .regular)
+    public static let thick = Material(kind: .thick)
+    public static let ultraThick = Material(kind: .ultraThick)
+    public static let bar = Material(kind: .bar)
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        switch kind {
+        case .ultraThin:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.18)
+        case .thin:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.28)
+        case .regular:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.40)
+        case .thick:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.58)
+        case .ultraThick:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.72)
+        case .bar:
+            return Color(red: 1, green: 1, blue: 1, alpha: 0.64)
+        }
+    }
+}
+
+public extension ShapeStyle where Self == Material {
+    static var ultraThinMaterial: Material { .ultraThin }
+    static var thinMaterial: Material { .thin }
+    static var regularMaterial: Material { .regular }
+    static var thickMaterial: Material { .thick }
+    static var ultraThickMaterial: Material { .ultraThick }
+    static var bar: Material { .bar }
+}
+
 public struct SymbolRenderingMode: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case monochrome

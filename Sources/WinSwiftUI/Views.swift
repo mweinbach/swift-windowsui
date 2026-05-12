@@ -375,6 +375,181 @@ public struct RoundedRectangle: View {
     }
 }
 
+public struct RectangleCornerRadii: Sendable, Equatable {
+    public var topLeading: CGFloat
+    public var bottomLeading: CGFloat
+    public var bottomTrailing: CGFloat
+    public var topTrailing: CGFloat
+
+    public init(
+        topLeading: CGFloat = 0,
+        bottomLeading: CGFloat = 0,
+        bottomTrailing: CGFloat = 0,
+        topTrailing: CGFloat = 0
+    ) {
+        self.topLeading = max(0, topLeading)
+        self.bottomLeading = max(0, bottomLeading)
+        self.bottomTrailing = max(0, bottomTrailing)
+        self.topTrailing = max(0, topTrailing)
+    }
+
+    var retainedUniformFallbackRadius: CGFloat {
+        max(topLeading, bottomLeading, bottomTrailing, topTrailing)
+    }
+}
+
+@MainActor
+public struct UnevenRoundedRectangle: View {
+    public typealias Body = Never
+
+    public let cornerRadii: RectangleCornerRadii
+    public let style: RoundedCornerStyle
+
+    private var fillStyle: ForegroundStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init(
+        cornerRadii: RectangleCornerRadii,
+        style: RoundedCornerStyle = .continuous
+    ) {
+        self.cornerRadii = cornerRadii
+        self.style = style
+        self.fillStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public init(
+        topLeadingRadius: CGFloat = 0,
+        bottomLeadingRadius: CGFloat = 0,
+        bottomTrailingRadius: CGFloat = 0,
+        topTrailingRadius: CGFloat = 0,
+        style: RoundedCornerStyle = .continuous
+    ) {
+        self.init(
+            cornerRadii: RectangleCornerRadii(
+                topLeading: topLeadingRadius,
+                bottomLeading: bottomLeadingRadius,
+                bottomTrailing: bottomTrailingRadius,
+                topTrailing: topTrailingRadius
+            ),
+            style: style
+        )
+    }
+
+    public var body: Never {
+        fatalError("UnevenRoundedRectangle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        shapeComponent(
+            fillStyle: fillStyle ?? context.foregroundStyle,
+            strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
+            lineWidth: lineWidth,
+            strokeLineStyle: strokeLineStyle,
+            cornerRadius: cornerRadii.retainedUniformFallbackRadius
+        )
+    }
+
+    public func fill(_ color: Color) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> UnevenRoundedRectangle {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> UnevenRoundedRectangle {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> UnevenRoundedRectangle {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> UnevenRoundedRectangle {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> UnevenRoundedRectangle {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> UnevenRoundedRectangle {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> UnevenRoundedRectangle {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> UnevenRoundedRectangle {
+        stroke(gradient, style: style)
+    }
+}
+
 @MainActor
 public struct Capsule: View {
     public typealias Body = Never
@@ -886,6 +1061,12 @@ extension Rectangle: Shape, RetainedClipShape {
 extension RoundedRectangle: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadius)
+    }
+}
+
+extension UnevenRoundedRectangle: Shape, RetainedClipShape {
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        .roundedRectangle(cornerRadii.retainedUniformFallbackRadius)
     }
 }
 

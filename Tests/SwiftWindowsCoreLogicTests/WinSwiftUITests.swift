@@ -2151,6 +2151,55 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testUnevenRoundedRectangleMapsToRetainedRoundedFallback() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.3, green: 0.7, blue: 0.9, alpha: 1)
+            let strokeColor = Color(red: 0.9, green: 0.4, blue: 0.2, alpha: 1)
+            let radii = RectangleCornerRadii(
+                topLeading: 4,
+                bottomLeading: 10,
+                bottomTrailing: 16,
+                topTrailing: 6
+            )
+            let filledNode = makeNode(
+                UnevenRoundedRectangle(cornerRadii: radii, style: .continuous)
+                    .fill(fillColor)
+            )
+            let strokedNode = makeNode(
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 3,
+                    bottomLeadingRadius: 12,
+                    bottomTrailingRadius: 5,
+                    topTrailingRadius: 9,
+                    style: .circular
+                )
+                .strokeBorder(strokeColor, style: StrokeStyle(lineWidth: 2, dashPattern: [2, 2]))
+            )
+
+            XCTAssertEqual(filledNode.backgroundColor, fillColor)
+            XCTAssertEqual(filledNode.cornerRadius, 16)
+            XCTAssertEqual(strokedNode.backgroundColor, .clear)
+            XCTAssertEqual(strokedNode.borderColor, strokeColor)
+            XCTAssertEqual(strokedNode.borderWidth, 2)
+            XCTAssertEqual(strokedNode.borderStrokeStyle?.dashPattern, [2, 2])
+            XCTAssertEqual(strokedNode.cornerRadius, 12)
+
+            let clippedNode = makeNode(Text("CLIP").clipShape(UnevenRoundedRectangle(cornerRadii: radii)))
+            XCTAssertTrue(clippedNode.clipsToBounds)
+            XCTAssertEqual(clippedNode.cornerRadius, 16)
+
+            let contentShapeNode = makeNode(Text("HIT").contentShape(UnevenRoundedRectangle(cornerRadii: radii)))
+            XCTAssertEqual(
+                contentShapeNode.contentShapes.first,
+                RetainedContentShape(
+                    kinds: .interaction,
+                    style: .roundedRectangle(16),
+                    eoFill: false
+                )
+            )
+        }
+    }
+
     func testShapeStrokeStyleOverloadsMapToRetainedBorders() async {
         await MainActor.run {
             let inheritedColor = Color(red: 0.7, green: 0.4, blue: 0.9, alpha: 1)

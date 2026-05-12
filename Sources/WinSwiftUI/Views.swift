@@ -1220,43 +1220,257 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     }
 }
 
-extension Rectangle: Shape, RetainedClipShape {
+@MainActor
+public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedContentShapeProvider {
+    public typealias Body = Never
+
+    private let content: Content
+    private let buildComponent: (ViewBuildContext) -> Component
+    private let amount: Double
+    private let clipShapeStyle: RetainedClipShapeStyle
+    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private var fillStyle: ForegroundStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init(_ content: Content, amount: CGFloat) {
+        self.content = content
+        self.buildComponent = { context in
+            ViewBuildContextScope.withCurrent(context) {
+                content.makeComponent(context: context)
+            }
+        }
+        self.amount = amount
+        self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: content)
+        self.fillStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public var body: Never {
+        fatalError("InsetShape has no body")
+    }
+
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        adjustedClipShapeStyle
+    }
+
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        adjustedContentShapeStyle
+    }
+
+    private var adjustedClipShapeStyle: RetainedClipShapeStyle {
+        switch clipShapeStyle {
+        case .roundedRectangle(let radius):
+            return .roundedRectangle(max(0, radius - amount))
+        case .rectangle, .capsule:
+            return clipShapeStyle
+        }
+    }
+
+    private var adjustedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        switch contentShapeStyle {
+        case .roundedRectangle(let radius):
+            return .roundedRectangle(max(0, radius - amount))
+        case .rectangle, .capsule, .ellipse:
+            return contentShapeStyle
+        }
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let renderedComponent: Component
+        if fillStyle == nil && strokeStyle == nil && strokeLineStyle == nil && lineWidth <= 0 {
+            renderedComponent = buildComponent(context)
+        } else {
+            let fill = fillStyle ?? context.foregroundStyle
+            let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
+            switch adjustedClipShapeStyle {
+            case .capsule:
+                renderedComponent = capsuleComponent(
+                    fillStyle: fill,
+                    strokeStyle: stroke,
+                    lineWidth: lineWidth,
+                    strokeLineStyle: strokeLineStyle
+                )
+            case .rectangle:
+                renderedComponent = shapeComponent(
+                    fillStyle: fill,
+                    strokeStyle: stroke,
+                    lineWidth: lineWidth,
+                    strokeLineStyle: strokeLineStyle,
+                    cornerRadius: 0
+                )
+            case .roundedRectangle(let radius):
+                renderedComponent = shapeComponent(
+                    fillStyle: fill,
+                    strokeStyle: stroke,
+                    lineWidth: lineWidth,
+                    strokeLineStyle: strokeLineStyle,
+                    cornerRadius: radius
+                )
+            }
+        }
+
+        guard amount != 0 else {
+            return renderedComponent
+        }
+
+        return Component { runtime in
+            let childNode = renderedComponent.makeNode(runtime: runtime)
+            return Controls.stackPanel(
+                stackLayout: .vertical(padding: EdgeInsets.all(amount), alignment: .stretch),
+                isHitTestVisible: false,
+                children: [childNode]
+            )
+        }
+    }
+
+    public func inset(by amount: CGFloat) -> InsetShape<Content> {
+        InsetShape(content, amount: self.amount + amount)
+    }
+
+    public func fill(_ color: Color) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> InsetShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> InsetShape<Content> {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> InsetShape<Content> {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> InsetShape<Content> {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> InsetShape<Content> {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> InsetShape<Content> {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> InsetShape<Content> {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> InsetShape<Content> {
+        stroke(gradient, style: style)
+    }
+}
+
+public extension InsettableShape {
+    func inset(by amount: CGFloat) -> InsetShape<Self> {
+        InsetShape(self, amount: amount)
+    }
+}
+
+extension Rectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle
     }
 }
 
-extension RoundedRectangle: Shape, RetainedClipShape {
+extension RoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadius)
     }
 }
 
-extension UnevenRoundedRectangle: Shape, RetainedClipShape {
+extension UnevenRoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadii.retainedUniformFallbackRadius)
     }
 }
 
-extension Capsule: Shape, RetainedClipShape {
+extension Capsule: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
 
-extension Circle: Shape, RetainedClipShape {
+extension Circle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
 
-extension Ellipse: Shape, RetainedClipShape {
+extension Ellipse: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
 
-extension ContainerRelativeShape: Shape, RetainedClipShape {
+extension ContainerRelativeShape: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }

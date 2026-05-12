@@ -2469,6 +2469,66 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testInsettableShapeMapsInsetToRetainedPaddingAndShapeFallback() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.2, green: 0.6, blue: 0.8, alpha: 1)
+            let strokeColor = Color(red: 0.8, green: 0.3, blue: 0.2, alpha: 1)
+
+            let filledNode = makeNode(
+                RoundedRectangle(cornerRadius: 12)
+                    .inset(by: 4)
+                    .fill(fillColor)
+            )
+            guard case .stack(let filledLayout) = filledNode.layoutMode else {
+                return XCTFail("Expected inset shape to wrap retained shape in a padded stack")
+            }
+            XCTAssertEqual(filledLayout, .vertical(padding: .all(4), alignment: .stretch))
+            XCTAssertEqual(filledNode.children[0].backgroundColor, fillColor)
+            XCTAssertEqual(filledNode.children[0].cornerRadius, 8)
+
+            let nestedNode = makeNode(
+                Rectangle()
+                    .inset(by: 2)
+                    .inset(by: 3)
+                    .fill(fillColor)
+            )
+            guard case .stack(let nestedLayout) = nestedNode.layoutMode else {
+                return XCTFail("Expected nested inset shape to accumulate retained padding")
+            }
+            XCTAssertEqual(nestedLayout, .vertical(padding: .all(5), alignment: .stretch))
+            XCTAssertEqual(nestedNode.children[0].backgroundColor, fillColor)
+
+            let strokedNode = makeNode(
+                Capsule()
+                    .inset(by: 5)
+                    .strokeBorder(strokeColor, style: StrokeStyle(lineWidth: 3, dashPattern: [4, 2]))
+            )
+            guard case .stack(let strokedLayout) = strokedNode.layoutMode else {
+                return XCTFail("Expected stroked inset shape to wrap retained shape in a padded stack")
+            }
+            let retainedStrokeNode = strokedNode.children[0]
+            XCTAssertEqual(strokedLayout, .vertical(padding: .all(5), alignment: .stretch))
+            XCTAssertEqual(retainedStrokeNode.backgroundColor, .clear)
+            XCTAssertEqual(retainedStrokeNode.borderColor, strokeColor)
+            XCTAssertEqual(retainedStrokeNode.borderWidth, 3)
+            XCTAssertEqual(retainedStrokeNode.borderStrokeStyle?.dashPattern, [4, 2])
+            retainedStrokeNode.onLayout?(Rect(x: 0, y: 0, width: 50, height: 20))
+            XCTAssertEqual(retainedStrokeNode.cornerRadius, 10)
+
+            let contentShapeNode = makeNode(
+                Text("HIT").contentShape(RoundedRectangle(cornerRadius: 10).inset(by: 3))
+            )
+            XCTAssertEqual(
+                contentShapeNode.contentShapes.first,
+                RetainedContentShape(
+                    kinds: .interaction,
+                    style: .roundedRectangle(7),
+                    eoFill: false
+                )
+            )
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(

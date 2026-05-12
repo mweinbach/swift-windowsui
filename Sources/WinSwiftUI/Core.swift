@@ -5416,6 +5416,9 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
 @MainActor
 public protocol Shape: View {}
 
+@MainActor
+public protocol InsettableShape: Shape {}
+
 public extension Shape {
     var body: Never {
         fatalError("Shape body is not materialized by WinSwiftUI")

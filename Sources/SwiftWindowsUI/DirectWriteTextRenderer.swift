@@ -1661,6 +1661,12 @@ private extension PixelTextStyle {
         if monospacedDigits {
             features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagTabularFigures, parameter: 1))
         }
+        if lowercaseSmallCaps {
+            features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagSmallCapitals, parameter: 1))
+        }
+        if uppercaseSmallCaps {
+            features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagCapitalsToSmallCapitals, parameter: 1))
+        }
         return features
     }
 }

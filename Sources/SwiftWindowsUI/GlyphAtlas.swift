@@ -13,6 +13,8 @@ public struct GlyphKey: Hashable, Sendable {
     public var fontWidth: GlyphWidth
     public var isItalic: Bool
     public var monospacedDigits: Bool
+    public var lowercaseSmallCaps: Bool
+    public var uppercaseSmallCaps: Bool
 
     public init(
         character: Character,
@@ -21,7 +23,9 @@ public struct GlyphKey: Hashable, Sendable {
         weight: GlyphWeight,
         fontWidth: GlyphWidth = .standard,
         isItalic: Bool = false,
-        monospacedDigits: Bool = false
+        monospacedDigits: Bool = false,
+        lowercaseSmallCaps: Bool = false,
+        uppercaseSmallCaps: Bool = false
     ) {
         self.character = character
         self.glyphID = nil
@@ -32,6 +36,8 @@ public struct GlyphKey: Hashable, Sendable {
         self.fontWidth = fontWidth
         self.isItalic = isItalic
         self.monospacedDigits = monospacedDigits
+        self.lowercaseSmallCaps = lowercaseSmallCaps
+        self.uppercaseSmallCaps = uppercaseSmallCaps
     }
 
     public init(
@@ -43,7 +49,9 @@ public struct GlyphKey: Hashable, Sendable {
         weight: GlyphWeight,
         fontWidth: GlyphWidth = .standard,
         isItalic: Bool = false,
-        monospacedDigits: Bool = false
+        monospacedDigits: Bool = false,
+        lowercaseSmallCaps: Bool = false,
+        uppercaseSmallCaps: Bool = false
     ) {
         self.character = character
         self.glyphID = glyphID
@@ -54,6 +62,8 @@ public struct GlyphKey: Hashable, Sendable {
         self.fontWidth = fontWidth
         self.isItalic = isItalic
         self.monospacedDigits = monospacedDigits
+        self.lowercaseSmallCaps = lowercaseSmallCaps
+        self.uppercaseSmallCaps = uppercaseSmallCaps
     }
 
     public enum GlyphWeight: Hashable, Sendable {

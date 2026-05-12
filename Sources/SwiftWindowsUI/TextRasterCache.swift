@@ -11,6 +11,8 @@ struct TextRasterCacheKey: Hashable, Sendable {
     var fontWidth: TextFontWidth
     var isItalic: Bool
     var monospacedDigits: Bool
+    var lowercaseSmallCaps: Bool
+    var uppercaseSmallCaps: Bool
     var alignment: TextHorizontalAlignment
     var verticalAlignment: TextVerticalAlignment
     var lineSpacing: Double
@@ -53,6 +55,8 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.fontWidth = style.fontWidth
         self.isItalic = style.isItalic
         self.monospacedDigits = style.monospacedDigits
+        self.lowercaseSmallCaps = style.lowercaseSmallCaps
+        self.uppercaseSmallCaps = style.uppercaseSmallCaps
         self.alignment = style.alignment
         self.verticalAlignment = style.verticalAlignment
         self.lineSpacing = style.lineSpacing

@@ -7381,6 +7381,10 @@ public struct Font: Sendable, Equatable {
     public var family: String?
     public var leading: Leading
     public var scalesWithDynamicType: Bool
+    public var isItalic: Bool
+    public var usesMonospacedDigits: Bool
+    public var usesLowercaseSmallCaps: Bool
+    public var usesUppercaseSmallCaps: Bool
 
     public init(
         size: Double,
@@ -7389,7 +7393,11 @@ public struct Font: Sendable, Equatable {
         width: Width = .standard,
         family: String? = nil,
         leading: Leading = .standard,
-        scalesWithDynamicType: Bool = true
+        scalesWithDynamicType: Bool = true,
+        isItalic: Bool = false,
+        usesMonospacedDigits: Bool = false,
+        usesLowercaseSmallCaps: Bool = false,
+        usesUppercaseSmallCaps: Bool = false
     ) {
         self.size = size
         self.weight = weight
@@ -7398,6 +7406,10 @@ public struct Font: Sendable, Equatable {
         self.family = family
         self.leading = leading
         self.scalesWithDynamicType = scalesWithDynamicType
+        self.isItalic = isItalic
+        self.usesMonospacedDigits = usesMonospacedDigits
+        self.usesLowercaseSmallCaps = usesLowercaseSmallCaps
+        self.usesUppercaseSmallCaps = usesUppercaseSmallCaps
     }
 
     public static func system(size: Double, weight: Weight = .regular, design: Design = .default) -> Font {
@@ -7413,7 +7425,11 @@ public struct Font: Sendable, Equatable {
             width: font.width,
             family: font.family,
             leading: font.leading,
-            scalesWithDynamicType: font.scalesWithDynamicType
+            scalesWithDynamicType: font.scalesWithDynamicType,
+            isItalic: font.isItalic,
+            usesMonospacedDigits: font.usesMonospacedDigits,
+            usesLowercaseSmallCaps: font.usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: font.usesUppercaseSmallCaps
         )
     }
 
@@ -7434,7 +7450,11 @@ public struct Font: Sendable, Equatable {
             width: font.width,
             family: name,
             leading: font.leading,
-            scalesWithDynamicType: font.scalesWithDynamicType
+            scalesWithDynamicType: font.scalesWithDynamicType,
+            isItalic: font.isItalic,
+            usesMonospacedDigits: font.usesMonospacedDigits,
+            usesLowercaseSmallCaps: font.usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: font.usesUppercaseSmallCaps
         )
     }
 
@@ -7458,8 +7478,30 @@ public struct Font: Sendable, Equatable {
             width: width,
             family: family,
             leading: leading,
-            scalesWithDynamicType: scalesWithDynamicType
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
         )
+    }
+
+    public func bold() -> Font {
+        bold(true)
+    }
+
+    public func bold(_ isActive: Bool) -> Font {
+        weight(isActive ? .bold : .regular)
+    }
+
+    public func italic() -> Font {
+        italic(true)
+    }
+
+    public func italic(_ isActive: Bool) -> Font {
+        var copy = self
+        copy.isItalic = isActive
+        return copy
     }
 
     public func monospaced() -> Font {
@@ -7470,6 +7512,43 @@ public struct Font: Sendable, Equatable {
         withDesign(isActive ? .monospaced : .default)
     }
 
+    public func monospacedDigit() -> Font {
+        var copy = self
+        copy.usesMonospacedDigits = true
+        return copy
+    }
+
+    public func smallCaps() -> Font {
+        smallCaps(true)
+    }
+
+    public func smallCaps(_ isActive: Bool) -> Font {
+        var copy = self
+        copy.usesLowercaseSmallCaps = isActive
+        copy.usesUppercaseSmallCaps = isActive
+        return copy
+    }
+
+    public func lowercaseSmallCaps() -> Font {
+        lowercaseSmallCaps(true)
+    }
+
+    public func lowercaseSmallCaps(_ isActive: Bool) -> Font {
+        var copy = self
+        copy.usesLowercaseSmallCaps = isActive
+        return copy
+    }
+
+    public func uppercaseSmallCaps() -> Font {
+        uppercaseSmallCaps(true)
+    }
+
+    public func uppercaseSmallCaps(_ isActive: Bool) -> Font {
+        var copy = self
+        copy.usesUppercaseSmallCaps = isActive
+        return copy
+    }
+
     public func leading(_ leading: Leading) -> Font {
         Font(
             size: size,
@@ -7478,7 +7557,11 @@ public struct Font: Sendable, Equatable {
             width: width,
             family: family,
             leading: leading,
-            scalesWithDynamicType: scalesWithDynamicType
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
         )
     }
 
@@ -7490,7 +7573,11 @@ public struct Font: Sendable, Equatable {
             width: width,
             family: family,
             leading: leading,
-            scalesWithDynamicType: scalesWithDynamicType
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
         )
     }
 
@@ -9365,7 +9452,11 @@ extension Font {
             width: width,
             family: family,
             leading: leading,
-            scalesWithDynamicType: scalesWithDynamicType
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
         )
     }
 
@@ -9377,7 +9468,11 @@ extension Font {
             width: width,
             family: family,
             leading: leading,
-            scalesWithDynamicType: scalesWithDynamicType
+            scalesWithDynamicType: scalesWithDynamicType,
+            isItalic: isItalic,
+            usesMonospacedDigits: usesMonospacedDigits,
+            usesLowercaseSmallCaps: usesLowercaseSmallCaps,
+            usesUppercaseSmallCaps: usesUppercaseSmallCaps
         )
     }
 

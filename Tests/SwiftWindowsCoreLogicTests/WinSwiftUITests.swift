@@ -2888,6 +2888,44 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testFontFeatureConveniencesMapToRetainedTextMetadata() async {
+        await MainActor.run {
+            let boldNode = makeNode(Text("BOLD").font(.system(size: 16).bold()))
+            let regularNode = makeNode(Text("REGULAR").font(.system(size: 16, weight: .bold).bold(false)))
+            let italicNode = makeNode(Text("ITALIC").font(.system(size: 16).italic()))
+            let nonItalicNode = makeNode(Text("PLAIN").font(.system(size: 16).italic(false)).italic(false))
+            let digitsNode = makeNode(Text("123").font(.system(size: 16).monospacedDigit()))
+            let smallCapsNode = makeNode(Text("Caps").font(.system(size: 16).smallCaps()))
+            let lowercaseSmallCapsNode = makeNode(Text("Caps").font(.system(size: 16).lowercaseSmallCaps()))
+            let uppercaseSmallCapsNode = makeNode(Text("Caps").font(.system(size: 16).uppercaseSmallCaps()))
+            let disabledSmallCapsNode = makeNode(
+                Text("Caps").font(.system(size: 16).smallCaps().smallCaps(false))
+            )
+            let inheritedInputNode = makeNode(
+                TextField("CODE", text: .constant("abc123"))
+                    .font(.system(size: 16).italic().monospacedDigit().smallCaps())
+            )
+
+            XCTAssertEqual(boldNode.textStyle.weight, .bold)
+            XCTAssertEqual(regularNode.textStyle.weight, .regular)
+            XCTAssertTrue(italicNode.textStyle.isItalic)
+            XCTAssertFalse(nonItalicNode.textStyle.isItalic)
+            XCTAssertTrue(digitsNode.textStyle.monospacedDigits)
+            XCTAssertTrue(smallCapsNode.textStyle.lowercaseSmallCaps)
+            XCTAssertTrue(smallCapsNode.textStyle.uppercaseSmallCaps)
+            XCTAssertTrue(lowercaseSmallCapsNode.textStyle.lowercaseSmallCaps)
+            XCTAssertFalse(lowercaseSmallCapsNode.textStyle.uppercaseSmallCaps)
+            XCTAssertFalse(uppercaseSmallCapsNode.textStyle.lowercaseSmallCaps)
+            XCTAssertTrue(uppercaseSmallCapsNode.textStyle.uppercaseSmallCaps)
+            XCTAssertFalse(disabledSmallCapsNode.textStyle.lowercaseSmallCaps)
+            XCTAssertFalse(disabledSmallCapsNode.textStyle.uppercaseSmallCaps)
+            XCTAssertTrue(inheritedInputNode.children[0].textStyle.isItalic)
+            XCTAssertTrue(inheritedInputNode.children[0].textStyle.monospacedDigits)
+            XCTAssertTrue(inheritedInputNode.children[0].textStyle.lowercaseSmallCaps)
+            XCTAssertTrue(inheritedInputNode.children[0].textStyle.uppercaseSmallCaps)
+        }
+    }
+
     func testSerifFontDesignMapsToRetainedFontFamily() async {
         await MainActor.run {
             let directNode = makeNode(

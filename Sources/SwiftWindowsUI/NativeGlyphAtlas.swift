@@ -97,7 +97,9 @@ final class NativeGlyphAtlas {
             weight: style.weight.glyphAtlasWeight,
             fontWidth: style.fontWidth.glyphAtlasWidth,
             isItalic: style.isItalic,
-            monospacedDigits: style.monospacedDigits
+            monospacedDigits: style.monospacedDigits,
+            lowercaseSmallCaps: style.lowercaseSmallCaps,
+            uppercaseSmallCaps: style.uppercaseSmallCaps
         )
 
         return prepareGlyph(key: key) {
@@ -127,7 +129,9 @@ final class NativeGlyphAtlas {
                 weight: weight,
                 fontWidth: style.fontWidth.glyphAtlasWidth,
                 isItalic: style.isItalic,
-                monospacedDigits: style.monospacedDigits
+                monospacedDigits: style.monospacedDigits,
+                lowercaseSmallCaps: style.lowercaseSmallCaps,
+                uppercaseSmallCaps: style.uppercaseSmallCaps
             )
         } else {
             key = GlyphKey(
@@ -137,7 +141,9 @@ final class NativeGlyphAtlas {
                 weight: weight,
                 fontWidth: style.fontWidth.glyphAtlasWidth,
                 isItalic: style.isItalic,
-                monospacedDigits: style.monospacedDigits
+                monospacedDigits: style.monospacedDigits,
+                lowercaseSmallCaps: style.lowercaseSmallCaps,
+                uppercaseSmallCaps: style.uppercaseSmallCaps
             )
         }
 

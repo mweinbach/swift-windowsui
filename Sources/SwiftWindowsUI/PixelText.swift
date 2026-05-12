@@ -69,6 +69,8 @@ public struct PixelTextStyle: Sendable, Equatable {
     public var fontWidth: TextFontWidth
     public var isItalic: Bool
     public var monospacedDigits: Bool
+    public var lowercaseSmallCaps: Bool
+    public var uppercaseSmallCaps: Bool
     public var lineBreakMode: TextLineBreakMode
     public var maximumNumberOfLines: Int?
     public var minimumNumberOfLines: Int?
@@ -97,6 +99,8 @@ public struct PixelTextStyle: Sendable, Equatable {
         fontWidth: TextFontWidth = .standard,
         isItalic: Bool = false,
         monospacedDigits: Bool = false,
+        lowercaseSmallCaps: Bool = false,
+        uppercaseSmallCaps: Bool = false,
         lineBreakMode: TextLineBreakMode = .truncateTail,
         maximumNumberOfLines: Int? = nil,
         minimumNumberOfLines: Int? = nil,
@@ -124,6 +128,8 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.fontWidth = fontWidth
         self.isItalic = isItalic
         self.monospacedDigits = monospacedDigits
+        self.lowercaseSmallCaps = lowercaseSmallCaps
+        self.uppercaseSmallCaps = uppercaseSmallCaps
         self.lineBreakMode = lineBreakMode
         self.maximumNumberOfLines = maximumNumberOfLines
         self.minimumNumberOfLines = minimumNumberOfLines

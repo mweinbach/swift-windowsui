@@ -361,6 +361,9 @@ final class TextSystemTests: XCTestCase {
             var weightStyle = baseStyle
             weightStyle.weight = .bold
 
+            var fontWidthStyle = baseStyle
+            fontWidthStyle.fontWidth = .condensed
+
             var sizedStyle = baseStyle
             sizedStyle.nativeFontSize = 22
 
@@ -378,6 +381,12 @@ final class TextSystemTests: XCTestCase {
 
             var monospacedDigitsStyle = baseStyle
             monospacedDigitsStyle.monospacedDigits = true
+
+            var lowercaseSmallCapsStyle = baseStyle
+            lowercaseSmallCapsStyle.lowercaseSmallCaps = true
+
+            var uppercaseSmallCapsStyle = baseStyle
+            uppercaseSmallCapsStyle.uppercaseSmallCaps = true
 
             var spanScaledStyle = baseStyle
             if var scaledSpan = spanScaledStyle.spans?.first {
@@ -411,6 +420,9 @@ final class TextSystemTests: XCTestCase {
             _ = system.layout(text, style: weightStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
+            _ = system.layout(text, style: fontWidthStyle, maxWidth: 140, scaleFactor: 1.0)
+            counts.append(system.cachedLayoutCount)
+
             _ = system.layout(text, style: sizedStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
@@ -429,13 +441,19 @@ final class TextSystemTests: XCTestCase {
             _ = system.layout(text, style: monospacedDigitsStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
+            _ = system.layout(text, style: lowercaseSmallCapsStyle, maxWidth: 140, scaleFactor: 1.0)
+            counts.append(system.cachedLayoutCount)
+
+            _ = system.layout(text, style: uppercaseSmallCapsStyle, maxWidth: 140, scaleFactor: 1.0)
+            counts.append(system.cachedLayoutCount)
+
             _ = system.layout(text, style: spanScaledStyle, maxWidth: 140, scaleFactor: 1.0)
             counts.append(system.cachedLayoutCount)
 
             return counts
         }
 
-        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14])
+        XCTAssertEqual(counts, [1, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17])
     }
 
     func testWindowTextSystemLayoutKeyPreservesStructuralSpanIdentity() {

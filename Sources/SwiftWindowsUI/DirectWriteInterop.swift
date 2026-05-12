@@ -38,6 +38,8 @@ let dwriteFlowDirectionTopToBottom: DWriteFlowDirection = 0
 let dwriteLineSpacingMethodDefault: DWriteLineSpacingMethod = 0
 let dwriteLineSpacingMethodProportional: DWriteLineSpacingMethod = 2
 let dwriteFontFeatureTagKerning: DWriteFontFeatureTag = 0x6E72_656B
+let dwriteFontFeatureTagSmallCapitals: DWriteFontFeatureTag = 0x7063_6D73
+let dwriteFontFeatureTagCapitalsToSmallCapitals: DWriteFontFeatureTag = 0x6373_3263
 let dwriteFontFeatureTagTabularFigures: DWriteFontFeatureTag = 0x6D75_6E74
 
 struct DWRITE_TEXT_RANGE {

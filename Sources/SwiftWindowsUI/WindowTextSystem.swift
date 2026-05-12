@@ -7,8 +7,11 @@ final class WindowTextSystem {
         var fontFamily: String
         var resolvedNativeFontSize: Double
         var weight: TextWeight
+        var fontWidth: TextFontWidth
         var isItalic: Bool
         var monospacedDigits: Bool
+        var lowercaseSmallCaps: Bool
+        var uppercaseSmallCaps: Bool
         var letterSpacing: Double
         var lineSpacing: Double
         var lineBreakMode: TextLineBreakMode
@@ -30,8 +33,11 @@ final class WindowTextSystem {
             self.fontFamily = style.fontFamily
             self.resolvedNativeFontSize = style.nativeFontPixelSize
             self.weight = style.weight
+            self.fontWidth = style.fontWidth
             self.isItalic = style.isItalic
             self.monospacedDigits = style.monospacedDigits
+            self.lowercaseSmallCaps = style.lowercaseSmallCaps
+            self.uppercaseSmallCaps = style.uppercaseSmallCaps
             self.letterSpacing = style.letterSpacing
             self.lineSpacing = style.lineSpacing
             self.lineBreakMode = style.lineBreakMode

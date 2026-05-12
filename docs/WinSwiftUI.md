@@ -543,6 +543,7 @@ Compatibility helpers:
 - `VectorArithmetic`
 - `Font.monospaced()`
 - `Animation`
+- `AnimationCompletionCriteria`
 - `Transaction`
 - `withAnimation`
 - `withTransaction`
@@ -808,7 +809,7 @@ Surface direction:
 - `scrollBounceBehavior(_:axes:)` propagates horizontal and vertical `ScrollBounceBehavior` environment values, defaulting to the vertical axis like SwiftUI. `.automatic`, `.always`, `.basedOnSize`, and `.never` are stored as retained metadata on `ScrollView`, `List`, and scrolling `Section` nodes; the retained runtime still clamps scroll offsets and does not model overscroll physics yet.
 - `scrollTargetBehavior(_:)` accepts SwiftUI-shaped `ScrollTargetBehavior` values such as `.paging`, `.viewAligned`, and custom behavior conformers, then stores retained behavior metadata on `ScrollView`, `List`, and scrolling `Section` nodes. `scrollTargetLayout(isEnabled:)` marks the modified retained node as the layout that contributes scroll targets. The current runtime does not yet perform paging or view-aligned deceleration.
 - `scrollInputBehavior(_:for:)` accepts `ScrollInputBehavior.automatic`, `.enabled`, and `.disabled` for `ScrollInputKind.handGestureShortcut`, `.look`, and `.look(axes:)`, then stores inherited per-input metadata on retained `ScrollView`, `List`, and scrolling `Section` nodes. `scrollDisabled(true)` still disables retained scrolling for all inputs; the Win32 host does not yet route platform-specific look or hand-gesture input.
-- `contentMargins(_:,for:)` and `contentMargins(_:_:for:)` accept SwiftUI-shaped content-margin placement metadata. Retained `ScrollView`, `List`, and scrolling `Section` nodes resolve `.automatic` and `.scrollContent` margins into stack padding, while `.automatic` and `.scrollIndicators` margins feed retained scroll indicator inset geometry for drawing, hit testing, and dragging.
+- `contentMargins(_:,for:)` and `contentMargins(_:_:for:)` accept SwiftUI-shaped scalar and `EdgeInsets` content-margin placement metadata. Retained `ScrollView`, `List`, and scrolling `Section` nodes resolve `.automatic` and `.scrollContent` margins into stack padding, while `.automatic` and `.scrollIndicators` margins feed retained scroll indicator inset geometry for drawing, hit testing, and dragging.
 - `defaultScrollAnchor(_:)` and `defaultScrollAnchor(_:for:)` accept SwiftUI-shaped `UnitPoint` anchors. Retained scroll containers use the initial-offset anchor to seed `scrollOffset` after layout, the size-changes anchor when their content or frame size changes, and the alignment anchor to position smaller retained scroll content within its viewport.
 - `scrollDismissesKeyboard(_:)` propagates `EnvironmentValues.scrollDismissesKeyboardMode` with `.automatic`, `.immediately`, `.interactively`, and `.never` for source-compatible scroll/input code. It is metadata today because the Windows retained text input path does not host a software keyboard.
 - `defaultWheelPickerItemHeight(_:)` propagates `EnvironmentValues.defaultWheelPickerItemHeight`, defaulting to `32`, and retained wheel-style pickers use it as the minimum row height.

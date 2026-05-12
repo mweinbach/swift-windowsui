@@ -2210,6 +2210,21 @@ struct ContentMarginEdges: Sendable, Equatable {
         }
     }
 
+    mutating func set(_ edges: Edge.Set, to insets: EdgeInsets) {
+        if edges.contains(.top) {
+            top = insets.top
+        }
+        if edges.contains(.leading) {
+            leading = insets.leading
+        }
+        if edges.contains(.bottom) {
+            bottom = insets.bottom
+        }
+        if edges.contains(.trailing) {
+            trailing = insets.trailing
+        }
+    }
+
     func applying(to insets: EdgeInsets) -> EdgeInsets {
         EdgeInsets(
             top: top ?? insets.top,
@@ -2235,6 +2250,17 @@ struct ContentMarginValues: Sendable, Equatable {
             scrollContent.set(edges, to: length)
         case .scrollIndicators:
             scrollIndicators.set(edges, to: length)
+        }
+    }
+
+    mutating func set(_ edges: Edge.Set, to insets: EdgeInsets, for placement: ContentMarginPlacement) {
+        switch placement.kind {
+        case .automatic:
+            automatic.set(edges, to: insets)
+        case .scrollContent:
+            scrollContent.set(edges, to: insets)
+        case .scrollIndicators:
+            scrollIndicators.set(edges, to: insets)
         }
     }
 
@@ -17827,6 +17853,20 @@ public extension View {
 
     func contentMargins(_ length: CGFloat, for placement: ContentMarginPlacement = .automatic) -> some View {
         contentMargins(.all, length, for: placement)
+    }
+
+    func contentMargins(
+        _ edges: Edge.Set = .all,
+        _ insets: EdgeInsets,
+        for placement: ContentMarginPlacement = .automatic
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withTransformedEnvironmentValue(\.contentMargins) { margins in
+                    margins.set(edges, to: insets, for: placement)
+                }
+            )
+        }
     }
 
     func contentMargins(

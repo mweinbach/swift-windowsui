@@ -6343,6 +6343,17 @@ final class WinSwiftUITests: XCTestCase {
                 }
                 .contentMargins(.vertical, 9)
             )
+            let insetScrollNode = makeNode(
+                ScrollView(.vertical, style: ScrollViewStyle(padding: baseInsets, alignment: .leading)) {
+                    Text("ROW")
+                }
+                .contentMargins(.horizontal, EdgeInsets(top: 30, leading: 14, bottom: 32, trailing: 18))
+                .contentMargins(
+                    .vertical,
+                    EdgeInsets(top: 7, leading: 40, bottom: 11, trailing: 42),
+                    for: .scrollIndicators
+                )
+            )
             let plainSectionNode = makeNode(
                 Section("GROUP", style: SectionStyle(padding: baseInsets)) {
                     Text("ITEM")
@@ -6353,6 +6364,7 @@ final class WinSwiftUITests: XCTestCase {
             guard case .stack(let scrollLayout) = scrollNode.layoutMode,
                   case .stack(let listLayout) = listNode.layoutMode,
                   case .stack(let scrollingSectionLayout) = scrollingSectionNode.layoutMode,
+                  case .stack(let insetScrollLayout) = insetScrollNode.layoutMode,
                   case .stack(let plainSectionLayout) = plainSectionNode.layoutMode else {
                 return XCTFail("Expected retained stack layouts for content margin assertions")
             }
@@ -6383,6 +6395,14 @@ final class WinSwiftUITests: XCTestCase {
                 )
             )
             XCTAssertEqual(
+                insetScrollLayout,
+                .vertical(
+                    spacing: 0,
+                    padding: EdgeInsets(top: 1, leading: 14, bottom: 3, trailing: 18),
+                    alignment: .leading
+                )
+            )
+            XCTAssertEqual(
                 plainSectionLayout,
                 .vertical(spacing: 16, padding: baseInsets, alignment: .leading)
             )
@@ -6397,6 +6417,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 scrollingSectionNode.scrollIndicatorInsets,
                 EdgeInsets(top: 9, leading: 6, bottom: 9, trailing: 6)
+            )
+            XCTAssertEqual(
+                insetScrollNode.scrollIndicatorInsets,
+                EdgeInsets(top: 7, leading: 14, bottom: 11, trailing: 18)
             )
         }
     }

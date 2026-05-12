@@ -6389,9 +6389,57 @@ public struct SimultaneousGesture<First: Gesture, Second: Gesture>: Gesture {
     }
 }
 
+public struct SequenceGesture<First: Gesture, Second: Gesture>: Gesture {
+    public enum Value {
+        case first(First.Value)
+        case second(First.Value, Second.Value?)
+    }
+
+    public var first: First
+    public var second: Second
+
+    public init(_ first: First, _ second: Second) {
+        self.first = first
+        self.second = second
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let firstApplied = first._applying(to: view, including: mask)
+        return second._applying(to: firstApplied, including: mask)
+    }
+}
+
+public struct ExclusiveGesture<First: Gesture, Second: Gesture>: Gesture {
+    public enum Value {
+        case first(First.Value)
+        case second(Second.Value)
+    }
+
+    public var first: First
+    public var second: Second
+
+    public init(_ first: First, _ second: Second) {
+        self.first = first
+        self.second = second
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = second
+        return first._applying(to: view, including: mask)
+    }
+}
+
 public extension Gesture {
     func simultaneously<Other: Gesture>(with other: Other) -> SimultaneousGesture<Self, Other> {
         SimultaneousGesture(self, other)
+    }
+
+    func sequenced<Other: Gesture>(before other: Other) -> SequenceGesture<Self, Other> {
+        SequenceGesture(self, other)
+    }
+
+    func exclusively<Other: Gesture>(before other: Other) -> ExclusiveGesture<Self, Other> {
+        ExclusiveGesture(self, other)
     }
 }
 

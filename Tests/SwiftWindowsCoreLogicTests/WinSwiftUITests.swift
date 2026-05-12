@@ -15770,6 +15770,68 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSequenceGestureAppliesBothRetainedGestures() async {
+        await MainActor.run {
+            var tapCount = 0
+            var dragChanges: [DragGesture.Value] = []
+            let sequence = TapGesture().onEnded { _ in
+                tapCount += 1
+            }
+            .sequenced(
+                before: DragGesture(minimumDistance: 0).onChanged { value in
+                    dragChanges.append(value)
+                }
+            )
+            let node = makeNode(
+                Text("INPUT")
+                    .gesture(sequence)
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+
+            node.onPointerUpInside?()
+            node.onDragStart?(Point(x: 3, y: 4))
+
+            XCTAssertEqual(tapCount, 1)
+            XCTAssertEqual(dragChanges.map(\.location), [Point(x: 3, y: 4)])
+        }
+    }
+
+    func testExclusiveGestureAppliesFirstRetainedGestureOnly() async {
+        await MainActor.run {
+            var firstTapCount = 0
+            var secondTapLocations: [Point] = []
+            let exclusive = ExclusiveGesture(
+                TapGesture().onEnded { _ in
+                    firstTapCount += 1
+                },
+                SpatialTapGesture().onEnded { value in
+                    secondTapLocations.append(value.location)
+                }
+            )
+            let helperExclusive = TapGesture().onEnded { _ in
+                firstTapCount += 10
+            }
+            .exclusively(
+                before: SpatialTapGesture().onEnded { value in
+                    secondTapLocations.append(value.location)
+                }
+            )
+            let node = makeNode(Text("FIRST").gesture(exclusive))
+            let helperNode = makeNode(Text("HELPER").gesture(helperExclusive))
+
+            node.onPointerUpInside?()
+            node.onPointerUpInsideAt?(Point(x: 5, y: 6))
+            helperNode.onPointerUpInside?()
+            helperNode.onPointerUpInsideAt?(Point(x: 7, y: 8))
+
+            XCTAssertEqual(firstTapCount, 11)
+            XCTAssertEqual(secondTapLocations, [])
+            XCTAssertNil(node.onPointerUpInsideAt)
+            XCTAssertNil(helperNode.onPointerUpInsideAt)
+        }
+    }
+
     func testLongPressGestureObjectMapsThroughPriorityGestureModifiers() async {
         await MainActor.run {
             var endings: [Bool] = []

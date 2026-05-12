@@ -2639,6 +2639,29 @@ public protocol LayoutValueKey {
     static var defaultValue: Value { get }
 }
 
+public protocol ContainerValueKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+}
+
+public struct ContainerValues: @unchecked Sendable {
+    private var storage: [ObjectIdentifier: Any]
+
+    public init() {
+        storage = [:]
+    }
+
+    public subscript<Key: ContainerValueKey>(key: Key.Type) -> Key.Value {
+        get {
+            storage[ObjectIdentifier(key)] as? Key.Value ?? Key.defaultValue
+        }
+        set {
+            storage[ObjectIdentifier(key)] = newValue
+        }
+    }
+}
+
 public struct Anchor<Value>: @unchecked Sendable {
     public struct Source: Sendable, Equatable {
         enum Kind: Sendable {
@@ -12288,6 +12311,10 @@ private func retainedLayoutValueIdentifier<Key: LayoutValueKey>(_ key: Key.Type)
     ObjectIdentifier(key)
 }
 
+private func retainedContainerValuesIdentifier() -> ObjectIdentifier {
+    ObjectIdentifier(ContainerValues.self)
+}
+
 @MainActor
 private func retainedBoundsAnchor(for node: ViewNode, context: ViewBuildContext) -> Anchor<Rect> {
     var size = node.intrinsicContentSize()
@@ -16619,6 +16646,20 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.retainedLayoutValues[retainedLayoutValueIdentifier(key)] = value
+                return childNode
+            }
+        }
+    }
+
+    func containerValue<Value>(_ keyPath: WritableKeyPath<ContainerValues, Value>, _ value: Value) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let identifier = retainedContainerValuesIdentifier()
+                var values = childNode.retainedContainerValues[identifier] as? ContainerValues ?? ContainerValues()
+                values[keyPath: keyPath] = value
+                childNode.retainedContainerValues[identifier] = values
                 return childNode
             }
         }

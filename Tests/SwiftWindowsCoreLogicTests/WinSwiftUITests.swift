@@ -140,6 +140,26 @@ private struct TestLayoutCountKey: LayoutValueKey {
     static let defaultValue = 0
 }
 
+private struct TestContainerRoleKey: ContainerValueKey {
+    static let defaultValue = "regular"
+}
+
+private struct TestContainerCountKey: ContainerValueKey {
+    static let defaultValue = 0
+}
+
+private extension ContainerValues {
+    var testContainerRole: String {
+        get { self[TestContainerRoleKey.self] }
+        set { self[TestContainerRoleKey.self] = newValue }
+    }
+
+    var testContainerCount: Int {
+        get { self[TestContainerCountKey.self] }
+        set { self[TestContainerCountKey.self] = newValue }
+    }
+}
+
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -5322,6 +5342,24 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(node.retainedLayoutValues[ObjectIdentifier(TestLayoutRoleKey.self)] as? String, "featured")
             XCTAssertEqual(node.retainedLayoutValues[ObjectIdentifier(TestLayoutCountKey.self)] as? Int, 3)
+        }
+    }
+
+    func testContainerValueStoresRetainedMetadata() async {
+        await MainActor.run {
+            let defaults = ContainerValues()
+            XCTAssertEqual(defaults.testContainerRole, "regular")
+            XCTAssertEqual(defaults.testContainerCount, 0)
+
+            let node = makeNode(
+                Text("CONTAINER")
+                    .containerValue(\.testContainerRole, "featured")
+                    .containerValue(\.testContainerCount, 7)
+            )
+
+            let values = node.retainedContainerValues[ObjectIdentifier(ContainerValues.self)] as? ContainerValues
+            XCTAssertEqual(values?.testContainerRole, "featured")
+            XCTAssertEqual(values?.testContainerCount, 7)
         }
     }
 

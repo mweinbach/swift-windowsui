@@ -1525,6 +1525,12 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    /// Type-erased container values emitted by SwiftUI-shaped compatibility modifiers.
+    /// These values are local to future direct-subview container APIs.
+    public var retainedContainerValues: [ObjectIdentifier: Any] = [:] {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place

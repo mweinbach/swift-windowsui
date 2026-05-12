@@ -255,6 +255,7 @@ public final class ComponentHost {
         target.retainedPreferenceValues = source.retainedPreferenceValues
         target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
         target.retainedLayoutValues = source.retainedLayoutValues
+        target.retainedContainerValues = source.retainedContainerValues
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

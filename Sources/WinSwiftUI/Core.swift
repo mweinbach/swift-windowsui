@@ -525,8 +525,11 @@ struct NavigationPresentedDestination {
 public protocol ObservableObject: AnyObject {}
 
 @MainActor
-public final class ObservableObjectPublisher {
+public final class ObservableObjectPublisher: Publisher {
+    public typealias Output = Void
+
     private weak var object: (any ObservableObject)?
+    private var subscribers: [UUID: @MainActor () -> Void] = [:]
 
     public init() {
         self.object = nil
@@ -537,10 +540,33 @@ public final class ObservableObjectPublisher {
     }
 
     public func send() {
-        guard let object else {
-            return
+        for subscriber in subscribers.values {
+            subscriber()
         }
-        ObservableObjectCenter.shared.notify(object)
+
+        if let object {
+            ObservableObjectCenter.shared.notify(object)
+        }
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (()) -> Void) -> AnyCancellable {
+        if let object {
+            let token = ObservableObjectCenter.shared.addObserver(for: object) {
+                receiveValue(())
+            }
+            return AnyCancellable {
+                token.cancel()
+            }
+        }
+
+        let id = UUID()
+        subscribers[id] = {
+            receiveValue(())
+        }
+
+        return AnyCancellable { [weak self] in
+            self?.subscribers.removeValue(forKey: id)
+        }
     }
 }
 
@@ -705,6 +731,12 @@ public final class PassthroughSubject<Output, Failure: Error>: Publisher {
         return AnyCancellable { [weak self] in
             self?.subscribers.removeValue(forKey: id)
         }
+    }
+}
+
+public extension PassthroughSubject where Output == Void {
+    func send() {
+        send(())
     }
 }
 

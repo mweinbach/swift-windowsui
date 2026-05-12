@@ -17047,6 +17047,94 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPassthroughSubjectVoidSendConveniencePublishesUnitValues() async {
+        await MainActor.run {
+            let subject = PassthroughSubject<Void, Never>()
+            var count = 0
+
+            let cancellable = subject.sink {
+                count += 1
+            }
+
+            subject.send()
+            subject.send(())
+
+            XCTAssertEqual(count, 2)
+
+            cancellable.cancel()
+            subject.send()
+
+            XCTAssertEqual(count, 2)
+        }
+    }
+
+    func testObservableObjectPublisherSupportsSinkSubscriptions() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                var value = 0
+
+                func increment() {
+                    value += 1
+                    objectWillChange.send()
+                }
+            }
+
+            let model = CounterModel()
+            var notifications = 0
+
+            let cancellable = model.objectWillChange.sink {
+                notifications += 1
+            }
+
+            model.increment()
+            model.increment()
+
+            XCTAssertEqual(notifications, 2)
+
+            cancellable.cancel()
+            model.increment()
+
+            XCTAssertEqual(notifications, 2)
+        }
+    }
+
+    func testOnReceiveAcceptsObservableObjectPublisher() async {
+        await MainActor.run {
+            final class CounterModel: ObservableObject {
+                func notify() {
+                    objectWillChange.send()
+                }
+            }
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            let model = CounterModel()
+            var notifications = 0
+
+            host.setComponents {
+                [
+                    Text("VALUE")
+                        .onReceive(model.objectWillChange) {
+                            notifications += 1
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            model.notify()
+            model.notify()
+
+            XCTAssertEqual(notifications, 2)
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

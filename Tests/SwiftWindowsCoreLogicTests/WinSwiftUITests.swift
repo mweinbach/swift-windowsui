@@ -3790,6 +3790,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBackgroundStyleSemanticStyleAndModifierFeedDefaultBackgrounds() async {
+        await MainActor.run {
+            let defaultColor = BackgroundStyle.background.retainedFallbackColor
+            let customColor = Color(red: 0.24, green: 0.34, blue: 0.46, alpha: 0.92)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .top, endPoint: .bottom)
+            let contextualBackground: BackgroundStyle = .background
+            let defaultNode = makeNode(
+                Text("DEFAULT")
+                    .background()
+            )
+            let ignoredSafeAreaNode = makeNode(
+                Text("EDGES")
+                    .background(ignoresSafeAreaEdges: .horizontal)
+                    .backgroundStyle(customColor)
+            )
+            let shapedNode = renderedNode(
+                Text("SHAPED")
+                    .frame(width: 84, height: 30)
+                    .background(in: RoundedRectangle(cornerRadius: 7), fillStyle: FillStyle(eoFill: true, antialiased: false))
+                    .backgroundStyle(gradient)
+            )
+
+            XCTAssertEqual(BackgroundStyle().retainedFallbackColor, defaultColor)
+            XCTAssertEqual(contextualBackground.retainedForegroundStyle, .color(defaultColor))
+            XCTAssertEqual(defaultNode.backgroundColor, defaultColor)
+            XCTAssertEqual(firstText(in: defaultNode.children[0]), "DEFAULT")
+            XCTAssertEqual(ignoredSafeAreaNode.backgroundColor, customColor)
+            XCTAssertEqual(firstText(in: ignoredSafeAreaNode.children[0]), "EDGES")
+            XCTAssertEqual(shapedNode.children[0].backgroundGradient, gradient)
+            XCTAssertEqual(shapedNode.children[0].cornerRadius, 7)
+            XCTAssertTrue(shapedNode.children[0].clipsToBounds)
+            XCTAssertEqual(shapedNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
+            XCTAssertEqual(shapedNode.children[0].frame, Rect(x: 0, y: 0, width: 84, height: 30))
+            XCTAssertEqual(firstText(in: shapedNode.children[1]), "SHAPED")
+        }
+    }
+
     func testShapedBackgroundAndOverlayStyleOverloadsFillBaseLayout() async {
         await MainActor.run {
             let color = Color(red: 0.2, green: 0.6, blue: 0.8, alpha: 0.9)

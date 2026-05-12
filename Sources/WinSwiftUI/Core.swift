@@ -3170,6 +3170,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var dynamicTypeSize: DynamicTypeSize
     public var isEnabled: Bool
     public var foregroundStyle: ForegroundStyle?
+    public var backgroundStyle: AnyShapeStyle?
     public var tint: Color?
     public var font: Font?
     public var fontWidth: Font.Width?
@@ -3322,6 +3323,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         dynamicTypeSize: DynamicTypeSize = .large,
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
+        backgroundStyle: AnyShapeStyle? = nil,
         tint: Color? = nil,
         font: Font? = nil,
         fontWidth: Font.Width? = nil,
@@ -3453,6 +3455,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.dynamicTypeSize = dynamicTypeSize
         self.isEnabled = isEnabled
         self.foregroundStyle = foregroundStyle
+        self.backgroundStyle = backgroundStyle
         self.tint = tint
         self.font = font
         self.fontWidth = fontWidth
@@ -4868,6 +4871,14 @@ public struct ViewBuildContext {
 
     var foregroundStyle: ForegroundStyle {
         (environmentValuesProvider().foregroundStyle ?? .color(foregroundColorProvider()))
+            .resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
+    }
+
+    var backgroundStyle: ForegroundStyle {
+        (environmentValuesProvider().backgroundStyle ?? BackgroundStyle.background.retainedForegroundStyle)
             .resolvedForVisualEnvironment(
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
@@ -9567,6 +9578,20 @@ public enum ForegroundStyle: Sendable, Equatable {
 
 public typealias AnyShapeStyle = ForegroundStyle
 
+public struct BackgroundStyle: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public static let background = BackgroundStyle()
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(retainedFallbackColor)
+    }
+
+    var retainedFallbackColor: Color {
+        Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78)
+    }
+}
+
 extension ForegroundStyle: ShapeStyle {
     public var retainedForegroundStyle: ForegroundStyle {
         self
@@ -9632,6 +9657,10 @@ public extension ShapeStyle where Self == HierarchicalShapeStyle {
     static var tertiary: HierarchicalShapeStyle { .tertiary }
     static var quaternary: HierarchicalShapeStyle { .quaternary }
     static var quinary: HierarchicalShapeStyle { .quinary }
+}
+
+public extension ShapeStyle where Self == BackgroundStyle {
+    static var background: BackgroundStyle { .background }
 }
 
 public struct Material: ShapeStyle, Sendable, Equatable {
@@ -14786,6 +14815,24 @@ public extension View {
         background(style.retainedForegroundStyle, ignoresSafeAreaEdges: edges)
     }
 
+    func background(ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        _ = edges
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let fill = resolvedStyleFill(from: context.backgroundStyle)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: fill.color,
+                    backgroundGradient: fill.gradient,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
     func background(_ style: ForegroundStyle, alignment: Alignment) -> some View {
         _ = alignment
         return background(style)
@@ -14827,6 +14874,58 @@ public extension View {
     ) -> some View {
         let fill = resolvedStyleFill(from: style.retainedForegroundStyle)
         return shapedBackgroundStyle(color: fill.color, gradient: fill.gradient, shape: shape, fillStyle: fillStyle)
+    }
+
+    func background<Clip: Shape>(
+        in shape: Clip,
+        fillStyle: FillStyle = FillStyle()
+    ) -> some View {
+        let clipStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        let clipFillStyle = RetainedClipFillStyle(
+            eoFill: fillStyle.isEOFilled,
+            antialiased: fillStyle.isAntialiased
+        )
+
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            let fill = resolvedStyleFill(from: context.backgroundStyle)
+            return Component { runtime in
+                let baseNode = base.makeNode(runtime: runtime)
+                let backgroundNode = Controls.panel(
+                    backgroundColor: fill.color,
+                    backgroundGradient: fill.gradient,
+                    cornerRadius: clipStyle.staticCornerRadius,
+                    clipsToBounds: true,
+                    isHitTestVisible: false
+                )
+                backgroundNode.clipFillStyle = clipFillStyle
+                let preferredSize = baseNode.intrinsicContentSize()
+                let root = Controls.panel(
+                    preferredSize: preferredSize,
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [backgroundNode, baseNode]
+                )
+
+                root.onLayout = { bounds in
+                    let frame = Rect(origin: .zero, size: bounds.size)
+                    if baseNode.frame != frame {
+                        baseNode.frame = frame
+                    }
+                    if backgroundNode.frame != frame {
+                        backgroundNode.frame = frame
+                    }
+                    if case .capsule = clipStyle {
+                        let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                        if backgroundNode.cornerRadius != radius {
+                            backgroundNode.cornerRadius = radius
+                        }
+                    }
+                }
+
+                return root
+            }
+        }
     }
 
     private func backgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
@@ -15354,6 +15453,12 @@ public extension View {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
+    }
+
+    func backgroundStyle<S: ShapeStyle>(_ style: S) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.backgroundStyle, AnyShapeStyle(style)))
+        }
     }
 
     func imageScale(_ scale: Image.Scale) -> some View {

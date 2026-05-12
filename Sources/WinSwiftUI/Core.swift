@@ -2647,9 +2647,11 @@ public protocol ContainerValueKey {
 
 public struct ContainerValues: @unchecked Sendable {
     private var storage: [ObjectIdentifier: Any]
+    private var tags: [ObjectIdentifier: AnyHashable]
 
     public init() {
         storage = [:]
+        tags = [:]
     }
 
     public subscript<Key: ContainerValueKey>(key: Key.Type) -> Key.Value {
@@ -2659,6 +2661,18 @@ public struct ContainerValues: @unchecked Sendable {
         set {
             storage[ObjectIdentifier(key)] = newValue
         }
+    }
+
+    public func hasTag<Value: Hashable>(_ value: Value) -> Bool {
+        tag(for: Value.self) == value
+    }
+
+    public func tag<Value: Hashable>(for type: Value.Type) -> Value? {
+        tags[ObjectIdentifier(type)]?.base as? Value
+    }
+
+    mutating func setTag<Value: Hashable>(_ value: Value) {
+        tags[ObjectIdentifier(Value.self)] = AnyHashable(value)
     }
 }
 
@@ -18958,7 +18972,15 @@ public extension View {
 
     func tag<Tag: Hashable>(_ tag: Tag) -> some View {
         var modified = ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                let identifier = retainedContainerValuesIdentifier()
+                var values = node.retainedContainerValues[identifier] as? ContainerValues ?? ContainerValues()
+                values.setTag(tag)
+                node.retainedContainerValues[identifier] = values
+                return node
+            }
         }
         modified.selectionTag = AnyHashable(tag)
         return modified

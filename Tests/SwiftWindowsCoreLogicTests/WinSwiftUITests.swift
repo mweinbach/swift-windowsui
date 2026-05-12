@@ -5360,6 +5360,13 @@ final class WinSwiftUITests: XCTestCase {
             let values = node.retainedContainerValues[ObjectIdentifier(ContainerValues.self)] as? ContainerValues
             XCTAssertEqual(values?.testContainerRole, "featured")
             XCTAssertEqual(values?.testContainerCount, 7)
+
+            let taggedNode = makeNode(Text("TAGGED").tag("selected"))
+            let taggedValues = taggedNode.retainedContainerValues[ObjectIdentifier(ContainerValues.self)] as? ContainerValues
+            XCTAssertEqual(taggedValues?.tag(for: String.self), "selected")
+            XCTAssertEqual(taggedValues?.hasTag("selected"), true)
+            XCTAssertEqual(taggedValues?.hasTag("other"), false)
+            XCTAssertNil(taggedValues?.tag(for: Int.self))
         }
     }
 

@@ -6512,12 +6512,34 @@ public enum HorizontalAlignment: Sendable {
     case leading
     case center
     case trailing
+
+    var retainedGuideName: String {
+        switch self {
+        case .leading:
+            return "leading"
+        case .center:
+            return "center"
+        case .trailing:
+            return "trailing"
+        }
+    }
 }
 
 public enum VerticalAlignment: Sendable {
     case top
     case center
     case bottom
+
+    var retainedGuideName: String {
+        switch self {
+        case .top:
+            return "top"
+        case .center:
+            return "center"
+        case .bottom:
+            return "bottom"
+        }
+    }
 }
 
 public struct PinnedScrollableViews: OptionSet, Sendable {
@@ -6549,6 +6571,50 @@ public struct Alignment: Sendable {
     public static let topTrailing = Alignment(horizontal: .trailing, vertical: .top)
     public static let bottomLeading = Alignment(horizontal: .leading, vertical: .bottom)
     public static let bottomTrailing = Alignment(horizontal: .trailing, vertical: .bottom)
+}
+
+public struct ViewDimensions: Sendable, Equatable {
+    public var width: CGFloat
+    public var height: CGFloat
+
+    public init(width: CGFloat = 0, height: CGFloat = 0) {
+        self.width = width
+        self.height = height
+    }
+
+    public init(size: CGSize) {
+        self.init(width: size.width, height: size.height)
+    }
+
+    public subscript(guide: HorizontalAlignment) -> CGFloat {
+        switch guide {
+        case .leading:
+            return 0
+        case .center:
+            return width / 2
+        case .trailing:
+            return width
+        }
+    }
+
+    public subscript(guide: VerticalAlignment) -> CGFloat {
+        switch guide {
+        case .top:
+            return 0
+        case .center:
+            return height / 2
+        case .bottom:
+            return height
+        }
+    }
+
+    public subscript(explicit guide: HorizontalAlignment) -> CGFloat? {
+        self[guide]
+    }
+
+    public subscript(explicit guide: VerticalAlignment) -> CGFloat? {
+        self[guide]
+    }
 }
 
 public enum TextAlignment: Sendable {
@@ -16436,6 +16502,52 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.layoutPriority = priority
+                return childNode
+            }
+        }
+    }
+
+    func alignmentGuide(
+        _ guide: HorizontalAlignment,
+        computeValue: @escaping (ViewDimensions) -> CGFloat
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let dimensions = ViewDimensions(size: childNode.preferredSize ?? childNode.frame.size)
+                let retainedGuide = RetainedAlignmentGuide(
+                    axis: .horizontal,
+                    guide: guide.retainedGuideName,
+                    value: computeValue(dimensions)
+                )
+                childNode.alignmentGuides.removeAll {
+                    $0.axis == retainedGuide.axis && $0.guide == retainedGuide.guide
+                }
+                childNode.alignmentGuides.append(retainedGuide)
+                return childNode
+            }
+        }
+    }
+
+    func alignmentGuide(
+        _ guide: VerticalAlignment,
+        computeValue: @escaping (ViewDimensions) -> CGFloat
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let dimensions = ViewDimensions(size: childNode.preferredSize ?? childNode.frame.size)
+                let retainedGuide = RetainedAlignmentGuide(
+                    axis: .vertical,
+                    guide: guide.retainedGuideName,
+                    value: computeValue(dimensions)
+                )
+                childNode.alignmentGuides.removeAll {
+                    $0.axis == retainedGuide.axis && $0.guide == retainedGuide.guide
+                }
+                childNode.alignmentGuides.append(retainedGuide)
                 return childNode
             }
         }

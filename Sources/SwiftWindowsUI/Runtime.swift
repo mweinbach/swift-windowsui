@@ -162,6 +162,23 @@ public struct RetainedGridCellUnsizedAxes: OptionSet, Sendable, Equatable, Hasha
     public static let all: RetainedGridCellUnsizedAxes = [.horizontal, .vertical]
 }
 
+public enum RetainedAlignmentGuideAxis: Sendable, Equatable, Hashable {
+    case horizontal
+    case vertical
+}
+
+public struct RetainedAlignmentGuide: Sendable, Equatable, Hashable {
+    public var axis: RetainedAlignmentGuideAxis
+    public var guide: String
+    public var value: Double
+
+    public init(axis: RetainedAlignmentGuideAxis, guide: String, value: Double) {
+        self.axis = axis
+        self.guide = guide
+        self.value = value
+    }
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -1009,6 +1026,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var alignmentGuides: [RetainedAlignmentGuide] {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var gridCellAnchor: Point? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -1601,6 +1622,7 @@ public final class ViewNode {
         layoutConstraints: LayoutConstraints? = nil,
         fixedSizeAxes: FixedSizeAxes? = nil,
         layoutPriority: Double = 0,
+        alignmentGuides: [RetainedAlignmentGuide] = [],
         gridCellAnchor: Point? = nil,
         gridCellUnsizedAxes: RetainedGridCellUnsizedAxes = [],
         gridColumnAlignment: RetainedHorizontalAlignment? = nil,
@@ -1740,6 +1762,7 @@ public final class ViewNode {
         self.layoutConstraints = layoutConstraints
         self.fixedSizeAxes = fixedSizeAxes
         self.layoutPriority = layoutPriority
+        self.alignmentGuides = alignmentGuides
         self.gridCellAnchor = gridCellAnchor
         self.gridCellUnsizedAxes = gridCellUnsizedAxes
         self.gridColumnAlignment = gridColumnAlignment

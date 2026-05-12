@@ -5229,6 +5229,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAlignmentGuideStoresRetainedMetadata() async {
+        await MainActor.run {
+            let dimensions = ViewDimensions(width: 40, height: 20)
+            XCTAssertEqual(dimensions[HorizontalAlignment.leading], 0)
+            XCTAssertEqual(dimensions[HorizontalAlignment.center], 20)
+            XCTAssertEqual(dimensions[HorizontalAlignment.trailing], 40)
+            XCTAssertEqual(dimensions[VerticalAlignment.top], 0)
+            XCTAssertEqual(dimensions[VerticalAlignment.center], 10)
+            XCTAssertEqual(dimensions[VerticalAlignment.bottom], 20)
+            XCTAssertEqual(dimensions[explicit: HorizontalAlignment.trailing], 40)
+            XCTAssertEqual(dimensions[explicit: VerticalAlignment.bottom], 20)
+
+            let node = makeNode(
+                Text("GUIDE")
+                    .frame(width: 40, height: 20)
+                    .alignmentGuide(.leading) { dimensions in
+                        dimensions[HorizontalAlignment.trailing] - 5
+                    }
+                    .alignmentGuide(.bottom) { dimensions in
+                        dimensions[VerticalAlignment.bottom] + 3
+                    }
+                    .alignmentGuide(.leading) { _ in
+                        11
+                    }
+            )
+
+            XCTAssertEqual(
+                node.alignmentGuides,
+                [
+                    RetainedAlignmentGuide(axis: .vertical, guide: "bottom", value: 23),
+                    RetainedAlignmentGuide(axis: .horizontal, guide: "leading", value: 11)
+                ]
+            )
+        }
+    }
+
     func testGridCellModifiersStoreRetainedMetadata() async {
         await MainActor.run {
             let node = makeNode(

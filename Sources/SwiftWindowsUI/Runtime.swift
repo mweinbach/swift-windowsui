@@ -1519,6 +1519,12 @@ public final class ViewNode {
     public var retainedPreferenceValues: [ObjectIdentifier: Any] = [:]
     public var retainedPreferenceTransformBoundaries: Set<ObjectIdentifier> = []
 
+    /// Type-erased layout values emitted by SwiftUI-shaped compatibility modifiers.
+    /// Custom layout engines can consume these later without changing retained nodes.
+    public var retainedLayoutValues: [ObjectIdentifier: Any] = [:] {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     /// Optional stable identity tag used by the diffing algorithm to match
     /// nodes across rebuilds.  When present, two nodes with the same tag are
     /// considered equivalent and will have their properties updated in-place

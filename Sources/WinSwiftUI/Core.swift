@@ -2633,6 +2633,12 @@ public protocol PreferenceKey {
     static func reduce(value: inout Value, nextValue: () -> Value)
 }
 
+public protocol LayoutValueKey {
+    associatedtype Value
+
+    static var defaultValue: Value { get }
+}
+
 public struct Anchor<Value>: @unchecked Sendable {
     public struct Source: Sendable, Equatable {
         enum Kind: Sendable {
@@ -12278,6 +12284,10 @@ private func retainedPreferenceIdentifier<Key: PreferenceKey>(_ key: Key.Type) -
     ObjectIdentifier(key)
 }
 
+private func retainedLayoutValueIdentifier<Key: LayoutValueKey>(_ key: Key.Type) -> ObjectIdentifier {
+    ObjectIdentifier(key)
+}
+
 @MainActor
 private func retainedBoundsAnchor(for node: ViewNode, context: ViewBuildContext) -> Anchor<Rect> {
     var size = node.intrinsicContentSize()
@@ -16598,6 +16608,17 @@ public extension View {
                     $0.axis == retainedGuide.axis && $0.guide == retainedGuide.guide
                 }
                 childNode.alignmentGuides.append(retainedGuide)
+                return childNode
+            }
+        }
+    }
+
+    func layoutValue<Key: LayoutValueKey>(key: Key.Type, value: Key.Value) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.retainedLayoutValues[retainedLayoutValueIdentifier(key)] = value
                 return childNode
             }
         }

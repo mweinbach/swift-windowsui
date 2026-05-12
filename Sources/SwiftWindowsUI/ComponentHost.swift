@@ -254,6 +254,7 @@ public final class ComponentHost {
         if target.sectionFooterChildCount != source.sectionFooterChildCount { target.sectionFooterChildCount = source.sectionFooterChildCount }
         target.retainedPreferenceValues = source.retainedPreferenceValues
         target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
+        target.retainedLayoutValues = source.retainedLayoutValues
         if target.nodeTag != source.nodeTag { target.nodeTag = source.nodeTag }
         let targetLayoutTag = layoutModeTag(target.layoutMode)
         let sourceLayoutTag = layoutModeTag(source.layoutMode)

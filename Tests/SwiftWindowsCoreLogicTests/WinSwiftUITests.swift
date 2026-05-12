@@ -132,6 +132,14 @@ private struct TestAnchorListPreferenceKey: PreferenceKey {
     }
 }
 
+private struct TestLayoutRoleKey: LayoutValueKey {
+    static let defaultValue = "regular"
+}
+
+private struct TestLayoutCountKey: LayoutValueKey {
+    static let defaultValue = 0
+}
+
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -5301,6 +5309,19 @@ final class WinSwiftUITests: XCTestCase {
                     RetainedAlignmentGuide(axis: .horizontal, guide: "leading", value: 11)
                 ]
             )
+        }
+    }
+
+    func testLayoutValueStoresRetainedMetadata() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("LAYOUT")
+                    .layoutValue(key: TestLayoutRoleKey.self, value: "featured")
+                    .layoutValue(key: TestLayoutCountKey.self, value: 3)
+            )
+
+            XCTAssertEqual(node.retainedLayoutValues[ObjectIdentifier(TestLayoutRoleKey.self)] as? String, "featured")
+            XCTAssertEqual(node.retainedLayoutValues[ObjectIdentifier(TestLayoutCountKey.self)] as? Int, 3)
         }
     }
 

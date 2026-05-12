@@ -1052,6 +1052,174 @@ public struct ContainerRelativeShape: View {
     }
 }
 
+@MainActor
+public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
+    public typealias Body = Never
+
+    private let buildComponent: (ViewBuildContext) -> Component
+    private let clipShapeStyle: RetainedClipShapeStyle
+    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private var fillStyle: ForegroundStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init<S: Shape>(_ shape: S) {
+        self.buildComponent = { context in
+            ViewBuildContextScope.withCurrent(context) {
+                shape.makeComponent(context: context)
+            }
+        }
+        self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: shape)
+        self.fillStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public var body: Never {
+        fatalError("AnyShape has no body")
+    }
+
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        clipShapeStyle
+    }
+
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        contentShapeStyle
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        guard fillStyle != nil || strokeStyle != nil || strokeLineStyle != nil || lineWidth > 0 else {
+            return buildComponent(context)
+        }
+
+        let fill = fillStyle ?? context.foregroundStyle
+        let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
+        switch clipShapeStyle {
+        case .capsule:
+            return capsuleComponent(
+                fillStyle: fill,
+                strokeStyle: stroke,
+                lineWidth: lineWidth,
+                strokeLineStyle: strokeLineStyle
+            )
+        case .rectangle:
+            return shapeComponent(
+                fillStyle: fill,
+                strokeStyle: stroke,
+                lineWidth: lineWidth,
+                strokeLineStyle: strokeLineStyle,
+                cornerRadius: 0
+            )
+        case .roundedRectangle(let radius):
+            return shapeComponent(
+                fillStyle: fill,
+                strokeStyle: stroke,
+                lineWidth: lineWidth,
+                strokeLineStyle: strokeLineStyle,
+                cornerRadius: radius
+            )
+        }
+    }
+
+    public func fill(_ color: Color) -> AnyShape {
+        var copy = self
+        copy.fillStyle = .color(color)
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> AnyShape {
+        var copy = self
+        copy.fillStyle = style
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient) -> AnyShape {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> AnyShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(style: StrokeStyle) -> AnyShape {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> AnyShape {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> AnyShape {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> AnyShape {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> AnyShape {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> AnyShape {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> AnyShape {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
+        stroke(gradient, style: style)
+    }
+}
+
 extension Rectangle: Shape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle

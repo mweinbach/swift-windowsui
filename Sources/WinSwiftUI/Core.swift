@@ -5454,7 +5454,15 @@ protocol RetainedClipShape: Shape {
 }
 
 @MainActor
-private func retainedContentShapeStyle<S: Shape>(for shape: S) -> SwiftWindowsUI.RetainedContentShapeStyle {
+protocol RetainedContentShapeProvider: Shape {
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle { get }
+}
+
+@MainActor
+func resolvedRetainedContentShapeStyle<S: Shape>(for shape: S) -> SwiftWindowsUI.RetainedContentShapeStyle {
+    if let provider = shape as? any RetainedContentShapeProvider {
+        return provider.retainedContentShapeStyle
+    }
     if shape is Circle || shape is Ellipse {
         return .ellipse
     }
@@ -13999,7 +14007,7 @@ public extension View {
     }
 
     func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false) -> some View {
-        let retainedStyle = retainedContentShapeStyle(for: shape)
+        let retainedStyle = resolvedRetainedContentShapeStyle(for: shape)
         let retainedShape = RetainedContentShape(
             kinds: kind.retainedKinds,
             style: retainedStyle,

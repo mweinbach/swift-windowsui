@@ -2422,6 +2422,53 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAnyShapeErasesRetainedShapeRenderingAndMetadata() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.4, green: 0.7, blue: 0.2, alpha: 1)
+            let strokeColor = Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1)
+
+            let delegatedNode = makeNode(
+                AnyShape(RoundedRectangle(cornerRadius: 9).fill(fillColor))
+            )
+            XCTAssertEqual(delegatedNode.backgroundColor, fillColor)
+            XCTAssertEqual(delegatedNode.cornerRadius, 9)
+
+            let filledNode = makeNode(
+                AnyShape(RoundedRectangle(cornerRadius: 12))
+                    .fill(fillColor)
+            )
+            XCTAssertEqual(filledNode.backgroundColor, fillColor)
+            XCTAssertEqual(filledNode.cornerRadius, 12)
+
+            let strokedNode = makeNode(
+                AnyShape(Capsule())
+                    .strokeBorder(strokeColor, style: StrokeStyle(lineWidth: 3, dashPattern: [2, 1]))
+                    .frame(width: 90, height: 30)
+            )
+            let retainedStrokeNode = strokedNode.children[0]
+            XCTAssertEqual(retainedStrokeNode.backgroundColor, .clear)
+            XCTAssertEqual(retainedStrokeNode.borderColor, strokeColor)
+            XCTAssertEqual(retainedStrokeNode.borderWidth, 3)
+            XCTAssertEqual(retainedStrokeNode.borderStrokeStyle?.dashPattern, [2, 1])
+            retainedStrokeNode.onLayout?(Rect(x: 0, y: 0, width: 90, height: 30))
+            XCTAssertEqual(retainedStrokeNode.cornerRadius, 15)
+
+            let clippedNode = makeNode(Text("CLIP").clipShape(AnyShape(RoundedRectangle(cornerRadius: 11))))
+            XCTAssertTrue(clippedNode.clipsToBounds)
+            XCTAssertEqual(clippedNode.cornerRadius, 11)
+
+            let contentShapeNode = makeNode(Text("HIT").contentShape(AnyShape(Circle())))
+            XCTAssertEqual(
+                contentShapeNode.contentShapes.first,
+                RetainedContentShape(
+                    kinds: .interaction,
+                    style: .ellipse,
+                    eoFill: false
+                )
+            )
+        }
+    }
+
     func testTextMapsSwiftUIFontPointsToNativeTextSize() async {
         await MainActor.run {
             let node = makeNode(

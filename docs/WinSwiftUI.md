@@ -276,6 +276,8 @@ Modifiers:
 - `background(_:alignment:)`
 - `background(_:in:fillStyle:)`
 - `background(alignment:content:)`
+- `containerBackground(_:for:)`
+- `containerBackground(for:alignment:content:)`
 - `overlay`, including color/gradient/stored `ForegroundStyle`/generic `ShapeStyle` overloads
 - `overlay(_:alignment:)`
 - `overlay(_:in:fillStyle:)`
@@ -511,6 +513,7 @@ Compatibility helpers:
 - `AnyShapeStyle`
 - `HierarchicalShapeStyle`
 - `Material`
+- `ContainerBackgroundPlacement`
 - `LocalizedStringResource` text inputs
 - `String(localized: LocalizedStringResource)`
 - `ColorResource(name:bundle:)`
@@ -644,6 +647,7 @@ Compatibility helpers:
 - `Prominence`
 - `BackgroundProminence`
 - `BadgeProminence`
+- `ContainerBackgroundPlacement`
 - `ScenePhase`
 - `ControlActiveState`
 - `EditMode`
@@ -735,7 +739,7 @@ Surface direction:
 - `Label(_:image:)` maps named image resources into the retained label icon slot, while `Label(_:systemImage:)` uses retained system icons. `labelStyle(_:)` propagates through `EnvironmentValues` and maps `.automatic` / `.titleAndIcon`, `.iconOnly`, `.titleOnly`, `DefaultLabelStyle`, `TitleAndIconLabelStyle`, `IconOnlyLabelStyle`, and `TitleOnlyLabelStyle` to retained `Label` composition.
 - `toggleStyle(_:)` propagates through `EnvironmentValues`; `.automatic`, `.switch`, `DefaultToggleStyle`, and `SwitchToggleStyle` use the retained switch, `.checkbox` and `CheckboxToggleStyle` map to retained checkbox chrome with arbitrary SwiftUI-shaped label content, and `.button` plus `ButtonToggleStyle` map to retained selected/unselected button chrome.
 - `textFieldStyle(_:)` propagates through `EnvironmentValues`; `.automatic`, `.roundedBorder`, `DefaultTextFieldStyle`, and `RoundedBorderTextFieldStyle` use the retained rounded input chrome, `.plain` and `PlainTextFieldStyle` map to a borderless retained input surface, and `.squareBorder` plus `SquareBorderTextFieldStyle` map to retained square-corner bordered chrome.
-- `background(_:alignment:)` and `overlay(_:alignment:)` forward view inputs to the retained absolute layering path used by the builder-based overloads. Color, optional color, stored `ForegroundStyle`, and `LinearGradient` inputs also accept the `alignment:` label for SwiftUI source compatibility; those style fills continue to cover the base layout bounds. `background(_:in:fillStyle:)` and `overlay(_:in:fillStyle:)` accept retained `ShapeStyle` values such as `Color`, `LinearGradient`, and `Material`, draw a separate retained style layer behind or above the base content, and clip that style layer to retained shape fallbacks while preserving `FillStyle` metadata. The shaped style layer fills the base layout bounds; arbitrary path geometry and material backdrop blur are still not modeled.
+- `background(_:alignment:)` and `overlay(_:alignment:)` forward view inputs to the retained absolute layering path used by the builder-based overloads. Color, optional color, stored `ForegroundStyle`, and `LinearGradient` inputs also accept the `alignment:` label for SwiftUI source compatibility; those style fills continue to cover the base layout bounds. `containerBackground(_:for:)` and `containerBackground(for:alignment:content:)` accept SwiftUI placement values and currently map to retained background layers; placement-specific parent-container filling, native window styling, StoreKit behavior, and widget semantics are not modeled yet. `background(_:in:fillStyle:)` and `overlay(_:in:fillStyle:)` accept retained `ShapeStyle` values such as `Color`, `LinearGradient`, and `Material`, draw a separate retained style layer behind or above the base content, and clip that style layer to retained shape fallbacks while preserving `FillStyle` metadata. The shaped style layer fills the base layout bounds; arbitrary path geometry and material backdrop blur are still not modeled.
 - `Section` supports title, header, footer, content-only, and `isExpanded` binding forms, all mapped to the retained vertical section panel. Collapsible sections wrap the header in a retained disclosure-style button, write through the expansion binding, and conditionally include section content; context-specific SwiftUI sidebar/list disclosure styling is not modeled yet.
 - `GroupBox` maps title and builder-label forms to a retained vertical panel with lightweight default chrome. `groupBoxStyle(_:)`, `EnvironmentValues.groupBoxStyle`, `GroupBoxStyle.automatic`, and `DefaultGroupBoxStyle` are accepted as source-compatible metadata; retained rendering still uses the default group box chrome.
 - `NavigationStack` and `NavigationView` preserve `navigationTitle` / `navigationSubtitle` / `navigationBarTitle` metadata, render lightweight retained title/subtitle chrome, and support local push/pop presentation for direct `NavigationLink(destination:)`, `NavigationLink { destination } label: { ... }`, deprecated `NavigationLink(destination:isActive:label:)`, and deprecated `NavigationLink(destination:tag:selection:label:)` links plus `NavigationLink(value:)` routes resolved by `navigationDestination(for:)`. `navigationBarHidden(_:)` suppresses the retained navigation title/back chrome for content that opts out, while `navigationBarBackButtonHidden(_:)` suppresses only the retained back control for pushed destination content. `isActive` navigation links set their binding when activated and clear it when the retained back control dismisses that pushed destination; tag/selection navigation links set their selection to the tag when activated and clear it on retained back dismissal if it still matches the tag. `NavigationStack(path:)` syncs value-link pushes and back navigation with `NavigationPath` or generic mutable collection bindings, including nested path restoration as each resolved destination contributes its own registered destinations. Boolean and item `navigationDestination` overloads render binding-driven retained destinations and clear their bindings through the back control or `@Environment(\.dismiss)`. Platform-native navigation transitions are not implemented yet.

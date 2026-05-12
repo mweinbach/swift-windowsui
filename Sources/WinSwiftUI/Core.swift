@@ -2647,6 +2647,27 @@ public struct BadgeProminence: Sendable, Equatable, Hashable {
     public static let increased = BadgeProminence(.increased)
 }
 
+public struct ContainerBackgroundPlacement: Sendable, Equatable, Hashable, CustomStringConvertible {
+    private let identifier: String
+
+    private init(_ identifier: String) {
+        self.identifier = identifier
+    }
+
+    public static let navigation = ContainerBackgroundPlacement("navigation")
+    public static let navigationSplitView = ContainerBackgroundPlacement("navigationSplitView")
+    public static let tabView = ContainerBackgroundPlacement("tabView")
+    public static let widget = ContainerBackgroundPlacement("widget")
+    public static let window = ContainerBackgroundPlacement("window")
+    public static let subscriptionStore = ContainerBackgroundPlacement("subscriptionStore")
+    public static let subscriptionStoreFullHeight = ContainerBackgroundPlacement("subscriptionStoreFullHeight")
+    public static let subscriptionStoreHeader = ContainerBackgroundPlacement("subscriptionStoreHeader")
+
+    public var description: String {
+        identifier
+    }
+}
+
 public protocol EnvironmentKey {
     associatedtype Value
 
@@ -14922,6 +14943,23 @@ public extension View {
                 return root
             }
         }
+    }
+
+    func containerBackground<S: ShapeStyle>(
+        _ style: S,
+        for placement: ContainerBackgroundPlacement
+    ) -> some View {
+        _ = placement
+        return background(style)
+    }
+
+    func containerBackground(
+        for placement: ContainerBackgroundPlacement,
+        alignment: Alignment = .center,
+        @ViewBuilder content backgroundContent: () -> [AnyView]
+    ) -> some View {
+        _ = placement
+        return background(alignment: alignment, content: backgroundContent)
     }
 
     func backgroundPreferenceValue<Key: PreferenceKey>(

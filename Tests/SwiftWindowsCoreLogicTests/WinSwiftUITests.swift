@@ -4982,6 +4982,48 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testContainerBackgroundMapsToRetainedBackgroundLayer() async {
+        await MainActor.run {
+            let color = Color(red: 0.18, green: 0.28, blue: 0.44, alpha: 1)
+            let gradient = LinearGradient(
+                colors: [
+                    Color(red: 0.1, green: 0.2, blue: 0.8, alpha: 1),
+                    Color(red: 0.8, green: 0.2, blue: 0.5, alpha: 1)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            let colorNode = makeNode(
+                Text("CONTAINER")
+                    .containerBackground(color, for: .navigation)
+            )
+            let gradientNode = makeNode(
+                Text("GRADIENT")
+                    .containerBackground(gradient, for: .window)
+            )
+            let builderNode = renderedNode(
+                Text("BASE")
+                    .frame(width: 80, height: 32)
+                    .containerBackground(for: .tabView, alignment: .bottomTrailing) {
+                        Text("BG")
+                            .frame(width: 16, height: 8)
+                    }
+            )
+
+            XCTAssertEqual(ContainerBackgroundPlacement.navigation.description, "navigation")
+            XCTAssertEqual(ContainerBackgroundPlacement.navigationSplitView.description, "navigationSplitView")
+            XCTAssertEqual(ContainerBackgroundPlacement.widget.description, "widget")
+            XCTAssertEqual(ContainerBackgroundPlacement.subscriptionStoreHeader.description, "subscriptionStoreHeader")
+            XCTAssertEqual(colorNode.backgroundColor, color)
+            XCTAssertEqual(firstText(in: colorNode.children[0]), "CONTAINER")
+            XCTAssertEqual(gradientNode.backgroundGradient, gradient)
+            XCTAssertEqual(firstText(in: gradientNode.children[0]), "GRADIENT")
+            XCTAssertEqual(builderNode.preferredSize, Size(width: 80, height: 32))
+            XCTAssertEqual(builderNode.children[0].frame, Rect(x: 64, y: 24, width: 16, height: 8))
+            XCTAssertEqual(builderNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+        }
+    }
+
     func testBackgroundAcceptsOptionalColorAndIgnoresSafeAreaEdgesLabel() async {
         await MainActor.run {
             let optionalColor: Color? = Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 1)

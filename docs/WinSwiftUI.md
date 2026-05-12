@@ -117,6 +117,7 @@ Views and containers:
 - `AnyShape`
 - `InsettableShape`
 - `InsetShape`
+- `Shape` static factories for `rect`, rounded `rect(...)`, uneven `rect(...)`, `capsule`, `circle`, `ellipse`, and `containerRelative`
 - `Shape`
 - `Spacer`
 - `Divider`
@@ -668,6 +669,7 @@ Surface direction:
 - `UnevenRoundedRectangle` accepts `RectangleCornerRadii` and per-corner radius initializers for SwiftUI-shaped call sites. The current retained renderer stores the largest supplied corner radius as a uniform rounded-rectangle fallback until renderer-neutral per-corner rounded rect primitives are added.
 - `AnyShape` type-erases retained shape values for source-compatible conditional shape call sites. It preserves retained clip and content-shape geometry from wrapped basic shapes, delegates direct rendering to the wrapped shape when no erased fill/stroke override is applied, and applies erased fill/stroke overrides through the current retained rectangle/rounded/capsule fallback paths.
 - `InsettableShape` and `InsetShape` support `inset(by:)` on retained basic shapes. The current compatibility path wraps the rendered shape in retained padding, accumulates nested insets, and reduces retained rounded-rectangle radii by the inset amount; it does not yet provide path-level inset geometry for arbitrary custom shapes.
+- SwiftUI's standard `Shape` factories are available for retained built-in shapes, including `.rect`, `.rect(cornerRadius:style:)`, `.rect(cornerSize:style:)`, uneven `.rect(...)`, `.capsule`, `.capsule(style:)`, `.circle`, `.ellipse`, and `.containerRelative`, so leading-dot shape arguments such as `.clipShape(.rect(cornerRadius: 8))` compile against WinSwiftUI.
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, and `AnyShape` wrappers around those retained shapes to retained bounds clipping with matching retained corner-radius behavior, and preserves `FillStyle` even-odd plus antialiasing metadata for future renderer-neutral path clipping. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.
 - `border` maps to retained panel border fields. Stored `ForegroundStyle.color` values map directly, and stored or direct `LinearGradient` inputs retain the gradient for renderer-neutral border fill commands.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state.

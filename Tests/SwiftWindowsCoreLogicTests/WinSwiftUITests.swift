@@ -2179,6 +2179,57 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeStaticFactoriesMapToRetainedBuiltInShapes() async {
+        await MainActor.run {
+            let fillColor = Color(red: 0.3, green: 0.5, blue: 0.8, alpha: 1)
+            let roundedRectNode = makeNode(
+                Text("CLIP").clipShape(.rect(cornerRadius: 8))
+            )
+            let cornerSizeNode = makeNode(
+                RoundedRectangle.rect(cornerSize: CGSize(width: 4, height: 11)).fill(fillColor)
+            )
+            let unevenNode = makeNode(
+                UnevenRoundedRectangle.rect(
+                    topLeadingRadius: 2,
+                    bottomLeadingRadius: 5,
+                    bottomTrailingRadius: 12,
+                    topTrailingRadius: 6
+                )
+                .fill(fillColor)
+            )
+            let capsuleNode = makeNode(Capsule.capsule.fill(fillColor).frame(width: 40, height: 20))
+            let circleContentShapeNode = makeNode(Text("HIT").contentShape(.circle))
+            let containerRelativeNode = makeNode(ContainerRelativeShape.containerRelative.fill(fillColor))
+            let ellipseNode = makeNode(Ellipse.ellipse.strokeBorder(fillColor, lineWidth: 2))
+            let rectNode = makeNode(Rectangle.rect.fill(fillColor))
+
+            XCTAssertTrue(roundedRectNode.clipsToBounds)
+            XCTAssertEqual(roundedRectNode.cornerRadius, 8)
+            XCTAssertEqual(cornerSizeNode.backgroundColor, fillColor)
+            XCTAssertEqual(cornerSizeNode.cornerRadius, 11)
+            XCTAssertEqual(unevenNode.backgroundColor, fillColor)
+            XCTAssertEqual(unevenNode.cornerRadius, 12)
+
+            let retainedCapsuleNode = capsuleNode.children[0]
+            retainedCapsuleNode.onLayout?(Rect(x: 0, y: 0, width: 40, height: 20))
+            XCTAssertEqual(retainedCapsuleNode.cornerRadius, 10)
+            XCTAssertEqual(
+                circleContentShapeNode.contentShapes.first,
+                RetainedContentShape(kinds: .interaction, style: .ellipse, eoFill: false)
+            )
+
+            containerRelativeNode.onLayout?(Rect(x: 0, y: 0, width: 30, height: 10))
+            XCTAssertEqual(containerRelativeNode.backgroundColor, fillColor)
+            XCTAssertEqual(containerRelativeNode.cornerRadius, 5)
+            ellipseNode.onLayout?(Rect(x: 0, y: 0, width: 24, height: 12))
+            XCTAssertEqual(ellipseNode.borderColor, fillColor)
+            XCTAssertEqual(ellipseNode.borderWidth, 2)
+            XCTAssertEqual(ellipseNode.cornerRadius, 6)
+            XCTAssertEqual(rectNode.backgroundColor, fillColor)
+            XCTAssertEqual(rectNode.cornerRadius, 0)
+        }
+    }
+
     func testUnevenRoundedRectangleMapsToRetainedRoundedFallback() async {
         await MainActor.run {
             let fillColor = Color(red: 0.3, green: 0.7, blue: 0.9, alpha: 1)

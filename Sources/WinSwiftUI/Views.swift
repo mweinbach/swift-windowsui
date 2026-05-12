@@ -1443,6 +1443,81 @@ public extension InsettableShape {
     }
 }
 
+public extension Shape where Self == Rectangle {
+    static var rect: Rectangle {
+        Rectangle()
+    }
+}
+
+public extension Shape where Self == RoundedRectangle {
+    static func rect(
+        cornerRadius: CGFloat,
+        style: RoundedCornerStyle = .continuous
+    ) -> RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius, style: style)
+    }
+
+    static func rect(
+        cornerSize: CGSize,
+        style: RoundedCornerStyle = .continuous
+    ) -> RoundedRectangle {
+        RoundedRectangle(cornerSize: cornerSize, style: style)
+    }
+}
+
+public extension Shape where Self == UnevenRoundedRectangle {
+    static func rect(
+        cornerRadii: RectangleCornerRadii,
+        style: RoundedCornerStyle = .continuous
+    ) -> UnevenRoundedRectangle {
+        UnevenRoundedRectangle(cornerRadii: cornerRadii, style: style)
+    }
+
+    static func rect(
+        topLeadingRadius: CGFloat = 0,
+        bottomLeadingRadius: CGFloat = 0,
+        bottomTrailingRadius: CGFloat = 0,
+        topTrailingRadius: CGFloat = 0,
+        style: RoundedCornerStyle = .continuous
+    ) -> UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: topLeadingRadius,
+            bottomLeadingRadius: bottomLeadingRadius,
+            bottomTrailingRadius: bottomTrailingRadius,
+            topTrailingRadius: topTrailingRadius,
+            style: style
+        )
+    }
+}
+
+public extension Shape where Self == Capsule {
+    static var capsule: Capsule {
+        Capsule()
+    }
+
+    static func capsule(style: RoundedCornerStyle) -> Capsule {
+        Capsule(style: style)
+    }
+}
+
+public extension Shape where Self == Circle {
+    static var circle: Circle {
+        Circle()
+    }
+}
+
+public extension Shape where Self == Ellipse {
+    static var ellipse: Ellipse {
+        Ellipse()
+    }
+}
+
+public extension Shape where Self == ContainerRelativeShape {
+    static var containerRelative: ContainerRelativeShape {
+        ContainerRelativeShape()
+    }
+}
+
 extension Rectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle

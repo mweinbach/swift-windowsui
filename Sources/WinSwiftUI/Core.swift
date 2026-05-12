@@ -12424,9 +12424,17 @@ public extension View {
         return backgroundStyle(color: fill.color, gradient: fill.gradient)
     }
 
+    func background<S: ShapeStyle>(_ style: S, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        background(style.retainedForegroundStyle, ignoresSafeAreaEdges: edges)
+    }
+
     func background(_ style: ForegroundStyle, alignment: Alignment) -> some View {
         _ = alignment
         return background(style)
+    }
+
+    func background<S: ShapeStyle>(_ style: S, alignment: Alignment) -> some View {
+        background(style.retainedForegroundStyle, alignment: alignment)
     }
 
     func background(_ gradient: LinearGradient) -> some View {
@@ -12601,9 +12609,17 @@ public extension View {
         return overlayStyle(color: fill.color, gradient: fill.gradient)
     }
 
+    func overlay<S: ShapeStyle>(_ style: S, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
+        overlay(style.retainedForegroundStyle, ignoresSafeAreaEdges: edges)
+    }
+
     func overlay(_ style: ForegroundStyle, alignment: Alignment) -> some View {
         _ = alignment
         return overlay(style)
+    }
+
+    func overlay<S: ShapeStyle>(_ style: S, alignment: Alignment) -> some View {
+        overlay(style.retainedForegroundStyle, alignment: alignment)
     }
 
     func overlay(_ gradient: LinearGradient) -> some View {
@@ -12791,15 +12807,37 @@ public extension View {
         }
     }
 
+    func foregroundStyle<S: ShapeStyle>(_ style: S) -> some View {
+        foregroundStyle(style.retainedForegroundStyle)
+    }
+
     func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> some View {
         _ = secondary
         return foregroundStyle(primary)
+    }
+
+    func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary
+    ) -> some View {
+        _ = secondary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> some View {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
+    }
+
+    func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle, Tertiary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary,
+        _ tertiary: Tertiary
+    ) -> some View {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     func foregroundStyle(_ gradient: LinearGradient) -> some View {
@@ -14092,6 +14130,10 @@ public extension View {
     func border(_ style: ForegroundStyle, width: Double = 1, cornerRadius: Double = 0) -> some View {
         let fill = resolvedBorderFill(from: style)
         return borderStyle(color: fill.color, gradient: fill.gradient, width: width, cornerRadius: cornerRadius)
+    }
+
+    func border<S: ShapeStyle>(_ style: S, width: Double = 1, cornerRadius: Double = 0) -> some View {
+        border(style.retainedForegroundStyle, width: width, cornerRadius: cornerRadius)
     }
 
     func border(_ gradient: LinearGradient, width: Double = 1, cornerRadius: Double = 0) -> some View {

@@ -3443,6 +3443,63 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGenericShapeStyleOverloadsMapToRetainedForegroundStyle() async {
+        struct TestShapeStyle: ShapeStyle {
+            let retainedForegroundStyle: ForegroundStyle
+        }
+
+        await MainActor.run {
+            let color = Color(red: 0.2, green: 0.7, blue: 0.5, alpha: 1)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .top, endPoint: .bottom)
+            let colorStyle = TestShapeStyle(retainedForegroundStyle: .color(color))
+            let gradientStyle = TestShapeStyle(retainedForegroundStyle: .linearGradient(gradient))
+
+            let textNode = makeNode(Text("STYLE").foregroundStyle(colorStyle))
+            let labelNode = makeNode(Label("LABEL", systemImage: "star").foregroundStyle(colorStyle))
+            let inheritedNode = makeNode(
+                VStack {
+                    Text("GRADIENT")
+                }
+                .foregroundStyle(gradientStyle, colorStyle)
+            )
+            let backgroundNode = makeNode(Text("BACKGROUND").background(gradientStyle))
+            let overlayNode = renderedNode(
+                Text("OVERLAY")
+                    .frame(width: 80, height: 32)
+                    .overlay(colorStyle, alignment: .bottomTrailing)
+            )
+            let borderNode = makeNode(Text("BORDER").border(gradientStyle, width: 4, cornerRadius: 6))
+            let filledNode = makeNode(Rectangle().fill(colorStyle))
+            let strokedNode = makeNode(RoundedRectangle(cornerRadius: 8).stroke(gradientStyle, lineWidth: 3))
+            let strokeStyleNode = makeNode(
+                Capsule().strokeBorder(colorStyle, style: StrokeStyle(lineWidth: 5, dash: [2]))
+            )
+            let anyShapeNode = makeNode(AnyShape(Circle()).fill(gradientStyle))
+            let insetShapeNode = makeNode(Circle().inset(by: 2).strokeBorder(colorStyle, lineWidth: 2))
+
+            XCTAssertEqual(textNode.textStyle.color, color)
+            XCTAssertEqual(labelNode.children[0].textStyle.color, color)
+            XCTAssertEqual(labelNode.children[1].textStyle.color, color)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.color, gradient.startColor)
+            XCTAssertEqual(backgroundNode.backgroundGradient, gradient)
+            XCTAssertEqual(overlayNode.children[1].backgroundColor, color)
+            XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
+            XCTAssertEqual(borderNode.borderColor, gradient.startColor)
+            XCTAssertEqual(borderNode.borderGradient, gradient)
+            XCTAssertEqual(borderNode.borderWidth, 4)
+            XCTAssertEqual(borderNode.cornerRadius, 6)
+            XCTAssertEqual(filledNode.backgroundColor, color)
+            XCTAssertEqual(strokedNode.borderColor, gradient.startColor)
+            XCTAssertEqual(strokedNode.borderGradient, gradient)
+            XCTAssertEqual(strokedNode.borderWidth, 3)
+            XCTAssertEqual(strokeStyleNode.borderColor, color)
+            XCTAssertEqual(strokeStyleNode.borderWidth, 5)
+            XCTAssertEqual(anyShapeNode.backgroundGradient, gradient)
+            XCTAssertEqual(insetShapeNode.children[0].borderColor, color)
+            XCTAssertEqual(insetShapeNode.children[0].borderWidth, 2)
+        }
+    }
+
     func testCustomViewModifierMapsThroughRetainedComponentPipeline() async {
         await MainActor.run {
             let node = makeNode(

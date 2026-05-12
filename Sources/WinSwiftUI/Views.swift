@@ -161,6 +161,10 @@ public struct Rectangle: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> Rectangle {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> Rectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -183,6 +187,10 @@ public struct Rectangle: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Rectangle {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Rectangle {
@@ -210,6 +218,10 @@ public struct Rectangle: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Rectangle {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Rectangle {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -222,6 +234,10 @@ public struct Rectangle: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Rectangle {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Rectangle {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Rectangle {
@@ -238,6 +254,10 @@ public struct Rectangle: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Rectangle {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Rectangle {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Rectangle {
@@ -296,6 +316,10 @@ public struct RoundedRectangle: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> RoundedRectangle {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -318,6 +342,10 @@ public struct RoundedRectangle: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> RoundedRectangle {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> RoundedRectangle {
@@ -345,6 +373,10 @@ public struct RoundedRectangle: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> RoundedRectangle {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> RoundedRectangle {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -357,6 +389,10 @@ public struct RoundedRectangle: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> RoundedRectangle {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> RoundedRectangle {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> RoundedRectangle {
@@ -373,6 +409,10 @@ public struct RoundedRectangle: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> RoundedRectangle {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> RoundedRectangle {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> RoundedRectangle {
@@ -475,6 +515,10 @@ public struct UnevenRoundedRectangle: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> UnevenRoundedRectangle {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -497,6 +541,10 @@ public struct UnevenRoundedRectangle: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> UnevenRoundedRectangle {
@@ -524,6 +572,10 @@ public struct UnevenRoundedRectangle: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> UnevenRoundedRectangle {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> UnevenRoundedRectangle {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -536,6 +588,10 @@ public struct UnevenRoundedRectangle: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> UnevenRoundedRectangle {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> UnevenRoundedRectangle {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> UnevenRoundedRectangle {
@@ -552,6 +608,10 @@ public struct UnevenRoundedRectangle: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> UnevenRoundedRectangle {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> UnevenRoundedRectangle {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> UnevenRoundedRectangle {
@@ -602,6 +662,10 @@ public struct Capsule: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> Capsule {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> Capsule {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -624,6 +688,10 @@ public struct Capsule: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Capsule {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Capsule {
@@ -651,6 +719,10 @@ public struct Capsule: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Capsule {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Capsule {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -663,6 +735,10 @@ public struct Capsule: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Capsule {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Capsule {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Capsule {
@@ -679,6 +755,10 @@ public struct Capsule: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Capsule {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Capsule {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Capsule {
@@ -727,6 +807,10 @@ public struct Circle: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> Circle {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> Circle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -749,6 +833,10 @@ public struct Circle: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Circle {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Circle {
@@ -776,6 +864,10 @@ public struct Circle: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Circle {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Circle {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -788,6 +880,10 @@ public struct Circle: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Circle {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Circle {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Circle {
@@ -804,6 +900,10 @@ public struct Circle: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Circle {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Circle {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Circle {
@@ -852,6 +952,10 @@ public struct Ellipse: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> Ellipse {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> Ellipse {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -874,6 +978,10 @@ public struct Ellipse: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Ellipse {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Ellipse {
@@ -901,6 +1009,10 @@ public struct Ellipse: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Ellipse {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Ellipse {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -913,6 +1025,10 @@ public struct Ellipse: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Ellipse {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Ellipse {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Ellipse {
@@ -929,6 +1045,10 @@ public struct Ellipse: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Ellipse {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Ellipse {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Ellipse {
@@ -977,6 +1097,10 @@ public struct ContainerRelativeShape: View {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> ContainerRelativeShape {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -999,6 +1123,10 @@ public struct ContainerRelativeShape: View {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> ContainerRelativeShape {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> ContainerRelativeShape {
@@ -1026,6 +1154,10 @@ public struct ContainerRelativeShape: View {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> ContainerRelativeShape {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> ContainerRelativeShape {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1038,6 +1170,10 @@ public struct ContainerRelativeShape: View {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> ContainerRelativeShape {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> ContainerRelativeShape {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> ContainerRelativeShape {
@@ -1054,6 +1190,10 @@ public struct ContainerRelativeShape: View {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> ContainerRelativeShape {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> ContainerRelativeShape {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> ContainerRelativeShape {
@@ -1145,6 +1285,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> AnyShape {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> AnyShape {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -1167,6 +1311,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> AnyShape {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
@@ -1194,6 +1342,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> AnyShape {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1206,6 +1358,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> AnyShape {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
@@ -1222,6 +1378,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> AnyShape {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> AnyShape {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
@@ -1353,6 +1513,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         return copy
     }
 
+    public func fill<S: ShapeStyle>(_ style: S) -> InsetShape<Content> {
+        fill(style.retainedForegroundStyle)
+    }
+
     public func fill(_ gradient: LinearGradient) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
@@ -1375,6 +1539,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
         return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> InsetShape<Content> {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> InsetShape<Content> {
@@ -1402,6 +1570,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         return copy
     }
 
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> InsetShape<Content> {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
     public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> InsetShape<Content> {
         var copy = stroke(gradient, lineWidth: style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1414,6 +1586,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> InsetShape<Content> {
         stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> InsetShape<Content> {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> InsetShape<Content> {
@@ -1430,6 +1606,10 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> InsetShape<Content> {
         stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> InsetShape<Content> {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
     }
 
     public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> InsetShape<Content> {
@@ -3502,15 +3682,37 @@ public struct Text: View {
         foregroundColor(resolvedFill(from: style).color)
     }
 
+    public func foregroundStyle<S: ShapeStyle>(_ style: S) -> Text {
+        foregroundStyle(style.retainedForegroundStyle)
+    }
+
     public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> Text {
         _ = secondary
         return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary
+    ) -> Text {
+        _ = secondary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Text {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle, Tertiary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary,
+        _ tertiary: Tertiary
+    ) -> Text {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     public func foregroundStyle(_ gradient: LinearGradient) -> Text {
@@ -4648,15 +4850,37 @@ public struct Label: View {
         foregroundColor(resolvedFill(from: style).color)
     }
 
+    public func foregroundStyle<S: ShapeStyle>(_ style: S) -> Label {
+        foregroundStyle(style.retainedForegroundStyle)
+    }
+
     public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle) -> Label {
         _ = secondary
         return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary
+    ) -> Label {
+        _ = secondary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Label {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
+    }
+
+    public func foregroundStyle<Primary: ShapeStyle, Secondary: ShapeStyle, Tertiary: ShapeStyle>(
+        _ primary: Primary,
+        _ secondary: Secondary,
+        _ tertiary: Tertiary
+    ) -> Label {
+        _ = secondary
+        _ = tertiary
+        return foregroundStyle(primary.retainedForegroundStyle)
     }
 
     public func foregroundStyle(_ gradient: LinearGradient) -> Label {

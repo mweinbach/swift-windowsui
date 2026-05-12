@@ -132,12 +132,14 @@ public struct Rectangle: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
 
     public init() {
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -150,6 +152,7 @@ public struct Rectangle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle,
@@ -160,12 +163,14 @@ public struct Rectangle: View {
     public func fill(_ color: Color) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> Rectangle {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -176,39 +181,45 @@ public struct Rectangle: View {
     public func fill(_ gradient: LinearGradient) -> Rectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> Rectangle {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> Rectangle {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Rectangle {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Rectangle {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> Rectangle {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -218,6 +229,7 @@ public struct Rectangle: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -239,6 +251,7 @@ public struct Rectangle: View {
     public func stroke(style: StrokeStyle) -> Rectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -315,6 +328,7 @@ public struct RoundedRectangle: View {
     public let cornerSize: CGSize
     public let style: RoundedCornerStyle
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
@@ -328,6 +342,7 @@ public struct RoundedRectangle: View {
         self.cornerSize = CGSize(width: max(0, cornerSize.width), height: max(0, cornerSize.height))
         self.style = style
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -340,6 +355,7 @@ public struct RoundedRectangle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle,
@@ -350,12 +366,14 @@ public struct RoundedRectangle: View {
     public func fill(_ color: Color) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -366,39 +384,45 @@ public struct RoundedRectangle: View {
     public func fill(_ gradient: LinearGradient) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> RoundedRectangle {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> RoundedRectangle {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> RoundedRectangle {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> RoundedRectangle {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> RoundedRectangle {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -408,6 +432,7 @@ public struct RoundedRectangle: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -429,6 +454,7 @@ public struct RoundedRectangle: View {
     public func stroke(style: StrokeStyle) -> RoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -533,6 +559,7 @@ public struct UnevenRoundedRectangle: View {
     public let style: RoundedCornerStyle
 
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
@@ -544,6 +571,7 @@ public struct UnevenRoundedRectangle: View {
         self.cornerRadii = cornerRadii
         self.style = style
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -574,6 +602,7 @@ public struct UnevenRoundedRectangle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         shapeComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle,
@@ -584,12 +613,14 @@ public struct UnevenRoundedRectangle: View {
     public func fill(_ color: Color) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -600,39 +631,45 @@ public struct UnevenRoundedRectangle: View {
     public func fill(_ gradient: LinearGradient) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> UnevenRoundedRectangle {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> UnevenRoundedRectangle {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> UnevenRoundedRectangle {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> UnevenRoundedRectangle {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> UnevenRoundedRectangle {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -642,6 +679,7 @@ public struct UnevenRoundedRectangle: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -663,6 +701,7 @@ public struct UnevenRoundedRectangle: View {
     public func stroke(style: StrokeStyle) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -738,6 +777,7 @@ public struct Capsule: View {
 
     private let style: RoundedCornerStyle
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
@@ -745,6 +785,7 @@ public struct Capsule: View {
     public init(style: RoundedCornerStyle = .circular) {
         self.style = style
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -757,6 +798,7 @@ public struct Capsule: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
@@ -766,12 +808,14 @@ public struct Capsule: View {
     public func fill(_ color: Color) -> Capsule {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> Capsule {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -782,39 +826,45 @@ public struct Capsule: View {
     public func fill(_ gradient: LinearGradient) -> Capsule {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> Capsule {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> Capsule {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Capsule {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Capsule {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> Capsule {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -824,6 +874,7 @@ public struct Capsule: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -845,6 +896,7 @@ public struct Capsule: View {
     public func stroke(style: StrokeStyle) -> Capsule {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -919,12 +971,14 @@ public struct Circle: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
 
     public init() {
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -937,6 +991,7 @@ public struct Circle: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
@@ -946,12 +1001,14 @@ public struct Circle: View {
     public func fill(_ color: Color) -> Circle {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> Circle {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -962,39 +1019,45 @@ public struct Circle: View {
     public func fill(_ gradient: LinearGradient) -> Circle {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> Circle {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> Circle {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Circle {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Circle {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> Circle {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Circle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1004,6 +1067,7 @@ public struct Circle: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Circle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1025,6 +1089,7 @@ public struct Circle: View {
     public func stroke(style: StrokeStyle) -> Circle {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1099,12 +1164,14 @@ public struct Ellipse: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
 
     public init() {
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -1117,6 +1184,7 @@ public struct Ellipse: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
@@ -1126,12 +1194,14 @@ public struct Ellipse: View {
     public func fill(_ color: Color) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> Ellipse {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -1142,39 +1212,45 @@ public struct Ellipse: View {
     public func fill(_ gradient: LinearGradient) -> Ellipse {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> Ellipse {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> Ellipse {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Ellipse {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Ellipse {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> Ellipse {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1184,6 +1260,7 @@ public struct Ellipse: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1205,6 +1282,7 @@ public struct Ellipse: View {
     public func stroke(style: StrokeStyle) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1279,12 +1357,14 @@ public struct ContainerRelativeShape: View {
     public typealias Body = Never
 
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
 
     public init() {
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -1297,6 +1377,7 @@ public struct ContainerRelativeShape: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         capsuleComponent(
             fillStyle: fillStyle ?? context.foregroundStyle,
+            fillRuleStyle: fillRuleStyle,
             strokeStyle: lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear),
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
@@ -1306,12 +1387,14 @@ public struct ContainerRelativeShape: View {
     public func fill(_ color: Color) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -1322,39 +1405,45 @@ public struct ContainerRelativeShape: View {
     public func fill(_ gradient: LinearGradient) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> ContainerRelativeShape {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> ContainerRelativeShape {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> ContainerRelativeShape {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> ContainerRelativeShape {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> ContainerRelativeShape {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1364,6 +1453,7 @@ public struct ContainerRelativeShape: View {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1385,6 +1475,7 @@ public struct ContainerRelativeShape: View {
     public func stroke(style: StrokeStyle) -> ContainerRelativeShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1462,6 +1553,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
@@ -1475,6 +1567,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: shape)
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -1493,7 +1586,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        guard fillStyle != nil || strokeStyle != nil || strokeLineStyle != nil || lineWidth > 0 else {
+        guard fillStyle != nil || fillRuleStyle != nil || strokeStyle != nil || strokeLineStyle != nil || lineWidth > 0 else {
             return buildComponent(context)
         }
 
@@ -1503,6 +1596,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         case .capsule:
             return capsuleComponent(
                 fillStyle: fill,
+                fillRuleStyle: fillRuleStyle,
                 strokeStyle: stroke,
                 lineWidth: lineWidth,
                 strokeLineStyle: strokeLineStyle
@@ -1510,6 +1604,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         case .rectangle:
             return shapeComponent(
                 fillStyle: fill,
+                fillRuleStyle: fillRuleStyle,
                 strokeStyle: stroke,
                 lineWidth: lineWidth,
                 strokeLineStyle: strokeLineStyle,
@@ -1518,6 +1613,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         case .roundedRectangle(let radius):
             return shapeComponent(
                 fillStyle: fill,
+                fillRuleStyle: fillRuleStyle,
                 strokeStyle: stroke,
                 lineWidth: lineWidth,
                 strokeLineStyle: strokeLineStyle,
@@ -1529,12 +1625,14 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public func fill(_ color: Color) -> AnyShape {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> AnyShape {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -1545,39 +1643,45 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public func fill(_ gradient: LinearGradient) -> AnyShape {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> AnyShape {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> AnyShape {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> AnyShape {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> AnyShape {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> AnyShape {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> AnyShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1587,6 +1691,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1608,6 +1713,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public func stroke(style: StrokeStyle) -> AnyShape {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -1687,6 +1793,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
     private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
     private var strokeStyle: ForegroundStyle?
     private var lineWidth: Double
     private var strokeLineStyle: StrokeStyle?
@@ -1702,6 +1809,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: content)
         self.fillStyle = nil
+        self.fillRuleStyle = nil
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
@@ -1739,7 +1847,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let renderedComponent: Component
-        if fillStyle == nil && strokeStyle == nil && strokeLineStyle == nil && lineWidth <= 0 {
+        if fillStyle == nil && fillRuleStyle == nil && strokeStyle == nil && strokeLineStyle == nil && lineWidth <= 0 {
             renderedComponent = buildComponent(context)
         } else {
             let fill = fillStyle ?? context.foregroundStyle
@@ -1748,6 +1856,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
             case .capsule:
                 renderedComponent = capsuleComponent(
                     fillStyle: fill,
+                    fillRuleStyle: fillRuleStyle,
                     strokeStyle: stroke,
                     lineWidth: lineWidth,
                     strokeLineStyle: strokeLineStyle
@@ -1755,6 +1864,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
             case .rectangle:
                 renderedComponent = shapeComponent(
                     fillStyle: fill,
+                    fillRuleStyle: fillRuleStyle,
                     strokeStyle: stroke,
                     lineWidth: lineWidth,
                     strokeLineStyle: strokeLineStyle,
@@ -1763,6 +1873,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
             case .roundedRectangle(let radius):
                 renderedComponent = shapeComponent(
                     fillStyle: fill,
+                    fillRuleStyle: fillRuleStyle,
                     strokeStyle: stroke,
                     lineWidth: lineWidth,
                     strokeLineStyle: strokeLineStyle,
@@ -1792,12 +1903,14 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     public func fill(_ color: Color) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(_ style: ForegroundStyle) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = style
+        copy.fillRuleStyle = nil
         return copy
     }
 
@@ -1808,39 +1921,45 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     public func fill(_ gradient: LinearGradient) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
         return copy
     }
 
     public func fill(style: FillStyle) -> InsetShape<Content> {
-        _ = style
         var copy = self
         copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
         return copy
     }
 
     public func fill(_ color: Color, style: FillStyle) -> InsetShape<Content> {
-        _ = style
-        return fill(color)
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> InsetShape<Content> {
-        _ = style
-        return fill(foregroundStyle)
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> InsetShape<Content> {
-        _ = style
-        return fill(foregroundStyle.retainedForegroundStyle)
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func fill(_ gradient: LinearGradient, style: FillStyle) -> InsetShape<Content> {
-        _ = style
-        return fill(gradient)
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
     }
 
     public func stroke(_ color: Color, lineWidth: Double = 1) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = .color(color)
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1850,6 +1969,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = style
         copy.lineWidth = max(0, lineWidth)
         copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
@@ -1871,6 +1991,7 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     public func stroke(style: StrokeStyle) -> InsetShape<Content> {
         var copy = self
         copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
         copy.strokeStyle = nil
         copy.lineWidth = max(0, style.lineWidth)
         copy.strokeLineStyle = style.retainedShapeStrokeStyle
@@ -2066,6 +2187,7 @@ extension ContainerRelativeShape: InsettableShape, RetainedClipShape {
 @MainActor
 private func shapeComponent(
     fillStyle: ForegroundStyle,
+    fillRuleStyle: RetainedClipFillStyle?,
     strokeStyle: ForegroundStyle,
     lineWidth: Double,
     strokeLineStyle: StrokeStyle?,
@@ -2083,6 +2205,7 @@ private func shapeComponent(
             cornerRadius: cornerRadius,
             isHitTestVisible: false
         )
+        node.clipFillStyle = fillRuleStyle
         node.borderStrokeStyle = lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         return node
     }
@@ -2091,6 +2214,7 @@ private func shapeComponent(
 @MainActor
 private func capsuleComponent(
     fillStyle: ForegroundStyle,
+    fillRuleStyle: RetainedClipFillStyle?,
     strokeStyle: ForegroundStyle,
     lineWidth: Double,
     strokeLineStyle: StrokeStyle?
@@ -2106,6 +2230,7 @@ private func capsuleComponent(
             borderWidth: lineWidth,
             isHitTestVisible: false
         )
+        node.clipFillStyle = fillRuleStyle
         node.borderStrokeStyle = lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         node.onLayout = { [weak node] bounds in
             let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
@@ -2122,6 +2247,12 @@ private extension StrokeStyle {
         var copy = self
         copy.lineWidth = max(0, lineWidth)
         return copy
+    }
+}
+
+private extension FillStyle {
+    var retainedClipFillStyle: RetainedClipFillStyle {
+        RetainedClipFillStyle(eoFill: isEOFilled, antialiased: isAntialiased)
     }
 }
 

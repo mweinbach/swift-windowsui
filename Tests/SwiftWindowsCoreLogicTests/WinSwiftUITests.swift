@@ -2465,6 +2465,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(gradientFill.backgroundColor, gradient.startColor)
             XCTAssertEqual(gradientFill.backgroundGradient, gradient)
             XCTAssertEqual(semanticFill.backgroundColor, PlaceholderTextShapeStyle().retainedFallbackColor)
+            XCTAssertEqual(inheritedFill.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
+            XCTAssertEqual(colorFill.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: false))
+            XCTAssertEqual(gradientFill.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: true))
+            XCTAssertEqual(semanticFill.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
         }
     }
 

@@ -18021,6 +18021,26 @@ public extension View {
         )
     }
 
+    func listSectionMargins(_ edges: Edge.Set = .all, _ length: CGFloat?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let insets = EdgeInsets(
+                top: edges.contains(.top) ? length ?? 16 : 0,
+                leading: edges.contains(.leading) ? length ?? 16 : 0,
+                bottom: edges.contains(.bottom) ? length ?? 16 : 0,
+                trailing: edges.contains(.trailing) ? length ?? 16 : 0
+            )
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    stackLayout: .vertical(padding: insets, alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
     func listRowSeparator(_ visibility: Visibility, edges: VerticalEdge.Set = .all) -> some View {
         let retainedSeparator = RetainedListRowSeparator(
             visibility: visibility.retainedListSeparatorVisibility,

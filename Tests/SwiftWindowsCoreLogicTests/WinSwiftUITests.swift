@@ -6572,6 +6572,47 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListSectionMarginsMapToRetainedSectionPadding() async {
+        await MainActor.run {
+            let listNode = makeNode(
+                List {
+                    Section("HORIZONTAL") {
+                        Text("ONE")
+                    }
+                    .listSectionMargins(.horizontal, 10)
+
+                    Section("DEFAULT") {
+                        Text("TWO")
+                    }
+                    .listSectionMargins(.vertical, nil)
+
+                    Section("PLAIN") {
+                        Text("THREE")
+                    }
+                }
+            )
+
+            guard case .stack(let horizontalLayout) = listNode.children[0].layoutMode else {
+                return XCTFail("Expected horizontal listSectionMargins to wrap the section in a retained stack panel")
+            }
+            guard case .stack(let defaultLayout) = listNode.children[1].layoutMode else {
+                return XCTFail("Expected default listSectionMargins to wrap the section in a retained stack panel")
+            }
+
+            XCTAssertEqual(
+                horizontalLayout,
+                .vertical(padding: EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10), alignment: .stretch)
+            )
+            XCTAssertTrue(allTexts(in: listNode.children[0]).contains("HORIZONTAL"))
+            XCTAssertEqual(
+                defaultLayout,
+                .vertical(padding: EdgeInsets(top: 16, leading: 0, bottom: 16, trailing: 0), alignment: .stretch)
+            )
+            XCTAssertTrue(allTexts(in: listNode.children[1]).contains("DEFAULT"))
+            XCTAssertTrue(allTexts(in: listNode.children[2]).contains("PLAIN"))
+        }
+    }
+
     func testListRowSeparatorModifierStoresMetadataAndVisibleDividers() async {
         await MainActor.run {
             let listNode = makeNode(

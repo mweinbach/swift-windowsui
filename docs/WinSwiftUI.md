@@ -451,6 +451,7 @@ Modifiers:
 - `listRowSeparatorTint`
 - `listSectionSeparator`
 - `listSectionSeparatorTint`
+- `listSectionMargins`
 - `selectionDisabled`
 - `deleteDisabled`
 - `moveDisabled`
@@ -825,6 +826,7 @@ Surface direction:
 - `selectionDisabled(_:)` stores retained row selection metadata and prevents affected rows in retained selectable `List` containers from receiving selection chrome or activation handlers. Parent selection disabling propagates through list rows, and explicit `selectionDisabled(false)` on a row re-enables that row.
 - `deleteDisabled(_:)` and `moveDisabled(_:)` store retained edit-list metadata on rows and propagate parent disable state through direct `List` rows while allowing explicit child `false` overrides. Reorder/delete edit chrome and collection mutation affordances are still future work.
 - `listRowInsets(_:)` and `listRowInsets(_:_:)` map to retained row padding wrappers. Passing `nil` preserves the row unchanged.
+- `listSectionMargins(_:_:)` maps to a retained section padding wrapper for the specified edges. A `nil` length resolves to the retained default optional spacing value of `16`.
 - `listRowSpacing(_:)` maps optional row spacing to the retained `List` stack layout. Passing `nil` restores the retained default spacing of `0`.
 - `EnvironmentValues.defaultMinListRowHeight` maps to retained minimum-height constraints on direct `List` rows, preserving stronger row constraints.
 - `listRowSeparator(_:edges:)` stores retained row-separator visibility metadata and `VerticalEdge.Set` edge intent. `.visible` adds deterministic retained one-pixel separator panels on the requested row edges; `.automatic` and `.hidden` preserve source-compatible metadata without adding separator panels. `listRowSeparatorTint(_:edges:)` stores matching tint metadata and colors retained visible separator panels for the requested edges.

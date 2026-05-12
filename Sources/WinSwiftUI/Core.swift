@@ -10572,8 +10572,8 @@ public extension VisualEffect {
         self.offset(x: offset.width, y: offset.height)
     }
 
-    func blur(radius: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)))")
+    func blur(radius: Double, opaque: Bool = false) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)),opaque:\(opaque))")
     }
 }
 

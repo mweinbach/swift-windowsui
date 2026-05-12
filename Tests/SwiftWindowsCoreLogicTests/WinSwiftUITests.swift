@@ -6561,6 +6561,12 @@ final class WinSwiftUITests: XCTestCase {
                         content.offset(x: phase.value * 12)
                     }
             )
+            let blurredNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(.interactive, axis: .vertical) { content, _ in
+                        content.blur(radius: 2, opaque: true)
+                    }
+            )
 
             XCTAssertEqual(
                 symmetricNode.scrollTransition,
@@ -6569,6 +6575,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 asymmetricNode.scrollTransition,
                 "asymmetric,topLeading:identity,bottomTrailing:animated,animation:easeOut:0.2,threshold:visible(0.4),axis:horizontal,identityEffect:identity.offset(x:0.0,y:0.0)"
+            )
+            XCTAssertEqual(
+                blurredNode.scrollTransition,
+                "symmetric,configuration:interactive,timingCurve:linear,axis:vertical,identityEffect:identity.blur(radius:2.0,opaque:true)"
             )
             XCTAssertTrue(ScrollTransitionPhase.identity.isIdentity)
             XCTAssertEqual(ScrollTransitionPhase.topLeading.value, -1)

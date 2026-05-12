@@ -5799,6 +5799,35 @@ public struct ScrollView: View {
 }
 
 @MainActor
+public struct ScrollViewReader: View {
+    public typealias Body = Never
+
+    private let proxy: ScrollViewProxy
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: (ScrollViewProxy) -> [AnyView]) {
+        let proxy = ScrollViewProxy()
+        self.proxy = proxy
+        self.content = content(proxy)
+    }
+
+    public var body: Never {
+        fatalError("ScrollViewReader has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let component = composeComponent(from: content, context: context)
+        let proxy = proxy
+        return Component { runtime in
+            let node = component.makeNode(runtime: runtime)
+            node.scrollReaderID = proxy.retainedIdentifier
+            node.scrollProxyRequests = proxy.retainedRequests
+            return node
+        }
+    }
+}
+
+@MainActor
 private enum ListSelectionMode {
     case single(get: () -> AnyHashable?, set: (AnyHashable?) -> Void)
     case multiple(get: () -> Set<AnyHashable>, set: (Set<AnyHashable>) -> Void)

@@ -6187,6 +6187,39 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollViewReaderProvidesProxyAndRetainsRequests() async {
+        await MainActor.run {
+            var capturedProxy: ScrollViewProxy?
+            let reader = ScrollViewReader { proxy in
+                capturedProxy = proxy
+                proxy.scrollTo("top")
+                proxy.scrollTo("bottom", anchor: .bottom)
+                ScrollView {
+                    Text("TOP").id("top")
+                    Text("BOTTOM").id("bottom")
+                }
+            }
+            let node = makeNode(reader)
+
+            XCTAssertNotNil(capturedProxy)
+            XCTAssertEqual(
+                node.scrollProxyRequests,
+                [
+                    "idType:String,id:top",
+                    "idType:String,id:bottom,anchor:0.5,1.0"
+                ]
+            )
+            XCTAssertEqual(capturedProxy?.retainedRequests, node.scrollProxyRequests)
+            XCTAssertEqual(capturedProxy?.retainedIdentifier, node.scrollReaderID)
+
+            capturedProxy?.scrollTo(42, anchor: .center)
+            XCTAssertEqual(
+                capturedProxy?.retainedRequests.last,
+                "idType:Int,id:42,anchor:0.5,0.5"
+            )
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

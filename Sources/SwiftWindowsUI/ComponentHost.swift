@@ -181,6 +181,8 @@ public final class ComponentHost {
         if target.scrollTransition != source.scrollTransition { target.scrollTransition = source.scrollTransition }
         if target.scrollPosition != source.scrollPosition { target.scrollPosition = source.scrollPosition }
         if target.scrollObservations != source.scrollObservations { target.scrollObservations = source.scrollObservations }
+        if target.scrollReaderID != source.scrollReaderID { target.scrollReaderID = source.scrollReaderID }
+        if target.scrollProxyRequests != source.scrollProxyRequests { target.scrollProxyRequests = source.scrollProxyRequests }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

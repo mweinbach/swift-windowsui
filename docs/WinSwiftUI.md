@@ -144,6 +144,7 @@ Views and containers:
 - `ZStack`
 - `ScrollView`
   - `ScrollView(_:showsIndicators:content:)` compatibility initializer
+- `ScrollViewReader`
 - `List`
   - `List(data, id:content:)`
   - `List(data, content:) where Element: Identifiable`
@@ -593,6 +594,7 @@ Compatibility helpers:
 - `ScrollInputBehavior`
 - `ScrollInputKind`
 - `ScrollPosition`
+- `ScrollViewProxy`
 - `CGVector`
 - `ScrollGeometry`
 - `ScrollPhase`
@@ -811,6 +813,7 @@ Surface direction:
 - `scrollDismissesKeyboard(_:)` propagates `EnvironmentValues.scrollDismissesKeyboardMode` with `.automatic`, `.immediately`, `.interactively`, and `.never` for source-compatible scroll/input code. It is metadata today because the Windows retained text input path does not host a software keyboard.
 - `defaultWheelPickerItemHeight(_:)` propagates `EnvironmentValues.defaultWheelPickerItemHeight`, defaulting to `32`, and retained wheel-style pickers use it as the minimum row height.
 - `ScrollView` maps into retained scroll panels with indicator state handled in the runtime. The SwiftUI-shaped `Axis.Set` / `showsIndicators:` initializer is accepted for source compatibility; the retained runtime scrolls one primary axis today, so `.all` resolves to the vertical retained path until two-axis scrolling is modeled.
+- `ScrollViewReader` provides a SwiftUI-shaped `ScrollViewProxy` to its content builder and records `scrollTo(_:anchor:)` requests as retained metadata. Programmatic scrolling through the proxy is not yet connected to retained scroll offset changes.
 - `List` maps to a retained vertical scroll panel, while `Form` maps to retained vertical form chrome with style-specific spacing, padding, and shell treatment. Tagged static rows and data-backed rows support single and multiple `selection:` bindings, render lightweight retained selected-row chrome, and write bindings from row activation. Binding-backed mutable collection rows, including `List($items)` for identifiable elements and `List($items, id: \.key)`, pass retained `Binding<Element>` rows into the builder so row controls can mutate collection elements in place. `formStyle(_:)` and `EnvironmentValues.formStyle` accept `.automatic`, `.columns`, `.grouped`, `AutomaticFormStyle`, `ColumnsFormStyle`, and `GroupedFormStyle`; automatic uses the default retained form stack, columns uses a denser retained column-style stack profile, and grouped uses a retained rounded panel shell. Row styling remains intentionally minimal, and platform edit-mode selection rules are not modeled yet.
 - `headerProminence(_:)` propagates `EnvironmentValues.headerProminence`; `.increased` maps direct `Section` headers to a bolder retained header font unless the header text sets an explicit font.
 - `EnvironmentValues.backgroundProminence` accepts `.standard` and `.increased` for shared-source foreground styling decisions above custom or selected backgrounds. It is readable and overrideable compatibility metadata, and retained selection-capable `List` rows derive `.increased` prominence for selected row content.

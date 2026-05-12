@@ -263,6 +263,10 @@ final class ComponentHostTests: XCTestCase {
                     node.scrollObservations = useSecondState
                         ? ["phase:context", "targetVisibility:idType:String,threshold:0.25"]
                         : ["geometry:type:Bool", "visibility:threshold:0.5"]
+                    node.scrollReaderID = useSecondState ? "reader-second" : "reader-first"
+                    node.scrollProxyRequests = useSecondState
+                        ? ["idType:String,id:second,anchor:0.5,1.0"]
+                        : ["idType:Int,id:1,anchor:0.5,0.0"]
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -421,6 +425,8 @@ final class ComponentHostTests: XCTestCase {
             )
             XCTAssertEqual(firstNode?.scrollPosition, "idBinding,idType:Int,id:1,anchor:0.5,0.0")
             XCTAssertEqual(firstNode?.scrollObservations, ["geometry:type:Bool", "visibility:threshold:0.5"])
+            XCTAssertEqual(firstNode?.scrollReaderID, "reader-first")
+            XCTAssertEqual(firstNode?.scrollProxyRequests, ["idType:Int,id:1,anchor:0.5,0.0"])
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -572,6 +578,8 @@ final class ComponentHostTests: XCTestCase {
                 reusedNode?.scrollObservations,
                 ["phase:context", "targetVisibility:idType:String,threshold:0.25"]
             )
+            XCTAssertEqual(reusedNode?.scrollReaderID, "reader-second")
+            XCTAssertEqual(reusedNode?.scrollProxyRequests, ["idType:String,id:second,anchor:0.5,1.0"])
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

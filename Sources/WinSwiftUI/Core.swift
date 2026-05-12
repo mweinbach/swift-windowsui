@@ -10338,6 +10338,37 @@ public struct ScrollPhaseChangeContext: Sendable, Equatable {
     }
 }
 
+@MainActor
+final class ScrollViewProxyStorage {
+    let identifier = UUID().uuidString
+    var requests: [String] = []
+}
+
+@MainActor
+public struct ScrollViewProxy {
+    private let storage: ScrollViewProxyStorage
+
+    init(storage: ScrollViewProxyStorage = ScrollViewProxyStorage()) {
+        self.storage = storage
+    }
+
+    var retainedIdentifier: String {
+        storage.identifier
+    }
+
+    var retainedRequests: [String] {
+        storage.requests
+    }
+
+    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {
+        var parts = ["idType:\(String(describing: ID.self))", "id:\(String(describing: id))"]
+        if let anchor {
+            parts.append("anchor:\(scrollPositionAnchorDescription(anchor))")
+        }
+        storage.requests.append(parts.joined(separator: ","))
+    }
+}
+
 public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, CustomStringConvertible {
     public struct Threshold: Sendable, Equatable, Hashable, CustomStringConvertible {
         private var descriptionValue: String

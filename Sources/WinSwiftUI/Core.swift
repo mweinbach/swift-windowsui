@@ -2660,16 +2660,35 @@ public struct AppStorage<Value>: DynamicProperty {
         let key: String
         let defaultValue: Value
         let store: UserDefaults
+        let readValue: @MainActor (UserDefaults, String, Value) -> Value
+        let writeValue: @MainActor (UserDefaults, String, Value) -> Void
         var invalidate: (@MainActor () -> Void)?
 
-        init(key: String, defaultValue: Value, store: UserDefaults) {
+        init(
+            key: String,
+            defaultValue: Value,
+            store: UserDefaults,
+            readValue: @escaping @MainActor (UserDefaults, String, Value) -> Value = Storage.defaultReadValue,
+            writeValue: @escaping @MainActor (UserDefaults, String, Value) -> Void = Storage.defaultWriteValue
+        ) {
             self.key = key
             self.defaultValue = defaultValue
             self.store = store
+            self.readValue = readValue
+            self.writeValue = writeValue
         }
 
         var value: Value {
             get {
+                readValue(store, key, defaultValue)
+            }
+            set {
+                writeValue(store, key, newValue)
+                invalidate?()
+            }
+        }
+
+        private static func defaultReadValue(store: UserDefaults, key: String, defaultValue: Value) -> Value {
                 guard store.object(forKey: key) != nil else {
                     return defaultValue
                 }
@@ -2689,14 +2708,13 @@ public struct AppStorage<Value>: DynamicProperty {
                 }
 
                 return (store.object(forKey: key) as? Value) ?? defaultValue
-            }
-            set {
-                if let url = newValue as? URL {
-                    store.set(url, forKey: key)
-                } else {
-                    store.set(newValue, forKey: key)
-                }
-                invalidate?()
+        }
+
+        private static func defaultWriteValue(store: UserDefaults, key: String, value: Value) {
+            if let url = value as? URL {
+                store.set(url, forKey: key)
+            } else {
+                store.set(value, forKey: key)
             }
         }
     }
@@ -2705,6 +2723,40 @@ public struct AppStorage<Value>: DynamicProperty {
 
     public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) {
         self.storage = Storage(key: key, defaultValue: wrappedValue, store: store ?? .standard)
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value: RawRepresentable, Value.RawValue == String {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard let rawValue = store.string(forKey: key), let value = Value(rawValue: rawValue) else {
+                    return defaultValue
+                }
+                return value
+            },
+            writeValue: { store, key, value in
+                store.set(value.rawValue, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value: RawRepresentable, Value.RawValue == Int {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil, let value = Value(rawValue: store.integer(forKey: key)) else {
+                    return defaultValue
+                }
+                return value
+            },
+            writeValue: { store, key, value in
+                store.set(value.rawValue, forKey: key)
+            }
+        )
     }
 
     public init(_ key: String, store: UserDefaults? = nil) where Value == Bool {

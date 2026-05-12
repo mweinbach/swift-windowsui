@@ -10120,6 +10120,98 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAppStorageStringRawRepresentableReadsWritesUserDefaultsAndProvidesBinding() async {
+        await MainActor.run {
+            enum DisplayMode: String {
+                case compact
+                case expanded
+            }
+
+            struct AppStorageEnumView: View {
+                @AppStorage private var mode: DisplayMode
+
+                init(store: UserDefaults) {
+                    _mode = AppStorage(wrappedValue: .compact, "mode", store: store)
+                }
+
+                var body: some View {
+                    Button(mode == .expanded ? "EXPANDED" : "COMPACT") {
+                        mode = .expanded
+                    }
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorageRawString.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            store.set("expanded", forKey: "mode")
+            let expandedNode = makeNode(AppStorageEnumView(store: store))
+
+            XCTAssertTrue(allTexts(in: expandedNode).contains("EXPANDED"))
+
+            store.set("unknown", forKey: "mode")
+            let defaultNode = makeNode(AppStorageEnumView(store: store))
+
+            XCTAssertTrue(allTexts(in: defaultNode).contains("COMPACT"))
+
+            defaultNode.onActivate?()
+
+            XCTAssertEqual(store.string(forKey: "mode"), "expanded")
+        }
+    }
+
+    func testAppStorageIntRawRepresentableFeedsRetainedControls() async {
+        await MainActor.run {
+            enum Level: Int {
+                case low = 1
+                case high = 2
+            }
+
+            struct AppStorageIntEnumView: View {
+                @AppStorage private var level: Level
+
+                init(store: UserDefaults) {
+                    _level = AppStorage(wrappedValue: .low, "level", store: store)
+                }
+
+                var body: some View {
+                    VStack {
+                        Toggle("HIGH", isOn: Binding(
+                            get: { level == .high },
+                            set: { level = $0 ? .high : .low }
+                        ))
+                        Text(level == .high ? "HIGH VALUE" : "LOW VALUE")
+                    }
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorageRawInt.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            store.set(1, forKey: "level")
+            let node = makeNode(AppStorageIntEnumView(store: store))
+
+            firstFocusable(in: node)?.onActivate?()
+
+            XCTAssertEqual(store.integer(forKey: "level"), 2)
+
+            store.set(99, forKey: "level")
+            let fallbackNode = makeNode(AppStorageIntEnumView(store: store))
+
+            XCTAssertTrue(allTexts(in: fallbackNode).contains("LOW VALUE"))
+        }
+    }
+
     func testSceneStoragePersistsValuesAcrossViewInstancesAndProvidesBinding() async {
         await MainActor.run {
             struct SceneStorageReaderView: View {

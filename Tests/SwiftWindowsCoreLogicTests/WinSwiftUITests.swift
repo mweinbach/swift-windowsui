@@ -6029,6 +6029,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollTransitionStoresRetainedMetadataAndVisualEffectShape() async {
+        await MainActor.run {
+            let symmetricNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(.interactive(timingCurve: .easeInOut), axis: .vertical) { content, phase in
+                        content
+                            .opacity(phase.isIdentity ? 1 : 0.4)
+                            .scaleEffect(phase.isIdentity ? 1 : 0.9)
+                    }
+            )
+            let asymmetricNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(
+                        topLeading: .identity,
+                        bottomTrailing: .animated(.easeOut(duration: 0.2)).threshold(.visible(0.4)),
+                        axis: .horizontal
+                    ) { content, phase in
+                        content.offset(x: phase.value * 12)
+                    }
+            )
+
+            XCTAssertEqual(
+                symmetricNode.scrollTransition,
+                "symmetric,configuration:interactive,timingCurve:easeInOut,axis:vertical,identityEffect:identity.opacity(1.0).scaleEffect(x:1.0,y:1.0,anchor:0.5,0.5)"
+            )
+            XCTAssertEqual(
+                asymmetricNode.scrollTransition,
+                "asymmetric,topLeading:identity,bottomTrailing:animated,animation:easeOut:0.2,threshold:visible(0.4),axis:horizontal,identityEffect:identity.offset(x:0.0,y:0.0)"
+            )
+            XCTAssertTrue(ScrollTransitionPhase.identity.isIdentity)
+            XCTAssertEqual(ScrollTransitionPhase.topLeading.value, -1)
+            XCTAssertEqual(ScrollTransitionPhase.bottomTrailing.value, 1)
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

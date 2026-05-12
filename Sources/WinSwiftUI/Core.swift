@@ -10002,6 +10002,215 @@ public struct ScrollInputKind: Sendable, Equatable, Hashable, CustomStringConver
     }
 }
 
+public protocol VisualEffect: Sendable {
+    var retainedVisualEffectDescription: String { get }
+}
+
+public struct EmptyVisualEffect: VisualEffect, Equatable, Hashable, CustomStringConvertible {
+    public var retainedVisualEffectDescription: String
+
+    public init(retainedVisualEffectDescription: String = "identity") {
+        self.retainedVisualEffectDescription = retainedVisualEffectDescription
+    }
+
+    public var description: String {
+        retainedVisualEffectDescription
+    }
+}
+
+public extension VisualEffect {
+    func opacity(_ value: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).opacity(\(value))")
+    }
+
+    func scaleEffect(_ scale: Double, anchor: UnitPoint = .center) -> EmptyVisualEffect {
+        scaleEffect(x: scale, y: scale, anchor: anchor)
+    }
+
+    func scaleEffect(x: Double = 1, y: Double = 1, anchor: UnitPoint = .center) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect(x:\(x),y:\(y),anchor:\(anchor.x),\(anchor.y))"
+        )
+    }
+
+    func offset(x: Double = 0, y: Double = 0) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(x:\(x),y:\(y))")
+    }
+
+    func offset(_ offset: CGSize) -> EmptyVisualEffect {
+        self.offset(x: offset.width, y: offset.height)
+    }
+
+    func blur(radius: Double) -> EmptyVisualEffect {
+        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)))")
+    }
+}
+
+public struct UnitCurve: Sendable, Equatable, Hashable, CustomStringConvertible {
+    private var name: String
+
+    public init(_ name: String = "linear") {
+        self.name = name
+    }
+
+    public static let linear = UnitCurve("linear")
+    public static let easeIn = UnitCurve("easeIn")
+    public static let easeOut = UnitCurve("easeOut")
+    public static let easeInOut = UnitCurve("easeInOut")
+    public static let circularEaseIn = UnitCurve("circularEaseIn")
+    public static let circularEaseOut = UnitCurve("circularEaseOut")
+    public static let circularEaseInOut = UnitCurve("circularEaseInOut")
+
+    public var description: String {
+        name
+    }
+}
+
+public enum ScrollTransitionPhase: Sendable, Equatable, Hashable, CustomStringConvertible {
+    case topLeading
+    case identity
+    case bottomTrailing
+
+    public var isIdentity: Bool {
+        self == .identity
+    }
+
+    public var value: Double {
+        switch self {
+        case .topLeading:
+            return -1
+        case .identity:
+            return 0
+        case .bottomTrailing:
+            return 1
+        }
+    }
+
+    public var description: String {
+        switch self {
+        case .topLeading:
+            return "topLeading"
+        case .identity:
+            return "identity"
+        case .bottomTrailing:
+            return "bottomTrailing"
+        }
+    }
+}
+
+public struct ScrollTransitionConfiguration: Sendable, Equatable, Hashable, CustomStringConvertible {
+    public struct Threshold: Sendable, Equatable, Hashable, CustomStringConvertible {
+        private var descriptionValue: String
+
+        public init(_ value: Double) {
+            self.descriptionValue = "visible(\(value))"
+        }
+
+        private init(description: String) {
+            self.descriptionValue = description
+        }
+
+        public static let visible = Threshold(description: "visible")
+        public static let hidden = Threshold(description: "hidden")
+
+        public static func visible(_ value: Double) -> Threshold {
+            Threshold(description: "visible(\(value))")
+        }
+
+        public static func hidden(_ value: Double) -> Threshold {
+            Threshold(description: "hidden(\(value))")
+        }
+
+        public var description: String {
+            descriptionValue
+        }
+    }
+
+    private enum Kind: Sendable, Equatable, Hashable {
+        case identity
+        case animated
+        case interactive
+    }
+
+    private var kind: Kind
+    private var animationDescription: String?
+    private var timingCurveDescription: String?
+    private var thresholdDescription: String?
+
+    private init(
+        kind: Kind,
+        animationDescription: String? = nil,
+        timingCurveDescription: String? = nil,
+        thresholdDescription: String? = nil
+    ) {
+        self.kind = kind
+        self.animationDescription = animationDescription
+        self.timingCurveDescription = timingCurveDescription
+        self.thresholdDescription = thresholdDescription
+    }
+
+    public static let identity = ScrollTransitionConfiguration(kind: .identity)
+    public static let animated = ScrollTransitionConfiguration.animated()
+    public static let interactive = ScrollTransitionConfiguration.interactive()
+
+    public static func animated(_ animation: Animation = .default) -> ScrollTransitionConfiguration {
+        ScrollTransitionConfiguration(kind: .animated, animationDescription: scrollTransitionAnimationDescription(animation))
+    }
+
+    public static func interactive(timingCurve: UnitCurve = .linear) -> ScrollTransitionConfiguration {
+        ScrollTransitionConfiguration(kind: .interactive, timingCurveDescription: timingCurve.description)
+    }
+
+    public func animation(_ animation: Animation) -> ScrollTransitionConfiguration {
+        var copy = self
+        copy.animationDescription = scrollTransitionAnimationDescription(animation)
+        return copy
+    }
+
+    public func threshold(_ threshold: Threshold) -> ScrollTransitionConfiguration {
+        var copy = self
+        copy.thresholdDescription = threshold.description
+        return copy
+    }
+
+    public var description: String {
+        var parts: [String]
+        switch kind {
+        case .identity:
+            parts = ["identity"]
+        case .animated:
+            parts = ["animated"]
+        case .interactive:
+            parts = ["interactive"]
+        }
+        if let animationDescription {
+            parts.append("animation:\(animationDescription)")
+        }
+        if let timingCurveDescription {
+            parts.append("timingCurve:\(timingCurveDescription)")
+        }
+        if let thresholdDescription {
+            parts.append("threshold:\(thresholdDescription)")
+        }
+        return parts.joined(separator: ",")
+    }
+}
+
+private func scrollTransitionAnimationDescription(_ animation: Animation) -> String {
+    "\(animation.easing):\(animation.duration)"
+}
+
+private func scrollTransitionAxisDescription(_ axis: Axis?) -> String {
+    switch axis {
+    case .horizontal:
+        return "horizontal"
+    case .vertical:
+        return "vertical"
+    case nil:
+        return "all"
+    }
+}
+
 public struct ScrollDismissesKeyboardMode: Sendable, Equatable, Hashable {
     private enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -17133,6 +17342,50 @@ public extension View {
         ModifiedView(content: self) { content, context in
             let trigger = "\(type(of: value)):\(String(describing: value))"
             return content.makeComponent(context: context.withEnvironmentValue(\.scrollIndicatorsFlashTrigger, trigger))
+        }
+    }
+
+    func scrollTransition<Effect: VisualEffect>(
+        _ configuration: ScrollTransitionConfiguration = .interactive,
+        axis: Axis? = nil,
+        transition: @escaping (EmptyVisualEffect, ScrollTransitionPhase) -> Effect
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                let effect = transition(EmptyVisualEffect(), .identity).retainedVisualEffectDescription
+                node.scrollTransition = [
+                    "symmetric",
+                    "configuration:\(configuration)",
+                    "axis:\(scrollTransitionAxisDescription(axis))",
+                    "identityEffect:\(effect)"
+                ].joined(separator: ",")
+                return node
+            }
+        }
+    }
+
+    func scrollTransition<Effect: VisualEffect>(
+        topLeading: ScrollTransitionConfiguration,
+        bottomTrailing: ScrollTransitionConfiguration,
+        axis: Axis? = nil,
+        transition: @escaping (EmptyVisualEffect, ScrollTransitionPhase) -> Effect
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                let effect = transition(EmptyVisualEffect(), .identity).retainedVisualEffectDescription
+                node.scrollTransition = [
+                    "asymmetric",
+                    "topLeading:\(topLeading)",
+                    "bottomTrailing:\(bottomTrailing)",
+                    "axis:\(scrollTransitionAxisDescription(axis))",
+                    "identityEffect:\(effect)"
+                ].joined(separator: ",")
+                return node
+            }
         }
     }
 

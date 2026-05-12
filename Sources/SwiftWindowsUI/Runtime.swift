@@ -1158,6 +1158,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var scrollTransition: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1598,6 +1602,7 @@ public final class ViewNode {
         scrollInputBehaviors: [String: String] = [:],
         scrollIndicatorsFlashOnAppear: Bool = false,
         scrollIndicatorsFlashTrigger: String? = nil,
+        scrollTransition: String? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1729,6 +1734,7 @@ public final class ViewNode {
         self.scrollInputBehaviors = scrollInputBehaviors
         self.scrollIndicatorsFlashOnAppear = scrollIndicatorsFlashOnAppear
         self.scrollIndicatorsFlashTrigger = scrollIndicatorsFlashTrigger
+        self.scrollTransition = scrollTransition
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

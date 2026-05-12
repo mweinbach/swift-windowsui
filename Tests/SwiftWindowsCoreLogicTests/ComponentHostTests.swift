@@ -254,6 +254,9 @@ final class ComponentHostTests: XCTestCase {
                     node.scrollInputBehaviors = useSecondState ? ["look(horizontal)": "enabled"] : ["handGestureShortcut": "disabled"]
                     node.scrollIndicatorsFlashOnAppear = useSecondState
                     node.scrollIndicatorsFlashTrigger = useSecondState ? "Int:2" : "Int:1"
+                    node.scrollTransition = useSecondState
+                        ? "asymmetric,topLeading:identity,bottomTrailing:interactive,timingCurve:easeInOut,axis:horizontal,identityEffect:identity.offset(x:0.0,y:0.0)"
+                        : "symmetric,configuration:interactive,timingCurve:linear,axis:all,identityEffect:identity.opacity(0.5)"
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -406,6 +409,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.scrollInputBehaviors, ["handGestureShortcut": "disabled"])
             XCTAssertEqual(firstNode?.scrollIndicatorsFlashOnAppear, false)
             XCTAssertEqual(firstNode?.scrollIndicatorsFlashTrigger, "Int:1")
+            XCTAssertEqual(
+                firstNode?.scrollTransition,
+                "symmetric,configuration:interactive,timingCurve:linear,axis:all,identityEffect:identity.opacity(0.5)"
+            )
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -545,6 +552,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.scrollInputBehaviors, ["look(horizontal)": "enabled"])
             XCTAssertEqual(reusedNode?.scrollIndicatorsFlashOnAppear, true)
             XCTAssertEqual(reusedNode?.scrollIndicatorsFlashTrigger, "Int:2")
+            XCTAssertEqual(
+                reusedNode?.scrollTransition,
+                "asymmetric,topLeading:identity,bottomTrailing:interactive,timingCurve:easeInOut,axis:horizontal,identityEffect:identity.offset(x:0.0,y:0.0)"
+            )
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

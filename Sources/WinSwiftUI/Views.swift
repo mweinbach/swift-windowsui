@@ -3100,13 +3100,27 @@ public struct TabView: View {
 }
 
 @MainActor
+public protocol DynamicViewContent<Data>: View {
+    associatedtype Data: Collection
+
+    var data: Data { get }
+}
+
+@MainActor
 public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     public typealias Body = Never
 
+    public let data: Data
     let contentViews: [AnyView]
 
     public init(_ data: Data, id: KeyPath<Data.Element, ID>, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+        self.data = data
         self.contentViews = Self.buildContentViews(data: data, id: id, content: content)
+    }
+
+    private init(data: Data, contentViews: [AnyView]) {
+        self.data = data
+        self.contentViews = contentViews
     }
 
     public var body: Never {
@@ -3123,14 +3137,128 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
         content: (Data.Element) -> [AnyView]
     ) -> [AnyView] {
         var views: [AnyView] = []
-        for element in data {
+        for (elementIndex, element) in data.enumerated() {
             let elementID = String(describing: element[keyPath: id])
             let elementViews = content(element)
             for (index, view) in elementViews.enumerated() {
-                views.append(AnyView(view.id("\(elementID)#\(index)")))
+                views.append(
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: AnyView(view.id("\(elementID)#\(index)")),
+                            dynamicContentIndex: elementIndex
+                        )
+                    )
+                )
             }
         }
         return views
+    }
+}
+
+extension ForEach: DynamicViewContent {}
+
+public extension ForEach {
+    func onDelete(perform action: ((IndexSet) -> Void)?) -> ForEach<Data, ID> {
+        ForEach(
+            data: data,
+            contentViews: contentViews.map { view in
+                AnyView(
+                    DynamicListEditMetadataView(
+                        content: view,
+                        deleteAction: .some(action)
+                    )
+                )
+            }
+        )
+    }
+
+    func onMove(perform action: ((IndexSet, Int) -> Void)?) -> ForEach<Data, ID> {
+        ForEach(
+            data: data,
+            contentViews: contentViews.map { view in
+                AnyView(
+                    DynamicListEditMetadataView(
+                        content: view,
+                        moveAction: .some(action)
+                    )
+                )
+            }
+        )
+    }
+}
+
+@MainActor
+private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
+    typealias Body = Never
+
+    let content: AnyView
+    var dynamicContentIndex: Int? = nil
+    var deleteAction: (((IndexSet) -> Void)?)? = nil
+    var moveAction: (((IndexSet, Int) -> Void)?)? = nil
+
+    var anySelectionTag: AnyHashable? {
+        content.selectionTag
+    }
+
+    var anyTabItem: [AnyView]? {
+        content.tabItem
+    }
+
+    var anyBadge: [AnyView]? {
+        content.badge
+    }
+
+    var anyNavigationTitle: [AnyView]? {
+        content.navigationTitle
+    }
+
+    var anyNavigationSubtitle: [AnyView]? {
+        content.navigationSubtitle
+    }
+
+    var anyNavigationTitleDisplayMode: NavigationBarItem.TitleDisplayMode? {
+        content.navigationTitleDisplayMode
+    }
+
+    var anyNavigationBarBackButtonHidden: Bool? {
+        content.navigationBarBackButtonHidden
+    }
+
+    var anyNavigationBarHidden: Bool? {
+        content.navigationBarHidden
+    }
+
+    var anyToolbarItemPlacement: ToolbarItemPlacement? {
+        content.toolbarItemPlacement
+    }
+
+    var anyNavigationDestinationRegistrations: [NavigationDestinationRegistration] {
+        content.navigationDestinationRegistrations
+    }
+
+    var anyNavigationPresentedDestinations: [NavigationPresentedDestination] {
+        content.navigationPresentedDestinations
+    }
+
+    var body: Never {
+        fatalError("DynamicListEditMetadataView has no body")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let component = content.makeComponent(context: context)
+        return Component { runtime in
+            let node = component.makeNode(runtime: runtime)
+            if let dynamicContentIndex {
+                node.dynamicContentIndex = dynamicContentIndex
+            }
+            if let deleteAction {
+                node.onDeleteRows = deleteAction
+            }
+            if let moveAction {
+                node.onMoveRows = moveAction
+            }
+            return node
+        }
     }
 }
 
@@ -3173,6 +3301,7 @@ public extension ForEach {
             )
         }
 
+        self.data = elements
         self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
             content(element.binding)
         }
@@ -3203,6 +3332,7 @@ public extension ForEach {
             )
         }
 
+        self.data = elements
         self.contentViews = Self.buildContentViews(data: elements, id: \.id) { element in
             content(element.binding)
         }
@@ -5811,12 +5941,19 @@ public struct List: View {
         rowContent: (Data.Element) -> [AnyView]
     ) -> [AnyView] {
         var views: [AnyView] = []
-        for element in data {
+        for (elementIndex, element) in data.enumerated() {
             let elementID = element[keyPath: id]
             let elementIDDescription = String(describing: elementID)
             let elementViews = rowContent(element)
             for (index, view) in elementViews.enumerated() {
-                views.append(AnyView(view.id("\(elementIDDescription)#\(index)").tag(elementID)))
+                views.append(
+                    AnyView(
+                        DynamicListEditMetadataView(
+                            content: AnyView(view.id("\(elementIDDescription)#\(index)").tag(elementID)),
+                            dynamicContentIndex: elementIndex
+                        )
+                    )
+                )
             }
         }
         return views

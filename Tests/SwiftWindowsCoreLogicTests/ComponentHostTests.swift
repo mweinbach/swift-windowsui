@@ -57,6 +57,8 @@ final class ComponentHostTests: XCTestCase {
             var pointerDownEvents: [String] = []
             var contextMenuEvents: [String] = []
             var accessibilityActionEvents: [String] = []
+            var dynamicDeleteEvents: [String] = []
+            var dynamicMoveEvents: [String] = []
             let preferenceIdentifier = ObjectIdentifier(ComponentHostTests.self)
 
             host.setContent {
@@ -225,6 +227,7 @@ final class ComponentHostTests: XCTestCase {
                     node.deleteDisabledOverride = !useSecondState
                     node.moveDisabled = useSecondState
                     node.moveDisabledOverride = useSecondState
+                    node.dynamicContentIndex = useSecondState ? 6 : 3
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -286,6 +289,12 @@ final class ComponentHostTests: XCTestCase {
                     node.onContextMenu = { _ in
                         contextMenuEvents.append(eventLabel)
                     }
+                    node.onDeleteRows = { offsets in
+                        dynamicDeleteEvents.append("\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))")
+                    }
+                    node.onMoveRows = { offsets, destination in
+                        dynamicMoveEvents.append("\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))->\(destination)")
+                    }
                     return node
                 }
             }
@@ -310,6 +319,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.deleteDisabledOverride, true)
             XCTAssertEqual(firstNode?.moveDisabled, false)
             XCTAssertEqual(firstNode?.moveDisabledOverride, false)
+            XCTAssertEqual(firstNode?.dynamicContentIndex, 3)
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -428,6 +438,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.deleteDisabledOverride, false)
             XCTAssertEqual(reusedNode?.moveDisabled, true)
             XCTAssertEqual(reusedNode?.moveDisabledOverride, true)
+            XCTAssertEqual(reusedNode?.dynamicContentIndex, 6)
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
@@ -523,6 +534,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(contextMenuEvents, ["second"])
             reusedNode?.accessibilityActions.first?.handler()
             XCTAssertEqual(accessibilityActionEvents, ["second"])
+            reusedNode?.onDeleteRows?(IndexSet(integer: 6))
+            XCTAssertEqual(dynamicDeleteEvents, ["second:6"])
+            reusedNode?.onMoveRows?(IndexSet(integer: 6), 1)
+            XCTAssertEqual(dynamicMoveEvents, ["second:6->1"])
         }
     }
 }

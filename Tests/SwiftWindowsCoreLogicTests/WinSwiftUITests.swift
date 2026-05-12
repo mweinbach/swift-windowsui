@@ -10727,6 +10727,62 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testForEachRetainsDynamicDeleteAndMoveActionsForListRows() async {
+        await MainActor.run {
+            var deletedOffsets: [[Int]] = []
+            var movedOffsets: [([Int], Int)] = []
+
+            let node = makeNode(
+                List {
+                    ForEach(["ONE", "TWO", "THREE"], id: \.self) { title in
+                        Text(title)
+                    }
+                    .onDelete { offsets in
+                        deletedOffsets.append(Array(offsets))
+                    }
+                    .onMove { offsets, destination in
+                        movedOffsets.append((Array(offsets), destination))
+                    }
+                }
+            )
+
+            XCTAssertEqual(node.children.count, 3)
+            XCTAssertEqual(node.children[0].dynamicContentIndex, 0)
+            XCTAssertEqual(node.children[1].dynamicContentIndex, 1)
+            XCTAssertEqual(node.children[2].dynamicContentIndex, 2)
+            XCTAssertNotNil(node.children[1].onDeleteRows)
+            XCTAssertNotNil(node.children[1].onMoveRows)
+
+            node.children[1].onDeleteRows?(IndexSet(integer: node.children[1].dynamicContentIndex ?? -1))
+            node.children[2].onMoveRows?(IndexSet(integer: node.children[2].dynamicContentIndex ?? -1), 0)
+
+            XCTAssertEqual(deletedOffsets, [[1]])
+            XCTAssertEqual(movedOffsets.count, 1)
+            XCTAssertEqual(movedOffsets.first?.0, [2])
+            XCTAssertEqual(movedOffsets.first?.1, 0)
+        }
+    }
+
+    func testForEachNilDeleteAndMoveActionsClearRetainedListRowActions() async {
+        await MainActor.run {
+            let node = makeNode(
+                List {
+                    ForEach(["ONE"], id: \.self) { title in
+                        Text(title)
+                    }
+                    .onDelete { _ in }
+                    .onMove { _, _ in }
+                    .onDelete(perform: nil)
+                    .onMove(perform: nil)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].dynamicContentIndex, 0)
+            XCTAssertNil(node.children[0].onDeleteRows)
+            XCTAssertNil(node.children[0].onMoveRows)
+        }
+    }
+
     func testForEachBindingCollectionFeedsRetainedControls() async {
         await MainActor.run {
             struct Item: Identifiable {

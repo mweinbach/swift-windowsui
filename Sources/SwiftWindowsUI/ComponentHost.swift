@@ -157,6 +157,7 @@ public final class ComponentHost {
         if target.deleteDisabledOverride != source.deleteDisabledOverride { target.deleteDisabledOverride = source.deleteDisabledOverride }
         if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
         if target.moveDisabledOverride != source.moveDisabledOverride { target.moveDisabledOverride = source.moveDisabledOverride }
+        if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
@@ -245,6 +246,9 @@ public final class ComponentHost {
         target.onFocusExit = source.onFocusExit
         target.onKeyDown = source.onKeyDown
         target.onActivate = source.onActivate
+        target.onRepeatActivate = source.onRepeatActivate
+        target.onDeleteRows = source.onDeleteRows
+        target.onMoveRows = source.onMoveRows
         target.onDragStart = source.onDragStart
         target.onDragChange = source.onDragChange
         target.onDragEnd = source.onDragEnd

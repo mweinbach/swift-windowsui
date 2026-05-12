@@ -10632,11 +10632,63 @@ public extension VisualEffect {
             retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))"
         )
     }
+
+    func rotation3DEffect(
+        _ angle: Angle,
+        axis: (x: CGFloat, y: CGFloat, z: CGFloat),
+        anchor: UnitPoint = .center,
+        anchorZ: CGFloat = 0,
+        perspective: CGFloat = 1
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),anchorZ:\(anchorZ),perspective:\(perspective))"
+        )
+    }
+
+    func rotation3DEffect(
+        _ angle: Angle,
+        axis: RotationAxis3D,
+        anchor: UnitPoint3D = .center
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))"
+        )
+    }
+
+    func transformEffect(_ transform: CGAffineTransform) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectAffineTransformDescription(transform)))"
+        )
+    }
+
+    func transformEffect(_ transform: ProjectionTransform) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectProjectionTransformDescription(transform)))"
+        )
+    }
 }
 
 private func retainedVisualEffectColorDescription(_ color: Color) -> String {
     let rgba = color.rgba
     return "red:\(rgba.0),green:\(rgba.1),blue:\(rgba.2),alpha:\(rgba.3)"
+}
+
+private func retainedVisualEffectAffineTransformDescription(_ transform: CGAffineTransform) -> String {
+    "a:\(transform.a),b:\(transform.b),c:\(transform.c),d:\(transform.d),tx:\(transform.tx),ty:\(transform.ty)"
+}
+
+private func retainedVisualEffectProjectionTransformDescription(_ transform: ProjectionTransform) -> String {
+    [
+        "m11:\(transform.m11)",
+        "m12:\(transform.m12)",
+        "m13:\(transform.m13)",
+        "m21:\(transform.m21)",
+        "m22:\(transform.m22)",
+        "m23:\(transform.m23)",
+        "m31:\(transform.m31)",
+        "m32:\(transform.m32)",
+        "m33:\(transform.m33)",
+    ].joined(separator: ",")
 }
 
 public struct UnitCurve: Sendable, Equatable, Hashable, CustomStringConvertible {

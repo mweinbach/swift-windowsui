@@ -6596,6 +6596,22 @@ final class WinSwiftUITests: XCTestCase {
                             .offset(z: 8)
                     }
             )
+            let transformEffectNode = makeNode(
+                Text("ROW")
+                    .scrollTransition(.identity, axis: .vertical) { content, _ in
+                        content
+                            .rotation3DEffect(
+                                .degrees(45),
+                                axis: (x: 0, y: 1, z: 0),
+                                anchor: .top,
+                                anchorZ: 4,
+                                perspective: 0.25
+                            )
+                            .rotation3DEffect(.degrees(30), axis: .z, anchor: .back)
+                            .transformEffect(CGAffineTransform(translationX: 2, y: 3))
+                            .transformEffect(ProjectionTransform(CGAffineTransform(scaleX: 4, y: 5)))
+                    }
+            )
 
             XCTAssertEqual(
                 symmetricNode.scrollTransition,
@@ -6620,6 +6636,10 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(
                 depthEffectNode.scrollTransition,
                 "symmetric,configuration:identity,axis:vertical,identityEffect:identity.scaleEffect3D(x:0.5,y:0.5,z:0.5,anchor:0.5,0.5,0.0).scaleEffect3D(x:2.0,y:3.0,z:4.0,anchor:0.5,0.5,1.0).offset(z:8.0)"
+            )
+            XCTAssertEqual(
+                transformEffectNode.scrollTransition,
+                "symmetric,configuration:identity,axis:vertical,identityEffect:identity.rotation3DEffect(angle:0.7853981633974483,axis:0.0,1.0,0.0,anchor:0.5,0.0,anchorZ:4.0,perspective:0.25).rotation3DEffect(angle:0.5235987755982988,axis:0.0,0.0,1.0,anchor3D:0.5,0.5,1.0).transformEffect(a:1.0,b:0.0,c:0.0,d:1.0,tx:2.0,ty:3.0).transformEffect(m11:4.0,m12:0.0,m13:0.0,m21:0.0,m22:5.0,m23:0.0,m31:0.0,m32:0.0,m33:1.0)"
             )
             XCTAssertTrue(ScrollTransitionPhase.identity.isIdentity)
             XCTAssertEqual(ScrollTransitionPhase.topLeading.value, -1)

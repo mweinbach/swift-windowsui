@@ -9825,6 +9825,50 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testBindingOptionalPromotionReadsAndWritesNonNilValues() async {
+        await MainActor.run {
+            var title = "ALPHA"
+            let titleBinding = Binding(
+                get: { title },
+                set: { title = $0 }
+            )
+
+            let optionalBinding = Binding<String?>(titleBinding)
+
+            XCTAssertEqual(optionalBinding.wrappedValue, "ALPHA")
+
+            optionalBinding.wrappedValue = "BETA"
+            XCTAssertEqual(title, "BETA")
+
+            optionalBinding.wrappedValue = nil
+            XCTAssertEqual(title, "BETA")
+        }
+    }
+
+    func testBindingOptionalUnwrapFeedsRetainedControlsWhenValueExists() async {
+        await MainActor.run {
+            var title: String? = "ALPHA"
+            let optionalTitle = Binding<String?>(
+                get: { title },
+                set: { title = $0 }
+            )
+
+            guard let titleBinding = Binding<String>(optionalTitle) else {
+                XCTFail("Expected a binding when the optional has a value")
+                return
+            }
+
+            let node = makeNode(TextField("TITLE", text: titleBinding))
+            firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertEqual(title, "ALPHAz")
+
+            title = nil
+            XCTAssertEqual(Binding<String>(optionalTitle)?.wrappedValue, nil)
+            XCTAssertEqual(titleBinding.wrappedValue, "ALPHA")
+        }
+    }
+
     func testDynamicPropertyProtocolAcceptsWinSwiftUIWrappers() async {
         await MainActor.run {
             final class DynamicModel: ObservableObject {

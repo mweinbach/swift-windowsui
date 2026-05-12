@@ -2497,6 +2497,31 @@ public struct Binding<Value>: DynamicProperty {
         }
     }
 
+    public init<Wrapped>(_ base: Binding<Wrapped>) where Value == Wrapped? {
+        self.getValue = {
+            base.wrappedValue
+        }
+        self.setValue = { value in
+            guard let value else {
+                return
+            }
+            base.wrappedValue = value
+        }
+    }
+
+    public init?(_ base: Binding<Value?>) {
+        guard let initialValue = base.wrappedValue else {
+            return nil
+        }
+
+        self.getValue = {
+            base.wrappedValue ?? initialValue
+        }
+        self.setValue = { value in
+            base.wrappedValue = value
+        }
+    }
+
     public var wrappedValue: Value {
         get {
             getValue()

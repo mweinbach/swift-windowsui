@@ -211,6 +211,9 @@ final class ComponentHostTests: XCTestCase {
                     node.colorEffects = useSecondState
                         ? [.contrast(1.2), .luminanceToAlpha]
                         : [.brightness(0.1), .colorInvert]
+                    node.visualEffects = useSecondState
+                        ? ["identity.opacity(0.8).offset(x:4.0,y:5.0)"]
+                        : ["identity.opacity(0.4).blendMode(screen)"]
                     node.viewMask = useSecondState
                         ? RetainedViewMask(horizontal: .trailing, vertical: .top)
                         : RetainedViewMask(horizontal: .center, vertical: .bottom)
@@ -390,6 +393,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.isCompositingGroup, false)
             XCTAssertEqual(firstNode?.drawingGroup, RetainedDrawingGroup(opaque: false, colorMode: .nonLinear))
             XCTAssertEqual(firstNode?.colorEffects, [.brightness(0.1), .colorInvert])
+            XCTAssertEqual(firstNode?.visualEffects, ["identity.opacity(0.4).blendMode(screen)"])
             XCTAssertEqual(firstNode?.viewMask, RetainedViewMask(horizontal: .center, vertical: .bottom))
             XCTAssertEqual(firstNode?.listRowSeparator, RetainedListRowSeparator(visibility: .hidden, edges: .all))
             XCTAssertEqual(firstNode?.listRowSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .top))
@@ -530,6 +534,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.isCompositingGroup, true)
             XCTAssertEqual(reusedNode?.drawingGroup, RetainedDrawingGroup(opaque: true, colorMode: .linear))
             XCTAssertEqual(reusedNode?.colorEffects, [.contrast(1.2), .luminanceToAlpha])
+            XCTAssertEqual(reusedNode?.visualEffects, ["identity.opacity(0.8).offset(x:4.0,y:5.0)"])
             XCTAssertEqual(reusedNode?.viewMask, RetainedViewMask(horizontal: .trailing, vertical: .top))
             XCTAssertEqual(reusedNode?.listRowSeparator, RetainedListRowSeparator(visibility: .visible, edges: .bottom))
             XCTAssertEqual(

@@ -6655,6 +6655,29 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testVisualEffectModifierStoresRetainedMetadataAndGeometry() async {
+        await MainActor.run {
+            var observedSize: Size?
+            let node = makeNode(
+                Text("CARD")
+                    .visualEffect { content, geometry in
+                        observedSize = geometry.size
+                        return content
+                            .opacity(0.7)
+                            .blendMode(.screen)
+                            .offset(x: geometry.size.width / 10, y: geometry.size.height / 20)
+                    },
+                size: Size(width: 320, height: 240)
+            )
+
+            XCTAssertEqual(observedSize, Size(width: 320, height: 240))
+            XCTAssertEqual(
+                node.visualEffects,
+                ["identity.opacity(0.7).blendMode(screen).offset(x:32.0,y:12.0)"]
+            )
+        }
+    }
+
     func testScrollPositionMetadataPropagatesToRetainedScrollContainers() async {
         await MainActor.run {
             var position = ScrollPosition(id: "item-2", anchor: .bottom)

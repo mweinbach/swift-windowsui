@@ -18721,6 +18721,22 @@ public extension View {
         }
     }
 
+    func visualEffect<Effect: VisualEffect>(
+        _ effect: @escaping (EmptyVisualEffect, GeometryProxy) -> Effect
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            let geometry = GeometryProxy(size: context.canvasSize)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.visualEffects.append(
+                    effect(EmptyVisualEffect(), geometry).retainedVisualEffectDescription
+                )
+                return node
+            }
+        }
+    }
+
     func scrollTransition<Effect: VisualEffect>(
         _ configuration: ScrollTransitionConfiguration = .interactive,
         axis: Axis? = nil,

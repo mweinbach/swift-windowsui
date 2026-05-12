@@ -189,6 +189,7 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var isCompositingGroup: Bool
     var drawingGroup: RetainedDrawingGroup?
     var colorEffects: [RetainedColorEffect]
+    var visualEffects: [String]
     var viewMask: RetainedViewMask?
     var displayScale: Double
     var isHovered: Bool
@@ -1077,6 +1078,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var visualEffects: [String] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var viewMask: RetainedViewMask? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1653,6 +1658,7 @@ public final class ViewNode {
         isCompositingGroup: Bool = false,
         drawingGroup: RetainedDrawingGroup? = nil,
         colorEffects: [RetainedColorEffect] = [],
+        visualEffects: [String] = [],
         viewMask: RetainedViewMask? = nil,
         listRowSeparator: RetainedListRowSeparator? = nil,
         listRowSeparatorTint: RetainedListSeparatorTint? = nil,
@@ -1794,6 +1800,7 @@ public final class ViewNode {
         self.isCompositingGroup = isCompositingGroup
         self.drawingGroup = drawingGroup
         self.colorEffects = colorEffects
+        self.visualEffects = visualEffects
         self.viewMask = viewMask
         self.listRowSeparator = listRowSeparator
         self.listRowSeparatorTint = listRowSeparatorTint
@@ -2479,6 +2486,7 @@ public final class ViewNode {
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
             colorEffects: colorEffects,
+            visualEffects: visualEffects,
             viewMask: viewMask,
             displayScale: displayScale,
             isHovered: isHovered,
@@ -2792,6 +2800,7 @@ public final class ViewNode {
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
             colorEffects: colorEffects,
+            visualEffects: visualEffects,
             viewMask: viewMask,
             displayScale: displayScale,
             isHovered: isHovered,

@@ -150,6 +150,7 @@ public final class ComponentHost {
         if target.isCompositingGroup != source.isCompositingGroup { target.isCompositingGroup = source.isCompositingGroup }
         if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
         if target.colorEffects != source.colorEffects { target.colorEffects = source.colorEffects }
+        if target.visualEffects != source.visualEffects { target.visualEffects = source.visualEffects }
         if target.viewMask != source.viewMask { target.viewMask = source.viewMask }
         if target.listRowSeparator != source.listRowSeparator { target.listRowSeparator = source.listRowSeparator }
         if target.listRowSeparatorTint != source.listRowSeparatorTint { target.listRowSeparatorTint = source.listRowSeparatorTint }

@@ -191,6 +191,7 @@ public enum ScenePainter {
             isCompositingGroup: node.isCompositingGroup,
             drawingGroup: node.drawingGroup,
             colorEffects: node.colorEffects,
+            visualEffects: node.visualEffects,
             viewMask: node.viewMask,
             displayScale: displayScale,
             isHovered: node.isHovered,

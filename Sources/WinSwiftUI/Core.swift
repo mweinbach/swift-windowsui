@@ -6529,6 +6529,8 @@ public enum VerticalAlignment: Sendable {
     case top
     case center
     case bottom
+    case firstTextBaseline
+    case lastTextBaseline
 
     var retainedGuideName: String {
         switch self {
@@ -6538,6 +6540,10 @@ public enum VerticalAlignment: Sendable {
             return "center"
         case .bottom:
             return "bottom"
+        case .firstTextBaseline:
+            return "firstTextBaseline"
+        case .lastTextBaseline:
+            return "lastTextBaseline"
         }
     }
 }
@@ -6605,6 +6611,8 @@ public struct ViewDimensions: Sendable, Equatable {
             return height / 2
         case .bottom:
             return height
+        case .firstTextBaseline, .lastTextBaseline:
+            return height * 0.8
         }
     }
 
@@ -11081,16 +11089,20 @@ extension VerticalAlignment {
             return .center
         case .bottom:
             return .trailing
+        case .firstTextBaseline:
+            return .firstTextBaseline
+        case .lastTextBaseline:
+            return .lastTextBaseline
         }
     }
 
     var mainAlignment: StackMainAlignment {
         switch self {
-        case .top:
+        case .top, .firstTextBaseline:
             return .start
         case .center:
             return .center
-        case .bottom:
+        case .bottom, .lastTextBaseline:
             return .end
         }
     }
@@ -11138,11 +11150,11 @@ extension HorizontalAlignment {
 extension VerticalAlignment {
     var retainedVerticalAlignment: RetainedVerticalAlignment {
         switch self {
-        case .top:
+        case .top, .firstTextBaseline:
             return .top
         case .center:
             return .center
-        case .bottom:
+        case .bottom, .lastTextBaseline:
             return .bottom
         }
     }
@@ -12087,11 +12099,11 @@ extension Alignment {
 
         let y: Double
         switch vertical {
-        case .top:
+        case .top, .firstTextBaseline:
             y = 0
         case .center:
             y = max(0, (containerSize.height - childSize.height) * 0.5)
-        case .bottom:
+        case .bottom, .lastTextBaseline:
             y = max(0, containerSize.height - childSize.height)
         }
 

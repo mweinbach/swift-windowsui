@@ -2204,18 +2204,19 @@ public final class ViewNode {
                         stackAxis: .vertical,
                         stackAlignment: stackLayout.alignment,
                         contentOrigin: contentRect.origin.x,
-                        contentExtent: contentRect.size.width
+                        contentExtent: contentRect.size.width,
+                        childExtent: width
                     ) {
                         x = guidedX
                         usesCustomAlignmentGuide = true
                     } else {
                         usesCustomAlignmentGuide = false
                         switch stackLayout.alignment {
-                        case .leading, .stretch:
+                        case .leading, .stretch, .firstTextBaseline:
                             x = contentRect.origin.x
                         case .center:
                             x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
-                        case .trailing:
+                        case .trailing, .lastTextBaseline:
                             x = contentRect.maxX - width
                         }
                     }
@@ -2238,7 +2239,8 @@ public final class ViewNode {
                         stackAxis: .horizontal,
                         stackAlignment: stackLayout.alignment,
                         contentOrigin: contentRect.origin.y,
-                        contentExtent: contentRect.size.height
+                        contentExtent: contentRect.size.height,
+                        childExtent: height
                     ) {
                         y = guidedY
                         usesCustomAlignmentGuide = true
@@ -2251,6 +2253,10 @@ public final class ViewNode {
                             y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
                         case .trailing:
                             y = contentRect.maxY - height
+                        case .firstTextBaseline:
+                            y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
+                        case .lastTextBaseline:
+                            y = contentRect.origin.y + max(0, contentRect.size.height * 0.8 - height * 0.8)
                         }
                     }
 
@@ -3867,15 +3873,23 @@ private func stackCrossOriginUsingAlignmentGuide(
     stackAxis: StackAxis,
     stackAlignment: StackCrossAlignment,
     contentOrigin: Double,
-    contentExtent: Double
+    contentExtent: Double,
+    childExtent: Double
 ) -> Double? {
-    guard let guide = stackCrossAlignmentGuide(for: stackAxis, alignment: stackAlignment),
-          let alignmentGuide = child.alignmentGuides.last(where: { $0.axis == guide.axis && $0.guide == guide.name })
-    else {
+    guard let guide = stackCrossAlignmentGuide(for: stackAxis, alignment: stackAlignment) else {
         return nil
     }
 
-    return contentOrigin + stackCrossReference(for: stackAlignment, contentExtent: contentExtent) - alignmentGuide.value
+    let guideValue: Double
+    if let alignmentGuide = child.alignmentGuides.last(where: { $0.axis == guide.axis && $0.guide == guide.name }) {
+        guideValue = alignmentGuide.value
+    } else if stackAlignment == .firstTextBaseline || stackAlignment == .lastTextBaseline {
+        guideValue = defaultStackCrossBaselineGuideValue(for: childExtent)
+    } else {
+        return nil
+    }
+
+    return contentOrigin + stackCrossReference(for: stackAlignment, contentExtent: contentExtent) - guideValue
 }
 
 private func stackCrossAlignmentGuide(
@@ -3891,6 +3905,10 @@ private func stackCrossAlignmentGuide(
             return (.horizontal, "center")
         case .trailing:
             return (.horizontal, "trailing")
+        case .firstTextBaseline:
+            return nil
+        case .lastTextBaseline:
+            return nil
         case .stretch:
             return nil
         }
@@ -3902,6 +3920,10 @@ private func stackCrossAlignmentGuide(
             return (.vertical, "center")
         case .trailing:
             return (.vertical, "bottom")
+        case .firstTextBaseline:
+            return (.vertical, "firstTextBaseline")
+        case .lastTextBaseline:
+            return (.vertical, "lastTextBaseline")
         case .stretch:
             return nil
         }
@@ -3916,7 +3938,13 @@ private func stackCrossReference(for alignment: StackCrossAlignment, contentExte
         return contentExtent * 0.5
     case .trailing:
         return contentExtent
+    case .firstTextBaseline, .lastTextBaseline:
+        return defaultStackCrossBaselineGuideValue(for: contentExtent)
     }
+}
+
+private func defaultStackCrossBaselineGuideValue(for extent: Double) -> Double {
+    max(0, extent) * 0.8
 }
 
 private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {

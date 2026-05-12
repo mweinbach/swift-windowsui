@@ -54,6 +54,8 @@ public enum StackCrossAlignment: Equatable, Sendable {
     case leading
     case center
     case trailing
+    case firstTextBaseline
+    case lastTextBaseline
     case stretch
 }
 

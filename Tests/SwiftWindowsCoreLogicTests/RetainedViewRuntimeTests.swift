@@ -124,14 +124,24 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 layoutMode: .stack(.horizontal(alignment: .center)),
                 children: [horizontalGuided, horizontalDefault]
             )
+            let baselineShort = ViewNode(preferredSize: Size(width: 10, height: 20))
+            let baselineTall = ViewNode(preferredSize: Size(width: 10, height: 40))
+            let baselineRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .stack(.horizontal(alignment: .firstTextBaseline)),
+                children: [baselineShort, baselineTall]
+            )
 
             _ = RetainedViewRuntime(root: verticalRoot).renderFrame()
             _ = RetainedViewRuntime(root: horizontalRoot).renderFrame()
+            _ = RetainedViewRuntime(root: baselineRoot).renderFrame()
 
             XCTAssertEqual(verticalGuided.resolvedFrame, Rect(x: 45, y: 0, width: 20, height: 10))
             XCTAssertEqual(verticalDefault.resolvedFrame, Rect(x: 40, y: 10, width: 20, height: 10))
             XCTAssertEqual(horizontalGuided.resolvedFrame, Rect(x: 0, y: 25, width: 10, height: 20))
             XCTAssertEqual(horizontalDefault.resolvedFrame, Rect(x: 10, y: 20, width: 10, height: 20))
+            XCTAssertEqual(baselineShort.resolvedFrame, Rect(x: 0, y: 32, width: 10, height: 20))
+            XCTAssertEqual(baselineTall.resolvedFrame, Rect(x: 10, y: 16, width: 10, height: 40))
         }
     }
 

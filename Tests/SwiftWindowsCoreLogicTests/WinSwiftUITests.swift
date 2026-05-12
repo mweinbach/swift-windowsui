@@ -5997,6 +5997,38 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testScrollIndicatorsFlashMetadataPropagatesToRetainedScrollContainers() async {
+        await MainActor.run {
+            let scrollViewNode = makeNode(
+                ScrollView {
+                    Text("ROW")
+                }
+                .scrollIndicatorsFlash(onAppear: true)
+                .scrollIndicatorsFlash(trigger: 4)
+            )
+            let listNode = makeNode(
+                List {
+                    Text("ONE")
+                }
+                .scrollIndicatorsFlash(onAppear: false)
+                .scrollIndicatorsFlash(trigger: "refresh")
+            )
+            let sectionNode = makeNode(
+                Section("GROUP", style: SectionStyle(scrollAxis: .vertical)) {
+                    Text("ITEM")
+                }
+                .scrollIndicatorsFlash(onAppear: true)
+            )
+
+            XCTAssertTrue(scrollViewNode.scrollIndicatorsFlashOnAppear)
+            XCTAssertEqual(scrollViewNode.scrollIndicatorsFlashTrigger, "Int:4")
+            XCTAssertFalse(listNode.scrollIndicatorsFlashOnAppear)
+            XCTAssertEqual(listNode.scrollIndicatorsFlashTrigger, "String:refresh")
+            XCTAssertTrue(sectionNode.scrollIndicatorsFlashOnAppear)
+            XCTAssertNil(sectionNode.scrollIndicatorsFlashTrigger)
+        }
+    }
+
     func testScrollClipDisabledMapsToRetainedScrollClipping() async {
         await MainActor.run {
             let scrollViewNode = makeNode(

@@ -176,6 +176,8 @@ public final class ComponentHost {
         if target.scrollTargetBehavior != source.scrollTargetBehavior { target.scrollTargetBehavior = source.scrollTargetBehavior }
         if target.isScrollTargetLayout != source.isScrollTargetLayout { target.isScrollTargetLayout = source.isScrollTargetLayout }
         if target.scrollInputBehaviors != source.scrollInputBehaviors { target.scrollInputBehaviors = source.scrollInputBehaviors }
+        if target.scrollIndicatorsFlashOnAppear != source.scrollIndicatorsFlashOnAppear { target.scrollIndicatorsFlashOnAppear = source.scrollIndicatorsFlashOnAppear }
+        if target.scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger { target.scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

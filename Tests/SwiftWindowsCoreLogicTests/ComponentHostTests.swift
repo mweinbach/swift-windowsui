@@ -252,6 +252,8 @@ final class ComponentHostTests: XCTestCase {
                     node.scrollTargetBehavior = useSecondState ? "viewAligned(limitBehavior:always,anchor:nil)" : "paging"
                     node.isScrollTargetLayout = useSecondState
                     node.scrollInputBehaviors = useSecondState ? ["look(horizontal)": "enabled"] : ["handGestureShortcut": "disabled"]
+                    node.scrollIndicatorsFlashOnAppear = useSecondState
+                    node.scrollIndicatorsFlashTrigger = useSecondState ? "Int:2" : "Int:1"
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -402,6 +404,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.scrollTargetBehavior, "paging")
             XCTAssertEqual(firstNode?.isScrollTargetLayout, false)
             XCTAssertEqual(firstNode?.scrollInputBehaviors, ["handGestureShortcut": "disabled"])
+            XCTAssertEqual(firstNode?.scrollIndicatorsFlashOnAppear, false)
+            XCTAssertEqual(firstNode?.scrollIndicatorsFlashTrigger, "Int:1")
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -539,6 +543,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.scrollTargetBehavior, "viewAligned(limitBehavior:always,anchor:nil)")
             XCTAssertEqual(reusedNode?.isScrollTargetLayout, true)
             XCTAssertEqual(reusedNode?.scrollInputBehaviors, ["look(horizontal)": "enabled"])
+            XCTAssertEqual(reusedNode?.scrollIndicatorsFlashOnAppear, true)
+            XCTAssertEqual(reusedNode?.scrollIndicatorsFlashTrigger, "Int:2")
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

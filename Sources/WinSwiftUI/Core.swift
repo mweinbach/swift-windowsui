@@ -3057,6 +3057,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var verticalScrollBounceBehavior: ScrollBounceBehavior
     public var scrollTargetBehavior: AnyScrollTargetBehavior?
     public var scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior]
+    public var scrollIndicatorsFlashOnAppear: Bool
+    public var scrollIndicatorsFlashTrigger: String?
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
     public var openURL: OpenURLAction
@@ -3185,6 +3187,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         verticalScrollBounceBehavior: ScrollBounceBehavior = .automatic,
         scrollTargetBehavior: AnyScrollTargetBehavior? = nil,
         scrollInputBehaviors: [ScrollInputKind: ScrollInputBehavior] = [:],
+        scrollIndicatorsFlashOnAppear: Bool = false,
+        scrollIndicatorsFlashTrigger: String? = nil,
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
         openURL: OpenURLAction = .system,
@@ -3333,6 +3337,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.verticalScrollBounceBehavior = verticalScrollBounceBehavior
         self.scrollTargetBehavior = scrollTargetBehavior
         self.scrollInputBehaviors = scrollInputBehaviors
+        self.scrollIndicatorsFlashOnAppear = scrollIndicatorsFlashOnAppear
+        self.scrollIndicatorsFlashTrigger = scrollIndicatorsFlashTrigger
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
         self.openURL = openURL
@@ -5000,6 +5006,14 @@ public struct ViewBuildContext {
                 (kind.description, behavior.description)
             }
         )
+    }
+
+    var scrollIndicatorsFlashOnAppear: Bool {
+        environmentValuesProvider().scrollIndicatorsFlashOnAppear
+    }
+
+    var scrollIndicatorsFlashTrigger: String? {
+        environmentValuesProvider().scrollIndicatorsFlashTrigger
     }
 
     func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
@@ -17106,6 +17120,19 @@ public extension View {
                     behaviors[input] = behavior
                 }
             )
+        }
+    }
+
+    func scrollIndicatorsFlash(onAppear: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.scrollIndicatorsFlashOnAppear, onAppear))
+        }
+    }
+
+    func scrollIndicatorsFlash(trigger value: some Equatable) -> some View {
+        ModifiedView(content: self) { content, context in
+            let trigger = "\(type(of: value)):\(String(describing: value))"
+            return content.makeComponent(context: context.withEnvironmentValue(\.scrollIndicatorsFlashTrigger, trigger))
         }
     }
 

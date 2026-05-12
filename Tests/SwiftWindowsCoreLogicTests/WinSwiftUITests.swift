@@ -3406,6 +3406,43 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testShapeStyleAndAnyShapeStyleBridgeToRetainedForegroundStyle() async {
+        await MainActor.run {
+            func retainedStyle<S: ShapeStyle>(_ style: S) -> ForegroundStyle {
+                style.retainedForegroundStyle
+            }
+
+            let storedColor = Color(red: 0.2, green: 0.6, blue: 0.4, alpha: 1)
+            let gradient = LinearGradient(colors: [.red, .blue], startPoint: .leading, endPoint: .trailing)
+            let erasedSecondary = AnyShapeStyle(.secondary)
+            let erasedGradient = AnyShapeStyle(gradient)
+
+            XCTAssertEqual(retainedStyle(storedColor), .color(storedColor))
+            XCTAssertEqual(retainedStyle(gradient), .linearGradient(gradient))
+            XCTAssertEqual(retainedStyle(erasedSecondary), .color(.secondary))
+            XCTAssertEqual(ForegroundStyle(storedColor), .color(storedColor))
+            XCTAssertEqual(ForegroundStyle(gradient), .linearGradient(gradient))
+            XCTAssertEqual(ForegroundStyle(erasedSecondary), .color(.secondary))
+
+            let textNode = makeNode(Text("STYLE").foregroundStyle(erasedSecondary))
+            let inheritedGradientNode = makeNode(
+                VStack {
+                    Text("GRADIENT")
+                }
+                .foregroundStyle(erasedGradient)
+            )
+            let filledNode = makeNode(Rectangle().fill(erasedSecondary))
+            let strokedNode = makeNode(Capsule().strokeBorder(erasedGradient, lineWidth: 2))
+
+            XCTAssertEqual(textNode.textStyle.color, .secondary)
+            XCTAssertEqual(inheritedGradientNode.children[0].textStyle.color, gradient.startColor)
+            XCTAssertEqual(filledNode.backgroundColor, .secondary)
+            XCTAssertEqual(strokedNode.borderColor, gradient.startColor)
+            XCTAssertEqual(strokedNode.borderGradient, gradient)
+            XCTAssertEqual(strokedNode.borderWidth, 2)
+        }
+    }
+
     func testCustomViewModifierMapsThroughRetainedComponentPipeline() async {
         await MainActor.run {
             let node = makeNode(

@@ -8350,9 +8350,45 @@ public struct BorderlessButtonMenuStyle: Sendable, Equatable {
     }
 }
 
+public protocol ShapeStyle: Sendable {
+    var retainedForegroundStyle: ForegroundStyle { get }
+}
+
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
     case linearGradient(LinearGradient)
+
+    public init(_ color: Color) {
+        self = .color(color)
+    }
+
+    public init(_ gradient: LinearGradient) {
+        self = .linearGradient(gradient)
+    }
+
+    public init<S: ShapeStyle>(_ style: S) {
+        self = style.retainedForegroundStyle
+    }
+}
+
+public typealias AnyShapeStyle = ForegroundStyle
+
+extension ForegroundStyle: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        self
+    }
+}
+
+extension SwiftWindowsCore.Color: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(self)
+    }
+}
+
+extension SwiftWindowsGraphics.LinearGradient: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .linearGradient(self)
+    }
 }
 
 public struct SymbolRenderingMode: Sendable, Equatable {

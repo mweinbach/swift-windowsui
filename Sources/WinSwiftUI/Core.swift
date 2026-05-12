@@ -678,6 +678,77 @@ public struct MapPublisher<Upstream: Publisher, Output>: Publisher {
 }
 
 @MainActor
+public struct CompactMapPublisher<Upstream: Publisher, Output>: Publisher {
+    private let upstream: Upstream
+    private let transform: @MainActor (Upstream.Output) -> Output?
+
+    fileprivate init(
+        upstream: Upstream,
+        transform: @escaping @MainActor (Upstream.Output) -> Output?
+    ) {
+        self.upstream = upstream
+        self.transform = transform
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        upstream.sink { value in
+            guard let transformed = transform(value) else {
+                return
+            }
+
+            receiveValue(transformed)
+        }
+    }
+}
+
+@MainActor
+public struct FilterPublisher<Upstream: Publisher>: Publisher {
+    private let upstream: Upstream
+    private let isIncluded: @MainActor (Upstream.Output) -> Bool
+
+    fileprivate init(
+        upstream: Upstream,
+        isIncluded: @escaping @MainActor (Upstream.Output) -> Bool
+    ) {
+        self.upstream = upstream
+        self.isIncluded = isIncluded
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Upstream.Output) -> Void) -> AnyCancellable {
+        upstream.sink { value in
+            guard isIncluded(value) else {
+                return
+            }
+
+            receiveValue(value)
+        }
+    }
+}
+
+@MainActor
+public struct DropFirstPublisher<Upstream: Publisher>: Publisher {
+    private let upstream: Upstream
+    private let count: Int
+
+    fileprivate init(upstream: Upstream, count: Int) {
+        self.upstream = upstream
+        self.count = max(0, count)
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Upstream.Output) -> Void) -> AnyCancellable {
+        var remainingDrops = count
+        return upstream.sink { value in
+            guard remainingDrops == 0 else {
+                remainingDrops -= 1
+                return
+            }
+
+            receiveValue(value)
+        }
+    }
+}
+
+@MainActor
 public struct RemoveDuplicatesPublisher<Upstream: Publisher>: Publisher {
     private let upstream: Upstream
     private let isDuplicate: @MainActor (Upstream.Output, Upstream.Output) -> Bool
@@ -710,6 +781,22 @@ public extension Publisher {
         MapPublisher(upstream: self, transform: transform)
     }
 
+    func compactMap<Transformed>(
+        _ transform: @escaping @MainActor (Output) -> Transformed?
+    ) -> CompactMapPublisher<Self, Transformed> {
+        CompactMapPublisher(upstream: self, transform: transform)
+    }
+
+    func filter(
+        _ isIncluded: @escaping @MainActor (Output) -> Bool
+    ) -> FilterPublisher<Self> {
+        FilterPublisher(upstream: self, isIncluded: isIncluded)
+    }
+
+    func dropFirst(_ count: Int = 1) -> DropFirstPublisher<Self> {
+        DropFirstPublisher(upstream: self, count: count)
+    }
+
     func removeDuplicates(
         by predicate: @escaping @MainActor (Output, Output) -> Bool
     ) -> RemoveDuplicatesPublisher<Self> {
@@ -719,7 +806,9 @@ public extension Publisher {
 
 public extension Publisher where Output: Equatable {
     func removeDuplicates() -> RemoveDuplicatesPublisher<Self> {
-        removeDuplicates(by: ==)
+        removeDuplicates { previous, next in
+            previous == next
+        }
     }
 }
 

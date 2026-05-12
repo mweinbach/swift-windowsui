@@ -584,6 +584,10 @@ Compatibility helpers:
 - `KeyboardShortcut`
 - `MoveCommandDirection`
 - `CoordinateSpace`
+- `CoordinateSpaceProtocol`
+- `GlobalCoordinateSpace`
+- `LocalCoordinateSpace`
+- `NamedCoordinateSpace`
 - `Gesture`
 - `AnyGesture`
 - `SimultaneousGesture`
@@ -854,7 +858,7 @@ Surface direction:
 - `DatePicker` accepts SwiftUI-shaped date, time, closed-range, and partial-range initializer labels and maps the selected `Date` into retained label/value text. It reads `EnvironmentValues.calendar` and `EnvironmentValues.timeZone` before formatting its deterministic retained value text, and non-current `EnvironmentValues.locale` overrides use `DateFormatter` for locale-specific date/time text. Retained date pickers are focusable and write the selection binding from arrow-key increments while respecting the supplied range. `datePickerStyle(_:)` and `EnvironmentValues.datePickerStyle` accept `.automatic`, `.compact`, `.field`, `.graphical`, `.stepperField`, `.wheel`, `DefaultDatePickerStyle`, `CompactDatePickerStyle`, `FieldDatePickerStyle`, `GraphicalDatePickerStyle`, `StepperFieldDatePickerStyle`, and `WheelDatePickerStyle`; automatic uses the default retained label/value row, compact uses a dropdown-style retained shell, field and stepper-field styles use bordered retained input chrome, wheel uses a clipped wheel-style retained shell, and graphical uses a retained calendar-panel hint around the formatted value. Calendar popovers, real graphical calendar/clock picking, wheel columns, editable fields, and direct text entry are not implemented yet.
 - `ColorPicker` accepts SwiftUI-shaped title, builder-label, and `supportsOpacity` initializer labels, then maps the selected `Color` into a retained swatch plus hex value. Retained color pickers are focusable and provide keyboard binding writes: left/right cycle a deterministic retained color palette, and up/down adjust opacity when `supportsOpacity` is true. Native color dialogs, color wells, and direct channel text entry are not implemented yet.
 - `HSplitView` and `VSplitView` map into the retained split-view control and can infer an initial ratio from content.
-- `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes. `GeometryProxy.size`, `safeAreaInsets`, and `frame(in:)` are available for shared-source call sites; frame requests currently return deterministic retained canvas bounds for `.local`, `.global`, and named spaces, and safe-area insets are zero because the Win32 host renders into the client area.
+- `GeometryReader` uses the current build context canvas size and now reevaluates correctly after canvas-size changes. `GeometryProxy.size`, `safeAreaInsets`, `frame(in:)`, `CoordinateSpaceProtocol`, `GlobalCoordinateSpace`, `LocalCoordinateSpace`, `NamedCoordinateSpace`, and `bounds(of:)` are available for shared-source call sites; frame and bounds requests currently return deterministic retained canvas bounds for `.local`, `.global`, and named spaces, and safe-area insets are zero because the Win32 host renders into the client area. `coordinateSpace(_:)` and `coordinateSpace(name:)` are accepted as no-op retained metadata boundaries until full coordinate-space projection exists.
 - The default scene path scales quads, shadows, clips, and glyphs into device pixels before batch rendering.
 - `GPUIScene` now carries replayable scene paint records plus per-layer family operations as metadata, stores semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds per primitive family, and finishes layers into ordered batch ranges before the batch renderer uploads them.
 - `RetainedViewRuntime` now reuses cached `sizeThatFits`/layout results for clean subtrees and replays clean frame/scene ranges, which keeps paint-only updates and scroll movement from relaying out the full tree.

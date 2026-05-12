@@ -7741,6 +7741,60 @@ public enum CoordinateSpace: Sendable, Equatable, Hashable {
     case named(String)
 }
 
+public protocol CoordinateSpaceProtocol: Sendable {
+    var coordinateSpace: CoordinateSpace { get }
+}
+
+public struct GlobalCoordinateSpace: CoordinateSpaceProtocol, Equatable, Hashable {
+    public init() {}
+
+    public var coordinateSpace: CoordinateSpace {
+        .global
+    }
+}
+
+public struct LocalCoordinateSpace: CoordinateSpaceProtocol, Equatable, Hashable {
+    public init() {}
+
+    public var coordinateSpace: CoordinateSpace {
+        .local
+    }
+}
+
+public struct NamedCoordinateSpace: CoordinateSpaceProtocol, Equatable, Hashable, ExpressibleByStringLiteral {
+    public var name: String
+
+    public init(_ name: String) {
+        self.name = name
+    }
+
+    public init(stringLiteral value: String) {
+        self.init(value)
+    }
+
+    public var coordinateSpace: CoordinateSpace {
+        .named(name)
+    }
+}
+
+extension CoordinateSpace: CoordinateSpaceProtocol {
+    public var coordinateSpace: CoordinateSpace {
+        self
+    }
+}
+
+public extension CoordinateSpaceProtocol where Self == GlobalCoordinateSpace {
+    static var global: GlobalCoordinateSpace {
+        GlobalCoordinateSpace()
+    }
+}
+
+public extension CoordinateSpaceProtocol where Self == LocalCoordinateSpace {
+    static var local: LocalCoordinateSpace {
+        LocalCoordinateSpace()
+    }
+}
+
 public struct AnyGesture<Value>: Gesture {
     private let applyGesture: @MainActor (AnyView, GestureMask) -> AnyView
 
@@ -16561,6 +16615,17 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func coordinateSpace(_ coordinateSpace: some CoordinateSpaceProtocol) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = coordinateSpace
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func coordinateSpace(name: String) -> some View {
+        coordinateSpace(NamedCoordinateSpace(name))
     }
 
     func border(_ color: Color, width: Double = 1, cornerRadius: Double = 0) -> some View {

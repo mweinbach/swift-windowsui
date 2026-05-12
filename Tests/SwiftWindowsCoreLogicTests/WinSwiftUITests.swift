@@ -19077,14 +19077,22 @@ final class WinSwiftUITests: XCTestCase {
             var localFrame: Rect?
             var globalFrame: Rect?
             var namedFrame: Rect?
+            var protocolFrame: Rect?
+            var namedProtocolFrame: Rect?
+            var namedBounds: Rect?
             var safeAreaInsets: EdgeInsets?
 
             let node = GeometryReader { proxy in
                 localFrame = proxy.frame(in: .local)
                 globalFrame = proxy.frame(in: .global)
                 namedFrame = proxy.frame(in: .named("reader"))
+                protocolFrame = proxy.frame(in: GlobalCoordinateSpace.global)
+                namedProtocolFrame = proxy.frame(in: NamedCoordinateSpace("reader"))
+                namedBounds = proxy.bounds(of: "reader")
                 safeAreaInsets = proxy.safeAreaInsets
                 Text("GEOMETRY")
+                    .coordinateSpace(NamedCoordinateSpace("reader"))
+                    .coordinateSpace(name: "legacy")
             }
             .makeComponent(context: context)
             .makeNode(runtime: RetainedViewRuntime(root: ViewNode()))
@@ -19093,6 +19101,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(localFrame, Rect(x: 0, y: 0, width: 240, height: 160))
             XCTAssertEqual(globalFrame, Rect(x: 0, y: 0, width: 240, height: 160))
             XCTAssertEqual(namedFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(protocolFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(namedProtocolFrame, Rect(x: 0, y: 0, width: 240, height: 160))
+            XCTAssertEqual(namedBounds, Rect(x: 0, y: 0, width: 240, height: 160))
             XCTAssertEqual(safeAreaInsets, .zero)
         }
     }

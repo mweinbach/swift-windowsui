@@ -44,6 +44,14 @@ public struct GeometryProxy {
         return Rect(x: 0, y: 0, width: size.width, height: size.height)
     }
 
+    public func frame(in coordinateSpace: some CoordinateSpaceProtocol) -> Rect {
+        frame(in: coordinateSpace.coordinateSpace)
+    }
+
+    public func bounds(of coordinateSpace: NamedCoordinateSpace) -> Rect? {
+        frame(in: coordinateSpace.coordinateSpace)
+    }
+
     public subscript<Value>(anchor: Anchor<Value>) -> Value {
         anchor.value
     }

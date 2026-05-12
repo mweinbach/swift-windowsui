@@ -10655,6 +10655,17 @@ public extension VisualEffect {
         )
     }
 
+    func perspectiveRotationEffect(
+        _ angle: Angle,
+        axis: (x: CGFloat, y: CGFloat, z: CGFloat),
+        anchor: UnitPoint3D = .center,
+        perspective: CGFloat = 1
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).perspectiveRotationEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),\(anchor.z),perspective:\(perspective))"
+        )
+    }
+
     func transformEffect(_ transform: CGAffineTransform) -> EmptyVisualEffect {
         EmptyVisualEffect(
             retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectAffineTransformDescription(transform)))"
@@ -18423,6 +18434,22 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func perspectiveRotationEffect(
+        _ angle: Angle,
+        axis: (x: CGFloat, y: CGFloat, z: CGFloat),
+        anchor: UnitPoint = .center,
+        anchorZ: CGFloat = 0,
+        perspective: CGFloat = 1
+    ) -> some View {
+        rotation3DEffect(
+            angle,
+            axis: axis,
+            anchor: anchor,
+            anchorZ: anchorZ,
+            perspective: perspective
+        )
     }
 
     func blur(radius: Double, opaque: Bool = false) -> some View {

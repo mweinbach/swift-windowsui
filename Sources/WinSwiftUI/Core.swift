@@ -687,6 +687,64 @@ public struct Just<Output>: Publisher {
 }
 
 @MainActor
+public final class PassthroughSubject<Output, Failure: Error>: Publisher {
+    private var subscribers: [UUID: @MainActor (Output) -> Void] = [:]
+
+    public init() {}
+
+    public func send(_ value: Output) {
+        for subscriber in subscribers.values {
+            subscriber(value)
+        }
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        let id = UUID()
+        subscribers[id] = receiveValue
+
+        return AnyCancellable { [weak self] in
+            self?.subscribers.removeValue(forKey: id)
+        }
+    }
+}
+
+@MainActor
+public final class CurrentValueSubject<Output, Failure: Error>: Publisher {
+    private var currentValue: Output
+    private var subscribers: [UUID: @MainActor (Output) -> Void] = [:]
+
+    public var value: Output {
+        get {
+            currentValue
+        }
+        set {
+            send(newValue)
+        }
+    }
+
+    public init(_ value: Output) {
+        self.currentValue = value
+    }
+
+    public func send(_ value: Output) {
+        currentValue = value
+        for subscriber in subscribers.values {
+            subscriber(value)
+        }
+    }
+
+    public func sink(receiveValue: @escaping @MainActor (Output) -> Void) -> AnyCancellable {
+        let id = UUID()
+        subscribers[id] = receiveValue
+        receiveValue(currentValue)
+
+        return AnyCancellable { [weak self] in
+            self?.subscribers.removeValue(forKey: id)
+        }
+    }
+}
+
+@MainActor
 public struct MapPublisher<Upstream: Publisher, Output>: Publisher {
     private let upstream: Upstream
     private let transform: @MainActor (Upstream.Output) -> Output

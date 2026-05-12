@@ -16964,6 +16964,89 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testPassthroughSubjectSendsOnlyAfterSubscriptionAndCancels() async {
+        await MainActor.run {
+            let subject = PassthroughSubject<Int, Never>()
+            var values: [Int] = []
+
+            subject.send(1)
+
+            let cancellable = subject
+                .filter { $0.isMultiple(of: 2) }
+                .sink { value in
+                    values.append(value)
+                }
+
+            subject.send(2)
+            subject.send(3)
+            subject.send(4)
+
+            XCTAssertEqual(values, [2, 4])
+
+            cancellable.cancel()
+            subject.send(6)
+
+            XCTAssertEqual(values, [2, 4])
+        }
+    }
+
+    func testCurrentValueSubjectReplaysCurrentValueAndPublishesValueWrites() async {
+        await MainActor.run {
+            let subject = CurrentValueSubject<String, Never>("ALPHA")
+            var values: [String] = []
+
+            let cancellable = subject
+                .removeDuplicates()
+                .sink { value in
+                    values.append(value)
+                }
+
+            subject.send("BETA")
+            subject.value = "BETA"
+            subject.value = "GAMMA"
+
+            XCTAssertEqual(subject.value, "GAMMA")
+            XCTAssertEqual(values, ["ALPHA", "BETA", "GAMMA"])
+
+            cancellable.cancel()
+            subject.value = "DELTA"
+
+            XCTAssertEqual(subject.value, "DELTA")
+            XCTAssertEqual(values, ["ALPHA", "BETA", "GAMMA"])
+        }
+    }
+
+    func testOnReceiveAcceptsPassthroughSubjectPublisher() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let context = ViewBuildContext(
+                canvasSizeProvider: { Size(width: 200, height: 100) },
+                invalidateHandler: {}
+            )
+            let subject = PassthroughSubject<String, Never>()
+            var values: [String] = []
+
+            host.setComponents {
+                [
+                    Text("VALUE")
+                        .onReceive(subject.eraseToAnyPublisher()) { value in
+                            values.append(value)
+                        }
+                        .makeComponent(context: context)
+                ]
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 100))
+            _ = runtime.renderFrame()
+
+            subject.send("READY")
+            subject.send("DONE")
+
+            XCTAssertEqual(values, ["READY", "DONE"])
+        }
+    }
+
     func testOnReceiveSubscribesToPublishedPublisherWhileRendered() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {

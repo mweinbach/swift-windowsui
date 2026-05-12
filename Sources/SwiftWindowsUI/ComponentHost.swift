@@ -150,6 +150,7 @@ public final class ComponentHost {
         if target.listRowSeparatorTint != source.listRowSeparatorTint { target.listRowSeparatorTint = source.listRowSeparatorTint }
         if target.listSectionSeparator != source.listSectionSeparator { target.listSectionSeparator = source.listSectionSeparator }
         if target.listSectionSeparatorTint != source.listSectionSeparatorTint { target.listSectionSeparatorTint = source.listSectionSeparatorTint }
+        if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

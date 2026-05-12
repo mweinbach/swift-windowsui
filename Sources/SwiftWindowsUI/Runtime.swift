@@ -130,6 +130,25 @@ public struct RetainedListSeparatorTint: Sendable, Equatable {
     }
 }
 
+public enum RetainedListItemTintKind: Sendable, Equatable, Hashable {
+    case fixed
+    case preferred
+    case monochrome
+}
+
+public struct RetainedListItemTint: Sendable, Equatable {
+    public var color: Color?
+    public var kind: RetainedListItemTintKind
+
+    public init(
+        color: Color? = nil,
+        kind: RetainedListItemTintKind = .fixed
+    ) {
+        self.color = color
+        self.kind = kind
+    }
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -1026,6 +1045,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var listItemTint: RetainedListItemTint? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1425,6 +1448,7 @@ public final class ViewNode {
         listRowSeparatorTint: RetainedListSeparatorTint? = nil,
         listSectionSeparator: RetainedListSectionSeparator? = nil,
         listSectionSeparatorTint: RetainedListSeparatorTint? = nil,
+        listItemTint: RetainedListItemTint? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1528,6 +1552,7 @@ public final class ViewNode {
         self.listRowSeparatorTint = listRowSeparatorTint
         self.listSectionSeparator = listSectionSeparator
         self.listSectionSeparatorTint = listSectionSeparatorTint
+        self.listItemTint = listItemTint
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

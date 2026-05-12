@@ -3987,6 +3987,58 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testListItemTintStoresMetadataAndTintsRetainedLabels() async {
+        await MainActor.run {
+            let fixedTint = Color(red: 0.2, green: 0.6, blue: 1.0, alpha: 1)
+            let preferredTint = Color(red: 0.9, green: 0.5, blue: 0.1, alpha: 1)
+            let inheritedTint = Color(red: 0.3, green: 0.8, blue: 0.4, alpha: 1)
+            let monochromeTint = Color(red: 0.86, green: 0.90, blue: 0.96, alpha: 0.78)
+            let listNode = makeNode(
+                List {
+                    Label("FIXED", systemImage: "star")
+                        .listItemTint(fixedTint)
+                    Label("PREFERRED", systemImage: "gear")
+                        .listItemTint(.preferred(preferredTint))
+                    Label("MONO", systemImage: "person")
+                        .listItemTint(.monochrome)
+                    Label("INHERITED", systemImage: "flag")
+                    Label("RESET", systemImage: "xmark")
+                        .listItemTint(nil as Color?)
+                }
+                .listItemTint(inheritedTint)
+            )
+
+            XCTAssertEqual(
+                listNode.listItemTint,
+                RetainedListItemTint(color: inheritedTint, kind: .fixed)
+            )
+            XCTAssertEqual(
+                listNode.children[0].listItemTint,
+                RetainedListItemTint(color: fixedTint, kind: .fixed)
+            )
+            XCTAssertEqual(listNode.children[0].children[0].textStyle.color, fixedTint)
+            XCTAssertEqual(listNode.children[0].children[1].textStyle.color, fixedTint)
+
+            XCTAssertEqual(
+                listNode.children[1].listItemTint,
+                RetainedListItemTint(color: preferredTint, kind: .preferred)
+            )
+            XCTAssertEqual(listNode.children[1].children[0].textStyle.color, preferredTint)
+
+            XCTAssertEqual(
+                listNode.children[2].listItemTint,
+                RetainedListItemTint(color: monochromeTint, kind: .monochrome)
+            )
+            XCTAssertEqual(listNode.children[2].children[0].textStyle.color, monochromeTint)
+
+            XCTAssertNil(listNode.children[3].listItemTint)
+            XCTAssertEqual(listNode.children[3].children[0].textStyle.color, inheritedTint)
+
+            XCTAssertNil(listNode.children[4].listItemTint)
+            XCTAssertEqual(listNode.children[4].children[0].textStyle.color, inheritedTint)
+        }
+    }
+
     func testImageScalingCompatibilityModifiersMapToPreferredIconSize() async {
         await MainActor.run {
             let color = Color(red: 0.4, green: 0.7, blue: 1.0, alpha: 1)

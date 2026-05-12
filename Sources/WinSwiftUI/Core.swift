@@ -2799,6 +2799,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var contentTransition: ContentTransition
     public var contentTransitionAddsDrawingGroup: Bool
     public var listStyle: ListStyle
+    public var listItemTint: ListItemTint?
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
     var textContentType: NSTextContentType?
@@ -2934,6 +2935,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         contentTransition: ContentTransition = .identity,
         contentTransitionAddsDrawingGroup: Bool = false,
         listStyle: ListStyle = .automatic,
+        listItemTint: ListItemTint? = nil,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
@@ -3057,6 +3059,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.contentTransition = contentTransition
         self.contentTransitionAddsDrawingGroup = contentTransitionAddsDrawingGroup
         self.listStyle = listStyle
+        self.listItemTint = listItemTint
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
         self.textContentType = nil
@@ -4619,6 +4622,10 @@ public struct ViewBuildContext {
 
     public var listStyle: ListStyle {
         environmentValuesProvider().listStyle
+    }
+
+    public var listItemTint: ListItemTint? {
+        environmentValuesProvider().listItemTint
     }
 
     public var textInputAutocapitalization: TextInputAutocapitalization? {
@@ -9296,6 +9303,44 @@ public struct ListStyle: Sendable, Equatable {
     }
 }
 
+public struct ListItemTint: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case fixed(Color)
+        case preferred(Color)
+        case monochrome
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static func fixed(_ color: Color) -> ListItemTint {
+        ListItemTint(kind: .fixed(color))
+    }
+
+    public static func preferred(_ color: Color) -> ListItemTint {
+        ListItemTint(kind: .preferred(color))
+    }
+
+    public static let monochrome = ListItemTint(kind: .monochrome)
+
+    var retainedTint: RetainedListItemTint {
+        switch kind {
+        case .fixed(let color):
+            return RetainedListItemTint(color: color, kind: .fixed)
+        case .preferred(let color):
+            return RetainedListItemTint(color: color, kind: .preferred)
+        case .monochrome:
+            return RetainedListItemTint(
+                color: Color(red: 0.86, green: 0.90, blue: 0.96, alpha: 0.78),
+                kind: .monochrome
+            )
+        }
+    }
+}
+
 public struct DefaultListStyle: Sendable, Equatable {
     public init() {}
 }
@@ -10612,6 +10657,29 @@ private func applyRetainedListSectionSeparatorTint(to node: ViewNode, tint: Reta
 
     if separator.edges.contains(.bottom), let bottomSeparator = node.children.last, tint.edges.contains(.bottom) {
         bottomSeparator.backgroundColor = color
+    }
+}
+
+@MainActor
+private func applyRetainedListItemTint(to node: ViewNode, tint: RetainedListItemTint) {
+    node.listItemTint = tint
+    guard let color = tint.color else {
+        return
+    }
+
+    applyRetainedListItemTintColor(to: node, color: color)
+}
+
+@MainActor
+private func applyRetainedListItemTintColor(to node: ViewNode, color: Color) {
+    if node.text != nil {
+        var textStyle = node.textStyle
+        textStyle.color = color
+        node.textStyle = textStyle
+    }
+
+    for child in node.children where child.listItemTint == nil {
+        applyRetainedListItemTintColor(to: child, color: color)
     }
 }
 
@@ -14250,6 +14318,26 @@ public extension View {
 
     func listStyle(_ style: SidebarListStyle) -> some View {
         listStyle(.sidebar)
+    }
+
+    func listItemTint(_ tint: Color?) -> some View {
+        listItemTint(tint.map { ListItemTint.fixed($0) })
+    }
+
+    func listItemTint(_ tint: ListItemTint?) -> some View {
+        let retainedTint = tint?.retainedTint
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(
+                context: context.withEnvironmentValue(\.listItemTint, tint)
+            )
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                if let retainedTint {
+                    applyRetainedListItemTint(to: node, tint: retainedTint)
+                }
+                return node
+            }
+        }
     }
 
     func textInputAutocapitalization(_ textInputAutocapitalization: TextInputAutocapitalization?) -> some View {

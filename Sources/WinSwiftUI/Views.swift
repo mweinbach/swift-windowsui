@@ -3601,7 +3601,8 @@ public struct Text: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let resolvedColor = (color ?? context.foregroundColor)
+        let retainedListTintColor = context.listItemTint?.retainedTint.color
+        let resolvedColor = (color ?? retainedListTintColor ?? context.foregroundColor)
             .resolvedForVisualEnvironment(
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence

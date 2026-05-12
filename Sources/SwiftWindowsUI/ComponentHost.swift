@@ -163,6 +163,9 @@ public final class ComponentHost {
         if target.dropAcceptedContentTypes != source.dropAcceptedContentTypes { target.dropAcceptedContentTypes = source.dropAcceptedContentTypes }
         if target.dropPayloadType != source.dropPayloadType { target.dropPayloadType = source.dropPayloadType }
         if target.isDropDestinationEnabled != source.isDropDestinationEnabled { target.isDropDestinationEnabled = source.isDropDestinationEnabled }
+        if target.hasDropConfiguration != source.hasDropConfiguration { target.hasDropConfiguration = source.hasDropConfiguration }
+        if target.dragDropPreviewsFormation != source.dragDropPreviewsFormation { target.dragDropPreviewsFormation = source.dragDropPreviewsFormation }
+        if target.springLoadingBehavior != source.springLoadingBehavior { target.springLoadingBehavior = source.springLoadingBehavior }
         if target.dragPayloadType != source.dragPayloadType { target.dragPayloadType = source.dragPayloadType }
         if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers { target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers }
         if target.dragContainerItemID != source.dragContainerItemID { target.dragContainerItemID = source.dragContainerItemID }
@@ -267,6 +270,7 @@ public final class ComponentHost {
         target.onDropExited = source.onDropExited
         target.onDropProviders = source.onDropProviders
         target.onDropPayloads = source.onDropPayloads
+        target.onMakeDropConfiguration = source.onMakeDropConfiguration
         target.onMakeDragPayload = source.onMakeDragPayload
         target.onMakeDragItemProvider = source.onMakeDragItemProvider
         target.onDragStart = source.onDragStart

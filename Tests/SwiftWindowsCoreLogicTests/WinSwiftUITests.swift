@@ -11143,6 +11143,42 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDropConfigurationRetainsSessionConfigurationFactory() async {
+        await MainActor.run {
+            var sessionLocations: [Point] = []
+            var suggestedOperations: [Set<DropOperation>] = []
+            let provider = NSItemProvider(object: "payload")
+            let node = makeNode(
+                Text("DROP")
+                    .dropConfiguration { session in
+                        sessionLocations.append(session.location)
+                        suggestedOperations.append(session.suggestedOperations)
+                        return DropConfiguration(operation: .move, acceptedItemCount: 1)
+                    }
+            )
+
+            XCTAssertEqual(node.hasDropConfiguration, true)
+            let configuration = node.onMakeDropConfiguration?([provider], Point(x: 12, y: 14)) as? DropConfiguration
+
+            XCTAssertEqual(configuration, DropConfiguration(operation: .move, acceptedItemCount: 1))
+            XCTAssertEqual(sessionLocations, [Point(x: 12, y: 14)])
+            XCTAssertEqual(suggestedOperations, [[.copy]])
+        }
+    }
+
+    func testDropPreviewFormationAndSpringLoadingRetainMetadata() async {
+        await MainActor.run {
+            let node = makeNode(
+                Text("DROP")
+                    .dropPreviewsFormation(.stack)
+                    .springLoadingBehavior(.enabled)
+            )
+
+            XCTAssertEqual(node.dragDropPreviewsFormation, DragDropPreviewsFormation.stack.description)
+            XCTAssertEqual(node.springLoadingBehavior, SpringLoadingBehavior.enabled.description)
+        }
+    }
+
     func testForEachBindingCollectionFeedsRetainedControls() async {
         await MainActor.run {
             struct Item: Identifiable {

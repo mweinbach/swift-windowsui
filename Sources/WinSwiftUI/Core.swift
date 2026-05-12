@@ -87,7 +87,7 @@ public final class NSItemProvider: @unchecked Sendable {
     }
 }
 
-public enum DropOperation: Sendable, Equatable {
+public enum DropOperation: Sendable, Equatable, Hashable {
     case cancel
     case forbidden
     case copy
@@ -148,12 +148,63 @@ public struct DropSession {
     public let location: CGPoint
     public let itemProviders: [NSItemProvider]
     public let isExternal: Bool
+    public let suggestedOperations: Set<DropOperation>
 
-    public init(location: CGPoint, itemProviders: [NSItemProvider] = [], isExternal: Bool = false) {
+    public init(
+        location: CGPoint,
+        itemProviders: [NSItemProvider] = [],
+        isExternal: Bool = false,
+        suggestedOperations: Set<DropOperation> = [.copy]
+    ) {
         self.location = location
         self.itemProviders = itemProviders
         self.isExternal = isExternal
+        self.suggestedOperations = suggestedOperations
     }
+}
+
+public struct DropConfiguration: Sendable, Equatable {
+    public var operation: DropOperation
+    public var acceptedItemCount: Int?
+
+    public init(operation: DropOperation, acceptedItemCount: Int? = nil) {
+        self.operation = operation
+        self.acceptedItemCount = acceptedItemCount
+    }
+}
+
+public struct DragDropPreviewsFormation: Sendable, Equatable, Hashable, CustomStringConvertible {
+    let rawValue: String
+
+    public init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public var description: String {
+        rawValue
+    }
+
+    public static let `default` = DragDropPreviewsFormation("default")
+    public static let list = DragDropPreviewsFormation("list")
+    public static let none = DragDropPreviewsFormation("none")
+    public static let pile = DragDropPreviewsFormation("pile")
+    public static let stack = DragDropPreviewsFormation("stack")
+}
+
+public struct SpringLoadingBehavior: Sendable, Equatable, Hashable, CustomStringConvertible {
+    let rawValue: String
+
+    public init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public var description: String {
+        rawValue
+    }
+
+    public static let automatic = SpringLoadingBehavior("automatic")
+    public static let enabled = SpringLoadingBehavior("enabled")
+    public static let disabled = SpringLoadingBehavior("disabled")
 }
 
 @MainActor
@@ -2978,6 +3029,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
+    public var springLoadingBehavior: SpringLoadingBehavior
     public var buttonRepeatBehavior: ButtonRepeatBehavior
     public var buttonSizing: ButtonSizing
     public var buttonBorderShape: ButtonBorderShape
@@ -3107,6 +3159,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
+        springLoadingBehavior: SpringLoadingBehavior = .automatic,
         buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
         buttonSizing: ButtonSizing = .automatic,
         buttonBorderShape: ButtonBorderShape = .automatic,
@@ -3244,6 +3297,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
+        self.springLoadingBehavior = springLoadingBehavior
         self.buttonRepeatBehavior = buttonRepeatBehavior
         self.buttonSizing = buttonSizing
         self.buttonBorderShape = buttonBorderShape
@@ -15796,6 +15850,44 @@ public extension View {
                 return true
             }
         )
+    }
+
+    func dropConfiguration(_ configuration: @escaping (DropSession) -> DropConfiguration) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.hasDropConfiguration = true
+                childNode.onMakeDropConfiguration = { items, location in
+                    let providers = items.compactMap { $0 as? NSItemProvider }
+                    return configuration(DropSession(location: location, itemProviders: providers))
+                }
+                return childNode
+            }
+        }
+    }
+
+    func dropPreviewsFormation(_ formation: DragDropPreviewsFormation) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.dragDropPreviewsFormation = formation.description
+                return childNode
+            }
+        }
+    }
+
+    func springLoadingBehavior(_ behavior: SpringLoadingBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            let resolvedContext = context.withEnvironmentValue(\.springLoadingBehavior, behavior)
+            let child = content.makeComponent(context: resolvedContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.springLoadingBehavior = behavior.description
+                return childNode
+            }
+        }
     }
 
     func defaultHoverEffect(_ effect: HoverEffect?) -> some View {

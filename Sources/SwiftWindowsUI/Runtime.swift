@@ -1098,6 +1098,18 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var hasDropConfiguration: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var dragDropPreviewsFormation: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var springLoadingBehavior: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var dragPayloadType: String? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -1452,6 +1464,7 @@ public final class ViewNode {
     public var onDropExited: (() -> Void)?
     public var onDropProviders: (([Any], Point) -> Bool)?
     public var onDropPayloads: (([Any], Point) -> Bool)?
+    public var onMakeDropConfiguration: (([Any], Point) -> Any?)?
     public var onMakeDragPayload: (() -> Any?)?
     public var onMakeDragItemProvider: (() -> Any?)?
     public var onDragStart: ((Point) -> Void)?
@@ -1542,6 +1555,9 @@ public final class ViewNode {
         dropAcceptedContentTypes: [String] = [],
         dropPayloadType: String? = nil,
         isDropDestinationEnabled: Bool = false,
+        hasDropConfiguration: Bool = false,
+        dragDropPreviewsFormation: String? = nil,
+        springLoadingBehavior: String? = nil,
         dragPayloadType: String? = nil,
         dragItemProviderTypeIdentifiers: [String] = [],
         dragContainerItemID: AnyHashable? = nil,
@@ -1663,6 +1679,9 @@ public final class ViewNode {
         self.dropAcceptedContentTypes = dropAcceptedContentTypes
         self.dropPayloadType = dropPayloadType
         self.isDropDestinationEnabled = isDropDestinationEnabled
+        self.hasDropConfiguration = hasDropConfiguration
+        self.dragDropPreviewsFormation = dragDropPreviewsFormation
+        self.springLoadingBehavior = springLoadingBehavior
         self.dragPayloadType = dragPayloadType
         self.dragItemProviderTypeIdentifiers = dragItemProviderTypeIdentifiers
         self.dragContainerItemID = dragContainerItemID
@@ -1756,6 +1775,7 @@ public final class ViewNode {
         self.onDropExited = nil
         self.onDropProviders = nil
         self.onDropPayloads = nil
+        self.onMakeDropConfiguration = nil
         self.onMakeDragPayload = nil
         self.onMakeDragItemProvider = nil
         self.onDragStart = nil

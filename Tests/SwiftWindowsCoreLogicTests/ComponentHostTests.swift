@@ -62,6 +62,7 @@ final class ComponentHostTests: XCTestCase {
             var dynamicInsertEvents: [String] = []
             var dynamicDropEvents: [String] = []
             var dropDestinationEvents: [String] = []
+            var dropConfigurationEvents: [String] = []
             var dragPayloadEvents: [String] = []
             var dragItemProviderEvents: [String] = []
             let preferenceIdentifier = ObjectIdentifier(ComponentHostTests.self)
@@ -238,6 +239,9 @@ final class ComponentHostTests: XCTestCase {
                     node.dropAcceptedContentTypes = useSecondState ? ["public.text"] : ["public.png"]
                     node.dropPayloadType = useSecondState ? "SecondViewDropPayload" : "FirstViewDropPayload"
                     node.isDropDestinationEnabled = useSecondState
+                    node.hasDropConfiguration = useSecondState
+                    node.dragDropPreviewsFormation = useSecondState ? "stack" : "pile"
+                    node.springLoadingBehavior = useSecondState ? "enabled" : "automatic"
                     node.dragPayloadType = useSecondState ? "SecondDragPayload" : "FirstDragPayload"
                     node.dragItemProviderTypeIdentifiers = useSecondState ? ["public.text"] : ["public.png"]
                     node.dragContainerItemID = useSecondState ? AnyHashable("second-id") : AnyHashable("first-id")
@@ -338,6 +342,10 @@ final class ComponentHostTests: XCTestCase {
                         dropDestinationEvents.append("\(eventLabel):payloads:\(items.count)")
                         return true
                     }
+                    node.onMakeDropConfiguration = { items, _ in
+                        dropConfigurationEvents.append("\(eventLabel):configuration:\(items.count)")
+                        return eventLabel
+                    }
                     node.onMakeDragPayload = {
                         dragPayloadEvents.append(eventLabel)
                         return eventLabel
@@ -376,6 +384,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.dropAcceptedContentTypes, ["public.png"])
             XCTAssertEqual(firstNode?.dropPayloadType, "FirstViewDropPayload")
             XCTAssertEqual(firstNode?.isDropDestinationEnabled, false)
+            XCTAssertEqual(firstNode?.hasDropConfiguration, false)
+            XCTAssertEqual(firstNode?.dragDropPreviewsFormation, "pile")
+            XCTAssertEqual(firstNode?.springLoadingBehavior, "automatic")
             XCTAssertEqual(firstNode?.dragPayloadType, "FirstDragPayload")
             XCTAssertEqual(firstNode?.dragItemProviderTypeIdentifiers, ["public.png"])
             XCTAssertEqual(firstNode?.dragContainerItemID, AnyHashable("first-id"))
@@ -505,6 +516,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.dropAcceptedContentTypes, ["public.text"])
             XCTAssertEqual(reusedNode?.dropPayloadType, "SecondViewDropPayload")
             XCTAssertEqual(reusedNode?.isDropDestinationEnabled, true)
+            XCTAssertEqual(reusedNode?.hasDropConfiguration, true)
+            XCTAssertEqual(reusedNode?.dragDropPreviewsFormation, "stack")
+            XCTAssertEqual(reusedNode?.springLoadingBehavior, "enabled")
             XCTAssertEqual(reusedNode?.dragPayloadType, "SecondDragPayload")
             XCTAssertEqual(reusedNode?.dragItemProviderTypeIdentifiers, ["public.text"])
             XCTAssertEqual(reusedNode?.dragContainerItemID, AnyHashable("second-id"))
@@ -630,6 +644,8 @@ final class ComponentHostTests: XCTestCase {
                     "second:payloads:1"
                 ]
             )
+            XCTAssertEqual(reusedNode?.onMakeDropConfiguration?(["payload"], Point(x: 9, y: 10)) as? String, "second")
+            XCTAssertEqual(dropConfigurationEvents, ["second:configuration:1"])
             XCTAssertEqual(reusedNode?.onMakeDragPayload?() as? String, "second")
             XCTAssertEqual(dragPayloadEvents, ["second"])
             XCTAssertEqual(reusedNode?.onMakeDragItemProvider?() as? String, "second")

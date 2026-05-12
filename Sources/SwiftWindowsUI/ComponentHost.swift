@@ -139,6 +139,9 @@ public final class ComponentHost {
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.gridCellAnchor != source.gridCellAnchor { target.gridCellAnchor = source.gridCellAnchor }
+        if target.gridCellUnsizedAxes != source.gridCellUnsizedAxes { target.gridCellUnsizedAxes = source.gridCellUnsizedAxes }
+        if target.gridColumnAlignment != source.gridColumnAlignment { target.gridColumnAlignment = source.gridColumnAlignment }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.opacity != source.opacity { target.opacity = source.opacity }
         if target.blendMode != source.blendMode { target.blendMode = source.blendMode }

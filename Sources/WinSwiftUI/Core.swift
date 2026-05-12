@@ -11123,6 +11123,17 @@ extension Axis.Set {
     var preferredRetainedAxis: Axis {
         contains(.horizontal) && !contains(.vertical) ? .horizontal : .vertical
     }
+
+    var retainedGridCellUnsizedAxes: RetainedGridCellUnsizedAxes {
+        var axes: RetainedGridCellUnsizedAxes = []
+        if contains(.horizontal) {
+            axes.insert(.horizontal)
+        }
+        if contains(.vertical) {
+            axes.insert(.vertical)
+        }
+        return axes
+    }
 }
 
 extension Font.Weight {
@@ -16437,6 +16448,41 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.layoutPriority = max(childNode.layoutPriority, retainedPriority)
+                return childNode
+            }
+        }
+    }
+
+    func gridCellAnchor(_ anchor: UnitPoint) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.gridCellAnchor = Point(x: anchor.x, y: anchor.y)
+                return childNode
+            }
+        }
+    }
+
+    func gridCellUnsizedAxes(_ axes: Axis.Set) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let retainedAxes = axes.retainedGridCellUnsizedAxes
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.gridCellUnsizedAxes = retainedAxes
+                return childNode
+            }
+        }
+    }
+
+    func gridColumnAlignment(_ guide: HorizontalAlignment) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            let retainedAlignment = guide.retainedHorizontalAlignment
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.gridColumnAlignment = retainedAlignment
                 return childNode
             }
         }

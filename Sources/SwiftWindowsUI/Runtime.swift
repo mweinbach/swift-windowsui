@@ -150,6 +150,18 @@ public struct RetainedListItemTint: Sendable, Equatable {
     }
 }
 
+public struct RetainedGridCellUnsizedAxes: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let horizontal = RetainedGridCellUnsizedAxes(rawValue: 1 << 0)
+    public static let vertical = RetainedGridCellUnsizedAxes(rawValue: 1 << 1)
+    public static let all: RetainedGridCellUnsizedAxes = [.horizontal, .vertical]
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -997,6 +1009,18 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var gridCellAnchor: Point? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var gridCellUnsizedAxes: RetainedGridCellUnsizedAxes {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var gridColumnAlignment: RetainedHorizontalAlignment? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Blur radius — property for requesting a Gaussian blur over the view's content.
     public var blurRadius: Double {
         didSet { invalidateRuntime(.paint) }
@@ -1577,6 +1601,9 @@ public final class ViewNode {
         layoutConstraints: LayoutConstraints? = nil,
         fixedSizeAxes: FixedSizeAxes? = nil,
         layoutPriority: Double = 0,
+        gridCellAnchor: Point? = nil,
+        gridCellUnsizedAxes: RetainedGridCellUnsizedAxes = [],
+        gridColumnAlignment: RetainedHorizontalAlignment? = nil,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
@@ -1713,6 +1740,9 @@ public final class ViewNode {
         self.layoutConstraints = layoutConstraints
         self.fixedSizeAxes = fixedSizeAxes
         self.layoutPriority = layoutPriority
+        self.gridCellAnchor = gridCellAnchor
+        self.gridCellUnsizedAxes = gridCellUnsizedAxes
+        self.gridColumnAlignment = gridColumnAlignment
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius

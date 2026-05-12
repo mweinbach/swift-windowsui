@@ -5229,6 +5229,41 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testGridCellModifiersStoreRetainedMetadata() async {
+        await MainActor.run {
+            let node = makeNode(
+                GridRow {
+                    Text("ANCHOR")
+                        .gridCellAnchor(.bottomTrailing)
+                    Text("UNSIZED")
+                        .gridCellUnsizedAxes(.horizontal)
+                    Text("COLUMN")
+                        .gridColumnAlignment(.trailing)
+                    Text("BOTH")
+                        .gridCellAnchor(.topLeading)
+                        .gridCellUnsizedAxes([.horizontal, .vertical])
+                        .gridColumnAlignment(.leading)
+                }
+            )
+
+            XCTAssertEqual(node.children[0].gridCellAnchor, Point(x: 1, y: 1))
+            XCTAssertEqual(node.children[0].gridCellUnsizedAxes, [])
+            XCTAssertNil(node.children[0].gridColumnAlignment)
+
+            XCTAssertNil(node.children[1].gridCellAnchor)
+            XCTAssertEqual(node.children[1].gridCellUnsizedAxes, .horizontal)
+            XCTAssertNil(node.children[1].gridColumnAlignment)
+
+            XCTAssertNil(node.children[2].gridCellAnchor)
+            XCTAssertEqual(node.children[2].gridCellUnsizedAxes, [])
+            XCTAssertEqual(node.children[2].gridColumnAlignment, .trailing)
+
+            XCTAssertEqual(node.children[3].gridCellAnchor, Point(x: 0, y: 0))
+            XCTAssertEqual(node.children[3].gridCellUnsizedAxes, .all)
+            XCTAssertEqual(node.children[3].gridColumnAlignment, .leading)
+        }
+    }
+
     func testStacksAcceptNilSpacing() async {
         await MainActor.run {
             let vStackNode = makeNode(

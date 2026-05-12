@@ -731,7 +731,7 @@ Observed object changes are coalesced by the host before rebuilding the retained
 `@AppStorage` supports common non-optional `Bool`, `Int`, `Double`, `String`, `Data`, and `URL` values backed by `UserDefaults`, exposes `$storage` as a `Binding`, and invalidates the retained runtime after writes from the wrapper. It is a source-compatibility shim and does not yet observe external `UserDefaults` changes.
 `@SceneStorage` stores non-optional values in a retained in-memory scene-state table, exposes `$storage` as a `Binding`, and invalidates after writes. The current implementation matches the single-window host scope and does not yet serialize scene restoration data or isolate values per future `WindowGroup` instance.
 `@ScaledMetric` scales floating-point values with the same deterministic `DynamicTypeSize` table used by retained text, accepts `relativeTo:` for source compatibility, and exposes the requested text style as metadata. It does not yet model SwiftUI's per-text-style scaling curves.
-`@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.
+`@ObservedObject`, `@StateObject`, and `@EnvironmentObject` expose SwiftUI-shaped projected member bindings for writable object properties, so retained controls can consume shared-source bindings such as `$model.title` or `$model.isEnabled`. `@StateObject` currently shares the same observation and invalidation path as `@ObservedObject`; it is a source-compatibility shim, not a full SwiftUI lifetime model yet.
 
 This is intentionally small. It exists to support shared app source and runtime invalidation, not to reproduce the full SwiftUI observation stack.
 

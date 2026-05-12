@@ -13658,6 +13658,32 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testEnvironmentObjectDynamicMemberProjectionFeedsRetainedControls() async {
+        await MainActor.run {
+            final class FormModel: ObservableObject {
+                @Published var title = "ALPHA"
+            }
+
+            struct EnvironmentObjectEditor: View {
+                @EnvironmentObject var model: FormModel
+
+                var body: some View {
+                    TextField("TITLE", text: $model.title)
+                }
+            }
+
+            let model = FormModel()
+            let node = makeNode(
+                EnvironmentObjectEditor()
+                    .environmentObject(model)
+            )
+
+            firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertEqual(model.title, "ALPHAz")
+        }
+    }
+
     func testFocusedValuesPropagateThroughViewContext() async {
         await MainActor.run {
             struct FocusedValueReaderView: View {
@@ -15633,6 +15659,36 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testObservedObjectDynamicMemberProjectionFeedsRetainedControls() async {
+        await MainActor.run {
+            final class FormModel: ObservableObject {
+                @Published var isEnabled = false
+                @Published var title = "ALPHA"
+            }
+
+            struct ObservedEditor: View {
+                @ObservedObject var model: FormModel
+
+                var body: some View {
+                    VStack {
+                        Toggle("ENABLED", isOn: $model.isEnabled)
+                        TextField("TITLE", text: $model.title.animation(.easeInOut))
+                    }
+                }
+            }
+
+            let model = FormModel()
+            let node = makeNode(ObservedEditor(model: model))
+            let controls = focusableNodes(in: node)
+
+            controls.first?.onActivate?()
+            controls.last?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertTrue(model.isEnabled)
+            XCTAssertEqual(model.title, "ALPHAz")
+        }
+    }
+
     func testStateObjectMutationTriggersInvalidation() async {
         await MainActor.run {
             final class CounterModel: ObservableObject {
@@ -15663,6 +15719,29 @@ final class WinSwiftUITests: XCTestCase {
             model.value = 1
 
             XCTAssertEqual(invalidationCount, 1)
+        }
+    }
+
+    func testStateObjectDynamicMemberProjectionFeedsRetainedControls() async {
+        await MainActor.run {
+            final class FormModel: ObservableObject {
+                @Published var title = "ALPHA"
+            }
+
+            struct StateObjectEditor: View {
+                @StateObject var model: FormModel
+
+                var body: some View {
+                    TextField("TITLE", text: $model.title.transaction(Transaction()))
+                }
+            }
+
+            let model = FormModel()
+            let node = makeNode(StateObjectEditor(model: model))
+
+            firstFocusable(in: node)?.onKeyDown?(KeyboardEvent(keyCode: 0x5A))
+
+            XCTAssertEqual(model.title, "ALPHAz")
         }
     }
 

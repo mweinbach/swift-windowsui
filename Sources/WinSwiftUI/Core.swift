@@ -655,6 +655,7 @@ public struct Published<Value> {
 
 @MainActor
 @propertyWrapper
+@dynamicMemberLookup
 public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
     private var object: ObjectType
 
@@ -674,6 +675,17 @@ public struct ObservedObject<ObjectType: ObservableObject>: DynamicProperty {
 
     public var projectedValue: ObservedObject<ObjectType> {
         self
+    }
+
+    public subscript<Subject>(dynamicMember keyPath: ReferenceWritableKeyPath<ObjectType, Subject>) -> Binding<Subject> {
+        Binding<Subject>(
+            get: {
+                wrappedValue[keyPath: keyPath]
+            },
+            set: { newValue in
+                wrappedValue[keyPath: keyPath] = newValue
+            }
+        )
     }
 }
 
@@ -2429,6 +2441,7 @@ public struct FocusedObject<ObjectType: ObservableObject>: DynamicProperty {
 
 @MainActor
 @propertyWrapper
+@dynamicMemberLookup
 public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     private var object: ObjectType
 
@@ -2448,6 +2461,17 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
 
     public var projectedValue: StateObject<ObjectType> {
         self
+    }
+
+    public subscript<Subject>(dynamicMember keyPath: ReferenceWritableKeyPath<ObjectType, Subject>) -> Binding<Subject> {
+        Binding<Subject>(
+            get: {
+                wrappedValue[keyPath: keyPath]
+            },
+            set: { newValue in
+                wrappedValue[keyPath: keyPath] = newValue
+            }
+        )
     }
 }
 

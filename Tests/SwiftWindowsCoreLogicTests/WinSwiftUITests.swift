@@ -10354,6 +10354,84 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testAppStorageOptionalRawRepresentableReadsWritesAndRemovesUserDefaults() async {
+        await MainActor.run {
+            enum Mode: String {
+                case compact
+                case expanded
+            }
+
+            enum Level: Int {
+                case low = 1
+                case high = 2
+            }
+
+            struct AppStorageOptionalEnumView: View {
+                @AppStorage private var mode: Mode?
+
+                init(store: UserDefaults) {
+                    _mode = AppStorage("mode", store: store)
+                }
+
+                var body: some View {
+                    Button(mode == .expanded ? "EXPANDED" : "NONE") {
+                        mode = mode == nil ? .expanded : nil
+                    }
+                }
+            }
+
+            let suiteName = "WinSwiftUITests.AppStorageOptionalRaw.\(UUID().uuidString)"
+            guard let store = UserDefaults(suiteName: suiteName) else {
+                return XCTFail("Expected test UserDefaults suite")
+            }
+            defer {
+                store.removePersistentDomain(forName: suiteName)
+            }
+
+            let optionalMode = AppStorage<Mode?>("mode", store: store)
+            let optionalLevel = AppStorage<Level?>(wrappedValue: .low, "level", store: store)
+
+            XCTAssertNil(optionalMode.wrappedValue)
+            XCTAssertEqual(optionalLevel.wrappedValue, .low)
+
+            store.set("expanded", forKey: "mode")
+            store.set(2, forKey: "level")
+
+            XCTAssertEqual(optionalMode.wrappedValue, .expanded)
+            XCTAssertEqual(optionalLevel.wrappedValue, .high)
+
+            store.set("unknown", forKey: "mode")
+            store.set(99, forKey: "level")
+
+            XCTAssertNil(optionalMode.wrappedValue)
+            XCTAssertEqual(optionalLevel.wrappedValue, .low)
+
+            optionalMode.wrappedValue = .compact
+            optionalLevel.wrappedValue = .high
+
+            XCTAssertEqual(store.string(forKey: "mode"), "compact")
+            XCTAssertEqual(store.integer(forKey: "level"), 2)
+
+            optionalMode.wrappedValue = nil
+            optionalLevel.wrappedValue = nil
+
+            XCTAssertNil(store.object(forKey: "mode"))
+            XCTAssertNil(store.object(forKey: "level"))
+
+            let emptyNode = makeNode(AppStorageOptionalEnumView(store: store))
+            XCTAssertTrue(allTexts(in: emptyNode).contains("NONE"))
+
+            emptyNode.onActivate?()
+            XCTAssertEqual(store.string(forKey: "mode"), "expanded")
+
+            let expandedNode = makeNode(AppStorageOptionalEnumView(store: store))
+            XCTAssertTrue(allTexts(in: expandedNode).contains("EXPANDED"))
+
+            expandedNode.onActivate?()
+            XCTAssertNil(store.object(forKey: "mode"))
+        }
+    }
+
     func testSceneStoragePersistsValuesAcrossViewInstancesAndProvidesBinding() async {
         await MainActor.run {
             struct SceneStorageReaderView: View {
@@ -10567,6 +10645,81 @@ final class WinSwiftUITests: XCTestCase {
             filledNode.onActivate?()
             let removedNode = makeNode(SceneStorageOptionalView(key: countKey))
             XCTAssertTrue(allTexts(in: removedNode).contains("EMPTY"))
+        }
+    }
+
+    func testSceneStorageOptionalRawRepresentableReadsWritesAndRemovesRetainedState() async {
+        await MainActor.run {
+            enum Mode: String {
+                case compact
+                case expanded
+            }
+
+            enum Level: Int {
+                case low = 1
+                case high = 2
+            }
+
+            struct SceneStorageOptionalEnumView: View {
+                @SceneStorage private var mode: Mode?
+
+                init(key: String) {
+                    _mode = SceneStorage(key)
+                }
+
+                var body: some View {
+                    Button(mode == .expanded ? "EXPANDED" : "NONE") {
+                        mode = mode == nil ? .expanded : nil
+                    }
+                }
+            }
+
+            let keyPrefix = "WinSwiftUITests.SceneStorageOptionalRaw.\(UUID().uuidString)"
+            let modeKey = "\(keyPrefix).mode"
+            let levelKey = "\(keyPrefix).level"
+            let optionalMode = SceneStorage<Mode?>(modeKey)
+            let optionalLevel = SceneStorage<Level?>(wrappedValue: .low, levelKey)
+            let rawMode = SceneStorage<String?>(modeKey)
+            let rawLevel = SceneStorage<Int?>(levelKey)
+
+            XCTAssertNil(optionalMode.wrappedValue)
+            XCTAssertEqual(optionalLevel.wrappedValue, .low)
+
+            rawMode.wrappedValue = "expanded"
+            rawLevel.wrappedValue = 2
+
+            XCTAssertEqual(optionalMode.wrappedValue, .expanded)
+            XCTAssertEqual(optionalLevel.wrappedValue, .high)
+
+            rawMode.wrappedValue = "unknown"
+            rawLevel.wrappedValue = 99
+
+            XCTAssertNil(optionalMode.wrappedValue)
+            XCTAssertEqual(optionalLevel.wrappedValue, .low)
+
+            optionalMode.wrappedValue = .compact
+            optionalLevel.wrappedValue = .high
+
+            XCTAssertEqual(rawMode.wrappedValue, "compact")
+            XCTAssertEqual(rawLevel.wrappedValue, 2)
+
+            optionalMode.wrappedValue = nil
+            optionalLevel.wrappedValue = nil
+
+            XCTAssertNil(rawMode.wrappedValue)
+            XCTAssertNil(rawLevel.wrappedValue)
+
+            let emptyNode = makeNode(SceneStorageOptionalEnumView(key: modeKey))
+            XCTAssertTrue(allTexts(in: emptyNode).contains("NONE"))
+
+            emptyNode.onActivate?()
+            XCTAssertEqual(rawMode.wrappedValue, "expanded")
+
+            let expandedNode = makeNode(SceneStorageOptionalEnumView(key: modeKey))
+            XCTAssertTrue(allTexts(in: expandedNode).contains("EXPANDED"))
+
+            expandedNode.onActivate?()
+            XCTAssertNil(rawMode.wrappedValue)
         }
     }
 

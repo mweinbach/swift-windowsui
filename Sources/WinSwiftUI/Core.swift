@@ -2652,6 +2652,60 @@ public struct State<Value>: DynamicProperty {
     }
 }
 
+private protocol OptionalStringRawRepresentableStorageValue {
+    static func value(fromRawString rawValue: String, defaultValue: Any) -> Any
+    static func rawString(from value: Any) -> String?
+}
+
+private protocol OptionalIntRawRepresentableStorageValue {
+    static func value(fromRawInt rawValue: Int, defaultValue: Any) -> Any
+    static func rawInt(from value: Any) -> Int?
+}
+
+extension Optional: OptionalStringRawRepresentableStorageValue where Wrapped: RawRepresentable, Wrapped.RawValue == String {
+    static func value(fromRawString rawValue: String, defaultValue: Any) -> Any {
+        guard let value = Wrapped(rawValue: rawValue) else {
+            return defaultValue
+        }
+        return Optional<Wrapped>.some(value) as Any
+    }
+
+    static func rawString(from value: Any) -> String? {
+        guard let optional = value as? Self else {
+            return nil
+        }
+
+        switch optional {
+        case .some(let value):
+            return value.rawValue
+        case .none:
+            return nil
+        }
+    }
+}
+
+extension Optional: OptionalIntRawRepresentableStorageValue where Wrapped: RawRepresentable, Wrapped.RawValue == Int {
+    static func value(fromRawInt rawValue: Int, defaultValue: Any) -> Any {
+        guard let value = Wrapped(rawValue: rawValue) else {
+            return defaultValue
+        }
+        return Optional<Wrapped>.some(value) as Any
+    }
+
+    static func rawInt(from value: Any) -> Int? {
+        guard let optional = value as? Self else {
+            return nil
+        }
+
+        switch optional {
+        case .some(let value):
+            return value.rawValue
+        case .none:
+            return nil
+        }
+    }
+}
+
 @MainActor
 @propertyWrapper
 public struct AppStorage<Value>: DynamicProperty {
@@ -2708,11 +2762,35 @@ public struct AppStorage<Value>: DynamicProperty {
                     return (url ?? defaultValue as! URL) as! Value
                 }
 
+                if let optionalRawType = Value.self as? OptionalStringRawRepresentableStorageValue.Type {
+                    guard let rawValue = store.string(forKey: key) else {
+                        return defaultValue
+                    }
+                    return optionalRawType.value(fromRawString: rawValue, defaultValue: defaultValue) as! Value
+                } else if let optionalRawType = Value.self as? OptionalIntRawRepresentableStorageValue.Type {
+                    guard store.object(forKey: key) != nil else {
+                        return defaultValue
+                    }
+                    return optionalRawType.value(fromRawInt: store.integer(forKey: key), defaultValue: defaultValue) as! Value
+                }
+
                 return (store.object(forKey: key) as? Value) ?? defaultValue
         }
 
         private static func defaultWriteValue(store: UserDefaults, key: String, value: Value) {
-            if let url = value as? URL {
+            if let optionalRawType = Value.self as? OptionalStringRawRepresentableStorageValue.Type {
+                guard let rawValue = optionalRawType.rawString(from: value) else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(rawValue, forKey: key)
+            } else if let optionalRawType = Value.self as? OptionalIntRawRepresentableStorageValue.Type {
+                guard let rawValue = optionalRawType.rawInt(from: value) else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(rawValue, forKey: key)
+            } else if let url = value as? URL {
                 store.set(url.absoluteString, forKey: key)
             } else {
                 store.set(value, forKey: key)
@@ -2755,6 +2833,48 @@ public struct AppStorage<Value>: DynamicProperty {
                 return value
             },
             writeValue: { store, key, value in
+                store.set(value.rawValue, forKey: key)
+            }
+        )
+    }
+
+    public init<Wrapped>(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == String {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard let rawValue = store.string(forKey: key) else {
+                    return defaultValue
+                }
+                return Wrapped(rawValue: rawValue) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value.rawValue, forKey: key)
+            }
+        )
+    }
+
+    public init<Wrapped>(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == Int {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store ?? .standard,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return Wrapped(rawValue: store.integer(forKey: key)) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
                 store.set(value.rawValue, forKey: key)
             }
         )
@@ -2902,6 +3022,14 @@ public struct AppStorage<Value>: DynamicProperty {
         self.init(wrappedValue: "", key, store: store)
     }
 
+    public init<Wrapped>(_ key: String, store: UserDefaults? = nil) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == String {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init<Wrapped>(_ key: String, store: UserDefaults? = nil) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == Int {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
     public init(_ key: String, store: UserDefaults? = nil) where Value == Bool? {
         self.init(wrappedValue: nil, key, store: store)
     }
@@ -3009,11 +3137,37 @@ public struct SceneStorage<Value>: DynamicProperty {
         }
 
         private static func defaultReadValue(key: String, defaultValue: Value) -> Value {
-            SceneStorageCenter.shared.value(for: key, default: defaultValue)
+            if let optionalRawType = Value.self as? OptionalStringRawRepresentableStorageValue.Type {
+                guard let rawValue: String = SceneStorageCenter.shared.optionalValue(for: key) else {
+                    return defaultValue
+                }
+                return optionalRawType.value(fromRawString: rawValue, defaultValue: defaultValue) as! Value
+            } else if let optionalRawType = Value.self as? OptionalIntRawRepresentableStorageValue.Type {
+                guard let rawValue: Int = SceneStorageCenter.shared.optionalValue(for: key) else {
+                    return defaultValue
+                }
+                return optionalRawType.value(fromRawInt: rawValue, defaultValue: defaultValue) as! Value
+            }
+
+            return SceneStorageCenter.shared.value(for: key, default: defaultValue)
         }
 
         private static func defaultWriteValue(key: String, value: Value) {
-            SceneStorageCenter.shared.setValue(value, for: key)
+            if let optionalRawType = Value.self as? OptionalStringRawRepresentableStorageValue.Type {
+                guard let rawValue = optionalRawType.rawString(from: value) else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(rawValue, for: key)
+            } else if let optionalRawType = Value.self as? OptionalIntRawRepresentableStorageValue.Type {
+                guard let rawValue = optionalRawType.rawInt(from: value) else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(rawValue, for: key)
+            } else {
+                SceneStorageCenter.shared.setValue(value, for: key)
+            }
         }
     }
 
@@ -3046,6 +3200,46 @@ public struct SceneStorage<Value>: DynamicProperty {
                 return Value(rawValue: rawValue) ?? defaultValue
             },
             writeValue: { key, value in
+                SceneStorageCenter.shared.setValue(value.rawValue, for: key)
+            }
+        )
+    }
+
+    public init<Wrapped>(wrappedValue: Value, _ key: String) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == String {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                guard let rawValue: String = SceneStorageCenter.shared.optionalValue(for: key) else {
+                    return defaultValue
+                }
+                return Wrapped(rawValue: rawValue) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
+                SceneStorageCenter.shared.setValue(value.rawValue, for: key)
+            }
+        )
+    }
+
+    public init<Wrapped>(wrappedValue: Value, _ key: String) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == Int {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            readValue: { key, defaultValue in
+                guard let rawValue: Int = SceneStorageCenter.shared.optionalValue(for: key) else {
+                    return defaultValue
+                }
+                return Wrapped(rawValue: rawValue) ?? defaultValue
+            },
+            writeValue: { key, value in
+                guard let value else {
+                    SceneStorageCenter.shared.removeValue(for: key)
+                    return
+                }
                 SceneStorageCenter.shared.setValue(value.rawValue, for: key)
             }
         )
@@ -3167,6 +3361,14 @@ public struct SceneStorage<Value>: DynamicProperty {
 
     public init(_ key: String) where Value == String {
         self.init(wrappedValue: "", key)
+    }
+
+    public init<Wrapped>(_ key: String) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == String {
+        self.init(wrappedValue: nil, key)
+    }
+
+    public init<Wrapped>(_ key: String) where Value == Wrapped?, Wrapped: RawRepresentable, Wrapped.RawValue == Int {
+        self.init(wrappedValue: nil, key)
     }
 
     public init(_ key: String) where Value == Bool? {

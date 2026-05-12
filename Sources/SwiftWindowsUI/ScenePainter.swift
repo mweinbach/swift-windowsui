@@ -188,6 +188,7 @@ public enum ScenePainter {
             blendMode: node.blendMode,
             isCompositingGroup: node.isCompositingGroup,
             drawingGroup: node.drawingGroup,
+            colorEffects: node.colorEffects,
             displayScale: displayScale,
             isHovered: node.isHovered,
             hoverEffect: resolvedHoverEffect,

@@ -385,6 +385,14 @@ Modifiers:
 - `blendMode`
 - `compositingGroup`
 - `drawingGroup`
+- `brightness`
+- `contrast`
+- `colorInvert`
+- `colorMultiply`
+- `saturation`
+- `grayscale`
+- `hueRotation`
+- `luminanceToAlpha`
 - `hidden`
 - `zIndex`
 - `offset`
@@ -712,6 +720,7 @@ Surface direction:
 - `clipShape(_:style:)` maps `Rectangle`, `RoundedRectangle`, `UnevenRoundedRectangle`, `Capsule`, `Circle`, `Ellipse`, `ContainerRelativeShape`, and `AnyShape` wrappers around those retained shapes to retained bounds clipping with matching retained corner-radius behavior, and preserves `FillStyle` even-odd plus antialiasing metadata for future renderer-neutral path clipping. Other `Shape` conformers currently degrade to rectangular clipping until renderer-neutral path clipping grows beyond the existing render graph fallback.
 - `border` maps to retained panel border fields. Stored `ForegroundStyle.color` values map directly, and stored or direct `LinearGradient` inputs retain the gradient for renderer-neutral border fill commands.
 - `opacity(_:)` and `hidden(_:)` map directly onto retained node paint and visibility state. `BlendMode` accepts SwiftUI-shaped blend cases and `blendMode(_:)` stores renderer-neutral retained blend metadata. `compositingGroup()` and `drawingGroup(opaque:colorMode:)` retain offscreen-compositing intent and `ColorRenderingMode` metadata for source compatibility. The `RenderFrame` fallback forwards `.normal`, `.multiply`, `.screen`, `.overlay`, and `.plusLighter` to supported per-command blend modes, with `.plusLighter` mapping to additive blending; other modes currently fall back to normal compositing. The default GPUI scene path still uses normal compositing, and retained drawing groups still paint normally until render-to-texture/offscreen group compositing is implemented.
+- `brightness(_:)`, `contrast(_:)`, `colorInvert()`, `colorMultiply(_:)`, `saturation(_:)`, `grayscale(_:)`, `hueRotation(_:)`, and `luminanceToAlpha()` store ordered retained color-effect metadata for source compatibility and cache invalidation. The current renderers do not apply these filters visually yet; backend shader/filter work is still required.
 - `zIndex(_:)`, `offset`, `scaleEffect`, anchor-aware scale overloads, `flipsForRightToLeftLayoutDirection(_:)`, `rotationEffect`, anchor-aware rotation overloads, `transformEffect(_:)`, and `projectionEffect(_:)` map directly onto retained node ordering and `Transform2D` state. `CGAffineTransform` and `ProjectionTransform` are lightweight compatibility values backed by the retained affine transform path. `UnitPoint3D`, `RotationAxis3D`, and `rotation3DEffect(...)` accept modern SwiftUI-shaped 3D call sites; retained rendering maps z-axis rotation to the existing 2D transform and leaves x/y-axis perspective projection unchanged until a renderer-neutral 3D transform contract exists.
 - `@Namespace` creates stable SwiftUI-shaped namespace IDs, and `matchedGeometryEffect(id:in:properties:anchor:isSource:)` records retained metadata on the node. WinSwiftUI does not yet interpolate geometry across matched source/destination pairs, but the metadata is available to the retained runtime for future animation work.
 - `blur(radius:)` maps directly onto retained node blur radius state. Blur commands are still backend-limited as noted below.

@@ -37,6 +37,17 @@ public struct RetainedDrawingGroup: Sendable, Equatable, Hashable {
     }
 }
 
+public enum RetainedColorEffect: Sendable, Equatable {
+    case brightness(Double)
+    case contrast(Double)
+    case colorInvert
+    case colorMultiply(Color)
+    case saturation(Double)
+    case grayscale(Double)
+    case hueRotation(Double)
+    case luminanceToAlpha
+}
+
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -44,6 +55,7 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var blendMode: BlendMode
     var isCompositingGroup: Bool
     var drawingGroup: RetainedDrawingGroup?
+    var colorEffects: [RetainedColorEffect]
     var displayScale: Double
     var isHovered: Bool
     var hoverEffect: RetainedHoverEffect?
@@ -907,6 +919,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var colorEffects: [RetainedColorEffect] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1300,6 +1316,7 @@ public final class ViewNode {
         blendMode: BlendMode = .normal,
         isCompositingGroup: Bool = false,
         drawingGroup: RetainedDrawingGroup? = nil,
+        colorEffects: [RetainedColorEffect] = [],
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1397,6 +1414,7 @@ public final class ViewNode {
         self.blendMode = blendMode
         self.isCompositingGroup = isCompositingGroup
         self.drawingGroup = drawingGroup
+        self.colorEffects = colorEffects
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis
@@ -1984,6 +2002,7 @@ public final class ViewNode {
             blendMode: blendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
+            colorEffects: colorEffects,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,
@@ -2293,6 +2312,7 @@ public final class ViewNode {
             blendMode: effectiveBlendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
+            colorEffects: colorEffects,
             displayScale: displayScale,
             isHovered: isHovered,
             hoverEffect: resolvedHoverEffect,

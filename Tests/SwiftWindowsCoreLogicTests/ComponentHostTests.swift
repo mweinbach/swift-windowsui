@@ -193,6 +193,14 @@ final class ComponentHostTests: XCTestCase {
 
                     node.text = label
                     node.opacity = opacity
+                    node.blendMode = useSecondState ? .screen : .multiply
+                    node.isCompositingGroup = useSecondState
+                    node.drawingGroup = useSecondState
+                        ? RetainedDrawingGroup(opaque: true, colorMode: .linear)
+                        : RetainedDrawingGroup(opaque: false, colorMode: .nonLinear)
+                    node.colorEffects = useSecondState
+                        ? [.contrast(1.2), .luminanceToAlpha]
+                        : [.brightness(0.1), .colorInvert]
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -262,6 +270,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertNotNil(firstNode)
             XCTAssertEqual(firstNode?.text, "FIRST")
             XCTAssertEqual(firstNode?.opacity, 0.25)
+            XCTAssertEqual(firstNode?.blendMode, .multiply)
+            XCTAssertEqual(firstNode?.isCompositingGroup, false)
+            XCTAssertEqual(firstNode?.drawingGroup, RetainedDrawingGroup(opaque: false, colorMode: .nonLinear))
+            XCTAssertEqual(firstNode?.colorEffects, [.brightness(0.1), .colorInvert])
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -355,6 +367,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertTrue(firstNode === reusedNode)
             XCTAssertEqual(reusedNode?.text, "SECOND")
             XCTAssertEqual(reusedNode?.opacity, 0.85)
+            XCTAssertEqual(reusedNode?.blendMode, .screen)
+            XCTAssertEqual(reusedNode?.isCompositingGroup, true)
+            XCTAssertEqual(reusedNode?.drawingGroup, RetainedDrawingGroup(opaque: true, colorMode: .linear))
+            XCTAssertEqual(reusedNode?.colorEffects, [.contrast(1.2), .luminanceToAlpha])
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

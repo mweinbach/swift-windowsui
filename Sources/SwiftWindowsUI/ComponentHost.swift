@@ -141,6 +141,10 @@ public final class ComponentHost {
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.opacity != source.opacity { target.opacity = source.opacity }
+        if target.blendMode != source.blendMode { target.blendMode = source.blendMode }
+        if target.isCompositingGroup != source.isCompositingGroup { target.isCompositingGroup = source.isCompositingGroup }
+        if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
+        if target.colorEffects != source.colorEffects { target.colorEffects = source.colorEffects }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

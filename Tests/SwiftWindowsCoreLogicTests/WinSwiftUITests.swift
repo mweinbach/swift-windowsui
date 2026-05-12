@@ -13348,6 +13348,37 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testColorFilterModifiersStoreRetainedMetadata() async {
+        await MainActor.run {
+            let multiplyColor = Color(red: 0.5, green: 0.25, blue: 0.75, alpha: 1)
+            let node = makeNode(
+                Text("FILTER")
+                    .brightness(0.15)
+                    .contrast(1.25)
+                    .colorInvert()
+                    .colorMultiply(multiplyColor)
+                    .saturation(0.6)
+                    .grayscale(0.35)
+                    .hueRotation(.degrees(90))
+                    .luminanceToAlpha()
+            )
+
+            XCTAssertEqual(
+                node.colorEffects,
+                [
+                    .brightness(0.15),
+                    .contrast(1.25),
+                    .colorInvert,
+                    .colorMultiply(multiplyColor),
+                    .saturation(0.6),
+                    .grayscale(0.35),
+                    .hueRotation(.pi / 2),
+                    .luminanceToAlpha
+                ]
+            )
+        }
+    }
+
     func testHiddenModifierMapsToRetainedNodeVisibility() async {
         await MainActor.run {
             let hiddenNode = makeNode(Text("SECRET").hidden())

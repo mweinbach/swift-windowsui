@@ -15421,6 +15421,49 @@ public extension View {
         }
     }
 
+    private func retainedColorEffect(_ effect: RetainedColorEffect) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.colorEffects.append(effect)
+                return childNode
+            }
+        }
+    }
+
+    func brightness(_ amount: Double) -> some View {
+        retainedColorEffect(.brightness(amount))
+    }
+
+    func contrast(_ amount: Double) -> some View {
+        retainedColorEffect(.contrast(amount))
+    }
+
+    func colorInvert() -> some View {
+        retainedColorEffect(.colorInvert)
+    }
+
+    func colorMultiply(_ color: Color) -> some View {
+        retainedColorEffect(.colorMultiply(color))
+    }
+
+    func saturation(_ amount: Double) -> some View {
+        retainedColorEffect(.saturation(amount))
+    }
+
+    func grayscale(_ amount: Double) -> some View {
+        retainedColorEffect(.grayscale(amount))
+    }
+
+    func hueRotation(_ angle: Angle) -> some View {
+        retainedColorEffect(.hueRotation(angle.radians))
+    }
+
+    func luminanceToAlpha() -> some View {
+        retainedColorEffect(.luminanceToAlpha)
+    }
+
     func hidden(_ shouldHide: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)

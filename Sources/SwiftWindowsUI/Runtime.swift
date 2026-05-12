@@ -1086,6 +1086,18 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var dropAcceptedContentTypes: [String] {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var dropPayloadType: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var isDropDestinationEnabled: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var dragPayloadType: String? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -1434,6 +1446,12 @@ public final class ViewNode {
     public var onMoveRows: ((IndexSet, Int) -> Void)?
     public var onInsertRows: ((Int, [Any]) -> Void)?
     public var onDropRows: (([Any], Int) -> Void)?
+    public var onValidateDrop: (([Any], Point) -> Bool)?
+    public var onDropEntered: (([Any], Point) -> Void)?
+    public var onDropUpdated: (([Any], Point) -> Any?)?
+    public var onDropExited: (() -> Void)?
+    public var onDropProviders: (([Any], Point) -> Bool)?
+    public var onDropPayloads: (([Any], Point) -> Bool)?
     public var onMakeDragPayload: (() -> Any?)?
     public var onMakeDragItemProvider: (() -> Any?)?
     public var onDragStart: ((Point) -> Void)?
@@ -1521,6 +1539,9 @@ public final class ViewNode {
         dynamicContentIndex: Int? = nil,
         dynamicInsertContentTypes: [String] = [],
         dynamicDropPayloadType: String? = nil,
+        dropAcceptedContentTypes: [String] = [],
+        dropPayloadType: String? = nil,
+        isDropDestinationEnabled: Bool = false,
         dragPayloadType: String? = nil,
         dragItemProviderTypeIdentifiers: [String] = [],
         dragContainerItemID: AnyHashable? = nil,
@@ -1639,6 +1660,9 @@ public final class ViewNode {
         self.dynamicContentIndex = dynamicContentIndex
         self.dynamicInsertContentTypes = dynamicInsertContentTypes
         self.dynamicDropPayloadType = dynamicDropPayloadType
+        self.dropAcceptedContentTypes = dropAcceptedContentTypes
+        self.dropPayloadType = dropPayloadType
+        self.isDropDestinationEnabled = isDropDestinationEnabled
         self.dragPayloadType = dragPayloadType
         self.dragItemProviderTypeIdentifiers = dragItemProviderTypeIdentifiers
         self.dragContainerItemID = dragContainerItemID
@@ -1726,6 +1750,12 @@ public final class ViewNode {
         self.onMoveRows = nil
         self.onInsertRows = nil
         self.onDropRows = nil
+        self.onValidateDrop = nil
+        self.onDropEntered = nil
+        self.onDropUpdated = nil
+        self.onDropExited = nil
+        self.onDropProviders = nil
+        self.onDropPayloads = nil
         self.onMakeDragPayload = nil
         self.onMakeDragItemProvider = nil
         self.onDragStart = nil

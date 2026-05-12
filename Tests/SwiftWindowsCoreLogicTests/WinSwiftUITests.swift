@@ -10980,6 +10980,169 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testOnDropRetainsProviderDestinationAndTargetBinding() async {
+        await MainActor.run {
+            var isTargeted = false
+            var droppedCounts: [Int] = []
+            var droppedLocations: [Point] = []
+            let targetedBinding = Binding<Bool>(
+                get: { isTargeted },
+                set: { isTargeted = $0 }
+            )
+            let provider = NSItemProvider(object: "payload")
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.plainText.identifier)
+
+            let node = makeNode(
+                Text("DROP")
+                    .onDrop(of: [.plainText], isTargeted: targetedBinding) { providers, location in
+                        droppedCounts.append(providers.count)
+                        droppedLocations.append(location)
+                        return true
+                    }
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertEqual(node.dropAcceptedContentTypes, [UTType.plainText.identifier])
+            XCTAssertEqual(node.isDropDestinationEnabled, true)
+
+            node.onDropEntered?([provider], Point(x: 1, y: 2))
+            XCTAssertEqual(isTargeted, true)
+            XCTAssertEqual(node.onDropProviders?([provider, "ignored"], Point(x: 3, y: 4)), true)
+            node.onDropExited?()
+
+            XCTAssertEqual(isTargeted, false)
+            XCTAssertEqual(droppedCounts, [1])
+            XCTAssertEqual(droppedLocations, [Point(x: 3, y: 4)])
+        }
+    }
+
+    func testOnDropDelegateReceivesDropInfoLifecycle() async {
+        await MainActor.run {
+            final class DelegateBox {
+                var events: [String] = []
+            }
+
+            struct ProbeDelegate: DropDelegate {
+                let box: DelegateBox
+
+                func validateDrop(info: DropInfo) -> Bool {
+                    box.events.append("validate:\(info.hasItemsConforming(to: [.plainText]))")
+                    return true
+                }
+
+                func dropEntered(info: DropInfo) {
+                    box.events.append("entered:\(Int(info.location.x))")
+                }
+
+                func dropUpdated(info: DropInfo) -> DropProposal? {
+                    box.events.append("updated:\(Int(info.location.y))")
+                    return DropProposal(operation: .move)
+                }
+
+                func dropExited(info: DropInfo) {
+                    box.events.append("exited")
+                }
+
+                func performDrop(info: DropInfo) -> Bool {
+                    box.events.append("perform:\(info.itemProviders(for: [.plainText]).count)")
+                    return true
+                }
+            }
+
+            let box = DelegateBox()
+            let provider = NSItemProvider(object: "payload")
+            provider.registerDataRepresentation(forTypeIdentifier: UTType.plainText.identifier)
+            let node = makeNode(
+                Text("DROP")
+                    .onDrop(of: [.plainText], delegate: ProbeDelegate(box: box))
+            )
+
+            XCTAssertEqual(node.dropAcceptedContentTypes, [UTType.plainText.identifier])
+            XCTAssertEqual(node.onValidateDrop?([provider], Point(x: 1, y: 2)), true)
+            node.onDropEntered?([provider], Point(x: 3, y: 4))
+            XCTAssertEqual((node.onDropUpdated?([provider], Point(x: 5, y: 6)) as? DropProposal)?.operation, .move)
+            node.onDropExited?()
+            XCTAssertEqual(node.onDropProviders?([provider], Point(x: 7, y: 8)), true)
+
+            XCTAssertEqual(
+                box.events,
+                [
+                    "validate:true",
+                    "entered:3",
+                    "updated:6",
+                    "exited",
+                    "perform:1"
+                ]
+            )
+        }
+    }
+
+    func testDropDestinationRetainsTransferablePayloadHandlers() async {
+        await MainActor.run {
+            struct DropPayload: Transferable, Equatable {
+                let value: String
+            }
+
+            var targetedValues: [Bool] = []
+            var receivedPayloads: [[DropPayload]] = []
+            var receivedLocations: [Point] = []
+            let node = makeNode(
+                Text("DROP")
+                    .dropDestination(for: DropPayload.self) { payloads, location in
+                        receivedPayloads.append(payloads)
+                        receivedLocations.append(location)
+                        return true
+                    } isTargeted: { isTargeted in
+                        targetedValues.append(isTargeted)
+                    }
+            )
+
+            XCTAssertTrue(node.isHitTestVisible)
+            XCTAssertEqual(node.dropPayloadType, String(reflecting: DropPayload.self))
+            node.onDropEntered?([DropPayload(value: "one")], Point(x: 1, y: 2))
+            XCTAssertEqual(node.onDropPayloads?([DropPayload(value: "one"), "ignored"], Point(x: 9, y: 10)), true)
+            node.onDropExited?()
+
+            XCTAssertEqual(targetedValues, [true, false])
+            XCTAssertEqual(receivedPayloads, [[DropPayload(value: "one")]])
+            XCTAssertEqual(receivedLocations, [Point(x: 9, y: 10)])
+        }
+    }
+
+    func testModernDropDestinationRetainsSessionAndDisabledState() async {
+        await MainActor.run {
+            struct DropPayload: Transferable, Equatable {
+                let value: String
+            }
+
+            var receivedPayloads: [[DropPayload]] = []
+            var sessionLocations: [Point] = []
+            let node = makeNode(
+                Text("DROP")
+                    .dropDestination(for: DropPayload.self, isEnabled: true) { payloads, session in
+                        receivedPayloads.append(payloads)
+                        sessionLocations.append(session.location)
+                    }
+            )
+
+            XCTAssertEqual(node.dropPayloadType, String(reflecting: DropPayload.self))
+            XCTAssertEqual(node.isDropDestinationEnabled, true)
+            XCTAssertEqual(node.onDropPayloads?([DropPayload(value: "one")], Point(x: 4, y: 5)), true)
+            XCTAssertEqual(receivedPayloads, [[DropPayload(value: "one")]])
+            XCTAssertEqual(sessionLocations, [Point(x: 4, y: 5)])
+
+            let disabledNode = makeNode(
+                Text("DROP")
+                    .dropDestination(for: DropPayload.self, isEnabled: false) { _, _ in
+                        XCTFail("disabled drop destination should not run")
+                    }
+            )
+            XCTAssertEqual(disabledNode.dropPayloadType, String(reflecting: DropPayload.self))
+            XCTAssertEqual(disabledNode.isDropDestinationEnabled, false)
+            XCTAssertNil(disabledNode.onDropPayloads)
+        }
+    }
+
     func testForEachBindingCollectionFeedsRetainedControls() async {
         await MainActor.run {
             struct Item: Identifiable {

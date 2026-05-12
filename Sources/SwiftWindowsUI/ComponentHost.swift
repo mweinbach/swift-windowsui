@@ -160,6 +160,9 @@ public final class ComponentHost {
         if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
         if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes { target.dynamicInsertContentTypes = source.dynamicInsertContentTypes }
         if target.dynamicDropPayloadType != source.dynamicDropPayloadType { target.dynamicDropPayloadType = source.dynamicDropPayloadType }
+        if target.dropAcceptedContentTypes != source.dropAcceptedContentTypes { target.dropAcceptedContentTypes = source.dropAcceptedContentTypes }
+        if target.dropPayloadType != source.dropPayloadType { target.dropPayloadType = source.dropPayloadType }
+        if target.isDropDestinationEnabled != source.isDropDestinationEnabled { target.isDropDestinationEnabled = source.isDropDestinationEnabled }
         if target.dragPayloadType != source.dragPayloadType { target.dragPayloadType = source.dragPayloadType }
         if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers { target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers }
         if target.dragContainerItemID != source.dragContainerItemID { target.dragContainerItemID = source.dragContainerItemID }
@@ -258,6 +261,12 @@ public final class ComponentHost {
         target.onMoveRows = source.onMoveRows
         target.onInsertRows = source.onInsertRows
         target.onDropRows = source.onDropRows
+        target.onValidateDrop = source.onValidateDrop
+        target.onDropEntered = source.onDropEntered
+        target.onDropUpdated = source.onDropUpdated
+        target.onDropExited = source.onDropExited
+        target.onDropProviders = source.onDropProviders
+        target.onDropPayloads = source.onDropPayloads
         target.onMakeDragPayload = source.onMakeDragPayload
         target.onMakeDragItemProvider = source.onMakeDragItemProvider
         target.onDragStart = source.onDragStart

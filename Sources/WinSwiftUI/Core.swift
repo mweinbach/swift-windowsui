@@ -87,6 +87,98 @@ public final class NSItemProvider: @unchecked Sendable {
     }
 }
 
+public enum DropOperation: Sendable, Equatable {
+    case cancel
+    case forbidden
+    case copy
+    case move
+}
+
+public struct DropProposal: Sendable, Equatable, CustomDebugStringConvertible {
+    public let operation: DropOperation
+    public let operationOutsideApplication: DropOperation?
+
+    public init(operation: DropOperation) {
+        self.operation = operation
+        self.operationOutsideApplication = nil
+    }
+
+    public init(withinApplication: DropOperation, outsideApplication: DropOperation) {
+        self.operation = withinApplication
+        self.operationOutsideApplication = outsideApplication
+    }
+
+    public var debugDescription: String {
+        if let operationOutsideApplication {
+            return "DropProposal(operation: \(operation), operationOutsideApplication: \(operationOutsideApplication))"
+        }
+        return "DropProposal(operation: \(operation))"
+    }
+}
+
+public struct DropInfo {
+    public let location: CGPoint
+    private let providers: [NSItemProvider]
+
+    public init(location: CGPoint, itemProviders: [NSItemProvider] = []) {
+        self.location = location
+        self.providers = itemProviders
+    }
+
+    public func itemProviders(for types: [UTType]) -> [NSItemProvider] {
+        itemProviders(for: types.map(\.identifier))
+    }
+
+    public func hasItemsConforming(to types: [UTType]) -> Bool {
+        hasItemsConforming(to: types.map(\.identifier))
+    }
+
+    public func itemProviders(for types: [String]) -> [NSItemProvider] {
+        providers.filter { provider in
+            provider.registeredTypeIdentifiers.contains { types.contains($0) }
+        }
+    }
+
+    public func hasItemsConforming(to types: [String]) -> Bool {
+        !itemProviders(for: types).isEmpty
+    }
+}
+
+public struct DropSession {
+    public let location: CGPoint
+    public let itemProviders: [NSItemProvider]
+    public let isExternal: Bool
+
+    public init(location: CGPoint, itemProviders: [NSItemProvider] = [], isExternal: Bool = false) {
+        self.location = location
+        self.itemProviders = itemProviders
+        self.isExternal = isExternal
+    }
+}
+
+@MainActor
+public protocol DropDelegate {
+    func validateDrop(info: DropInfo) -> Bool
+    func dropEntered(info: DropInfo)
+    func dropUpdated(info: DropInfo) -> DropProposal?
+    func dropExited(info: DropInfo)
+    func performDrop(info: DropInfo) -> Bool
+}
+
+public extension DropDelegate {
+    func validateDrop(info: DropInfo) -> Bool {
+        true
+    }
+
+    func dropEntered(info: DropInfo) {}
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        nil
+    }
+
+    func dropExited(info: DropInfo) {}
+}
+
 public struct LocalizedStringKey: Sendable, Equatable, ExpressibleByStringLiteral, ExpressibleByStringInterpolation, CustomStringConvertible {
     let resolvedString: String
 
@@ -15535,6 +15627,174 @@ public extension View {
             containerItemID: AnyHashable(containerItemID),
             containerNamespaceID: containerNamespace?.description,
             hasPreview: true
+        )
+    }
+
+    private func retainedDropDestination(
+        acceptedContentTypes: [String] = [],
+        payloadType: String? = nil,
+        isEnabled: Bool = true,
+        validateDrop: (([Any], CGPoint) -> Bool)? = nil,
+        dropEntered: (([Any], CGPoint) -> Void)? = nil,
+        dropUpdated: (([Any], CGPoint) -> Any?)? = nil,
+        dropExited: (() -> Void)? = nil,
+        providerAction: (([NSItemProvider], CGPoint) -> Bool)? = nil,
+        payloadAction: (([Any], CGPoint) -> Bool)? = nil
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.dropAcceptedContentTypes = acceptedContentTypes
+                childNode.dropPayloadType = payloadType
+                childNode.isDropDestinationEnabled = isEnabled
+
+                guard isEnabled else {
+                    childNode.onValidateDrop = nil
+                    childNode.onDropEntered = nil
+                    childNode.onDropUpdated = nil
+                    childNode.onDropExited = nil
+                    childNode.onDropProviders = nil
+                    childNode.onDropPayloads = nil
+                    return childNode
+                }
+
+                childNode.onValidateDrop = validateDrop
+                childNode.onDropEntered = dropEntered
+                childNode.onDropUpdated = dropUpdated
+                childNode.onDropExited = dropExited
+                childNode.onDropProviders = providerAction.map { action in
+                    { items, location in
+                        action(items.compactMap { $0 as? NSItemProvider }, location)
+                    }
+                }
+                childNode.onDropPayloads = payloadAction
+                childNode.isHitTestVisible = true
+                return childNode
+            }
+        }
+    }
+
+    func onDrop(
+        of supportedContentTypes: [UTType],
+        isTargeted: Binding<Bool>? = nil,
+        perform action: @escaping ([NSItemProvider]) -> Bool
+    ) -> some View {
+        onDrop(
+            of: supportedContentTypes,
+            isTargeted: isTargeted,
+            perform: { providers, _ in action(providers) }
+        )
+    }
+
+    func onDrop(
+        of supportedContentTypes: [UTType],
+        isTargeted: Binding<Bool>? = nil,
+        perform action: @escaping ([NSItemProvider], CGPoint) -> Bool
+    ) -> some View {
+        retainedDropDestination(
+            acceptedContentTypes: supportedContentTypes.map(\.identifier),
+            dropEntered: { _, _ in isTargeted?.wrappedValue = true },
+            dropExited: { isTargeted?.wrappedValue = false },
+            providerAction: action
+        )
+    }
+
+    func onDrop(
+        of supportedTypeIdentifiers: [String],
+        isTargeted: Binding<Bool>? = nil,
+        perform action: @escaping ([NSItemProvider]) -> Bool
+    ) -> some View {
+        onDrop(
+            of: supportedTypeIdentifiers.map { UTType($0) },
+            isTargeted: isTargeted,
+            perform: action
+        )
+    }
+
+    func onDrop(
+        of supportedTypeIdentifiers: [String],
+        isTargeted: Binding<Bool>? = nil,
+        perform action: @escaping ([NSItemProvider], CGPoint) -> Bool
+    ) -> some View {
+        onDrop(
+            of: supportedTypeIdentifiers.map { UTType($0) },
+            isTargeted: isTargeted,
+            perform: action
+        )
+    }
+
+    func onDrop(
+        of supportedContentTypes: [UTType],
+        delegate: any DropDelegate
+    ) -> some View {
+        let acceptedContentTypes = supportedContentTypes.map(\.identifier)
+        func makeInfo(items: [Any], location: CGPoint) -> DropInfo {
+            DropInfo(
+                location: location,
+                itemProviders: items.compactMap { $0 as? NSItemProvider }
+            )
+        }
+
+        return retainedDropDestination(
+            acceptedContentTypes: acceptedContentTypes,
+            validateDrop: { items, location in
+                delegate.validateDrop(info: makeInfo(items: items, location: location))
+            },
+            dropEntered: { items, location in
+                delegate.dropEntered(info: makeInfo(items: items, location: location))
+            },
+            dropUpdated: { items, location in
+                delegate.dropUpdated(info: makeInfo(items: items, location: location))
+            },
+            dropExited: {
+                delegate.dropExited(info: DropInfo(location: .zero))
+            },
+            providerAction: { providers, location in
+                delegate.performDrop(info: DropInfo(location: location, itemProviders: providers))
+            }
+        )
+    }
+
+    func onDrop(
+        of supportedTypeIdentifiers: [String],
+        delegate: any DropDelegate
+    ) -> some View {
+        onDrop(
+            of: supportedTypeIdentifiers.map { UTType($0) },
+            delegate: delegate
+        )
+    }
+
+    func dropDestination<T: Transferable>(
+        for payloadType: T.Type = T.self,
+        action: @escaping ([T], CGPoint) -> Bool,
+        isTargeted: @escaping (Bool) -> Void = { _ in }
+    ) -> some View {
+        retainedDropDestination(
+            payloadType: String(reflecting: payloadType),
+            dropEntered: { _, _ in isTargeted(true) },
+            dropExited: { isTargeted(false) },
+            payloadAction: { payloads, location in
+                action(payloads.compactMap { $0 as? T }, location)
+            }
+        )
+    }
+
+    func dropDestination<T: Transferable>(
+        for payloadType: T.Type = T.self,
+        isEnabled: Bool = true,
+        action: @escaping ([T], DropSession) -> Void
+    ) -> some View {
+        retainedDropDestination(
+            payloadType: String(reflecting: payloadType),
+            isEnabled: isEnabled,
+            payloadAction: { payloads, location in
+                let providers = payloads.compactMap { $0 as? NSItemProvider }
+                let session = DropSession(location: location, itemProviders: providers)
+                action(payloads.compactMap { $0 as? T }, session)
+                return true
+            }
         )
     }
 

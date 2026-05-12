@@ -61,6 +61,7 @@ final class ComponentHostTests: XCTestCase {
             var dynamicMoveEvents: [String] = []
             var dynamicInsertEvents: [String] = []
             var dynamicDropEvents: [String] = []
+            var dropDestinationEvents: [String] = []
             var dragPayloadEvents: [String] = []
             var dragItemProviderEvents: [String] = []
             let preferenceIdentifier = ObjectIdentifier(ComponentHostTests.self)
@@ -234,6 +235,9 @@ final class ComponentHostTests: XCTestCase {
                     node.dynamicContentIndex = useSecondState ? 6 : 3
                     node.dynamicInsertContentTypes = useSecondState ? ["public.text", "public.url"] : ["public.image"]
                     node.dynamicDropPayloadType = useSecondState ? "SecondPayload" : "FirstPayload"
+                    node.dropAcceptedContentTypes = useSecondState ? ["public.text"] : ["public.png"]
+                    node.dropPayloadType = useSecondState ? "SecondViewDropPayload" : "FirstViewDropPayload"
+                    node.isDropDestinationEnabled = useSecondState
                     node.dragPayloadType = useSecondState ? "SecondDragPayload" : "FirstDragPayload"
                     node.dragItemProviderTypeIdentifiers = useSecondState ? ["public.text"] : ["public.png"]
                     node.dragContainerItemID = useSecondState ? AnyHashable("second-id") : AnyHashable("first-id")
@@ -312,6 +316,28 @@ final class ComponentHostTests: XCTestCase {
                     node.onDropRows = { payloads, offset in
                         dynamicDropEvents.append("\(eventLabel):\(offset):\(payloads.count)")
                     }
+                    node.onValidateDrop = { items, _ in
+                        dropDestinationEvents.append("\(eventLabel):validate:\(items.count)")
+                        return useSecondState
+                    }
+                    node.onDropEntered = { items, _ in
+                        dropDestinationEvents.append("\(eventLabel):entered:\(items.count)")
+                    }
+                    node.onDropUpdated = { items, _ in
+                        dropDestinationEvents.append("\(eventLabel):updated:\(items.count)")
+                        return eventLabel
+                    }
+                    node.onDropExited = {
+                        dropDestinationEvents.append("\(eventLabel):exited")
+                    }
+                    node.onDropProviders = { items, _ in
+                        dropDestinationEvents.append("\(eventLabel):providers:\(items.count)")
+                        return true
+                    }
+                    node.onDropPayloads = { items, _ in
+                        dropDestinationEvents.append("\(eventLabel):payloads:\(items.count)")
+                        return true
+                    }
                     node.onMakeDragPayload = {
                         dragPayloadEvents.append(eventLabel)
                         return eventLabel
@@ -347,6 +373,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.dynamicContentIndex, 3)
             XCTAssertEqual(firstNode?.dynamicInsertContentTypes, ["public.image"])
             XCTAssertEqual(firstNode?.dynamicDropPayloadType, "FirstPayload")
+            XCTAssertEqual(firstNode?.dropAcceptedContentTypes, ["public.png"])
+            XCTAssertEqual(firstNode?.dropPayloadType, "FirstViewDropPayload")
+            XCTAssertEqual(firstNode?.isDropDestinationEnabled, false)
             XCTAssertEqual(firstNode?.dragPayloadType, "FirstDragPayload")
             XCTAssertEqual(firstNode?.dragItemProviderTypeIdentifiers, ["public.png"])
             XCTAssertEqual(firstNode?.dragContainerItemID, AnyHashable("first-id"))
@@ -473,6 +502,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.dynamicContentIndex, 6)
             XCTAssertEqual(reusedNode?.dynamicInsertContentTypes, ["public.text", "public.url"])
             XCTAssertEqual(reusedNode?.dynamicDropPayloadType, "SecondPayload")
+            XCTAssertEqual(reusedNode?.dropAcceptedContentTypes, ["public.text"])
+            XCTAssertEqual(reusedNode?.dropPayloadType, "SecondViewDropPayload")
+            XCTAssertEqual(reusedNode?.isDropDestinationEnabled, true)
             XCTAssertEqual(reusedNode?.dragPayloadType, "SecondDragPayload")
             XCTAssertEqual(reusedNode?.dragItemProviderTypeIdentifiers, ["public.text"])
             XCTAssertEqual(reusedNode?.dragContainerItemID, AnyHashable("second-id"))
@@ -581,6 +613,23 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(dynamicInsertEvents, ["second:2:1"])
             reusedNode?.onDropRows?(["payload"], 4)
             XCTAssertEqual(dynamicDropEvents, ["second:4:1"])
+            XCTAssertEqual(reusedNode?.onValidateDrop?(["payload"], Point(x: 1, y: 2)), true)
+            reusedNode?.onDropEntered?(["payload"], Point(x: 1, y: 2))
+            XCTAssertEqual(reusedNode?.onDropUpdated?(["payload"], Point(x: 3, y: 4)) as? String, "second")
+            reusedNode?.onDropExited?()
+            XCTAssertEqual(reusedNode?.onDropProviders?(["payload"], Point(x: 5, y: 6)), true)
+            XCTAssertEqual(reusedNode?.onDropPayloads?(["payload"], Point(x: 7, y: 8)), true)
+            XCTAssertEqual(
+                dropDestinationEvents,
+                [
+                    "second:validate:1",
+                    "second:entered:1",
+                    "second:updated:1",
+                    "second:exited",
+                    "second:providers:1",
+                    "second:payloads:1"
+                ]
+            )
             XCTAssertEqual(reusedNode?.onMakeDragPayload?() as? String, "second")
             XCTAssertEqual(dragPayloadEvents, ["second"])
             XCTAssertEqual(reusedNode?.onMakeDragItemProvider?() as? String, "second")

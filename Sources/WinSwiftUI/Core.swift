@@ -571,6 +571,118 @@ public enum ColorRenderingMode: Sendable, Equatable, Hashable {
     }
 }
 
+public struct Shader: ShapeStyle, Sendable, Equatable, Hashable, CustomStringConvertible {
+    public struct Argument: Sendable, Equatable, Hashable, CustomStringConvertible {
+        public var description: String
+
+        public init(_ description: String) {
+            self.description = description
+        }
+
+        public static func float(_ value: Float) -> Argument {
+            Argument("float:\(value)")
+        }
+
+        public static func float(_ value: Double) -> Argument {
+            Argument("float:\(value)")
+        }
+
+        public static func float2(_ x: Float, _ y: Float) -> Argument {
+            Argument("float2:\(x),\(y)")
+        }
+
+        public static func float2(_ x: Double, _ y: Double) -> Argument {
+            Argument("float2:\(x),\(y)")
+        }
+
+        public static func color(_ color: Color) -> Argument {
+            Argument("color:\(retainedVisualEffectColorDescription(color))")
+        }
+
+        public static func size(_ size: CGSize) -> Argument {
+            Argument("size:\(size.width),\(size.height)")
+        }
+    }
+
+    public struct UsageType: Sendable, Equatable, Hashable, CustomStringConvertible {
+        public var description: String
+
+        public init(_ description: String) {
+            self.description = description
+        }
+
+        public static let colorEffect = UsageType("colorEffect")
+        public static let distortionEffect = UsageType("distortionEffect")
+        public static let layerEffect = UsageType("layerEffect")
+    }
+
+    public var functionName: String
+    public var arguments: [Argument]
+
+    public init(functionName: String, arguments: [Argument] = []) {
+        self.functionName = functionName
+        self.arguments = arguments
+    }
+
+    public init(_ functionName: String, arguments: [Argument] = []) {
+        self.init(functionName: functionName, arguments: arguments)
+    }
+
+    public var description: String {
+        if arguments.isEmpty {
+            return functionName
+        }
+        return "\(functionName)(\(arguments.map(\.description).joined(separator: ";")))"
+    }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(.clear)
+    }
+
+    public func compile(as usageType: UsageType) async throws {
+        _ = usageType
+    }
+}
+
+@dynamicCallable
+public struct ShaderFunction: Sendable, Equatable, Hashable {
+    public var libraryName: String
+    public var functionName: String
+
+    public init(libraryName: String = "default", functionName: String) {
+        self.libraryName = libraryName
+        self.functionName = functionName
+    }
+
+    public func dynamicallyCall(withArguments arguments: [Shader.Argument]) -> Shader {
+        Shader(functionName: "\(libraryName).\(functionName)", arguments: arguments)
+    }
+
+    public func dynamicallyCall(withKeywordArguments arguments: KeyValuePairs<String, Shader.Argument>) -> Shader {
+        Shader(
+            functionName: "\(libraryName).\(functionName)",
+            arguments: arguments.map { label, argument in
+                Shader.Argument("\(label):\(argument.description)")
+            }
+        )
+    }
+}
+
+@dynamicMemberLookup
+public struct ShaderLibrary: Sendable, Equatable, Hashable {
+    public var name: String
+
+    public init(name: String = "default") {
+        self.name = name
+    }
+
+    public static let `default` = ShaderLibrary()
+
+    public subscript(dynamicMember functionName: String) -> ShaderFunction {
+        ShaderFunction(libraryName: name, functionName: functionName)
+    }
+}
+
 public struct Animation: Sendable {
     public var duration: Double
     public var easing: AnimationEasing
@@ -10566,6 +10678,12 @@ public extension VisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorMultiply(\(retainedVisualEffectColorDescription(color)))")
     }
 
+    func colorEffect(_ shader: Shader, isEnabled: Bool = true) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorEffect(\(retainedVisualEffectShaderDescription(shader)),enabled:\(isEnabled))"
+        )
+    }
+
     func saturation(_ amount: Double) -> EmptyVisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).saturation(\(amount))")
     }
@@ -10633,6 +10751,26 @@ public extension VisualEffect {
         EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)),opaque:\(opaque))")
     }
 
+    func distortionEffect(
+        _ shader: Shader,
+        maxSampleOffset: CGSize,
+        isEnabled: Bool = true
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).distortionEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+        )
+    }
+
+    func layerEffect(
+        _ shader: Shader,
+        maxSampleOffset: CGSize,
+        isEnabled: Bool = true
+    ) -> EmptyVisualEffect {
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).layerEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+        )
+    }
+
     func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> EmptyVisualEffect {
         EmptyVisualEffect(
             retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))"
@@ -10688,6 +10826,14 @@ public extension VisualEffect {
 private func retainedVisualEffectColorDescription(_ color: Color) -> String {
     let rgba = color.rgba
     return "red:\(rgba.0),green:\(rgba.1),blue:\(rgba.2),alpha:\(rgba.3)"
+}
+
+private func retainedVisualEffectShaderDescription(_ shader: Shader) -> String {
+    "shader:\(shader.description)"
+}
+
+private func retainedVisualEffectSizeDescription(_ size: CGSize) -> String {
+    "\(size.width),\(size.height)"
 }
 
 private func retainedVisualEffectBlendModeDescription(_ blendMode: BlendMode) -> String {
@@ -18065,6 +18211,43 @@ public extension View {
 
     func colorMultiply(_ color: Color) -> some View {
         retainedColorEffect(.colorMultiply(color))
+    }
+
+    private func retainedShaderEffect(_ description: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.visualEffects.append(description)
+                return childNode
+            }
+        }
+    }
+
+    func colorEffect(_ shader: Shader, isEnabled: Bool = true) -> some View {
+        retainedShaderEffect(
+            "colorEffect(\(retainedVisualEffectShaderDescription(shader)),enabled:\(isEnabled))"
+        )
+    }
+
+    func distortionEffect(
+        _ shader: Shader,
+        maxSampleOffset: CGSize,
+        isEnabled: Bool = true
+    ) -> some View {
+        retainedShaderEffect(
+            "distortionEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+        )
+    }
+
+    func layerEffect(
+        _ shader: Shader,
+        maxSampleOffset: CGSize,
+        isEnabled: Bool = true
+    ) -> some View {
+        retainedShaderEffect(
+            "layerEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+        )
     }
 
     func saturation(_ amount: Double) -> some View {

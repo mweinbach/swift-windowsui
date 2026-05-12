@@ -6665,6 +6665,16 @@ final class WinSwiftUITests: XCTestCase {
                         return content
                             .opacity(0.7)
                             .blendMode(.screen)
+                            .colorEffect(ShaderLibrary.default.tint(.float(0.2)))
+                            .distortionEffect(
+                                ShaderLibrary.default.wave(.float2(1.0, 2.0)),
+                                maxSampleOffset: CGSize(width: 4, height: 5)
+                            )
+                            .layerEffect(
+                                Shader("layer"),
+                                maxSampleOffset: CGSize(width: 1, height: 2),
+                                isEnabled: false
+                            )
                             .offset(x: geometry.size.width / 10, y: geometry.size.height / 20)
                     },
                 size: Size(width: 320, height: 240)
@@ -6673,7 +6683,7 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(observedSize, Size(width: 320, height: 240))
             XCTAssertEqual(
                 node.visualEffects,
-                ["identity.opacity(0.7).blendMode(screen).offset(x:32.0,y:12.0)"]
+                ["identity.opacity(0.7).blendMode(screen).colorEffect(shader:default.tint(float:0.2),enabled:true).distortionEffect(shader:default.wave(float2:1.0,2.0),maxSampleOffset:4.0,5.0,enabled:true).layerEffect(shader:layer,maxSampleOffset:1.0,2.0,enabled:false).offset(x:32.0,y:12.0)"]
             )
         }
     }
@@ -15292,6 +15302,35 @@ final class WinSwiftUITests: XCTestCase {
                     .grayscale(0.35),
                     .hueRotation(.pi / 2),
                     .luminanceToAlpha
+                ]
+            )
+        }
+    }
+
+    func testShaderEffectModifiersStoreRetainedMetadata() async {
+        await MainActor.run {
+            let colorShader = ShaderLibrary.default.tint(.float(0.25), .color(.red))
+            let distortionShader = ShaderLibrary.default.wave(amount: .float(2.0))
+            let layerShader = Shader("manualLayer", arguments: [.size(CGSize(width: 3, height: 4))])
+            let node = makeNode(
+                Text("SHADER")
+                    .colorEffect(colorShader)
+                    .distortionEffect(
+                        distortionShader,
+                        maxSampleOffset: CGSize(width: 8, height: 6),
+                        isEnabled: false
+                    )
+                    .layerEffect(layerShader, maxSampleOffset: CGSize(width: 2, height: 1))
+            )
+
+            XCTAssertEqual(colorShader.description, "default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0)")
+            XCTAssertEqual(distortionShader.description, "default.wave(amount:float:2.0)")
+            XCTAssertEqual(
+                node.visualEffects,
+                [
+                    "colorEffect(shader:default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0),enabled:true)",
+                    "distortionEffect(shader:default.wave(amount:float:2.0),maxSampleOffset:8.0,6.0,enabled:false)",
+                    "layerEffect(shader:manualLayer(size:3.0,4.0),maxSampleOffset:2.0,1.0,enabled:true)"
                 ]
             )
         }

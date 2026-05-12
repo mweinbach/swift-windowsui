@@ -97,6 +97,44 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testStackLayoutUsesRetainedAlignmentGuidesOnCrossAxis() async {
+        await MainActor.run {
+            let verticalGuided = ViewNode(
+                preferredSize: Size(width: 20, height: 10),
+                alignmentGuides: [
+                    RetainedAlignmentGuide(axis: .horizontal, guide: "center", value: 5)
+                ]
+            )
+            let verticalDefault = ViewNode(preferredSize: Size(width: 20, height: 10))
+            let verticalRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .stack(.vertical(alignment: .center)),
+                children: [verticalGuided, verticalDefault]
+            )
+
+            let horizontalGuided = ViewNode(
+                preferredSize: Size(width: 10, height: 20),
+                alignmentGuides: [
+                    RetainedAlignmentGuide(axis: .vertical, guide: "center", value: 5)
+                ]
+            )
+            let horizontalDefault = ViewNode(preferredSize: Size(width: 10, height: 20))
+            let horizontalRoot = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 60),
+                layoutMode: .stack(.horizontal(alignment: .center)),
+                children: [horizontalGuided, horizontalDefault]
+            )
+
+            _ = RetainedViewRuntime(root: verticalRoot).renderFrame()
+            _ = RetainedViewRuntime(root: horizontalRoot).renderFrame()
+
+            XCTAssertEqual(verticalGuided.resolvedFrame, Rect(x: 45, y: 0, width: 20, height: 10))
+            XCTAssertEqual(verticalDefault.resolvedFrame, Rect(x: 40, y: 10, width: 20, height: 10))
+            XCTAssertEqual(horizontalGuided.resolvedFrame, Rect(x: 0, y: 25, width: 10, height: 20))
+            XCTAssertEqual(horizontalDefault.resolvedFrame, Rect(x: 10, y: 20, width: 10, height: 20))
+        }
+    }
+
     func testHorizontalStackDistributesExtraWidthToHigherPriorityChild() async {
         await MainActor.run {
             let first = ViewNode(

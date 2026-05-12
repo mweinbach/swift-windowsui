@@ -2198,36 +2198,68 @@ public final class ViewNode {
                     let height = max(0, allocatedMainSize)
 
                     let x: Double
-                    switch stackLayout.alignment {
-                    case .leading, .stretch:
-                        x = contentRect.origin.x
-                    case .center:
-                        x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
-                    case .trailing:
-                        x = contentRect.maxX - width
+                    let usesCustomAlignmentGuide: Bool
+                    if let guidedX = stackCrossOriginUsingAlignmentGuide(
+                        for: child,
+                        stackAxis: .vertical,
+                        stackAlignment: stackLayout.alignment,
+                        contentOrigin: contentRect.origin.x,
+                        contentExtent: contentRect.size.width
+                    ) {
+                        x = guidedX
+                        usesCustomAlignmentGuide = true
+                    } else {
+                        usesCustomAlignmentGuide = false
+                        switch stackLayout.alignment {
+                        case .leading, .stretch:
+                            x = contentRect.origin.x
+                        case .center:
+                            x = contentRect.origin.x + max(0, (contentRect.size.width - width) * 0.5)
+                        case .trailing:
+                            x = contentRect.maxX - width
+                        }
                     }
 
                     childFrame = Rect(x: x, y: mainCursor, width: max(0, width), height: max(0, height))
                     mainCursor += height + effectiveSpacing
-                    maxCrossExtent = max(maxCrossExtent, width)
+                    maxCrossExtent = max(
+                        maxCrossExtent,
+                        usesCustomAlignmentGuide ? max(0, x - contentRect.origin.x + width) : width
+                    )
 
                 case .horizontal:
                     let width = max(0, allocatedMainSize)
                     let height = stackLayout.alignment == .stretch ? max(0, contentRect.size.height) : min(desiredSize.height, max(0, contentRect.size.height))
 
                     let y: Double
-                    switch stackLayout.alignment {
-                    case .leading, .stretch:
-                        y = contentRect.origin.y
-                    case .center:
-                        y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
-                    case .trailing:
-                        y = contentRect.maxY - height
+                    let usesCustomAlignmentGuide: Bool
+                    if let guidedY = stackCrossOriginUsingAlignmentGuide(
+                        for: child,
+                        stackAxis: .horizontal,
+                        stackAlignment: stackLayout.alignment,
+                        contentOrigin: contentRect.origin.y,
+                        contentExtent: contentRect.size.height
+                    ) {
+                        y = guidedY
+                        usesCustomAlignmentGuide = true
+                    } else {
+                        usesCustomAlignmentGuide = false
+                        switch stackLayout.alignment {
+                        case .leading, .stretch:
+                            y = contentRect.origin.y
+                        case .center:
+                            y = contentRect.origin.y + max(0, (contentRect.size.height - height) * 0.5)
+                        case .trailing:
+                            y = contentRect.maxY - height
+                        }
                     }
 
                     childFrame = Rect(x: mainCursor, y: y, width: max(0, width), height: max(0, height))
                     mainCursor += width + effectiveSpacing
-                    maxCrossExtent = max(maxCrossExtent, height)
+                    maxCrossExtent = max(
+                        maxCrossExtent,
+                        usesCustomAlignmentGuide ? max(0, y - contentRect.origin.y + height) : height
+                    )
                 }
 
                 child.resolvedFrame = childFrame
@@ -3826,6 +3858,64 @@ private func stackCrossPadding(for layout: StackLayout) -> Double {
         return layout.padding.leading + layout.padding.trailing
     case .horizontal:
         return layout.padding.top + layout.padding.bottom
+    }
+}
+
+@MainActor
+private func stackCrossOriginUsingAlignmentGuide(
+    for child: ViewNode,
+    stackAxis: StackAxis,
+    stackAlignment: StackCrossAlignment,
+    contentOrigin: Double,
+    contentExtent: Double
+) -> Double? {
+    guard let guide = stackCrossAlignmentGuide(for: stackAxis, alignment: stackAlignment),
+          let alignmentGuide = child.alignmentGuides.last(where: { $0.axis == guide.axis && $0.guide == guide.name })
+    else {
+        return nil
+    }
+
+    return contentOrigin + stackCrossReference(for: stackAlignment, contentExtent: contentExtent) - alignmentGuide.value
+}
+
+private func stackCrossAlignmentGuide(
+    for stackAxis: StackAxis,
+    alignment: StackCrossAlignment
+) -> (axis: RetainedAlignmentGuideAxis, name: String)? {
+    switch stackAxis {
+    case .vertical:
+        switch alignment {
+        case .leading:
+            return (.horizontal, "leading")
+        case .center:
+            return (.horizontal, "center")
+        case .trailing:
+            return (.horizontal, "trailing")
+        case .stretch:
+            return nil
+        }
+    case .horizontal:
+        switch alignment {
+        case .leading:
+            return (.vertical, "top")
+        case .center:
+            return (.vertical, "center")
+        case .trailing:
+            return (.vertical, "bottom")
+        case .stretch:
+            return nil
+        }
+    }
+}
+
+private func stackCrossReference(for alignment: StackCrossAlignment, contentExtent: Double) -> Double {
+    switch alignment {
+    case .leading, .stretch:
+        return 0
+    case .center:
+        return contentExtent * 0.5
+    case .trailing:
+        return contentExtent
     }
 }
 

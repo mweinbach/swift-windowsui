@@ -3091,15 +3091,31 @@ final class WinSwiftUITests: XCTestCase {
                     Text("A\nB")
                     Text("C\nD")
                         .lineSpacing(8)
+                    Text("EF")
+                        .tracking(7)
                 }
                 .lineSpacing(5)
+                .kerning(2)
+            )
+            let baselineNode = makeNode(
+                VStack {
+                    Text("RAISED")
+                    Text("LOWERED")
+                        .baselineOffset(-3)
+                }
+                .baselineOffset(6)
             )
 
             XCTAssertEqual(spacedNode.textStyle.lineSpacing, 6)
             XCTAssertEqual(spacedNode.textStyle.letterSpacing, 4)
             XCTAssertEqual(trackingNode.textStyle.letterSpacing, 3)
             XCTAssertEqual(inheritedNode.children[0].textStyle.lineSpacing, 5)
+            XCTAssertEqual(inheritedNode.children[0].textStyle.letterSpacing, 2)
             XCTAssertEqual(inheritedNode.children[1].textStyle.lineSpacing, 8)
+            XCTAssertEqual(inheritedNode.children[1].textStyle.letterSpacing, 2)
+            XCTAssertEqual(inheritedNode.children[2].textStyle.letterSpacing, 7)
+            XCTAssertEqual(baselineNode.children[0].transform, Transform2D.translation(x: 0, y: -6))
+            XCTAssertEqual(baselineNode.children[1].transform, Transform2D.translation(x: 0, y: 3))
 
             let defaultMultilineHeight = makeNode(Text("A\nB")).intrinsicContentSize().height
             let spacedHeight = spacedNode.intrinsicContentSize().height

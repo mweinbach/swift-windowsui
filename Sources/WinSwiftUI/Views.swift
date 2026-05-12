@@ -3632,7 +3632,7 @@ public struct Text: View {
                 nativeFontSize: resolvedFont.resolvedNativeTextSize,
                 fontWidth: resolvedFont.width.retainedTextFontWidth,
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
-                letterSpacing: letterSpacing ?? 1,
+                letterSpacing: letterSpacing ?? context.letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
                 lineBreakMode: resolvedLineBreakMode(
                     lineLimit: resolvedLineLimit,
@@ -3655,8 +3655,9 @@ public struct Text: View {
             node.textSelectability = context.environmentValues.textSelectability?.retainedSelectability
             node.textSelectionAffinity = context.textSelectionAffinity.retainedAffinity
             node.writingToolsBehavior = context.writingToolsBehavior?.retainedBehavior
-            if let baselineOffset, baselineOffset != 0 {
-                node.transform = node.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
+            let resolvedBaselineOffset = baselineOffset ?? context.baselineOffset
+            if let resolvedBaselineOffset, resolvedBaselineOffset != 0 {
+                node.transform = node.transform.concatenating(.translation(x: 0, y: -Double(resolvedBaselineOffset)))
             }
             return node
         }
@@ -8109,10 +8110,14 @@ private func textInputComponent(
             fontWidth: resolvedFont.width.retainedTextFontWidth,
             alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
             insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+            letterSpacing: context.letterSpacing ?? 1,
             lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
             lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
             maximumNumberOfLines: allowsNewlines ? nil : 1
         )
+        if let baselineOffset = context.baselineOffset, baselineOffset != 0 {
+            labelNode.transform = labelNode.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
+        }
         let style = context.textFieldStyle.resolvedTextInputStyle(isEnabled: context.isEnabled)
         let node = Controls.stackPanel(
             preferredSize: preferredSize,

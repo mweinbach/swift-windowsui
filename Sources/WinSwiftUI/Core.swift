@@ -2426,6 +2426,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     var minimumLineLimit: Int?
     var lineLimitReservesSpace: Bool
     public var lineSpacing: Double?
+    var letterSpacing: Double?
+    var baselineOffset: CGFloat?
     public var truncationMode: Text.TruncationMode?
     public var minimumScaleFactor: CGFloat
     public var allowsTightening: Bool
@@ -2558,6 +2560,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         minimumLineLimit: Int? = nil,
         lineLimitReservesSpace: Bool = false,
         lineSpacing: Double? = nil,
+        letterSpacing: Double? = nil,
+        baselineOffset: CGFloat? = nil,
         truncationMode: Text.TruncationMode? = nil,
         minimumScaleFactor: CGFloat = 1,
         allowsTightening: Bool = true,
@@ -2678,6 +2682,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.minimumLineLimit = minimumLineLimit
         self.lineLimitReservesSpace = lineLimitReservesSpace
         self.lineSpacing = lineSpacing
+        self.letterSpacing = letterSpacing
+        self.baselineOffset = baselineOffset
         self.truncationMode = truncationMode
         self.minimumScaleFactor = Self.clampedMinimumScaleFactor(minimumScaleFactor)
         self.allowsTightening = allowsTightening
@@ -4140,6 +4146,14 @@ public struct ViewBuildContext {
 
     public var lineSpacing: Double? {
         environmentValuesProvider().lineSpacing
+    }
+
+    var letterSpacing: Double? {
+        environmentValuesProvider().letterSpacing
+    }
+
+    var baselineOffset: CGFloat? {
+        environmentValuesProvider().baselineOffset
     }
 
     public var truncationMode: Text.TruncationMode? {
@@ -14345,6 +14359,22 @@ public extension View {
     func lineSpacing(_ lineSpacing: Double) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.lineSpacing, lineSpacing))
+        }
+    }
+
+    func kerning(_ kerning: CGFloat) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.letterSpacing, Double(kerning)))
+        }
+    }
+
+    func tracking(_ tracking: CGFloat) -> some View {
+        kerning(tracking)
+    }
+
+    func baselineOffset(_ baselineOffset: CGFloat) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.baselineOffset, baselineOffset))
         }
     }
 

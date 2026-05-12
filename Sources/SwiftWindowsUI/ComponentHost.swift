@@ -153,6 +153,10 @@ public final class ComponentHost {
         if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
         if target.selectionDisabled != source.selectionDisabled { target.selectionDisabled = source.selectionDisabled }
         if target.selectionDisabledOverride != source.selectionDisabledOverride { target.selectionDisabledOverride = source.selectionDisabledOverride }
+        if target.deleteDisabled != source.deleteDisabled { target.deleteDisabled = source.deleteDisabled }
+        if target.deleteDisabledOverride != source.deleteDisabledOverride { target.deleteDisabledOverride = source.deleteDisabledOverride }
+        if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
+        if target.moveDisabledOverride != source.moveDisabledOverride { target.moveDisabledOverride = source.moveDisabledOverride }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

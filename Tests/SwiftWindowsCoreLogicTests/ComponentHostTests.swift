@@ -221,6 +221,10 @@ final class ComponentHostTests: XCTestCase {
                         : RetainedListItemTint(color: nil, kind: .monochrome)
                     node.selectionDisabled = !useSecondState
                     node.selectionDisabledOverride = !useSecondState
+                    node.deleteDisabled = !useSecondState
+                    node.deleteDisabledOverride = !useSecondState
+                    node.moveDisabled = useSecondState
+                    node.moveDisabledOverride = useSecondState
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -302,6 +306,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.listItemTint, RetainedListItemTint(color: nil, kind: .monochrome))
             XCTAssertEqual(firstNode?.selectionDisabled, true)
             XCTAssertEqual(firstNode?.selectionDisabledOverride, true)
+            XCTAssertEqual(firstNode?.deleteDisabled, true)
+            XCTAssertEqual(firstNode?.deleteDisabledOverride, true)
+            XCTAssertEqual(firstNode?.moveDisabled, false)
+            XCTAssertEqual(firstNode?.moveDisabledOverride, false)
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -416,6 +424,10 @@ final class ComponentHostTests: XCTestCase {
             )
             XCTAssertEqual(reusedNode?.selectionDisabled, false)
             XCTAssertEqual(reusedNode?.selectionDisabledOverride, false)
+            XCTAssertEqual(reusedNode?.deleteDisabled, false)
+            XCTAssertEqual(reusedNode?.deleteDisabledOverride, false)
+            XCTAssertEqual(reusedNode?.moveDisabled, true)
+            XCTAssertEqual(reusedNode?.moveDisabledOverride, true)
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

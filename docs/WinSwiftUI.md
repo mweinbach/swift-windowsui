@@ -429,6 +429,8 @@ Modifiers:
 - `listSectionSeparator`
 - `listSectionSeparatorTint`
 - `selectionDisabled`
+- `deleteDisabled`
+- `moveDisabled`
 - `listRowSpacing`
 - `listStyle`
 - `headerProminence`
@@ -755,6 +757,7 @@ Surface direction:
 - `listRowBackground(_:)` accepts optional retained views, colors, gradients, and stored foreground styles. Color and gradient inputs wrap the row in a retained background panel; view inputs are layered behind the row and stretched to the row bounds.
 - `listItemTint(_:)` accepts optional `Color` and `ListItemTint` values including `.fixed`, `.preferred`, and `.monochrome`, stores retained list-item tint metadata, and propagates the effective tint through retained list text/label content. Platform-specific sidebar icon-only and watchOS platter semantics are not modeled yet.
 - `selectionDisabled(_:)` stores retained row selection metadata and prevents affected rows in retained selectable `List` containers from receiving selection chrome or activation handlers. Parent selection disabling propagates through list rows, and explicit `selectionDisabled(false)` on a row re-enables that row.
+- `deleteDisabled(_:)` and `moveDisabled(_:)` store retained edit-list metadata on rows and propagate parent disable state through direct `List` rows while allowing explicit child `false` overrides. Reorder/delete edit chrome and collection mutation affordances are still future work.
 - `listRowInsets(_:)` and `listRowInsets(_:_:)` map to retained row padding wrappers. Passing `nil` preserves the row unchanged.
 - `listRowSpacing(_:)` maps optional row spacing to the retained `List` stack layout. Passing `nil` restores the retained default spacing of `0`.
 - `EnvironmentValues.defaultMinListRowHeight` maps to retained minimum-height constraints on direct `List` rows, preserving stronger row constraints.

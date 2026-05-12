@@ -2814,6 +2814,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     var isFindNavigatorPresented: Bool
     public var isScrollEnabled: Bool
     var isSelectionDisabled: Bool
+    var isDeleteDisabled: Bool
+    var isMoveDisabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
@@ -2941,6 +2943,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
         isSelectionDisabled: Bool = false,
+        isDeleteDisabled: Bool = false,
+        isMoveDisabled: Bool = false,
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
@@ -3076,6 +3080,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isFindNavigatorPresented = false
         self.isScrollEnabled = isScrollEnabled
         self.isSelectionDisabled = isSelectionDisabled
+        self.isDeleteDisabled = isDeleteDisabled
+        self.isMoveDisabled = isMoveDisabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
@@ -4633,6 +4639,14 @@ public struct ViewBuildContext {
 
     var isSelectionDisabled: Bool {
         environmentValuesProvider().isSelectionDisabled
+    }
+
+    var isDeleteDisabled: Bool {
+        environmentValuesProvider().isDeleteDisabled
+    }
+
+    var isMoveDisabled: Bool {
+        environmentValuesProvider().isMoveDisabled
     }
 
     public var textInputAutocapitalization: TextInputAutocapitalization? {
@@ -16122,6 +16136,34 @@ public extension View {
                 let node = component.makeNode(runtime: runtime)
                 node.selectionDisabled = isDisabled
                 node.selectionDisabledOverride = isDisabled
+                return node
+            }
+        }
+    }
+
+    func deleteDisabled(_ isDisabled: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(
+                context: context.withEnvironmentValue(\.isDeleteDisabled, isDisabled)
+            )
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.deleteDisabled = isDisabled
+                node.deleteDisabledOverride = isDisabled
+                return node
+            }
+        }
+    }
+
+    func moveDisabled(_ isDisabled: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(
+                context: context.withEnvironmentValue(\.isMoveDisabled, isDisabled)
+            )
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.moveDisabled = isDisabled
+                node.moveDisabledOverride = isDisabled
                 return node
             }
         }

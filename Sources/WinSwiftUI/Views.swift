@@ -5758,6 +5758,12 @@ public struct List: View {
                     if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
                         row.selectionDisabled = true
                     }
+                    if context.isDeleteDisabled, row.deleteDisabledOverride == nil {
+                        row.deleteDisabled = true
+                    }
+                    if context.isMoveDisabled, row.moveDisabledOverride == nil {
+                        row.moveDisabled = true
+                    }
                     if let selectionMode, let tag, !row.selectionDisabled {
                         row = Self.selectableRow(
                             wrapping: row,

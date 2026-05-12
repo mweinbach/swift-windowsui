@@ -6976,6 +6976,46 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testDeleteAndMoveDisabledStoreRetainedListRowMetadata() async {
+        await MainActor.run {
+            let node = makeNode(
+                List {
+                    Text("ONE")
+                    Text("TWO")
+                        .deleteDisabled(false)
+                    Text("THREE")
+                        .moveDisabled(false)
+                    Text("FOUR")
+                        .deleteDisabled(true)
+                        .moveDisabled(true)
+                }
+                .deleteDisabled(true)
+                .moveDisabled(true)
+            )
+
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertTrue(node.children[0].deleteDisabled)
+            XCTAssertNil(node.children[0].deleteDisabledOverride)
+            XCTAssertTrue(node.children[0].moveDisabled)
+            XCTAssertNil(node.children[0].moveDisabledOverride)
+
+            XCTAssertFalse(node.children[1].deleteDisabled)
+            XCTAssertEqual(node.children[1].deleteDisabledOverride, false)
+            XCTAssertTrue(node.children[1].moveDisabled)
+            XCTAssertNil(node.children[1].moveDisabledOverride)
+
+            XCTAssertTrue(node.children[2].deleteDisabled)
+            XCTAssertNil(node.children[2].deleteDisabledOverride)
+            XCTAssertFalse(node.children[2].moveDisabled)
+            XCTAssertEqual(node.children[2].moveDisabledOverride, false)
+
+            XCTAssertTrue(node.children[3].deleteDisabled)
+            XCTAssertEqual(node.children[3].deleteDisabledOverride, true)
+            XCTAssertTrue(node.children[3].moveDisabled)
+            XCTAssertEqual(node.children[3].moveDisabledOverride, true)
+        }
+    }
+
     func testListRequiredRangeSelectionWritesIntegerIndex() async {
         await MainActor.run {
             var selected = 1

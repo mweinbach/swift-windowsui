@@ -5755,7 +5755,10 @@ public struct List: View {
                         ? context.withEnvironmentValue(\.backgroundProminence, .increased)
                         : context
                     var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
-                    if let selectionMode, let tag {
+                    if context.isSelectionDisabled, row.selectionDisabledOverride == nil {
+                        row.selectionDisabled = true
+                    }
+                    if let selectionMode, let tag, !row.selectionDisabled {
                         row = Self.selectableRow(
                             wrapping: row,
                             tag: tag,

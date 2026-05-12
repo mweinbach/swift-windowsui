@@ -219,6 +219,8 @@ final class ComponentHostTests: XCTestCase {
                     node.listItemTint = useSecondState
                         ? RetainedListItemTint(color: Color(red: 0.4, green: 0.6, blue: 0.9, alpha: 1), kind: .preferred)
                         : RetainedListItemTint(color: nil, kind: .monochrome)
+                    node.selectionDisabled = !useSecondState
+                    node.selectionDisabledOverride = !useSecondState
                     node.zIndex = zIndex
                     node.layoutConstraints = layoutConstraints
                     node.fixedSizeAxes = fixedSizeAxes
@@ -298,6 +300,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .hidden, edges: .bottom))
             XCTAssertEqual(firstNode?.listSectionSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .bottom))
             XCTAssertEqual(firstNode?.listItemTint, RetainedListItemTint(color: nil, kind: .monochrome))
+            XCTAssertEqual(firstNode?.selectionDisabled, true)
+            XCTAssertEqual(firstNode?.selectionDisabledOverride, true)
             XCTAssertEqual(firstNode?.zIndex, 2)
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
@@ -410,6 +414,8 @@ final class ComponentHostTests: XCTestCase {
                 reusedNode?.listItemTint,
                 RetainedListItemTint(color: Color(red: 0.4, green: 0.6, blue: 0.9, alpha: 1), kind: .preferred)
             )
+            XCTAssertEqual(reusedNode?.selectionDisabled, false)
+            XCTAssertEqual(reusedNode?.selectionDisabledOverride, false)
             XCTAssertEqual(reusedNode?.zIndex, 9)
             XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))

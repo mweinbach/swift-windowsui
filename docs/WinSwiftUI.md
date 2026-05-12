@@ -428,6 +428,7 @@ Modifiers:
 - `listRowSeparatorTint`
 - `listSectionSeparator`
 - `listSectionSeparatorTint`
+- `selectionDisabled`
 - `listRowSpacing`
 - `listStyle`
 - `headerProminence`
@@ -753,6 +754,7 @@ Surface direction:
 - `badge(_:)` accepts integer, optional string, optional localized key, and optional `Text` badges, then maps visible badges to retained trailing badge chrome. Integer `0` and `nil` optional badges preserve the base row unchanged. `badgeProminence(_:)` propagates `EnvironmentValues.badgeProminence` and maps `.decreased`, `.standard`, and `.increased` to retained badge colors.
 - `listRowBackground(_:)` accepts optional retained views, colors, gradients, and stored foreground styles. Color and gradient inputs wrap the row in a retained background panel; view inputs are layered behind the row and stretched to the row bounds.
 - `listItemTint(_:)` accepts optional `Color` and `ListItemTint` values including `.fixed`, `.preferred`, and `.monochrome`, stores retained list-item tint metadata, and propagates the effective tint through retained list text/label content. Platform-specific sidebar icon-only and watchOS platter semantics are not modeled yet.
+- `selectionDisabled(_:)` stores retained row selection metadata and prevents affected rows in retained selectable `List` containers from receiving selection chrome or activation handlers. Parent selection disabling propagates through list rows, and explicit `selectionDisabled(false)` on a row re-enables that row.
 - `listRowInsets(_:)` and `listRowInsets(_:_:)` map to retained row padding wrappers. Passing `nil` preserves the row unchanged.
 - `listRowSpacing(_:)` maps optional row spacing to the retained `List` stack layout. Passing `nil` restores the retained default spacing of `0`.
 - `EnvironmentValues.defaultMinListRowHeight` maps to retained minimum-height constraints on direct `List` rows, preserving stronger row constraints.

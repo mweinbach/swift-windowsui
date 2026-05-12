@@ -2813,6 +2813,7 @@ public struct EnvironmentValues: @unchecked Sendable {
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
     public var isScrollEnabled: Bool
+    var isSelectionDisabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
     public var isFocusEffectEnabled: Bool
@@ -2939,6 +2940,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
         isScrollEnabled: Bool = true,
+        isSelectionDisabled: Bool = false,
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
         isFocusEffectEnabled: Bool = true,
@@ -3073,6 +3075,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
         self.isScrollEnabled = isScrollEnabled
+        self.isSelectionDisabled = isSelectionDisabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
         self.isFocusEffectEnabled = isFocusEffectEnabled
@@ -4626,6 +4629,10 @@ public struct ViewBuildContext {
 
     public var listItemTint: ListItemTint? {
         environmentValuesProvider().listItemTint
+    }
+
+    var isSelectionDisabled: Bool {
+        environmentValuesProvider().isSelectionDisabled
     }
 
     public var textInputAutocapitalization: TextInputAutocapitalization? {
@@ -16103,6 +16110,20 @@ public extension View {
     func disabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnabled(!disabled))
+        }
+    }
+
+    func selectionDisabled(_ isDisabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(
+                context: context.withEnvironmentValue(\.isSelectionDisabled, isDisabled)
+            )
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.selectionDisabled = isDisabled
+                node.selectionDisabledOverride = isDisabled
+                return node
+            }
         }
     }
 

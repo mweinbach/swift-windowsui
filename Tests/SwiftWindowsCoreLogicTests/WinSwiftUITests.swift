@@ -6937,6 +6937,45 @@ final class WinSwiftUITests: XCTestCase {
         }
     }
 
+    func testSelectionDisabledPreventsRetainedListRowSelection() async {
+        await MainActor.run {
+            var selected: String? = "one"
+            var didInvalidate = false
+            let selection = Binding<String?>(
+                get: { selected },
+                set: { selected = $0 }
+            )
+
+            let node = makeNode(
+                List(selection: selection) {
+                    Text("ONE").tag("one")
+                    Text("TWO").tag("two")
+                        .selectionDisabled()
+                    Text("THREE").tag("three")
+                        .selectionDisabled(false)
+                }
+                .selectionDisabled(),
+                onInvalidate: {
+                    didInvalidate = true
+                }
+            )
+
+            XCTAssertEqual(node.children[0].text, "ONE")
+            XCTAssertTrue(node.children[0].selectionDisabled)
+            XCTAssertNil(node.children[0].onActivate)
+            XCTAssertEqual(node.children[1].text, "TWO")
+            XCTAssertTrue(node.children[1].selectionDisabled)
+            XCTAssertNil(node.children[1].onActivate)
+
+            XCTAssertFalse(node.children[2].selectionDisabled)
+            XCTAssertEqual(node.children[2].children[0].text, "THREE")
+            node.children[2].onActivate?()
+
+            XCTAssertEqual(selected, "three")
+            XCTAssertTrue(didInvalidate)
+        }
+    }
+
     func testListRequiredRangeSelectionWritesIntegerIndex() async {
         await MainActor.run {
             var selected = 1

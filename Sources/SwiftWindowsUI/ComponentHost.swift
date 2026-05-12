@@ -151,6 +151,8 @@ public final class ComponentHost {
         if target.listSectionSeparator != source.listSectionSeparator { target.listSectionSeparator = source.listSectionSeparator }
         if target.listSectionSeparatorTint != source.listSectionSeparatorTint { target.listSectionSeparatorTint = source.listSectionSeparatorTint }
         if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
+        if target.selectionDisabled != source.selectionDisabled { target.selectionDisabled = source.selectionDisabled }
+        if target.selectionDisabledOverride != source.selectionDisabledOverride { target.selectionDisabledOverride = source.selectionDisabledOverride }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.transform != source.transform { target.transform = source.transform }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }

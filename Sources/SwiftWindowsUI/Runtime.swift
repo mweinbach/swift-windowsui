@@ -1049,6 +1049,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var selectionDisabled: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var selectionDisabledOverride: Bool? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     // Gap/Fix: Z-index for sibling sort order.
     // NOTE: zIndex only sorts among siblings within the same parent.
     // For cross-subtree ordering (e.g. modals, overlays), add the view
@@ -1449,6 +1457,8 @@ public final class ViewNode {
         listSectionSeparator: RetainedListSectionSeparator? = nil,
         listSectionSeparatorTint: RetainedListSeparatorTint? = nil,
         listItemTint: RetainedListItemTint? = nil,
+        selectionDisabled: Bool = false,
+        selectionDisabledOverride: Bool? = nil,
         zIndex: Double = 0,
         transform: Transform2D = .identity,
         scrollAxis: ScrollAxis? = nil,
@@ -1553,6 +1563,8 @@ public final class ViewNode {
         self.listSectionSeparator = listSectionSeparator
         self.listSectionSeparatorTint = listSectionSeparatorTint
         self.listItemTint = listItemTint
+        self.selectionDisabled = selectionDisabled
+        self.selectionDisabledOverride = selectionDisabledOverride
         self.zIndex = zIndex
         self.transform = transform
         self.scrollAxis = scrollAxis

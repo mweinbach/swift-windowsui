@@ -135,6 +135,36 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testCompositingGroupOffscreenPaintDoesNotPoisonChildSceneCache() async {
+        await MainActor.run {
+            let child = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 32, height: 32),
+                backgroundColor: .red
+            )
+            let group = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 40, height: 40),
+                isCompositingGroup: true,
+                children: [child]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 80),
+                children: [group]
+            )
+            let runtime = RetainedViewRuntime(root: root)
+
+            let groupedScene = runtime.renderScene()
+
+            XCTAssertEqual(groupedScene.layers.flatMap(\.images).count, 1)
+            XCTAssertNil(child.cachedScenePaintRange)
+
+            group.isCompositingGroup = false
+            let ungroupedScene = runtime.renderScene()
+
+            XCTAssertEqual(ungroupedScene.layers.flatMap(\.images).count, 0)
+            XCTAssertEqual(ungroupedScene.layers.flatMap(\.quads).count, 1)
+        }
+    }
+
     func testRenderSceneUsesRootFrameForSurfaceSize() async {
         await MainActor.run {
             let root = ViewNode(

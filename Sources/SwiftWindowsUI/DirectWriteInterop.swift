@@ -36,6 +36,7 @@ let dwriteMeasuringModeNatural: DWriteMeasuringMode = 0
 let dwriteReadingDirectionLeftToRight: DWriteReadingDirection = 0
 let dwriteFlowDirectionTopToBottom: DWriteFlowDirection = 0
 let dwriteLineSpacingMethodDefault: DWriteLineSpacingMethod = 0
+let dwriteLineSpacingMethodUniform: DWriteLineSpacingMethod = 1
 let dwriteLineSpacingMethodProportional: DWriteLineSpacingMethod = 2
 let dwriteFontFeatureTagKerning: DWriteFontFeatureTag = 0x6E72_656B
 let dwriteFontFeatureTagSmallCapitals: DWriteFontFeatureTag = 0x7063_6D73

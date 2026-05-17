@@ -30,6 +30,10 @@ let package = Package(
             name: "swift-windowsui-snapshot",
             targets: ["swift-windowsui-snapshot"]
         ),
+        .executable(
+            name: "swift-windowsui-gallery",
+            targets: ["swift-windowsui-gallery"]
+        ),
     ],
     targets: [
         .target(
@@ -43,7 +47,7 @@ let package = Package(
             name: "CDirect2DInterop",
             publicHeadersPath: "include",
             linkerSettings: [
-                .linkedLibrary("D2d1"),
+                .linkedLibrary("D2d1")
             ]
         ),
         .target(
@@ -62,7 +66,7 @@ let package = Package(
             name: "SwiftWindowsRendererD3D11",
             dependencies: ["SwiftWindowsCore", "SwiftWindowsGraphics", "CDirect2DInterop"],
             linkerSettings: [
-                .linkedLibrary("D3DCompiler"),
+                .linkedLibrary("D3DCompiler")
             ]
         ),
         .target(
@@ -93,13 +97,13 @@ let package = Package(
                 "SwiftWindowsRendererD3D11",
             ],
             linkerSettings: [
-                .linkedLibrary("Shell32"),
+                .linkedLibrary("Shell32")
             ]
         ),
         .target(
             name: "SwiftWindowsDemo",
             dependencies: [
-                "WinSwiftUI",
+                "WinSwiftUI"
             ]
         ),
         .executableTarget(
@@ -111,6 +115,15 @@ let package = Package(
         ),
         .executableTarget(
             name: "swift-windowsui-snapshot",
+            dependencies: [
+                "SwiftWindowsCore",
+                "SwiftWindowsDemo",
+                "SwiftWindowsGraphics",
+                "WinSwiftUI",
+            ]
+        ),
+        .executableTarget(
+            name: "swift-windowsui-gallery",
             dependencies: [
                 "SwiftWindowsCore",
                 "SwiftWindowsDemo",

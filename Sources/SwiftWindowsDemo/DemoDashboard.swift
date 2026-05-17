@@ -213,7 +213,7 @@ struct DemoSidebar: View {
                 VStack(alignment: .leading, spacing: 14) {
                     DemoSectionTitle("WORKSPACE")
 
-                    for module in DemoModule.allCases {
+                    ForEach(DemoModule.allCases, id: \.self) { module in
                         DemoModuleButton(
                             systemImage: module.systemImage,
                             title: module.label,
@@ -299,7 +299,7 @@ struct DemoCenterPane: View {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoSectionTitle("ACTIVITY")
 
-                        for event in model.recentEvents.prefix(5) {
+                        ForEach(model.recentEvents.prefix(5), id: \.self) { event in
                             DemoActivityCard(
                                 title: event,
                                 detail: model.selectedModule.detailLine,
@@ -327,7 +327,7 @@ struct DemoRightRail: View {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoSectionTitle("DETAIL TRACK")
 
-                        for card in model.selectedModule.cards {
+                        ForEach(model.selectedModule.cards, id: \.title) { card in
                             DemoInfoCard(card: card)
                         }
                     }
@@ -338,7 +338,7 @@ struct DemoRightRail: View {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoSectionTitle("QUICK ACTIONS")
 
-                        for action in model.selectedModule.actions {
+                        ForEach(model.selectedModule.actions, id: \.title) { action in
                             DemoRowButton(
                                 title: action.title,
                                 detail: action.caption,
@@ -929,16 +929,18 @@ struct DemoAction {
     let eventLabel: String
 }
 
-enum DemoModule: CaseIterable {
+enum DemoModule: CaseIterable, Hashable {
     case layout
     case input
     case animation
+    case controls
 
     var label: String {
         switch self {
         case .layout: return "LAYOUT"
         case .input: return "INPUT"
         case .animation: return "ANIMATION"
+        case .controls: return "CONTROLS"
         }
     }
 
@@ -948,6 +950,7 @@ enum DemoModule: CaseIterable {
         case .layout: return "PURE SWIFT LAYOUT CORE"
         case .input: return "POINTER AND KEYBOARD ROUTING"
         case .animation: return "FRAME-DRIVEN UI MOTION"
+        case .controls: return "NATIVE CONTROL GALLERY"
         }
     }
 
@@ -956,6 +959,7 @@ enum DemoModule: CaseIterable {
         case .layout: return "RESPONSIVE COMPOSITION AND PANEL STRUCTURE"
         case .input: return "HOVER, PRESS, FOCUS, AND SCROLL ROUTING"
         case .animation: return "FRAME-TIMED STATE TRANSITIONS AND CHROME"
+        case .controls: return "TOGGLE, SLIDER, STEPPER, AND INPUT RENDERING"
         }
     }
 
@@ -964,6 +968,7 @@ enum DemoModule: CaseIterable {
         case .layout: return "STACK  SCROLL  CLIP  INTRINSIC"
         case .input: return "HOVER  PRESS  FOCUS  ACTIVATE"
         case .animation: return "TIMERS  PALETTES  STATE  REDRAW"
+        case .controls: return "TOGGLE  SLIDER  STEP  PICK"
         }
     }
 
@@ -972,6 +977,7 @@ enum DemoModule: CaseIterable {
         case .layout: return "rectangle.3.group"
         case .input: return "keyboard"
         case .animation: return "sparkles"
+        case .controls: return "switch.2"
         }
     }
 
@@ -980,6 +986,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.42, green: 0.68, blue: 0.96, opacity: 0.94)
         case .input: return Color(red: 0.36, green: 0.80, blue: 0.74, opacity: 0.94)
         case .animation: return Color(red: 1.0, green: 0.69, blue: 0.44, opacity: 0.96)
+        case .controls: return Color(red: 0.72, green: 0.48, blue: 0.96, opacity: 0.94)
         }
     }
 
@@ -988,6 +995,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.58, green: 0.80, blue: 1.0, opacity: 0.90)
         case .input: return Color(red: 0.56, green: 0.88, blue: 0.82, opacity: 0.90)
         case .animation: return Color(red: 1.0, green: 0.80, blue: 0.54, opacity: 0.92)
+        case .controls: return Color(red: 0.82, green: 0.62, blue: 1.0, opacity: 0.90)
         }
     }
 
@@ -996,6 +1004,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.19, green: 0.25, blue: 0.38, opacity: 0.84)
         case .input: return Color(red: 0.16, green: 0.28, blue: 0.30, opacity: 0.84)
         case .animation: return Color(red: 0.31, green: 0.24, blue: 0.18, opacity: 0.84)
+        case .controls: return Color(red: 0.28, green: 0.20, blue: 0.36, opacity: 0.84)
         }
     }
 
@@ -1004,6 +1013,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.30, green: 0.40, blue: 0.58, opacity: 0.98)
         case .input: return Color(red: 0.24, green: 0.42, blue: 0.44, opacity: 0.98)
         case .animation: return Color(red: 0.46, green: 0.36, blue: 0.26, opacity: 0.98)
+        case .controls: return Color(red: 0.44, green: 0.32, blue: 0.58, opacity: 0.98)
         }
     }
 
@@ -1012,6 +1022,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.18, green: 0.24, blue: 0.37, opacity: 0.84)
         case .input: return Color(red: 0.15, green: 0.25, blue: 0.29, opacity: 0.84)
         case .animation: return Color(red: 0.26, green: 0.21, blue: 0.18, opacity: 0.84)
+        case .controls: return Color(red: 0.24, green: 0.18, blue: 0.34, opacity: 0.84)
         }
     }
 
@@ -1020,6 +1031,7 @@ enum DemoModule: CaseIterable {
         case .layout: return Color(red: 0.11, green: 0.16, blue: 0.27, opacity: 0.68)
         case .input: return Color(red: 0.10, green: 0.18, blue: 0.22, opacity: 0.68)
         case .animation: return Color(red: 0.18, green: 0.15, blue: 0.13, opacity: 0.68)
+        case .controls: return Color(red: 0.17, green: 0.13, blue: 0.24, opacity: 0.68)
         }
     }
 
@@ -1040,6 +1052,11 @@ enum DemoModule: CaseIterable {
                 DemoCard(title: "TICK DRIVER", summary: "WINDOW ANIMATION FRAMES ADVANCE COLOR TRANSITIONS", meta: "ONLY WHEN ACTIVE", accent: glowColor),
                 DemoCard(title: "FRAME CACHE", summary: "UNCHANGED UI REUSES THE LAST RENDER FRAME UNTIL INVALIDATED", meta: "RETENTION REDRAWS", accent: stripeColor),
             ]
+        case .controls:
+            return [
+                DemoCard(title: "TOGGLE AND SLIDER", summary: "INTERACTIVE BINDING-DRIVEN CONTROLS", meta: "HIT-TEST AND FOCUS", accent: glowColor),
+                DemoCard(title: "TEXT INPUT", summary: "TEXTFIELD AND TEXTEDITOR WITH STATE", meta: "KEYBOARD ROUTING", accent: stripeColor),
+            ]
         }
     }
 
@@ -1059,6 +1076,11 @@ enum DemoModule: CaseIterable {
             return [
                 DemoAction(title: "Play Motion", caption: "RETRIGGER THE STATUS CYCLE", systemImage: "sparkles", eventLabel: "MOTION LOOP STARTED"),
                 DemoAction(title: "Inspect Ticks", caption: "FOLLOW RUNTIME INVALIDATION", systemImage: "bolt.fill", eventLabel: "TICK INSPECTOR OPENED"),
+            ]
+        case .controls:
+            return [
+                DemoAction(title: "Toggle Demo", caption: "SWITCH STATES AND BINDINGS", systemImage: "switch.2", eventLabel: "TOGGLE DEMO OPENED"),
+                DemoAction(title: "Input Forms", caption: "TEXT AND PICKER LAYOUT", systemImage: "textformat", eventLabel: "INPUT FORM OPENED"),
             ]
         }
     }

@@ -49,6 +49,14 @@ public struct SurfacePalette: Sendable {
         self.disabledBorder = disabledBorder
         self.errorBorder = errorBorder
     }
+
+    public static let `default` = SurfacePalette(
+        idle: Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92),
+        hovered: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.92),
+        focused: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.92),
+        pressed: Color(red: 0.06, green: 0.08, blue: 0.12, alpha: 0.92),
+        activated: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.92)
+    )
 }
 
 public enum BorderStyle: Sendable, Equatable {
@@ -177,6 +185,14 @@ public struct SurfaceChrome: Sendable {
         shadowOffset: Point(x: 0, y: 16),
         shadowSpread: 10
     )
+
+    public static let `default` = SurfaceChrome(
+        borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+        borderWidth: 1,
+        cornerRadii: CornerRadii(uniform: 8),
+        focusRingColor: Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.50),
+        focusRingWidth: 2
+    )
 }
 
 public enum SplitAxis: Sendable {
@@ -209,11 +225,11 @@ public enum Controls {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
-        borderGradient: LinearGradient? = nil,
+        borderGradient: GradientType? = nil,
         borderWidth: Double = 0,
         outlineColor: Color = .clear,
         outlineWidth: Double = 0,
@@ -255,11 +271,11 @@ public enum Controls {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
-        borderGradient: LinearGradient? = nil,
+        borderGradient: GradientType? = nil,
         borderWidth: Double = 0,
         shadowColor: Color = .clear,
         shadowOffset: Point = .zero,
@@ -464,7 +480,7 @@ public enum Controls {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.09, green: 0.12, blue: 0.19, alpha: 0.76),
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.11),
         shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.18),
         cornerRadius: Double = 28,
@@ -502,7 +518,7 @@ public enum Controls {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78),
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
         shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
         cornerRadius: Double = 28,

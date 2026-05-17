@@ -36,6 +36,8 @@ public struct Component {
         copy.key = key
         return copy
     }
+
+    public static let empty = Component { _ in ViewNode() }
 }
 
 @resultBuilder
@@ -80,7 +82,7 @@ public enum UI {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
@@ -123,7 +125,7 @@ public enum UI {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = .clear,
         borderWidth: Double = 0,
         shadowColor: Color = .clear,
@@ -246,7 +248,7 @@ public enum UI {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
         shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.22),
         cornerRadius: Double = 22,
@@ -283,7 +285,7 @@ public enum UI {
         preferredSize: Size? = nil,
         layoutPriority: Double = 0,
         backgroundColor: Color = Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
         shadowColor: Color = Color(red: 0.01, green: 0.03, blue: 0.06, alpha: 0.24),
         cornerRadius: Double = 24,
@@ -483,5 +485,39 @@ public enum UI {
                 action: action
             )
         }
+    }
+
+    public static func canvas(
+        frame: Rect = .zero,
+        preferredSize: Size? = nil,
+        layoutPriority: Double = 0,
+        renderer: @escaping @MainActor (inout CanvasGraphicsContext, Size) -> Void
+    ) -> Component {
+        Component { _ in
+            ViewNode(
+                frame: frame,
+                canvasDraw: renderer,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority
+            )
+        }
+    }
+}
+
+extension Component {
+    public func transform(_ transform: Transform2D) -> Component {
+        Component(key: key) { runtime in
+            let node = self.makeNode(runtime: runtime)
+            node.transform = transform
+            return node
+        }
+    }
+
+    public func offset(x: Double = 0, y: Double = 0) -> Component {
+        transform(Transform2D.translation(x: x, y: y))
+    }
+
+    public func scaleEffect(x: Double = 1, y: Double = 1) -> Component {
+        transform(Transform2D.scale(x: x, y: y))
     }
 }

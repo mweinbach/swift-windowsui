@@ -64,13 +64,16 @@ public enum RetainedVerticalAlignment: Sendable, Equatable, Hashable {
 public struct RetainedViewMask: Sendable, Equatable, Hashable {
     public var horizontal: RetainedHorizontalAlignment
     public var vertical: RetainedVerticalAlignment
+    public var isInverse: Bool
 
     public init(
         horizontal: RetainedHorizontalAlignment = .center,
-        vertical: RetainedVerticalAlignment = .center
+        vertical: RetainedVerticalAlignment = .center,
+        isInverse: Bool = false
     ) {
         self.horizontal = horizontal
         self.vertical = vertical
+        self.isInverse = isInverse
     }
 }
 
@@ -78,6 +81,11 @@ public enum RetainedListSeparatorVisibility: Sendable, Equatable, Hashable {
     case automatic
     case visible
     case hidden
+}
+
+public enum RetainedListRowHoverStyle: Sendable, Equatable, Hashable {
+    case automatic
+    case disabled
 }
 
 public struct RetainedListSeparatorEdges: OptionSet, Sendable, Equatable, Hashable {
@@ -118,6 +126,26 @@ public struct RetainedListSectionSeparator: Sendable, Equatable, Hashable {
     }
 }
 
+public struct RetainedAlternatingRowBackgrounds: Sendable, Equatable, Hashable {
+    public var visibility: RetainedListSeparatorVisibility
+
+    public init(visibility: RetainedListSeparatorVisibility = .automatic) {
+        self.visibility = visibility
+    }
+}
+
+public struct RetainedNavigationSplitViewColumnWidth: Sendable, Equatable {
+    public var min: Double?
+    public var ideal: Double
+    public var max: Double?
+
+    public init(min: Double? = nil, ideal: Double, max: Double? = nil) {
+        self.min = min
+        self.ideal = ideal
+        self.max = max
+    }
+}
+
 public struct RetainedListSeparatorTint: Sendable, Equatable {
     public var color: Color?
     public var edges: RetainedListSeparatorEdges
@@ -128,6 +156,33 @@ public struct RetainedListSeparatorTint: Sendable, Equatable {
     ) {
         self.color = color
         self.edges = edges
+    }
+}
+
+@MainActor
+public struct RetainedSwipeAction: @unchecked Sendable {
+    public var title: String
+    public var isDestructive: Bool
+    public var action: (@MainActor () -> Void)?
+
+    public init(
+        title: String,
+        isDestructive: Bool = false,
+        action: (@MainActor () -> Void)? = nil
+    ) {
+        self.title = title
+        self.isDestructive = isDestructive
+        self.action = action
+    }
+}
+
+public struct RetainedEditActions: Sendable, Equatable {
+    public var containsDelete: Bool
+    public var containsMove: Bool
+
+    public init(_ actions: EditActions) {
+        self.containsDelete = actions.contains(.delete)
+        self.containsMove = actions.contains(.move)
     }
 }
 
@@ -147,6 +202,82 @@ public struct RetainedListItemTint: Sendable, Equatable {
     ) {
         self.color = color
         self.kind = kind
+    }
+}
+
+public struct RetainedFileExporterConfiguration {
+    public var isPresented: Binding<Bool>
+    public var document: Any?
+    public var documents: [Any]?
+    public var contentType: UTType
+    public var defaultFilename: String?
+    public var onCompletion: (Result<URL, Error>) -> Void
+
+    public init(
+        isPresented: Binding<Bool>,
+        document: Any? = nil,
+        documents: [Any]? = nil,
+        contentType: UTType,
+        defaultFilename: String? = nil,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        self.isPresented = isPresented
+        self.document = document
+        self.documents = documents
+        self.contentType = contentType
+        self.defaultFilename = defaultFilename
+        self.onCompletion = onCompletion
+    }
+}
+
+public struct RetainedFileImporterConfiguration {
+    public var isPresented: Binding<Bool>
+    public var allowedContentTypes: [UTType]
+    public var onCompletion: (Result<URL, Error>) -> Void
+
+    public init(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        self.isPresented = isPresented
+        self.allowedContentTypes = allowedContentTypes
+        self.onCompletion = onCompletion
+    }
+}
+
+public struct RetainedFileImporterMultiConfiguration {
+    public var isPresented: Binding<Bool>
+    public var allowedContentTypes: [UTType]
+    public var allowsMultipleSelection: Bool
+    public var onCompletion: (Result<[URL], Error>) -> Void
+
+    public init(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool,
+        onCompletion: @escaping (Result<[URL], Error>) -> Void
+    ) {
+        self.isPresented = isPresented
+        self.allowedContentTypes = allowedContentTypes
+        self.allowsMultipleSelection = allowsMultipleSelection
+        self.onCompletion = onCompletion
+    }
+}
+
+public struct RetainedFileMoverConfiguration {
+    public var isPresented: Binding<Bool>
+    public var file: URL
+    public var onCompletion: (Result<URL, Error>) -> Void
+
+    public init(
+        isPresented: Binding<Bool>,
+        file: URL,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) {
+        self.isPresented = isPresented
+        self.file = file
+        self.onCompletion = onCompletion
     }
 }
 
@@ -251,6 +382,42 @@ public enum RetainedHoverEffect: Sendable, Equatable {
     case lift
 }
 
+public enum RetainedPointerStyle: Sendable, Equatable {
+    case automatic
+    case arrow
+    case pointingHand
+    case iBeam
+    case openHand
+    case closedHand
+    case resizeLeftRight
+    case resizeUpDown
+    case resizeAllDirections
+    case crosshair
+    case disappearingItem
+    case operationNotAllowed
+    case dragLink
+    case dragCopy
+    case contextMenu
+}
+
+public enum RetainedWindowDragInteraction: Sendable, Equatable {
+    case automatic
+    case disabled
+    case enabled
+}
+
+public enum RetainedWindowResizeInteraction: Sendable, Equatable {
+    case automatic
+    case disabled
+    case enabled
+}
+
+public enum RetainedWindowInteractionBehavior: Sendable, Equatable {
+    case automatic
+    case enabled
+    case disabled
+}
+
 public enum RetainedImageResizingMode: Sendable, Equatable {
     case stretch
     case tile
@@ -312,6 +479,31 @@ public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
     }
 }
 
+public struct RetainedMatchedTransitionSource: Sendable, Equatable {
+    public var namespaceID: String
+    public var elementID: String
+
+    public init(namespaceID: String, elementID: String) {
+        self.namespaceID = namespaceID
+        self.elementID = elementID
+    }
+}
+
+public enum RetainedNavigationTransitionKind: Sendable, Equatable {
+    case zoom(namespaceID: String, elementID: String)
+    case slide
+    case fade
+    case automatic
+}
+
+public struct RetainedNavigationTransition: Sendable, Equatable {
+    public var kind: RetainedNavigationTransitionKind
+
+    public init(kind: RetainedNavigationTransitionKind) {
+        self.kind = kind
+    }
+}
+
 public struct RetainedClipFillStyle: Sendable, Equatable {
     public var eoFill: Bool
     public var antialiased: Bool
@@ -335,6 +527,7 @@ public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public static let focusEffect = RetainedContentShapeKinds(rawValue: 1 << 3)
     public static let hoverEffect = RetainedContentShapeKinds(rawValue: 1 << 4)
     public static let accessibility = RetainedContentShapeKinds(rawValue: 1 << 5)
+    public static let container = RetainedContentShapeKinds(rawValue: 1 << 6)
 }
 
 public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
@@ -373,6 +566,34 @@ public enum RetainedAccessibilityActionKind: Sendable, Equatable {
     case magicTap
     case increment
     case decrement
+    case adjustable
+    case zoomIn
+    case zoomOut
+}
+
+public enum RetainedAccessibilityHeadingLevel: Sendable, Equatable, Hashable {
+    case unspecified
+    case h1
+    case h2
+    case h3
+    case h4
+    case h5
+    case h6
+}
+
+public enum RetainedAccessibilityTextualContext: Sendable, Equatable, Hashable {
+    case sourceCode
+    case console
+    case narrative
+    case message
+    case spreadsheet
+    case wordProcessing
+}
+
+public enum RetainedAccessibilityDirectTouchOptions: Sendable, Equatable {
+    case disabled
+    case enabled
+    case custom(identifier: String)
 }
 
 public enum RetainedTextSelectability: Sendable, Equatable {
@@ -475,6 +696,28 @@ public struct RetainedAccessibilityAction {
     }
 }
 
+public struct RetainedAccessibilityRotor: Sendable, Equatable {
+    public var label: String
+    public var entries: [String]
+
+    public init(label: String, entries: [String] = []) {
+        self.label = label
+        self.entries = entries
+    }
+}
+
+public struct RetainedAccessibilityCustomContent: Sendable, Equatable {
+    public var label: String
+    public var value: String
+    public var importance: Int // 0 = default, 1 = high
+
+    public init(label: String, value: String, importance: Int = 0) {
+        self.label = label
+        self.value = value
+        self.importance = importance
+    }
+}
+
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
@@ -518,15 +761,18 @@ public struct RetainedContentShape: Sendable, Equatable {
     public var kinds: RetainedContentShapeKinds
     public var style: RetainedContentShapeStyle
     public var eoFill: Bool
+    public var mask: Bool
 
     public init(
         kinds: RetainedContentShapeKinds,
         style: RetainedContentShapeStyle,
-        eoFill: Bool = false
+        eoFill: Bool = false,
+        mask: Bool = false
     ) {
         self.kinds = kinds
         self.style = style
         self.eoFill = eoFill
+        self.mask = mask
     }
 }
 
@@ -543,6 +789,28 @@ public struct ViewLifecycleTaskLaunch {
         self.key = key
         self.priority = priority
         self.action = action
+    }
+}
+
+public struct PhaseAnimatorState: Sendable {
+    public var phasesSignature: String
+    public var triggerDescription: String?
+    public var currentPhaseIndex: Int
+    public var previousTrigger: String?
+    public var phaseStartTime: Double
+
+    public init(
+        phasesSignature: String,
+        triggerDescription: String? = nil,
+        currentPhaseIndex: Int = 0,
+        previousTrigger: String? = nil,
+        phaseStartTime: Double = 0
+    ) {
+        self.phasesSignature = phasesSignature
+        self.triggerDescription = triggerDescription
+        self.currentPhaseIndex = currentPhaseIndex
+        self.previousTrigger = previousTrigger
+        self.phaseStartTime = phaseStartTime
     }
 }
 
@@ -613,12 +881,28 @@ public enum RetainedPresentationAdaptation: Sendable, Equatable {
     case fullScreenCover
 }
 
+public enum RetainedPresentationSizing: Sendable, Equatable {
+    case automatic
+    case fitted
+    case page
+    case form
+    case fittedHorizontal
+    case fittedVertical
+}
+
+public enum RetainedDialogSeverity: Sendable, Equatable {
+    case standard
+    case critical
+}
+
 public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasBackgroundOverride: Bool
     public var backgroundColor: Color?
-    public var backgroundGradient: LinearGradient?
+    public var backgroundGradient: GradientType?
     public var hasCornerRadiusOverride: Bool
     public var cornerRadius: Double?
+    public var hasDragCornerRadiusOverride: Bool
+    public var dragCornerRadius: Double?
     public var hasDragIndicatorOverride: Bool
     public var showsDragIndicator: Bool
     public var hasDetentsOverride: Bool
@@ -633,13 +917,23 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasCompactAdaptationOverride: Bool
     public var horizontalCompactAdaptation: RetainedPresentationAdaptation
     public var verticalCompactAdaptation: RetainedPresentationAdaptation
+    public var hasSizingOverride: Bool
+    public var sizing: RetainedPresentationSizing
+    public var hasEdgeAttachedOverride: Bool
+    public var isEdgeAttached: Bool
+    public var hasIsModalOverride: Bool
+    public var isModal: Bool
+    public var hasDialogSeverityOverride: Bool
+    public var dialogSeverity: RetainedDialogSeverity
 
     public init(
         hasBackgroundOverride: Bool = false,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         hasCornerRadiusOverride: Bool = false,
         cornerRadius: Double? = nil,
+        hasDragCornerRadiusOverride: Bool = false,
+        dragCornerRadius: Double? = nil,
         hasDragIndicatorOverride: Bool = false,
         showsDragIndicator: Bool = false,
         hasDetentsOverride: Bool = false,
@@ -653,13 +947,23 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         contentInteraction: RetainedPresentationContentInteraction = .automatic,
         hasCompactAdaptationOverride: Bool = false,
         horizontalCompactAdaptation: RetainedPresentationAdaptation = .automatic,
-        verticalCompactAdaptation: RetainedPresentationAdaptation = .automatic
+        verticalCompactAdaptation: RetainedPresentationAdaptation = .automatic,
+        hasSizingOverride: Bool = false,
+        sizing: RetainedPresentationSizing = .automatic,
+        hasEdgeAttachedOverride: Bool = false,
+        isEdgeAttached: Bool = false,
+        hasIsModalOverride: Bool = false,
+        isModal: Bool = false,
+        hasDialogSeverityOverride: Bool = false,
+        dialogSeverity: RetainedDialogSeverity = .standard
     ) {
         self.hasBackgroundOverride = hasBackgroundOverride
         self.backgroundColor = backgroundColor
         self.backgroundGradient = backgroundGradient
         self.hasCornerRadiusOverride = hasCornerRadiusOverride
         self.cornerRadius = cornerRadius
+        self.hasDragCornerRadiusOverride = hasDragCornerRadiusOverride
+        self.dragCornerRadius = dragCornerRadius
         self.hasDragIndicatorOverride = hasDragIndicatorOverride
         self.showsDragIndicator = showsDragIndicator
         self.hasDetentsOverride = hasDetentsOverride
@@ -674,9 +978,173 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
         self.hasCompactAdaptationOverride = hasCompactAdaptationOverride
         self.horizontalCompactAdaptation = horizontalCompactAdaptation
         self.verticalCompactAdaptation = verticalCompactAdaptation
+        self.hasSizingOverride = hasSizingOverride
+        self.sizing = sizing
+        self.hasEdgeAttachedOverride = hasEdgeAttachedOverride
+        self.isEdgeAttached = isEdgeAttached
+        self.hasIsModalOverride = hasIsModalOverride
+        self.isModal = isModal
+        self.hasDialogSeverityOverride = hasDialogSeverityOverride
+        self.dialogSeverity = dialogSeverity
     }
 
     public static let empty = RetainedPresentationChrome()
+}
+
+public struct RetainedContentTransition: Sendable, Equatable, Hashable {
+    public enum Kind: String, Sendable, Equatable, Hashable {
+        case identity
+        case interpolate
+        case numericTextCountsDown
+        case numericTextValue
+        case opacity
+        case symbolEffect
+    }
+
+    public var kind: Kind
+    public var numericTextCountsDown: Bool
+    public var numericTextValue: Double?
+
+    public init(
+        kind: Kind,
+        numericTextCountsDown: Bool = false,
+        numericTextValue: Double? = nil
+    ) {
+        self.kind = kind
+        self.numericTextCountsDown = numericTextCountsDown
+        self.numericTextValue = numericTextValue
+    }
+
+    public static let identity = RetainedContentTransition(kind: .identity)
+    public static let interpolate = RetainedContentTransition(kind: .interpolate)
+    public static let opacity = RetainedContentTransition(kind: .opacity)
+}
+
+public struct RetainedSensoryFeedback: Sendable, Equatable, Hashable {
+    public enum Kind: String, Sendable, Equatable, Hashable {
+        case alignment
+        case decrease
+        case error
+        case impact
+        case impactFlexibility
+        case impactWeight
+        case increase
+        case levelChange
+        case pathComplete
+        case press
+        case release
+        case selection
+        case selectionFeedback
+        case start
+        case stop
+        case success
+        case warning
+    }
+
+    public enum FlexibilityKind: String, Sendable, Equatable, Hashable {
+        case rigid
+        case solid
+        case soft
+    }
+
+    public enum WeightKind: String, Sendable, Equatable, Hashable {
+        case light
+        case medium
+        case heavy
+    }
+
+    public enum PressKind: String, Sendable, Equatable, Hashable {
+        case `default`
+        case depth
+        case start
+    }
+
+    public enum ReleaseKind: String, Sendable, Equatable, Hashable {
+        case `default`
+        case stop
+    }
+
+    public enum SelectionKind: String, Sendable, Equatable, Hashable {
+        case `default`
+        case maximum
+        case minimum
+        case off
+        case on
+    }
+
+    public var kind: Kind
+    public var flexibility: FlexibilityKind?
+    public var weight: WeightKind?
+    public var intensity: Double
+    public var pressKind: PressKind?
+    public var releaseKind: ReleaseKind?
+    public var selectionKind: SelectionKind?
+
+    public init(
+        kind: Kind,
+        flexibility: FlexibilityKind? = nil,
+        weight: WeightKind? = nil,
+        intensity: Double = 1.0,
+        pressKind: PressKind? = nil,
+        releaseKind: ReleaseKind? = nil,
+        selectionKind: SelectionKind? = nil
+    ) {
+        self.kind = kind
+        self.flexibility = flexibility
+        self.weight = weight
+        self.intensity = intensity
+        self.pressKind = pressKind
+        self.releaseKind = releaseKind
+        self.selectionKind = selectionKind
+    }
+}
+
+public struct RetainedTransition: Sendable, Equatable {
+    public var kind: Kind
+
+    public indirect enum Kind: Sendable, Equatable {
+        case identity
+        case opacity
+        case scale(scaleX: Double, scaleY: Double, anchorX: Double, anchorY: Double)
+        case offset(x: Double, y: Double)
+        case move(edge: RetainedEdge)
+        case slide
+        case push(from: RetainedEdge)
+        case asymmetric(insertion: RetainedTransition, removal: RetainedTransition)
+        case combined(RetainedTransition, RetainedTransition)
+        case modifier(activeType: ObjectIdentifier, identityType: ObjectIdentifier)
+    }
+
+    public init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let identity = RetainedTransition(kind: .identity)
+
+    public var insertion: RetainedTransition {
+        switch kind {
+        case .asymmetric(let insertion, _):
+            return insertion
+        default:
+            return self
+        }
+    }
+
+    public var removal: RetainedTransition {
+        switch kind {
+        case .asymmetric(_, let removal):
+            return removal
+        default:
+            return self
+        }
+    }
+}
+
+public enum RetainedEdge: Sendable, Equatable {
+    case top
+    case leading
+    case bottom
+    case trailing
 }
 
 public struct RetainedScrollAnchor: Sendable, Equatable {
@@ -744,8 +1212,14 @@ struct DeferredSubtreePayload {
     weak var node: ViewNode?
     var parentOrigin: Point
     var inheritedClip: Rect?
+    var inheritedClipCornerRadius: Double = 0
     var inheritedOpacity: Float
     var inheritedInverseTransform: Transform2D?
+    var inheritedTransform: Transform2D = .identity
+    var inheritedColorEffects: [RetainedColorEffect]
+    var inheritedBlurRadius: Double
+    var inheritedBlurOpaque: Bool
+    var inheritedBlendMode: BlendMode = .normal
 }
 
 @MainActor
@@ -945,7 +1419,7 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
-    public var backgroundGradient: LinearGradient? {
+    public var backgroundGradient: GradientType? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -965,7 +1439,7 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
-    public var borderGradient: LinearGradient? {
+    public var borderGradient: GradientType? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1001,6 +1475,14 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var backgroundPath: RenderPath? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var canvasDraw: ((inout CanvasGraphicsContext, Size) -> Void)? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var clipsToBounds: Bool {
         didSet { invalidateRuntime(.layout) }
     }
@@ -1025,7 +1507,19 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var ignoresSafeAreaInsets: EdgeInsets {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var layoutPriority: Double {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var spatialCompressionResistance: Double {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var spatialExpansionResistance: Double {
         didSet { invalidateRuntime(.layout) }
     }
 
@@ -1041,6 +1535,10 @@ public final class ViewNode {
         didSet { invalidateRuntime(.layout) }
     }
 
+    public var gridCellColumns: Int {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var gridColumnAlignment: RetainedHorizontalAlignment? {
         didSet { invalidateRuntime(.layout) }
     }
@@ -1051,6 +1549,10 @@ public final class ViewNode {
     }
 
     public var blurOpaque: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var geometryEffect: String? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1102,8 +1604,28 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var alternatingRowBackgrounds: RetainedAlternatingRowBackgrounds? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var listItemTint: RetainedListItemTint? {
         didSet { invalidateRuntime(.paint) }
+    }
+
+    public var listRowHoverStyle: RetainedListRowHoverStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var listRowPlatterColor: Color? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var navigationSplitViewColumnWidth: RetainedNavigationSplitViewColumnWidth? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var preferredCompactColumn: NavigationSplitViewColumn? {
+        didSet { invalidateRuntime(.layout) }
     }
 
     public var selectionDisabled: Bool {
@@ -1127,6 +1649,30 @@ public final class ViewNode {
     }
 
     public var moveDisabledOverride: Bool? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var onDeleteAction: ((IndexSet) -> Void)? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var onMoveAction: ((IndexSet, Int) -> Void)? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var editActions: RetainedEditActions? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var swipeActionsLeading: [RetainedSwipeAction]? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var swipeActionsTrailing: [RetainedSwipeAction]? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var swipeActionsAllowsFullSwipe: Bool {
         didSet { invalidateRuntime(.layout) }
     }
 
@@ -1247,6 +1793,22 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var position: Point? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var transition: RetainedTransition {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var contentTransition: RetainedContentTransition? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var sensoryFeedback: RetainedSensoryFeedback? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var flexItem: FlexProperties {
         didSet { invalidateRuntime() }
     }
@@ -1314,11 +1876,19 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var allowsAutomaticWindowDecorations: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isHidden: Bool {
         didSet { invalidateRuntime(.layout) }
     }
 
     public var accessibilityLabel: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityDescription: String? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1331,6 +1901,14 @@ public final class ViewNode {
     }
 
     public var accessibilityIdentifier: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityLanguage: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var tooltip: String? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1350,7 +1928,63 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var accessibilityRotors: [RetainedAccessibilityRotor] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityCustomContent: [RetainedAccessibilityCustomContent] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityInputLabels: [String] {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityHeadingLevel: RetainedAccessibilityHeadingLevel? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityTextualContext: RetainedAccessibilityTextualContext? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var isAccessibilityHidden: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityIgnoresInvertColors: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityRespondsToUserInteraction: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityPrefersSliderBehavior: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityRequiresActivationPoint: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityDirectTouchOptions: RetainedAccessibilityDirectTouchOptions? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityMagicTapAction: (() -> Void)?
+
+    public var platformView: Any?
+    public var platformViewCoordinator: Any?
+    public var platformViewTypeName: String?
+    public var onUpdatePlatformView: ((ViewNode) -> Void)?
+    public var onDismantlePlatformView: ((ViewNode) -> Void)?
+
+    public var accessibilityPrefersCrossFadeTransitions: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityShowLargeContentViewer: Bool? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1454,6 +2088,26 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var submitScopeTriggersRawValue: Int? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isFocusSection: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var prefersDefaultFocus: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var focusNamespace: NamespaceID? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var isGeometryGroup: Bool {
+        didSet { invalidateRuntime(.layout) }
+    }
+
     public var hoverEffect: RetainedHoverEffect? {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1471,6 +2125,58 @@ public final class ViewNode {
     }
 
     public var isFocusEffectDisabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isFocusDestination: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isFocusActive: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isFocusEnabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var pointerStyle: RetainedPointerStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var pointerVisibility: PointerVisibility? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var digitalCrownRotation: RetainedDigitalCrownRotation? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowDragInteraction: RetainedWindowDragInteraction? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowResizeInteraction: RetainedWindowResizeInteraction? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowDismissBehavior: RetainedWindowInteractionBehavior? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowFullScreenBehavior: RetainedWindowInteractionBehavior? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowMinimizeBehavior: RetainedWindowInteractionBehavior? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowResizeBehavior: RetainedWindowInteractionBehavior? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var windowCornerRadius: Double {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1496,6 +2202,78 @@ public final class ViewNode {
         didSet { invalidateRuntime(.paint) }
     }
 
+    public var isAccessibilityShowsLargeContentViewer: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityQuickActionEnabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityQuickActionStyle: AccessibilityQuickActionStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityZoomActionEnabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityScrollActionEnabled: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityFocusSection: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isAccessibilityImage: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityLinkDestination: URL? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityLinkedGroup: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityPage: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var contextMenuForSelectionType: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var widgetURL: URL? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isWidgetAccentable: Bool {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var widgetAccentedRenderingMode: WidgetAccentedRenderingMode? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var widgetBackgroundStyle: AnyShapeStyle? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var widgetBackgroundPlacement: ContainerBackgroundPlacement? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var widgetRelevancy: WidgetRelevancy? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var paletteSelectionEffect: PaletteSelectionEffect? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
     public var paintsInDeferredPhase: Bool {
         didSet { invalidateRuntime(.paint) }
     }
@@ -1503,6 +2281,144 @@ public final class ViewNode {
     public var matchedGeometryEffect: RetainedMatchedGeometryEffect? {
         didSet { invalidateRuntime(.paint) }
     }
+
+    public var matchedTransitionSource: RetainedMatchedTransitionSource? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var navigationTransition: RetainedNavigationTransition? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartXAxis: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartXScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartYScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var meshGradient: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartYAxis: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartLegend: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartBackground: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartPlotStyle: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartOverlay: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartSelection: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartScrollableAxes: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartForegroundStyleScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartSymbolSize: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartSymbol: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartAngleScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartBackgroundStyleScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartSymbolScale: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartXVisibleDomain: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartYVisibleDomain: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartXSelection: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartYSelection: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartAngleSelection: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartScrollPositionX: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var chartScrollPositionY: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var tableColumnHeadersVisible: Bool? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var isContentInvalidatable: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var isLineSelectable: Bool? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityActivationPoint: UnitPoint? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var accessibilityTextContentType: AccessibilityTextContentType? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var scenePaddingEdges: Edge.Set? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var coordinateSpaceName: String? {
+        didSet { invalidateRuntime(.layout) }
+    }
+
+    public var gestureName: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var textRenderer: Any?
 
     public var presentationChrome: RetainedPresentationChrome {
         didSet { invalidateRuntime(.layout) }
@@ -1513,6 +2429,22 @@ public final class ViewNode {
     }
 
     public var toolbarPlacementTags: Set<String> {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var menuOrder: String? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var toolbarTitleMenuChildren: [ViewNode]? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var toolbarTitleActionsChildren: [ViewNode]? {
+        didSet { invalidateRuntime(.paint) }
+    }
+
+    public var accessibilityRepresentationChildren: [ViewNode]? {
         didSet { invalidateRuntime(.paint) }
     }
 
@@ -1557,6 +2489,10 @@ public final class ViewNode {
     /// Active per-property animation states driven by the `animation()` modifier.
     public var animationStates: [AnimatableProperty: AnimationState] = [:]
 
+    /// Persistent phase-animation state for PhaseAnimator. Survives rebuilds
+    /// because it is stored on the retained ViewNode rather than in @State.
+    public var phaseAnimatorState: PhaseAnimatorState?
+
     public var onPointerEnter: (() -> Void)?
     public var onPointerExit: (() -> Void)?
     public var onPointerMove: ((Point) -> Void)?
@@ -1568,6 +2504,7 @@ public final class ViewNode {
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
+    public var onKeyUp: ((KeyboardEvent) -> Void)?
     public var onActivate: (() -> Void)?
     public var onRepeatActivate: (() -> Void)?
     public var onDeleteRows: ((IndexSet) -> Void)?
@@ -1582,6 +2519,19 @@ public final class ViewNode {
     public var onDropPayloads: (([Any], Point) -> Bool)?
     public var onMakeDropConfiguration: (([Any], Point) -> Any?)?
     public var onMakeDragPayload: (() -> Any?)?
+    public var commandHandlers: [String: () -> Void] = [:]
+    public var fileExporterConfiguration: RetainedFileExporterConfiguration?
+    public var fileImporterConfiguration: RetainedFileImporterConfiguration?
+    public var fileImporterMultiConfiguration: RetainedFileImporterMultiConfiguration?
+    public var fileMoverConfiguration: RetainedFileMoverConfiguration?
+    public var inspectorColumnWidth: Double?
+    public var inspectorColumnWidthFraction: Double?
+    public var inspectorColumnWidthMin: Double?
+    public var inspectorPresentationStyle: InspectorPresentationStyle?
+    public var fileDialogCustomizationID: String?
+    public var fileDialogConfirmationLabel: String?
+    public var fileDialogDefaultDirectory: URL?
+    public var fileDialogMessage: String?
     public var onMakeDragItemProvider: (() -> Any?)?
     public var onDragStart: ((Point) -> Void)?
     public var onDragChange: ((Point, Point) -> Void)?
@@ -1597,8 +2547,9 @@ public final class ViewNode {
     public var onDisappear: (() -> Void)?
     public var onSizeChange: ((Rect) -> Void)?
     internal private(set) var hasAppeared = false
+    public internal(set) var isRemovalOverlay: Bool = false
     private var previousFrame: Rect?
-    private var lifecycleTasks: [String: Swift.Task<Void, Never>] = [:]
+    private var lifecycleTasks: [String: Task<Void, Never>] = [:]
 
     public private(set) weak var parent: ViewNode?
     public private(set) var children: [ViewNode]
@@ -1624,12 +2575,12 @@ public final class ViewNode {
     public init(
         frame: Rect = .zero,
         backgroundColor: Color? = nil,
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         bitmapSurface: BitmapSurface? = nil,
         text: String? = nil,
         textStyle: PixelTextStyle = PixelTextStyle(color: .white),
         borderColor: Color = .clear,
-        borderGradient: LinearGradient? = nil,
+        borderGradient: GradientType? = nil,
         borderWidth: Double = 0,
         borderStrokeStyle: StrokeStyle? = nil,
         outlineColor: Color = .clear,
@@ -1638,21 +2589,28 @@ public final class ViewNode {
         shadowOffset: Point = .zero,
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
+        backgroundPath: RenderPath? = nil,
+        canvasDraw: ((inout CanvasGraphicsContext, Size) -> Void)? = nil,
         clipsToBounds: Bool = false,
         clipFillStyle: RetainedClipFillStyle? = nil,
         layoutMode: ViewLayoutMode = .absolute,
         preferredSize: Size? = nil,
         layoutConstraints: LayoutConstraints? = nil,
         fixedSizeAxes: FixedSizeAxes? = nil,
+        ignoresSafeAreaInsets: EdgeInsets = .zero,
         layoutPriority: Double = 0,
+        spatialCompressionResistance: Double = 0,
+        spatialExpansionResistance: Double = 0,
         alignmentGuides: [RetainedAlignmentGuide] = [],
         gridCellAnchor: Point? = nil,
         gridCellUnsizedAxes: RetainedGridCellUnsizedAxes = [],
+        gridCellColumns: Int = 1,
         gridColumnAlignment: RetainedHorizontalAlignment? = nil,
         flexItem: FlexProperties = .default,
         flexItemStyle: FlexItemStyle = FlexItemStyle(),
         blurRadius: Double = 0,
         blurOpaque: Bool = false,
+        geometryEffect: String? = nil,
         opacity: Double = 1.0,
         blendMode: BlendMode = .normal,
         isCompositingGroup: Bool = false,
@@ -1664,13 +2622,24 @@ public final class ViewNode {
         listRowSeparatorTint: RetainedListSeparatorTint? = nil,
         listSectionSeparator: RetainedListSectionSeparator? = nil,
         listSectionSeparatorTint: RetainedListSeparatorTint? = nil,
+        alternatingRowBackgrounds: RetainedAlternatingRowBackgrounds? = nil,
         listItemTint: RetainedListItemTint? = nil,
+        listRowHoverStyle: RetainedListRowHoverStyle? = nil,
+        listRowPlatterColor: Color? = nil,
+        navigationSplitViewColumnWidth: RetainedNavigationSplitViewColumnWidth? = nil,
+        preferredCompactColumn: NavigationSplitViewColumn? = nil,
         selectionDisabled: Bool = false,
         selectionDisabledOverride: Bool? = nil,
         deleteDisabled: Bool = false,
         deleteDisabledOverride: Bool? = nil,
         moveDisabled: Bool = false,
         moveDisabledOverride: Bool? = nil,
+        onDeleteAction: ((IndexSet) -> Void)? = nil,
+        onMoveAction: ((IndexSet, Int) -> Void)? = nil,
+        editActions: RetainedEditActions? = nil,
+        swipeActionsLeading: [RetainedSwipeAction]? = nil,
+        swipeActionsTrailing: [RetainedSwipeAction]? = nil,
+        swipeActionsAllowsFullSwipe: Bool = true,
         dynamicContentIndex: Int? = nil,
         dynamicInsertContentTypes: [String] = [],
         dynamicDropPayloadType: String? = nil,
@@ -1699,6 +2668,9 @@ public final class ViewNode {
         scrollProxyRequests: [String] = [],
         zIndex: Double = 0,
         transform: Transform2D = .identity,
+        transition: RetainedTransition = .identity,
+        contentTransition: RetainedContentTransition? = nil,
+        sensoryFeedback: RetainedSensoryFeedback? = nil,
         scrollAxis: ScrollAxis? = nil,
         scrollOffset: Double = 0,
         scrollStep: Double = 64,
@@ -1713,16 +2685,32 @@ public final class ViewNode {
         scrollSizeChangeAnchor: RetainedScrollAnchor? = nil,
         isFocusable: Bool = false,
         isHitTestVisible: Bool = true,
+        allowsAutomaticWindowDecorations: Bool = true,
         isHidden: Bool = false,
         accessibilityLabel: String? = nil,
+        accessibilityDescription: String? = nil,
         accessibilityValue: String? = nil,
         accessibilityHint: String? = nil,
         accessibilityIdentifier: String? = nil,
+        accessibilityLanguage: String? = nil,
         accessibilityTraits: RetainedAccessibilityTraits = [],
         accessibilityChildBehavior: RetainedAccessibilityChildBehavior? = nil,
         accessibilitySortPriority: Double = 0,
         accessibilityActions: [RetainedAccessibilityAction] = [],
+        accessibilityRotors: [RetainedAccessibilityRotor] = [],
+        accessibilityCustomContent: [RetainedAccessibilityCustomContent] = [],
+        accessibilityInputLabels: [String] = [],
+        accessibilityHeadingLevel: RetainedAccessibilityHeadingLevel? = nil,
+        accessibilityTextualContext: RetainedAccessibilityTextualContext? = nil,
         isAccessibilityHidden: Bool = false,
+        accessibilityIgnoresInvertColors: Bool = false,
+        accessibilityRespondsToUserInteraction: Bool? = nil,
+        accessibilityPrefersSliderBehavior: Bool? = nil,
+        accessibilityRequiresActivationPoint: Bool? = nil,
+        accessibilityDirectTouchOptions: RetainedAccessibilityDirectTouchOptions? = nil,
+        accessibilityMagicTapAction: (() -> Void)? = nil,
+        accessibilityPrefersCrossFadeTransitions: Bool? = nil,
+        accessibilityShowLargeContentViewer: Bool? = nil,
         symbolVariableValue: Double? = nil,
         symbolRenderingMode: RetainedSymbolRenderingMode? = nil,
         symbolVariants: RetainedSymbolVariants = .none,
@@ -1748,20 +2736,92 @@ public final class ViewNode {
         isReplaceDisabled: Bool = false,
         isFindNavigatorPresented: Bool = false,
         isSubmitScopeBoundary: Bool = false,
+        submitScopeTriggersRawValue: Int? = nil,
+        isGeometryGroup: Bool = false,
         hoverEffect: RetainedHoverEffect? = nil,
         isHoverEffectDisabled: Bool = false,
         isFocusEffectDisabled: Bool = false,
+        isFocusDestination: Bool = false,
+        isFocusActive: Bool = false,
+        isFocusEnabled: Bool = true,
+        pointerStyle: RetainedPointerStyle? = nil,
+        pointerVisibility: PointerVisibility? = nil,
+        digitalCrownRotation: RetainedDigitalCrownRotation? = nil,
+        windowDragInteraction: RetainedWindowDragInteraction? = nil,
+        windowResizeInteraction: RetainedWindowResizeInteraction? = nil,
+        windowDismissBehavior: RetainedWindowInteractionBehavior? = nil,
+        windowFullScreenBehavior: RetainedWindowInteractionBehavior? = nil,
+        windowMinimizeBehavior: RetainedWindowInteractionBehavior? = nil,
+        windowResizeBehavior: RetainedWindowInteractionBehavior? = nil,
+        windowCornerRadius: Double = 0,
         contentShapes: [RetainedContentShape] = [],
         buttonRepeatBehavior: RetainedButtonRepeatBehavior = .automatic,
         redactionReasons: RetainedRedactionReasons = [],
         isPrivacySensitive: Bool = false,
+        isAccessibilityShowsLargeContentViewer: Bool = false,
+        isAccessibilityQuickActionEnabled: Bool = false,
+        accessibilityQuickActionStyle: AccessibilityQuickActionStyle? = nil,
+        isAccessibilityZoomActionEnabled: Bool = false,
+        isAccessibilityScrollActionEnabled: Bool = false,
+        isAccessibilityFocusSection: Bool = false,
+        isAccessibilityImage: Bool = false,
+        accessibilityLinkDestination: URL? = nil,
+        accessibilityLinkedGroup: String? = nil,
+        accessibilityPage: String? = nil,
+        contextMenuForSelectionType: String? = nil,
+        widgetURL: URL? = nil,
+        isWidgetAccentable: Bool = false,
+        widgetAccentedRenderingMode: WidgetAccentedRenderingMode? = nil,
+        widgetBackgroundStyle: AnyShapeStyle? = nil,
+        widgetBackgroundPlacement: ContainerBackgroundPlacement? = nil,
+        widgetRelevancy: WidgetRelevancy? = nil,
+        paletteSelectionEffect: PaletteSelectionEffect? = nil,
         paintsInDeferredPhase: Bool = false,
         matchedGeometryEffect: RetainedMatchedGeometryEffect? = nil,
+        matchedTransitionSource: RetainedMatchedTransitionSource? = nil,
+        navigationTransition: RetainedNavigationTransition? = nil,
+        chartXAxis: String? = nil,
+        chartXScale: String? = nil,
+        chartYScale: String? = nil,
+        meshGradient: String? = nil,
+        chartYAxis: String? = nil,
+        chartLegend: String? = nil,
+        chartBackground: String? = nil,
+        chartPlotStyle: String? = nil,
+        chartOverlay: String? = nil,
+        chartSelection: String? = nil,
+        chartScrollableAxes: String? = nil,
+        chartForegroundStyleScale: String? = nil,
+        chartSymbolSize: String? = nil,
+        chartSymbol: String? = nil,
+        chartAngleScale: String? = nil,
+        chartBackgroundStyleScale: String? = nil,
+        chartSymbolScale: String? = nil,
+        chartXVisibleDomain: String? = nil,
+        chartYVisibleDomain: String? = nil,
+        chartXSelection: String? = nil,
+        chartYSelection: String? = nil,
+        chartAngleSelection: String? = nil,
+        chartScrollPositionX: String? = nil,
+        chartScrollPositionY: String? = nil,
+        tableColumnHeadersVisible: Bool? = nil,
+        isContentInvalidatable: Bool? = nil,
+        isLineSelectable: Bool? = nil,
+        accessibilityActivationPoint: UnitPoint? = nil,
+        accessibilityTextContentType: AccessibilityTextContentType? = nil,
         presentationChrome: RetainedPresentationChrome = .empty,
         isToolbarContainer: Bool = false,
         toolbarPlacementTags: Set<String> = [],
+        menuOrder: String? = nil,
+        toolbarTitleMenuChildren: [ViewNode]? = nil,
+        toolbarTitleActionsChildren: [ViewNode]? = nil,
+        accessibilityRepresentationChildren: [ViewNode]? = nil,
+        gestureName: String? = nil,
+        textRenderer: Any? = nil,
+        coordinateSpaceName: String? = nil,
         sectionHeaderChildCount: Int = 0,
         sectionFooterChildCount: Int = 0,
+        phaseAnimatorState: PhaseAnimatorState? = nil,
         children: [ViewNode] = []
     ) {
         self.frame = frame
@@ -1780,21 +2840,28 @@ public final class ViewNode {
         self.shadowOffset = shadowOffset
         self.shadowSpread = shadowSpread
         self.cornerRadius = cornerRadius
+        self.backgroundPath = backgroundPath
+        self.canvasDraw = canvasDraw
         self.clipsToBounds = clipsToBounds
         self.clipFillStyle = clipFillStyle
         self.layoutMode = layoutMode
         self.preferredSize = preferredSize
         self.layoutConstraints = layoutConstraints
         self.fixedSizeAxes = fixedSizeAxes
+        self.ignoresSafeAreaInsets = ignoresSafeAreaInsets
         self.layoutPriority = layoutPriority
+        self.spatialCompressionResistance = spatialCompressionResistance
+        self.spatialExpansionResistance = spatialExpansionResistance
         self.alignmentGuides = alignmentGuides
         self.gridCellAnchor = gridCellAnchor
         self.gridCellUnsizedAxes = gridCellUnsizedAxes
+        self.gridCellColumns = gridCellColumns
         self.gridColumnAlignment = gridColumnAlignment
         self.flexItem = flexItem
         self.flexItemStyle = flexItemStyle
         self.blurRadius = blurRadius
         self.blurOpaque = blurOpaque
+        self.geometryEffect = geometryEffect
         self.opacity = opacity
         self.blendMode = blendMode
         self.isCompositingGroup = isCompositingGroup
@@ -1806,13 +2873,24 @@ public final class ViewNode {
         self.listRowSeparatorTint = listRowSeparatorTint
         self.listSectionSeparator = listSectionSeparator
         self.listSectionSeparatorTint = listSectionSeparatorTint
+        self.alternatingRowBackgrounds = alternatingRowBackgrounds
         self.listItemTint = listItemTint
+        self.listRowHoverStyle = listRowHoverStyle
+        self.listRowPlatterColor = listRowPlatterColor
+        self.navigationSplitViewColumnWidth = navigationSplitViewColumnWidth
+        self.preferredCompactColumn = preferredCompactColumn
         self.selectionDisabled = selectionDisabled
         self.selectionDisabledOverride = selectionDisabledOverride
         self.deleteDisabled = deleteDisabled
         self.deleteDisabledOverride = deleteDisabledOverride
         self.moveDisabled = moveDisabled
         self.moveDisabledOverride = moveDisabledOverride
+        self.onDeleteAction = onDeleteAction
+        self.onMoveAction = onMoveAction
+        self.editActions = editActions
+        self.swipeActionsLeading = swipeActionsLeading
+        self.swipeActionsTrailing = swipeActionsTrailing
+        self.swipeActionsAllowsFullSwipe = swipeActionsAllowsFullSwipe
         self.dynamicContentIndex = dynamicContentIndex
         self.dynamicInsertContentTypes = dynamicInsertContentTypes
         self.dynamicDropPayloadType = dynamicDropPayloadType
@@ -1841,6 +2919,9 @@ public final class ViewNode {
         self.scrollProxyRequests = scrollProxyRequests
         self.zIndex = zIndex
         self.transform = transform
+        self.transition = transition
+        self.contentTransition = contentTransition
+        self.sensoryFeedback = sensoryFeedback
         self.scrollAxis = scrollAxis
         self.scrollOffset = scrollOffset
         self.scrollStep = scrollStep
@@ -1855,16 +2936,33 @@ public final class ViewNode {
         self.scrollSizeChangeAnchor = scrollSizeChangeAnchor
         self.isFocusable = isFocusable
         self.isHitTestVisible = isHitTestVisible
+        self.allowsAutomaticWindowDecorations = allowsAutomaticWindowDecorations
         self.isHidden = isHidden
         self.accessibilityLabel = accessibilityLabel
+        self.accessibilityDescription = accessibilityDescription
         self.accessibilityValue = accessibilityValue
         self.accessibilityHint = accessibilityHint
         self.accessibilityIdentifier = accessibilityIdentifier
+        self.accessibilityLanguage = accessibilityLanguage
+        self.tooltip = nil
         self.accessibilityTraits = accessibilityTraits
         self.accessibilityChildBehavior = accessibilityChildBehavior
         self.accessibilitySortPriority = accessibilitySortPriority
         self.accessibilityActions = accessibilityActions
+        self.accessibilityRotors = accessibilityRotors
+        self.accessibilityCustomContent = accessibilityCustomContent
+        self.accessibilityInputLabels = accessibilityInputLabels
+        self.accessibilityHeadingLevel = accessibilityHeadingLevel
+        self.accessibilityTextualContext = accessibilityTextualContext
         self.isAccessibilityHidden = isAccessibilityHidden
+        self.accessibilityIgnoresInvertColors = accessibilityIgnoresInvertColors
+        self.accessibilityRespondsToUserInteraction = accessibilityRespondsToUserInteraction
+        self.accessibilityPrefersSliderBehavior = accessibilityPrefersSliderBehavior
+        self.accessibilityRequiresActivationPoint = accessibilityRequiresActivationPoint
+        self.accessibilityDirectTouchOptions = accessibilityDirectTouchOptions
+        self.accessibilityMagicTapAction = accessibilityMagicTapAction
+        self.accessibilityPrefersCrossFadeTransitions = accessibilityPrefersCrossFadeTransitions
+        self.accessibilityShowLargeContentViewer = accessibilityShowLargeContentViewer
         self.symbolVariableValue = symbolVariableValue
         self.symbolRenderingMode = symbolRenderingMode
         self.symbolVariants = symbolVariants
@@ -1890,20 +2988,96 @@ public final class ViewNode {
         self.isReplaceDisabled = isReplaceDisabled
         self.isFindNavigatorPresented = isFindNavigatorPresented
         self.isSubmitScopeBoundary = isSubmitScopeBoundary
+        self.submitScopeTriggersRawValue = submitScopeTriggersRawValue
+        self.isFocusSection = false
+        self.prefersDefaultFocus = false
+        self.focusNamespace = nil
+        self.isGeometryGroup = isGeometryGroup
         self.hoverEffect = hoverEffect
         self.isHoverEffectDisabled = isHoverEffectDisabled
         self.isFocusEffectDisabled = isFocusEffectDisabled
+        self.isFocusDestination = isFocusDestination
+        self.isFocusActive = isFocusActive
+        self.isFocusEnabled = isFocusEnabled
+        self.pointerStyle = pointerStyle
+        self.pointerVisibility = pointerVisibility
+        self.digitalCrownRotation = digitalCrownRotation
+        self.windowDragInteraction = windowDragInteraction
+        self.windowResizeInteraction = windowResizeInteraction
+        self.windowDismissBehavior = windowDismissBehavior
+        self.windowFullScreenBehavior = windowFullScreenBehavior
+        self.windowMinimizeBehavior = windowMinimizeBehavior
+        self.windowResizeBehavior = windowResizeBehavior
+        self.windowCornerRadius = windowCornerRadius
         self.contentShapes = contentShapes
         self.buttonRepeatBehavior = buttonRepeatBehavior
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
+        self.isAccessibilityShowsLargeContentViewer = isAccessibilityShowsLargeContentViewer
+        self.isAccessibilityQuickActionEnabled = isAccessibilityQuickActionEnabled
+        self.accessibilityQuickActionStyle = accessibilityQuickActionStyle
+        self.isAccessibilityZoomActionEnabled = isAccessibilityZoomActionEnabled
+        self.isAccessibilityScrollActionEnabled = isAccessibilityScrollActionEnabled
+        self.isAccessibilityFocusSection = isAccessibilityFocusSection
+        self.isAccessibilityImage = isAccessibilityImage
+        self.accessibilityLinkDestination = accessibilityLinkDestination
+        self.accessibilityLinkedGroup = accessibilityLinkedGroup
+        self.accessibilityPage = accessibilityPage
+        self.contextMenuForSelectionType = contextMenuForSelectionType
+        self.widgetURL = widgetURL
+        self.isWidgetAccentable = isWidgetAccentable
+        self.widgetAccentedRenderingMode = widgetAccentedRenderingMode
+        self.widgetBackgroundStyle = widgetBackgroundStyle
+        self.widgetBackgroundPlacement = widgetBackgroundPlacement
+        self.widgetRelevancy = widgetRelevancy
+        self.paletteSelectionEffect = paletteSelectionEffect
         self.paintsInDeferredPhase = paintsInDeferredPhase
         self.matchedGeometryEffect = matchedGeometryEffect
+        self.matchedTransitionSource = matchedTransitionSource
+        self.navigationTransition = navigationTransition
+        self.chartXAxis = chartXAxis
+        self.chartXScale = chartXScale
+        self.chartYScale = chartYScale
+        self.meshGradient = meshGradient
+        self.chartYAxis = chartYAxis
+        self.chartLegend = chartLegend
+        self.chartBackground = chartBackground
+        self.chartPlotStyle = chartPlotStyle
+        self.chartOverlay = chartOverlay
+        self.chartSelection = chartSelection
+        self.chartScrollableAxes = chartScrollableAxes
+        self.chartForegroundStyleScale = chartForegroundStyleScale
+        self.chartSymbolSize = chartSymbolSize
+        self.chartSymbol = chartSymbol
+        self.chartAngleScale = chartAngleScale
+        self.chartBackgroundStyleScale = chartBackgroundStyleScale
+        self.chartSymbolScale = chartSymbolScale
+        self.chartXVisibleDomain = chartXVisibleDomain
+        self.chartYVisibleDomain = chartYVisibleDomain
+        self.chartXSelection = chartXSelection
+        self.chartYSelection = chartYSelection
+        self.chartAngleSelection = chartAngleSelection
+        self.chartScrollPositionX = chartScrollPositionX
+        self.chartScrollPositionY = chartScrollPositionY
+        self.tableColumnHeadersVisible = tableColumnHeadersVisible
+        self.isContentInvalidatable = isContentInvalidatable
+        self.isLineSelectable = isLineSelectable
+        self.accessibilityActivationPoint = accessibilityActivationPoint
+        self.accessibilityTextContentType = accessibilityTextContentType
         self.presentationChrome = presentationChrome
         self.isToolbarContainer = isToolbarContainer
         self.toolbarPlacementTags = toolbarPlacementTags
+        self.menuOrder = menuOrder
+        self.toolbarTitleMenuChildren = toolbarTitleMenuChildren
+        self.toolbarTitleActionsChildren = toolbarTitleActionsChildren
+        self.accessibilityRepresentationChildren = accessibilityRepresentationChildren
+        self.gestureName = gestureName
+        self.textRenderer = textRenderer
+        self.coordinateSpaceName = coordinateSpaceName
         self.sectionHeaderChildCount = max(0, sectionHeaderChildCount)
         self.sectionFooterChildCount = max(0, sectionFooterChildCount)
+        self.phaseAnimatorState = phaseAnimatorState
+        self.position = nil
         self.onPointerEnter = nil
         self.onPointerExit = nil
         self.onPointerMove = nil
@@ -1915,6 +3089,7 @@ public final class ViewNode {
         self.onFocusEnter = nil
         self.onFocusExit = nil
         self.onKeyDown = nil
+        self.onKeyUp = nil
         self.onActivate = nil
         self.onRepeatActivate = nil
         self.onDeleteRows = nil
@@ -1936,6 +3111,29 @@ public final class ViewNode {
         self.onLayout = nil
         self.onAppearWithNode = nil
         self.onDisappearWithNode = nil
+        self.commandHandlers = [:]
+        self.fileExporterConfiguration = nil
+        self.fileImporterConfiguration = nil
+        self.fileImporterMultiConfiguration = nil
+        self.fileMoverConfiguration = nil
+        self.inspectorColumnWidth = nil
+        self.inspectorColumnWidthFraction = nil
+        self.inspectorColumnWidthMin = nil
+        self.inspectorPresentationStyle = nil
+        self.fileDialogCustomizationID = nil
+        self.fileDialogConfirmationLabel = nil
+        self.fileDialogDefaultDirectory = nil
+        self.fileDialogMessage = nil
+        self.toolbarTitleMenuChildren = nil
+        self.toolbarTitleActionsChildren = nil
+        self.accessibilityRepresentationChildren = nil
+        self.isLineSelectable = nil
+        self.accessibilityActivationPoint = nil
+        self.accessibilityTextContentType = nil
+        self.accessibilityMagicTapAction = nil
+        self.gestureName = nil
+        self.textRenderer = nil
+        self.coordinateSpaceName = nil
         self.children = []
         self.resolvedFrame = frame
         self.resolvedContentSize = frame.size
@@ -1961,12 +3159,7 @@ public final class ViewNode {
         guard let index = children.firstIndex(where: { $0 === child }) else {
             return
         }
-
-        let removed = children.remove(at: index)
-        removed.markSubtreeDisappeared()
-        removed.parent = nil
-        removed.setRuntime(nil)
-        invalidateRuntime(.children)
+        removeChild(at: index)
     }
 
     public func removeFromParent() {
@@ -1975,11 +3168,25 @@ public final class ViewNode {
 
     public func removeAllChildren() {
         for child in children {
-            child.markSubtreeDisappeared()
-            child.parent = nil
-            child.setRuntime(nil)
+            if child.transition.removal.kind != .identity {
+                child.isRemovalOverlay = true
+                child.applyRemovalTransition()
+                child.cachedFrameKey = nil
+                child.cachedFrameCommandRange = nil
+                child.cachedSceneKey = nil
+                child.cachedScenePaintRange = nil
+                runtime?.transitionOverlays.append(child)
+                child.parent = nil
+                child.setRuntime(nil)
+            } else {
+                child.markSubtreeDisappeared()
+                child.parent = nil
+                child.setRuntime(nil)
+            }
         }
-
+        if !children.isEmpty {
+            runtime?.invalidate()
+        }
         children.removeAll(keepingCapacity: false)
         invalidateRuntime(.children)
     }
@@ -1991,9 +3198,23 @@ public final class ViewNode {
         }
 
         let old = children[index]
-        old.markSubtreeDisappeared()
-        old.parent = nil
-        old.setRuntime(nil)
+        old.onDismantlePlatformView?(old)
+        if old.transition.removal.kind != .identity {
+            old.isRemovalOverlay = true
+            old.applyRemovalTransition()
+            old.cachedFrameKey = nil
+            old.cachedFrameCommandRange = nil
+            old.cachedSceneKey = nil
+            old.cachedScenePaintRange = nil
+            runtime?.transitionOverlays.append(old)
+            runtime?.invalidate()
+            old.parent = nil
+            old.setRuntime(nil)
+        } else {
+            old.markSubtreeDisappeared()
+            old.parent = nil
+            old.setRuntime(nil)
+        }
 
         newChild.removeFromParent()
         newChild.parent = self
@@ -2009,9 +3230,23 @@ public final class ViewNode {
         }
 
         let removed = children.remove(at: index)
-        removed.markSubtreeDisappeared()
-        removed.parent = nil
-        removed.setRuntime(nil)
+        removed.onDismantlePlatformView?(removed)
+        if removed.transition.removal.kind != .identity {
+            removed.isRemovalOverlay = true
+            removed.applyRemovalTransition()
+            removed.cachedFrameKey = nil
+            removed.cachedFrameCommandRange = nil
+            removed.cachedSceneKey = nil
+            removed.cachedScenePaintRange = nil
+            runtime?.transitionOverlays.append(removed)
+            runtime?.invalidate()
+            removed.parent = nil
+            removed.setRuntime(nil)
+        } else {
+            removed.markSubtreeDisappeared()
+            removed.parent = nil
+            removed.setRuntime(nil)
+        }
         invalidateRuntime()
     }
 
@@ -2022,7 +3257,7 @@ public final class ViewNode {
         }
     }
 
-    private func markSubtreeDisappeared() {
+    internal func markSubtreeDisappeared() {
         if hasAppeared {
             onDisappear?()
             onDisappearWithNode?(self)
@@ -2037,7 +3272,7 @@ public final class ViewNode {
 
     public func launchLifecycleTask(_ launch: ViewLifecycleTaskLaunch) {
         lifecycleTasks[launch.key]?.cancel()
-        lifecycleTasks[launch.key] = Swift.Task(priority: launch.priority) {
+        lifecycleTasks[launch.key] = Task(priority: launch.priority) {
             await launch.action()
         }
     }
@@ -2070,6 +3305,16 @@ public final class ViewNode {
         }
 
         onLayout?(resolvedFrame)
+
+        if let position = position {
+            let size = resolvedFrame.size
+            resolvedFrame = Rect(
+                x: position.x - size.width / 2,
+                y: position.y - size.height / 2,
+                width: size.width,
+                height: size.height
+            )
+        }
 
         switch layoutMode {
         case .absolute:
@@ -2427,6 +3672,11 @@ public final class ViewNode {
         inheritedOpacity: Float = 1,
         parentDispatchIndex: Int? = nil,
         inheritedInverseTransform: Transform2D? = nil,
+        inheritedTransform: Transform2D = .identity,
+        inheritedColorEffects: [RetainedColorEffect] = [],
+        inheritedBlurRadius: Double = 0,
+        inheritedBlurOpaque: Bool = false,
+        inheritedBlendMode: BlendMode = .normal,
         previousState: RuntimePrepaintState? = nil,
         displayScale: Double = 1,
         replayCount: inout Int
@@ -2475,17 +3725,21 @@ public final class ViewNode {
         }
 
         let effectiveOpacity = inheritedOpacity * Float(opacity)
+        let effectiveColorEffects = inheritedColorEffects + colorEffects
+        let effectiveBlurRadius = max(inheritedBlurRadius, blurRadius)
+        let effectiveBlurOpaque = inheritedBlurOpaque || blurOpaque
+        let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
         let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
             bounds: absoluteFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
-            blurRadius: blurRadius,
-            blurOpaque: blurOpaque,
-            blendMode: blendMode,
+            blurRadius: effectiveBlurRadius,
+            blurOpaque: effectiveBlurOpaque,
+            blendMode: effectiveBlendMode,
             isCompositingGroup: isCompositingGroup,
             drawingGroup: drawingGroup,
-            colorEffects: colorEffects,
+            colorEffects: effectiveColorEffects,
             visualEffects: visualEffects,
             viewMask: viewMask,
             displayScale: displayScale,
@@ -2614,6 +3868,20 @@ public final class ViewNode {
             }
         }
 
+        let nodeForwardTransform: Transform2D
+        if transform.isIdentity {
+            nodeForwardTransform = .identity
+        } else {
+            let center = Point(
+                x: absoluteFrame.origin.x + absoluteFrame.size.width * 0.5,
+                y: absoluteFrame.origin.y + absoluteFrame.size.height * 0.5
+            )
+            nodeForwardTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+        }
+        let effectiveTransform = nodeForwardTransform.concatenating(inheritedTransform)
+
         let dispatchIndex = state.dispatchNodes.count
         state.dispatchNodes.append(
             PrepaintDispatchState(
@@ -2660,7 +3928,12 @@ public final class ViewNode {
                             parentOrigin: childOrigin,
                             inheritedClip: effectiveClip,
                             inheritedOpacity: effectiveOpacity,
-                            inheritedInverseTransform: nodeInverseTransform
+                            inheritedInverseTransform: nodeInverseTransform,
+                            inheritedTransform: effectiveTransform,
+                            inheritedColorEffects: effectiveColorEffects,
+                            inheritedBlurRadius: effectiveBlurRadius,
+                            inheritedBlurOpaque: effectiveBlurOpaque,
+                            inheritedBlendMode: effectiveBlendMode
                         )
                     )
                 )
@@ -2675,6 +3948,11 @@ public final class ViewNode {
                 inheritedOpacity: effectiveOpacity,
                 parentDispatchIndex: dispatchIndex,
                 inheritedInverseTransform: nodeInverseTransform,
+                inheritedTransform: effectiveTransform,
+                inheritedColorEffects: effectiveColorEffects,
+                inheritedBlurRadius: effectiveBlurRadius,
+                inheritedBlurOpaque: effectiveBlurOpaque,
+                inheritedBlendMode: effectiveBlendMode,
                 previousState: previousState,
                 displayScale: displayScale,
                 replayCount: &replayCount
@@ -2740,6 +4018,17 @@ public final class ViewNode {
             height: resolvedFrame.size.height
         )
 
+        let paintFrame: Rect
+        if transform.isIdentity {
+            paintFrame = absoluteFrame
+        } else {
+            let center = Point(x: absoluteFrame.midX, y: absoluteFrame.midY)
+            let centeredTransform = Transform2D.translation(x: -center.x, y: -center.y)
+                .concatenating(transform)
+                .concatenating(.translation(x: center.x, y: center.y))
+            paintFrame = absoluteFrame.applying(transform: centeredTransform)
+        }
+
         // Gap/Fix: Occlusion culling — skip the entire node early if it is
         // fully outside the inherited clip bounds (before allocating any
         // command structs).
@@ -2751,19 +4040,23 @@ public final class ViewNode {
         }
 
         // Gap/Fix: Lifecycle — fire onAppear the first time a node is rendered.
-        if !hasAppeared {
-            hasAppeared = true
-            onAppear?()
-            onAppearWithNode?(self)
+        // Skip lifecycle callbacks for removal overlays; they have already
+        // appeared and we defer onDisappear until the transition finishes.
+        if !isRemovalOverlay {
+            if !hasAppeared {
+                hasAppeared = true
+                onAppear?()
+                onAppearWithNode?(self)
+                previousFrame = absoluteFrame
+            }
+
+            // Gap/Fix: Lifecycle — fire onSizeChange when the resolved frame differs
+            // from the previously recorded frame.
+            if let prev = previousFrame, prev != absoluteFrame {
+                onSizeChange?(absoluteFrame)
+            }
             previousFrame = absoluteFrame
         }
-
-        // Gap/Fix: Lifecycle — fire onSizeChange when the resolved frame differs
-        // from the previously recorded frame.
-        if let prev = previousFrame, prev != absoluteFrame {
-            onSizeChange?(absoluteFrame)
-        }
-        previousFrame = absoluteFrame
 
         var effectiveClip = inheritedClip
         if clipsToBounds {
@@ -2791,7 +4084,7 @@ public final class ViewNode {
         let effectiveBlendMode = blendMode == .normal ? inheritedBlendMode : blendMode
         let resolvedHoverEffect = resolvedActiveHoverEffect
         let cacheKey = ViewPaintCacheKey(
-            bounds: absoluteFrame,
+            bounds: paintFrame,
             contentMask: effectiveClip,
             opacity: effectiveOpacity,
             blurRadius: blurRadius,
@@ -2843,7 +4136,7 @@ public final class ViewNode {
         let directCommandStartIndex = commands.count
 
         if let hoverShadow = hoverEffectShadowCommand(
-            for: absoluteFrame,
+            for: paintFrame,
             inheritedClip: inheritedClip,
             opacity: effectiveOpacity
         ) {
@@ -2852,7 +4145,7 @@ public final class ViewNode {
 
         let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveShadowColor.alpha > 0 {
-            let shadowRect = absoluteFrame
+            let shadowRect = paintFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
 
@@ -2871,7 +4164,7 @@ public final class ViewNode {
         }
 
         if let focusEffect = focusEffectCommand(
-            for: absoluteFrame,
+            for: paintFrame,
             inheritedClip: inheritedClip,
             opacity: effectiveOpacity
         ) {
@@ -2880,7 +4173,7 @@ public final class ViewNode {
 
         let effectiveOutlineColor = outlineColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveOutlineColor.alpha > 0, outlineWidth > 0 {
-            let outlineRect = absoluteFrame.outset(by: outlineWidth)
+            let outlineRect = paintFrame.outset(by: outlineWidth)
             if baseClipAllowsDrawing(baseClip: inheritedClip, rect: outlineRect) {
                 commands.append(
                     .fillRect(
@@ -2895,18 +4188,12 @@ public final class ViewNode {
             }
         }
 
-        var effectiveBorderGradient = borderGradient
-        if var gradient = effectiveBorderGradient {
-            gradient.stops = gradient.stops.map { stop in
-                GradientStop(color: stop.color.multipliedAlpha(by: effectiveOpacity), position: stop.position)
-            }
-            effectiveBorderGradient = gradient
-        }
-        let effectiveBorderColor = effectiveBorderGradient?.startColor
+        let effectiveBorderGradient = borderGradient?.withMultipliedOpacity(Double(effectiveOpacity))
+        let effectiveBorderColor = borderGradient?.startColor
             ?? borderColor.multipliedAlpha(by: effectiveOpacity)
-        if effectiveBorderColor.alpha > 0, borderWidth > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+        if effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
             if let borderSegments = BorderSegments.dashedSegments(
-                frame: absoluteFrame,
+                frame: paintFrame,
                 width: borderWidth,
                 cornerRadius: cornerRadius,
                 strokeStyle: borderStrokeStyle
@@ -2928,7 +4215,7 @@ public final class ViewNode {
                 commands.append(
                     .fillRect(
                         FillRectCommand(
-                            rect: absoluteFrame,
+                            rect: paintFrame,
                             color: effectiveBorderColor,
                             cornerRadius: cornerRadius,
                             clipRect: effectiveClip,
@@ -2939,19 +4226,13 @@ public final class ViewNode {
             }
         }
 
-        let fillRect = borderWidth > 0 ? absoluteFrame.inset(by: borderWidth) : absoluteFrame
+        let fillRect = borderWidth > 0 ? paintFrame.inset(by: borderWidth) : paintFrame
         let fillCornerRadius = max(0, cornerRadius - borderWidth)
 
-        var resolvedBackgroundGradient = backgroundGradient
-        if var gradient = resolvedBackgroundGradient {
-            gradient.stops = gradient.stops.map { stop in
-                GradientStop(color: stop.color.multipliedAlpha(by: effectiveOpacity), position: stop.position)
-            }
-            resolvedBackgroundGradient = gradient
-        }
+        let resolvedBackgroundGradient = backgroundGradient?.withMultipliedOpacity(Double(effectiveOpacity))
         let resolvedBackgroundColor = backgroundColor?.multipliedAlpha(by: effectiveOpacity)
-            ?? resolvedBackgroundGradient?.startColor
-        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0 {
+            ?? backgroundGradient?.startColor
+        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0, backgroundPath == nil {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
                 commands.append(
                     .fillRect(
@@ -2961,6 +4242,34 @@ public final class ViewNode {
                             cornerRadius: fillCornerRadius,
                             clipRect: effectiveClip,
                             gradient: resolvedBackgroundGradient
+                        )
+                    )
+                )
+            }
+        }
+
+        if let path = backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+            let scaledPath = path.scaled(to: fillRect)
+            if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0 {
+                commands.append(
+                    .fillPath(
+                        FillPathCommand(
+                            path: scaledPath,
+                            color: resolvedBackgroundColor,
+                            clipRect: effectiveClip
+                        )
+                    )
+                )
+            }
+            let effectiveStrokeColor = borderColor.multipliedAlpha(by: effectiveOpacity)
+            if effectiveStrokeColor.alpha > 0, borderWidth > 0 {
+                commands.append(
+                    .strokePath(
+                        StrokePathCommand(
+                            path: scaledPath,
+                            color: effectiveStrokeColor,
+                            style: StrokeStyle(lineWidth: borderWidth),
+                            clipRect: effectiveClip
                         )
                     )
                 )
@@ -3017,6 +4326,19 @@ public final class ViewNode {
                     into: &commands
                 )
             }
+        }
+
+        // Canvas custom drawing — evaluate the renderer closure and emit commands.
+        if let canvasDraw, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+            var context = CanvasGraphicsContext()
+            canvasDraw(&context, fillRect.size)
+            context.appendCommands(
+                into: &commands,
+                origin: absoluteOrigin,
+                clipRect: effectiveClip,
+                opacity: effectiveOpacity,
+                displayScale: displayScale
+            )
         }
 
         // Gap/Fix: Emit blur render command — apply Gaussian blur over
@@ -3851,6 +5173,214 @@ public final class ViewNode {
             scrollIndicatorColor = color
         }
     }
+
+    func applyInsertionTransition() {
+        let insertion = transition.insertion
+        guard insertion.kind != .identity else { return }
+
+        let tx = currentAnimationTransaction
+        let duration = tx?.duration ?? 0.35
+        let easing = tx?.easing ?? .easeInOut
+        let now = Win32Window.currentTimestampSeconds()
+
+        applySingleTransition(insertion, duration: duration, easing: easing, now: now)
+    }
+
+    private func applySingleTransition(_ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double) {
+        switch transition.kind {
+        case .identity:
+            break
+        case .opacity:
+            let targetOpacity = opacity
+            opacity = 0
+            animationStates[.opacity] = AnimationState(
+                startValue: 0, endValue: targetOpacity,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .scale(let scaleX, let scaleY, _, _):
+            let targetScaleX = transform.scaleX
+            let targetScaleY = transform.scaleY
+            transform.scaleX = scaleX
+            transform.scaleY = scaleY
+            animationStates[.transformScaleX] = AnimationState(
+                startValue: scaleX, endValue: targetScaleX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformScaleY] = AnimationState(
+                startValue: scaleY, endValue: targetScaleY,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .offset(let x, let y):
+            let targetTX = transform.translationX
+            let targetTY = transform.translationY
+            transform.translationX = x
+            transform.translationY = y
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: x, endValue: targetTX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformTranslationY] = AnimationState(
+                startValue: y, endValue: targetTY,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .move(let edge):
+            let offsetX: Double
+            let offsetY: Double
+            switch edge {
+            case .leading:
+                offsetX = -resolvedFrame.size.width
+                offsetY = 0
+            case .trailing:
+                offsetX = resolvedFrame.size.width
+                offsetY = 0
+            case .top:
+                offsetX = 0
+                offsetY = -resolvedFrame.size.height
+            case .bottom:
+                offsetX = 0
+                offsetY = resolvedFrame.size.height
+            }
+            let targetTX = transform.translationX
+            let targetTY = transform.translationY
+            transform.translationX = offsetX
+            transform.translationY = offsetY
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: offsetX, endValue: targetTX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformTranslationY] = AnimationState(
+                startValue: offsetY, endValue: targetTY,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .slide:
+            let targetTX = transform.translationX
+            transform.translationX = resolvedFrame.size.width
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: resolvedFrame.size.width, endValue: targetTX,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .push:
+            let targetTX = transform.translationX
+            let targetScaleX = transform.scaleX
+            transform.translationX = resolvedFrame.size.width * 0.5
+            transform.scaleX = 0.85
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: resolvedFrame.size.width * 0.5, endValue: targetTX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformScaleX] = AnimationState(
+                startValue: 0.85, endValue: targetScaleX,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .combined(let first, let second):
+            applySingleTransition(first, duration: duration, easing: easing, now: now)
+            applySingleTransition(second, duration: duration, easing: easing, now: now)
+        case .asymmetric:
+            // Defensive: insertion property already flattens asymmetric.
+            break
+        case .modifier:
+            break
+        }
+    }
+
+    func applyRemovalTransition() {
+        let removal = transition.removal
+        guard removal.kind != .identity else { return }
+
+        let tx = currentAnimationTransaction
+        let duration = tx?.duration ?? 0.35
+        let easing = tx?.easing ?? .easeInOut
+        let now = Win32Window.currentTimestampSeconds()
+
+        applySingleRemovalTransition(removal, duration: duration, easing: easing, now: now)
+    }
+
+    private func applySingleRemovalTransition(_ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double) {
+        switch transition.kind {
+        case .identity:
+            break
+        case .opacity:
+            let startOpacity = opacity
+            animationStates[.opacity] = AnimationState(
+                startValue: startOpacity, endValue: 0,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .scale(let scaleX, let scaleY, _, _):
+            let startScaleX = transform.scaleX
+            let startScaleY = transform.scaleY
+            animationStates[.transformScaleX] = AnimationState(
+                startValue: startScaleX, endValue: scaleX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformScaleY] = AnimationState(
+                startValue: startScaleY, endValue: scaleY,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .offset(let x, let y):
+            let startTX = transform.translationX
+            let startTY = transform.translationY
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: startTX, endValue: x,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformTranslationY] = AnimationState(
+                startValue: startTY, endValue: y,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .move(let edge):
+            let offsetX: Double
+            let offsetY: Double
+            switch edge {
+            case .leading:
+                offsetX = -resolvedFrame.size.width
+                offsetY = 0
+            case .trailing:
+                offsetX = resolvedFrame.size.width
+                offsetY = 0
+            case .top:
+                offsetX = 0
+                offsetY = -resolvedFrame.size.height
+            case .bottom:
+                offsetX = 0
+                offsetY = resolvedFrame.size.height
+            }
+            let startTX = transform.translationX
+            let startTY = transform.translationY
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: startTX, endValue: offsetX,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformTranslationY] = AnimationState(
+                startValue: startTY, endValue: offsetY,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .slide:
+            let startTX = transform.translationX
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: startTX, endValue: resolvedFrame.size.width,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .push:
+            let startTX = transform.translationX
+            let startScaleX = transform.scaleX
+            animationStates[.transformTranslationX] = AnimationState(
+                startValue: startTX, endValue: resolvedFrame.size.width * 0.5,
+                startTime: now, duration: duration, easing: easing
+            )
+            animationStates[.transformScaleX] = AnimationState(
+                startValue: startScaleX, endValue: 0.85,
+                startTime: now, duration: duration, easing: easing
+            )
+        case .combined(let first, let second):
+            applySingleRemovalTransition(first, duration: duration, easing: easing, now: now)
+            applySingleRemovalTransition(second, duration: duration, easing: easing, now: now)
+        case .asymmetric:
+            // Defensive: removal property already flattens asymmetric.
+            break
+        case .modifier:
+            break
+        }
+    }
 }
 
 private func insetConstraints(_ constraints: LayoutConstraints, by padding: EdgeInsets) -> LayoutConstraints {
@@ -4089,6 +5619,19 @@ public final class RetainedViewRuntime {
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
 
+    /// Nodes that have been removed from the view tree but are still animating
+    /// out via their removal transition. Rendered after the main tree each frame.
+    public internal(set) var transitionOverlays: [ViewNode] = []
+
+    /// Captured frame and node references for matched geometry effect processing.
+    struct MatchedGeometryOldNode {
+        let node: ViewNode
+        let frame: Rect
+    }
+
+    internal var pendingMatchedGeometryOldNodes: [String: [String: MatchedGeometryOldNode]] = [:]
+    internal var pendingMatchedGeometryCheck = false
+
     /// Optional text raster cache for scale-aware invalidation.
     public var textRasterCache: TextRasterCache?
 
@@ -4140,6 +5683,7 @@ public final class RetainedViewRuntime {
         }
 
         updateResolvedLayout()
+        applyMatchedGeometryAnimations()
 
         let previousFrame = cachedFrame
         var commands: [RenderCommand] = []
@@ -4159,6 +5703,20 @@ public final class RetainedViewRuntime {
             displayScale: displayScale,
             replayCount: &deferredDrawReplayCount
         )
+
+        // Render removal-transition overlays on top of the main tree.
+        for overlay in transitionOverlays {
+            var overlayReplayCount = 0
+            overlay.appendCommands(
+                into: &commands,
+                parentOrigin: .zero,
+                inheritedClip: nil,
+                previousRenderedFrame: previousFrame,
+                displayScale: displayScale,
+                replayCount: &overlayReplayCount
+            )
+            replayCount += overlayReplayCount
+        }
 
         let frame = RenderFrame(clearColor: clearColor, commands: commands)
         lastFrameReplayCount = replayCount
@@ -4201,6 +5759,8 @@ public final class RetainedViewRuntime {
         }
 
         updateResolvedLayout()
+        applyMatchedGeometryAnimations()
+
         let previousScene = cachedScene
         var replayCount = 0
         var deferredDrawReplayCount = 0
@@ -4214,7 +5774,8 @@ public final class RetainedViewRuntime {
             previousScene: previousScene,
             deferredDraws: &deferredDraws,
             replayCount: &replayCount,
-            deferredReplayCount: &deferredDrawReplayCount
+            deferredReplayCount: &deferredDrawReplayCount,
+            overlays: transitionOverlays
         )
         prepaintState.deferredDraws = deferredDraws
 
@@ -4510,9 +6071,31 @@ public final class RetainedViewRuntime {
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
+        let didAdvancePropertyAnimations = tickPropertyAnimations(node: root, at: timestamp)
+
+        var didAdvanceOverlayAnimations = false
+        var completedOverlays: [ViewNode] = []
+        for overlay in transitionOverlays {
+            if tickPropertyAnimations(node: overlay, at: timestamp) {
+                didAdvanceOverlayAnimations = true
+            }
+            if overlay.animationStates.isEmpty {
+                completedOverlays.append(overlay)
+            }
+        }
+        for overlay in completedOverlays {
+            overlay.isRemovalOverlay = false
+            overlay.markSubtreeDisappeared()
+            if let index = transitionOverlays.firstIndex(where: { $0 === overlay }) {
+                transitionOverlays.remove(at: index)
+            }
+        }
+        if !completedOverlays.isEmpty {
+            invalidate()
+        }
 
         guard !colorAnimations.isEmpty else {
-            return didAdvanceButtonRepeat
+            return didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -4539,7 +6122,208 @@ public final class RetainedViewRuntime {
             }
         }
 
-        return didUpdateAnyAnimation || didAdvanceButtonRepeat
+        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+    }
+
+    // MARK: - Matched Geometry Effect
+
+    func recordMatchedGeometryFrames() {
+        pendingMatchedGeometryOldNodes.removeAll()
+        collectMatchedGeometryFrames(from: root)
+    }
+
+    private func collectMatchedGeometryFrames(from node: ViewNode) {
+        if let effect = node.matchedGeometryEffect {
+            pendingMatchedGeometryOldNodes[effect.namespaceID, default: [:]][effect.elementID] = MatchedGeometryOldNode(
+                node: node,
+                frame: node.resolvedFrame
+            )
+        }
+        for child in node.children {
+            collectMatchedGeometryFrames(from: child)
+        }
+    }
+
+    func applyMatchedGeometryAnimations() {
+        guard pendingMatchedGeometryCheck, !pendingMatchedGeometryOldNodes.isEmpty else {
+            pendingMatchedGeometryCheck = false
+            return
+        }
+
+        var currentNodes: [String: [String: (node: ViewNode, frame: Rect)]] = [:]
+        collectCurrentMatchedGeometryNodes(from: root, into: &currentNodes)
+
+        let now = Win32Window.currentTimestampSeconds()
+        let tx = currentAnimationTransaction
+        let duration = tx?.duration ?? 0.35
+        let easing = tx?.easing ?? .easeInOut
+
+        for (namespaceID, oldElements) in pendingMatchedGeometryOldNodes {
+            for (elementID, oldRecord) in oldElements {
+                guard let currentRecord = currentNodes[namespaceID]?[elementID] else { continue }
+
+                let oldNode = oldRecord.node
+                let oldFrame = oldRecord.frame
+                let newFrame = currentRecord.frame
+
+                // Skip if the old node is still in the tree.
+                guard oldNode.parent == nil else { continue }
+
+                // Skip if the old node is already in transitionOverlays.
+                guard !transitionOverlays.contains(where: { $0 === oldNode }) else { continue }
+
+                // Skip if frames are identical.
+                guard oldFrame != newFrame else { continue }
+
+                oldNode.isRemovalOverlay = true
+                oldNode.cachedFrameKey = nil
+                oldNode.cachedFrameCommandRange = nil
+                oldNode.cachedSceneKey = nil
+                oldNode.cachedScenePaintRange = nil
+
+                // Animate frame from old to new.
+                if oldFrame.origin.x != newFrame.origin.x {
+                    oldNode.animationStates[.frameOriginX] = AnimationState(
+                        startValue: oldFrame.origin.x, endValue: newFrame.origin.x,
+                        startTime: now, duration: duration, easing: easing
+                    )
+                }
+                if oldFrame.origin.y != newFrame.origin.y {
+                    oldNode.animationStates[.frameOriginY] = AnimationState(
+                        startValue: oldFrame.origin.y, endValue: newFrame.origin.y,
+                        startTime: now, duration: duration, easing: easing
+                    )
+                }
+                if oldFrame.size.width != newFrame.size.width {
+                    oldNode.animationStates[.frameWidth] = AnimationState(
+                        startValue: oldFrame.size.width, endValue: newFrame.size.width,
+                        startTime: now, duration: duration, easing: easing
+                    )
+                }
+                if oldFrame.size.height != newFrame.size.height {
+                    oldNode.animationStates[.frameHeight] = AnimationState(
+                        startValue: oldFrame.size.height, endValue: newFrame.size.height,
+                        startTime: now, duration: duration, easing: easing
+                    )
+                }
+
+                // Lock the overlay's frame and resolvedFrame to the old position
+                // so the animation starts from there.
+                oldNode.frame = oldFrame
+                oldNode.resolvedFrame = oldFrame
+
+                transitionOverlays.append(oldNode)
+                invalidate()
+            }
+        }
+
+        pendingMatchedGeometryCheck = false
+        pendingMatchedGeometryOldNodes.removeAll()
+    }
+
+    private func collectCurrentMatchedGeometryNodes(
+        from node: ViewNode,
+        into result: inout [String: [String: (node: ViewNode, frame: Rect)]]
+    ) {
+        if let effect = node.matchedGeometryEffect {
+            result[effect.namespaceID, default: [:]][effect.elementID] = (
+                node: node,
+                frame: node.resolvedFrame
+            )
+        }
+        for child in node.children {
+            collectCurrentMatchedGeometryNodes(from: child, into: &result)
+        }
+    }
+
+    private func tickPropertyAnimations(node: ViewNode, at timestamp: Double) -> Bool {
+        var didUpdate = false
+        for (property, state) in node.animationStates {
+            let elapsed = timestamp - state.startTime
+            guard elapsed >= 0 else { continue }
+            let progress = min(1.0, max(0.0, elapsed / max(state.duration, 0.001)))
+            let eased = state.easing.apply(progress)
+            let value = state.startValue + (state.endValue - state.startValue) * eased
+
+            switch property {
+            case .opacity:
+                if node.opacity != value {
+                    node.opacity = value
+                    didUpdate = true
+                }
+            case .frameOriginX:
+                let newOrigin = Point(x: value, y: node.frame.origin.y)
+                let newFrame = Rect(origin: newOrigin, size: node.frame.size)
+                if node.frame != newFrame {
+                    node.frame = newFrame
+                    node.resolvedFrame.origin.x = value
+                    didUpdate = true
+                }
+            case .frameOriginY:
+                let newOrigin = Point(x: node.frame.origin.x, y: value)
+                let newFrame = Rect(origin: newOrigin, size: node.frame.size)
+                if node.frame != newFrame {
+                    node.frame = newFrame
+                    node.resolvedFrame.origin.y = value
+                    didUpdate = true
+                }
+            case .frameWidth:
+                let newSize = Size(width: value, height: node.frame.size.height)
+                let newFrame = Rect(origin: node.frame.origin, size: newSize)
+                if node.frame != newFrame {
+                    node.frame = newFrame
+                    node.resolvedFrame.size.width = value
+                    didUpdate = true
+                }
+            case .frameHeight:
+                let newSize = Size(width: node.frame.size.width, height: value)
+                let newFrame = Rect(origin: node.frame.origin, size: newSize)
+                if node.frame != newFrame {
+                    node.frame = newFrame
+                    node.resolvedFrame.size.height = value
+                    didUpdate = true
+                }
+            case .transformScaleX:
+                if node.transform.scaleX != value {
+                    node.transform.scaleX = value
+                    didUpdate = true
+                }
+            case .transformScaleY:
+                if node.transform.scaleY != value {
+                    node.transform.scaleY = value
+                    didUpdate = true
+                }
+            case .transformTranslationX:
+                if node.transform.translationX != value {
+                    node.transform.translationX = value
+                    didUpdate = true
+                }
+            case .transformTranslationY:
+                if node.transform.translationY != value {
+                    node.transform.translationY = value
+                    didUpdate = true
+                }
+            case .transformRotation:
+                if node.transform.rotation != value {
+                    node.transform.rotation = value
+                    didUpdate = true
+                }
+            case .backgroundColor:
+                break
+            }
+
+            if progress >= 1.0 {
+                node.animationStates.removeValue(forKey: property)
+            }
+        }
+
+        for child in node.children {
+            if tickPropertyAnimations(node: child, at: timestamp) {
+                didUpdate = true
+            }
+        }
+
+        return didUpdate
     }
 
     fileprivate func invalidate(_ flags: DirtyFlags = .all) {
@@ -4833,6 +6617,7 @@ public final class RetainedViewRuntime {
             into: &nextState,
             parentOrigin: .zero,
             inheritedClip: nil,
+            inheritedTransform: .identity,
             previousState: previousState,
             displayScale: displayScale,
             replayCount: &replayCount
@@ -4880,6 +6665,11 @@ public final class RetainedViewRuntime {
                     inheritedOpacity: payload.inheritedOpacity,
                     parentDispatchIndex: deferredSubtree.parentDispatchIndex,
                     inheritedInverseTransform: payload.inheritedInverseTransform,
+                    inheritedTransform: payload.inheritedTransform,
+                    inheritedColorEffects: payload.inheritedColorEffects,
+                    inheritedBlurRadius: payload.inheritedBlurRadius,
+                    inheritedBlurOpaque: payload.inheritedBlurOpaque,
+                    inheritedBlendMode: payload.inheritedBlendMode,
                     previousState: previousState,
                     displayScale: displayScale,
                     replayCount: &replayCount
@@ -5016,7 +6806,7 @@ private final class ViewColorAnimation {
     }
 }
 
-private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
+func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
 }
 
@@ -5026,6 +6816,15 @@ private func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
 public enum AnimatableProperty: Hashable, Sendable {
     case opacity
     case backgroundColor
+    case frameOriginX
+    case frameOriginY
+    case frameWidth
+    case frameHeight
+    case transformScaleX
+    case transformScaleY
+    case transformTranslationX
+    case transformTranslationY
+    case transformRotation
 }
 
 /// Tracks the interpolation state for a single animated property change.
@@ -5059,27 +6858,6 @@ public struct AnimationState {
     /// Whether the animation has completed at the given timestamp.
     public func isComplete(at timestamp: Double) -> Bool {
         (timestamp - startTime) >= duration
-    }
-}
-
-/// Easing functions for animation interpolation.
-public enum AnimationEasing: Sendable {
-    case linear
-    case easeIn
-    case easeOut
-    case easeInOut
-
-    func apply(_ t: Double) -> Double {
-        switch self {
-        case .linear:
-            return t
-        case .easeIn:
-            return t * t
-        case .easeOut:
-            return t * (2 - t)
-        case .easeInOut:
-            return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
-        }
     }
 }
 

@@ -16,6 +16,18 @@ The default demo path now uses `GPUIScene` -> `D3D11BatchRenderer`, with
 `RenderFrame` -> `D3D11Renderer` kept as an automatic fallback and explicit
 debug override.
 
+## Rendering Contract
+
+`GPUIScene.paintOperations` is the source-of-truth paint stream for typed
+scene primitives. CPU screenshots and `D3D11BatchRenderer` must both consume
+that stream so mixed primitive families preserve retained-runtime paint order.
+Family-specific sorted batches remain an optimization surface, but they must
+not replace the paint stream for presentation.
+
+Offscreen compositing and `drawingGroup` passes render into a temporary
+`GPUIScene`. Those passes must not update `ViewNode.cachedScenePaintRange`,
+because the cached ranges refer to the outer scene's `paintRecords`.
+
 To force the frame fallback locally:
 
 ```powershell

@@ -770,11 +770,11 @@ private final class DirectWriteSystem {
         _ = format.pointee.lpVtbl!.pointee.SetParagraphAlignment(UnsafeMutableRawPointer(format), style.verticalAlignment.dwriteParagraphAlignment)
         _ = format.pointee.lpVtbl!.pointee.SetWordWrapping(UnsafeMutableRawPointer(format), wrapping)
 
-        if style.lineSpacing > 0 {
+        if style.lineSpacing >= 0 {
             _ = format.pointee.lpVtbl!.pointee.SetLineSpacing(
                 UnsafeMutableRawPointer(format),
-                dwriteLineSpacingMethodProportional,
-                FLOAT(style.nativeFontPixelSize * (1.0 + style.lineSpacing / style.nativeFontPixelSize)),
+                dwriteLineSpacingMethodUniform,
+                FLOAT(style.nativeFontPixelSize + style.lineSpacing),
                 FLOAT(style.nativeFontPixelSize * 0.8)
             )
         }

@@ -360,14 +360,14 @@ struct GPUISceneBridgeTests {
         ])
     }
 
-    @Test("fillPath commands are skipped without crashing")
-    func fillPathSkipped() {
+    @Test("fillPath commands convert to path primitives")
+    func fillPathConverted() {
         var path = RenderPath()
         path.move(to: Point(x: 0, y: 0))
         path.addLine(to: Point(x: 100, y: 0))
         path.addLine(to: Point(x: 50, y: 100))
         path.close()
-        
+
         let commands: [RenderCommand] = [
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
             .fillPath(FillPathCommand(path: path, color: Color(red: 1, green: 0, blue: 0, alpha: 1))),
@@ -376,19 +376,21 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // fillPath is skipped without placeholder primitives
         #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].paths.count == 1)
         #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .path, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
         ])
     }
 
-    @Test("strokePath commands are skipped without crashing")
-    func strokePathSkipped() {
+    @Test("strokePath commands convert to path primitives")
+    func strokePathConverted() {
         var path = RenderPath()
         path.move(to: Point(x: 0, y: 0))
         path.addLine(to: Point(x: 100, y: 100))
-        
+
         let commands: [RenderCommand] = [
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
             .strokePath(StrokePathCommand(path: path, color: Color(red: 0, green: 0, blue: 1, alpha: 1))),
@@ -397,8 +399,8 @@ struct GPUISceneBridgeTests {
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
-        // strokePath is skipped without affecting neighbors
         #expect(scene.layers[0].quads.count == 2)
+        #expect(scene.layers[0].paths.count == 1)
     }
 
     @Test("applyBlur commands are skipped without crashing")

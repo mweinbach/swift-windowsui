@@ -10,6 +10,8 @@ public struct IntSize: Equatable, Sendable {
     public static let zero = IntSize(width: 0, height: 0)
 }
 
+public typealias CGSize = Size
+
 public struct Point: Equatable, Sendable {
     public var x: Double
     public var y: Double
@@ -93,8 +95,12 @@ public struct Rect: Equatable, Sendable {
 
     public var minX: Double { origin.x }
     public var minY: Double { origin.y }
+    public var midX: Double { origin.x + size.width / 2 }
+    public var midY: Double { origin.y + size.height / 2 }
     public var maxX: Double { origin.x + size.width }
     public var maxY: Double { origin.y + size.height }
+    public var width: Double { size.width }
+    public var height: Double { size.height }
     public var isEmpty: Bool { size.width <= 0 || size.height <= 0 }
 
     public func intersected(with other: Rect) -> Rect? {
@@ -175,6 +181,25 @@ public struct Rect: Equatable, Sendable {
 }
 
 
+public enum Edge: Sendable, Equatable, Hashable {
+    case top
+    case leading
+    case bottom
+    case trailing
+
+    public struct Set: OptionSet, Sendable, Equatable, Hashable {
+        public let rawValue: Int
+        public init(rawValue: Int) { self.rawValue = rawValue }
+        public static let top = Set(rawValue: 1 << 0)
+        public static let leading = Set(rawValue: 1 << 1)
+        public static let bottom = Set(rawValue: 1 << 2)
+        public static let trailing = Set(rawValue: 1 << 3)
+        public static let all: Set = [.top, .leading, .bottom, .trailing]
+        public static let horizontal: Set = [.leading, .trailing]
+        public static let vertical: Set = [.top, .bottom]
+    }
+}
+
 public struct EdgeInsets: Equatable, Sendable {
     public var top: Double
     public var leading: Double
@@ -207,6 +232,60 @@ public struct Color: Equatable, Sendable {
     public static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     public static let white = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let clear = Color(red: 0, green: 0, blue: 0, alpha: 0)
+    public static let red = Color(red: 1, green: 0, blue: 0, alpha: 1)
+    public static let green = Color(red: 0, green: 1, blue: 0, alpha: 1)
+    public static let blue = Color(red: 0, green: 0, blue: 1, alpha: 1)
+    public static let orange = Color(red: 1, green: 0.5, blue: 0, alpha: 1)
+    public static let yellow = Color(red: 1, green: 1, blue: 0, alpha: 1)
+    public static let purple = Color(red: 0.5, green: 0, blue: 0.5, alpha: 1)
+    public static let pink = Color(red: 1, green: 0.41, blue: 0.71, alpha: 1)
+    public static let cyan = Color(red: 0, green: 1, blue: 1, alpha: 1)
+    public static let brown = Color(red: 0.6, green: 0.4, blue: 0.2, alpha: 1)
+    public static let indigo = Color(red: 0.29, green: 0, blue: 0.51, alpha: 1)
+    public static let mint = Color(red: 0, green: 0.78, blue: 0.75, alpha: 1)
+    public static let teal = Color(red: 0, green: 0.5, blue: 0.5, alpha: 1)
+    public static let gray = Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    public static let primary = Color(red: 1, green: 1, blue: 1, alpha: 1)
+    public static let secondary = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
+    public static let highContrastSecondary = Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
+    public static let accentColor = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+
+    public init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1) {
+        var normalizedHue = hue.truncatingRemainder(dividingBy: 1)
+        if normalizedHue < 0 { normalizedHue += 1 }
+        let hueDegrees = normalizedHue * 360
+        let c = brightness * saturation
+        let x = c * (1 - abs((hueDegrees / 60).truncatingRemainder(dividingBy: 2) - 1))
+        let m = brightness - c
+        var r: Double = 0, g: Double = 0, b: Double = 0
+        switch hueDegrees {
+        case 0..<60: r = c; g = x; b = 0
+        case 60..<120: r = x; g = c; b = 0
+        case 120..<180: r = 0; g = c; b = x
+        case 180..<240: r = 0; g = x; b = c
+        case 240..<300: r = x; g = 0; b = c
+        default: r = c; g = 0; b = x
+        }
+        self.init(red: Float(r + m), green: Float(g + m), blue: Float(b + m), alpha: Float(opacity))
+    }
+
+    public func mix(with other: Color, by fraction: Double) -> Color {
+        interpolated(to: other, progress: fraction)
+    }
+
+    public struct Resolved: Equatable, Sendable {
+        public var red: Float
+        public var green: Float
+        public var blue: Float
+        public var opacity: Float
+
+        public init(red: Float, green: Float, blue: Float, opacity: Float) {
+            self.red = red
+            self.green = green
+            self.blue = blue
+            self.opacity = opacity
+        }
+    }
 
     public var rgba: (Float, Float, Float, Float) {
         (red, green, blue, alpha)
@@ -230,6 +309,42 @@ public struct Color: Equatable, Sendable {
             alpha: max(0, min(1, alpha * multiplier))
         )
     }
+
+    public init(_ colorSpace: String, colorComponents: [Float]) {
+        let r = colorComponents.count > 0 ? colorComponents[0] : 0
+        let g = colorComponents.count > 1 ? colorComponents[1] : 0
+        let b = colorComponents.count > 2 ? colorComponents[2] : 0
+        let a = colorComponents.count > 3 ? colorComponents[3] : 1
+        self.init(red: r, green: g, blue: b, alpha: a)
+    }
+
+    public init(cgColor: CGColor) {
+        self.init(red: 0, green: 0, blue: 0, alpha: 1)
+    }
+
+    public init(_ resolved: Resolved) {
+        self.init(red: resolved.red, green: resolved.green, blue: resolved.blue, alpha: resolved.opacity)
+    }
+
+    public init(uiColor: CGColor) {
+        self.init(red: 0, green: 0, blue: 0, alpha: 1)
+    }
+
+    public init(nsColor: CGColor) {
+        self.init(red: 0, green: 0, blue: 0, alpha: 1)
+    }
+
+    public var cgColor: CGColor {
+        CGColor()
+    }
+
+    public var resolved: Resolved {
+        Resolved(red: red, green: green, blue: blue, opacity: alpha)
+    }
+}
+
+public struct CGColor: Sendable, Equatable {
+    public init() {}
 }
 
 public struct NativeWindowHandle: Equatable, Sendable {
@@ -312,6 +427,17 @@ public struct AffineMatrix: Equatable, Sendable {
 }
 
 // MARK: - Transform2D
+
+private func _snapDecomposedValue(_ value: Double) -> Double {
+    let rounded = value.rounded()
+    if abs(value - rounded) < 1e-12 {
+        return rounded
+    }
+    if abs(value) < 1e-12 {
+        return 0
+    }
+    return value
+}
 
 public struct Transform2D: Equatable, Sendable {
     public var translationX: Double
@@ -427,8 +553,8 @@ public struct Transform2D: Equatable, Sendable {
             return
         }
 
-        rotation = _atan2(m.b, m.a)
-        scaleX = sx
+        rotation = _snapDecomposedValue(_atan2(m.b, m.a))
+        scaleX = _snapDecomposedValue(sx)
 
         let cosR = _cos(rotation)
         let sinR = _sin(rotation)
@@ -440,10 +566,10 @@ public struct Transform2D: Equatable, Sendable {
 
         // r0 = scaleX (already known as sx)
         // skewX = atan(r1 / r3) since r1 = scaleY * tan(skewX) and r3 = scaleY
-        scaleY = (r1 * r1 + r3 * r3).squareRoot()
+        scaleY = _snapDecomposedValue((r1 * r1 + r3 * r3).squareRoot())
 
         if scaleY != 0 {
-            skewX = _atan2(r1, r3)
+            skewX = _snapDecomposedValue(_atan2(r1, r3))
         } else {
             skewX = 0
         }
@@ -451,7 +577,7 @@ public struct Transform2D: Equatable, Sendable {
         // Recover skewY from the upper-right element of the derotated matrix
         let ur = m.a * (-sinR) + m.b * cosR
         if r0 != 0 {
-            skewY = _atan2(ur, r0)
+            skewY = _snapDecomposedValue(_atan2(ur, r0))
         } else {
             skewY = 0
         }
@@ -519,6 +645,7 @@ public enum PathElement: Equatable, Sendable {
 }
 
 public struct Path: Equatable, Sendable {
+    public typealias Element = PathElement
     public private(set) var elements: [PathElement]
 
     public init() {
@@ -622,6 +749,260 @@ public struct Path: Equatable, Sendable {
         )
         return close()
     }
+
+    @discardableResult
+    public mutating func addRoundedRect(_ rect: Rect, cornerRadius: Double) -> Path {
+        let r = max(0, min(cornerRadius, min(rect.size.width, rect.size.height) / 2))
+        let minX = rect.minX
+        let minY = rect.minY
+        let maxX = rect.maxX
+        let maxY = rect.maxY
+        moveTo(Point(x: minX + r, y: minY))
+        lineTo(Point(x: maxX - r, y: minY))
+        arc(center: Point(x: maxX - r, y: minY + r), radius: r, startAngle: -Double.pi / 2, endAngle: 0)
+        lineTo(Point(x: maxX, y: maxY - r))
+        arc(center: Point(x: maxX - r, y: maxY - r), radius: r, startAngle: 0, endAngle: Double.pi / 2)
+        lineTo(Point(x: minX + r, y: maxY))
+        arc(center: Point(x: minX + r, y: maxY - r), radius: r, startAngle: Double.pi / 2, endAngle: Double.pi)
+        lineTo(Point(x: minX, y: minY + r))
+        arc(center: Point(x: minX + r, y: minY + r), radius: r, startAngle: Double.pi, endAngle: 3 * Double.pi / 2)
+        return close()
+    }
+
+    // MARK: SwiftUI-named aliases
+
+    public init(_ callback: (inout Path) -> Void) {
+        self.init()
+        callback(&self)
+    }
+
+    @discardableResult
+    public mutating func move(to point: Point) -> Path {
+        moveTo(point)
+    }
+
+    @discardableResult
+    public mutating func addLine(to point: Point) -> Path {
+        lineTo(point)
+    }
+
+    @discardableResult
+    public mutating func addCurve(to end: Point, control1: Point, control2: Point) -> Path {
+        cubicCurveTo(control1: control1, control2: control2, end: end)
+    }
+
+    @discardableResult
+    public mutating func addQuadCurve(to end: Point, control: Point) -> Path {
+        quadraticCurveTo(control: control, end: end)
+    }
+
+    @discardableResult
+    public mutating func addLines(_ points: [Point]) -> Path {
+        guard let first = points.first else { return self }
+        if isEmpty {
+            moveTo(first)
+        } else {
+            lineTo(first)
+        }
+        for point in points.dropFirst() {
+            lineTo(point)
+        }
+        return self
+    }
+
+    @discardableResult
+    public mutating func closeSubpath() -> Path {
+        close()
+    }
+
+    public func trimmedPath(from: Double, to: Double) -> Path {
+        self
+    }
+
+    public func strokedPath(_ style: StrokeStyle) -> Path {
+        self
+    }
+
+    public func filledPath(_ style: FillStyle) -> Path {
+        self
+    }
+
+    public init(_ cgPath: CGPath) {
+        self.init()
+    }
+
+    public mutating func addRects(_ rects: [Rect]) {
+        for rect in rects {
+            addRect(rect)
+        }
+    }
+
+    public mutating func addRelativeArc(center: Point, radius: Double, startAngle: Angle, delta: Angle) {
+        arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: startAngle.radians + delta.radians)
+    }
+
+    public mutating func addArc(tangent1End: Point, tangent2End: Point, radius: Double) {
+        lineTo(tangent1End)
+        lineTo(tangent2End)
+    }
+
+    public func forEach(_ body: (PathElement) -> Void) {
+        for element in elements {
+            body(element)
+        }
+    }
+
+    public var currentPoint: Point? {
+        guard let last = elements.last else { return nil }
+        switch last {
+        case .moveTo(let p), .lineTo(let p), .quadraticCurveTo(_, let p), .cubicCurveTo(_, _, let p):
+            return p
+        case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+            return Point(x: center.x + radius * cos(endAngle), y: center.y + radius * sin(endAngle))
+        case .close:
+            return nil
+        }
+    }
+
+    public var boundingRect: Rect {
+        guard !elements.isEmpty else { return Rect(origin: .zero, size: .zero) }
+        var minX = Double.infinity
+        var minY = Double.infinity
+        var maxX = -Double.infinity
+        var maxY = -Double.infinity
+        for element in elements {
+            switch element {
+            case .moveTo(let p), .lineTo(let p), .quadraticCurveTo(_, let p), .cubicCurveTo(_, _, let p):
+                minX = min(minX, p.x)
+                minY = min(minY, p.y)
+                maxX = max(maxX, p.x)
+                maxY = max(maxY, p.y)
+            case .arc(let center, let radius, _, _, _):
+                minX = min(minX, center.x - radius)
+                minY = min(minY, center.y - radius)
+                maxX = max(maxX, center.x + radius)
+                maxY = max(maxY, center.y + radius)
+            case .close:
+                break
+            }
+        }
+        return Rect(origin: Point(x: minX, y: minY), size: CGSize(width: maxX - minX, height: maxY - minY))
+    }
+
+    public func contains(_ point: Point, eoFill: Bool = false) -> Bool {
+        false
+    }
+
+    public func applying(_ transform: CGAffineTransform) -> Path {
+        Path { path in
+            for element in elements {
+                switch element {
+                case .moveTo(let p):
+                    path.move(to: transform.apply(p))
+                case .lineTo(let p):
+                    path.addLine(to: transform.apply(p))
+                case .quadraticCurveTo(let c, let p):
+                    path.addQuadCurve(to: transform.apply(p), control: transform.apply(c))
+                case .cubicCurveTo(let c1, let c2, let p):
+                    path.addCurve(to: transform.apply(p), control1: transform.apply(c1), control2: transform.apply(c2))
+                case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                    path.arc(center: transform.apply(center), radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
+                case .close:
+                    path.closeSubpath()
+                }
+            }
+        }
+    }
+
+    public var cgPath: CGPath {
+        CGPath()
+    }
+}
+
+public struct CGAffineTransform: Sendable, Equatable {
+    public var a: Double
+    public var b: Double
+    public var c: Double
+    public var d: Double
+    public var tx: Double
+    public var ty: Double
+
+    public init() {
+        self = .identity
+    }
+
+    public init(a: Double, b: Double, c: Double, d: Double, tx: Double, ty: Double) {
+        self.a = a
+        self.b = b
+        self.c = c
+        self.d = d
+        self.tx = tx
+        self.ty = ty
+    }
+
+    public init(translationX tx: Double, y ty: Double) {
+        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
+    }
+
+    public init(scaleX sx: Double, y sy: Double) {
+        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
+    }
+
+    public init(rotationAngle angle: Double) {
+        let cosine = cos(angle)
+        let sine = sin(angle)
+        self.init(a: cosine, b: sine, c: -sine, d: cosine, tx: 0, ty: 0)
+    }
+
+    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
+
+    public func concatenating(_ other: CGAffineTransform) -> CGAffineTransform {
+        CGAffineTransform(
+            a: a * other.a + b * other.c,
+            b: a * other.b + b * other.d,
+            c: c * other.a + d * other.c,
+            d: c * other.b + d * other.d,
+            tx: tx * other.a + ty * other.c + other.tx,
+            ty: tx * other.b + ty * other.d + other.ty
+        )
+    }
+
+    public func translatedBy(x: Double, y: Double) -> CGAffineTransform {
+        concatenating(CGAffineTransform(translationX: x, y: y))
+    }
+
+    public func scaledBy(x sx: Double, y sy: Double) -> CGAffineTransform {
+        concatenating(CGAffineTransform(scaleX: sx, y: sy))
+    }
+
+    public func rotated(by angle: Double) -> CGAffineTransform {
+        concatenating(CGAffineTransform(rotationAngle: angle))
+    }
+
+    public func apply(_ point: Point) -> Point {
+        Point(x: a * point.x + c * point.y + tx, y: b * point.x + d * point.y + ty)
+    }
+}
+
+extension Transform2D {
+    public init(_ cgTransform: CGAffineTransform) {
+        self.init(fromMatrix: AffineMatrix(
+            a: cgTransform.a,
+            b: cgTransform.b,
+            c: cgTransform.c,
+            d: cgTransform.d,
+            tx: cgTransform.tx,
+            ty: cgTransform.ty
+        ))
+    }
+
+    public func concatenating(_ other: CGAffineTransform) -> Transform2D {
+        concatenating(Transform2D(other))
+    }
+}
+
+public struct CGPath: Sendable, Equatable {
+    public init() {}
 }
 
 // MARK: - Path Builder (Functional)
@@ -632,4 +1013,104 @@ extension Path {
         builder(&path)
         return path
     }
+}
+
+// MARK: - Angle
+
+public struct Angle: Sendable, Equatable {
+    public var radians: Double
+
+    public init(radians: Double) {
+        self.radians = radians
+    }
+
+    public init(degrees: Double) {
+        self.radians = degrees * .pi / 180
+    }
+
+    public var degrees: Double {
+        radians * 180 / .pi
+    }
+
+    public static func radians(_ radians: Double) -> Angle {
+        Angle(radians: radians)
+    }
+
+    public static func degrees(_ degrees: Double) -> Angle {
+        Angle(degrees: degrees)
+    }
+
+    public static let zero = Angle(radians: 0)
+}
+
+// MARK: - FillStyle
+
+public struct FillStyle: Sendable, Equatable {
+    public var isEOFilled: Bool
+    public var isAntialiased: Bool
+
+    public init(eoFill: Bool = false, antialiased: Bool = true) {
+        self.isEOFilled = eoFill
+        self.isAntialiased = antialiased
+    }
+}
+
+// MARK: - StrokeStyle
+
+public struct StrokeStyle: Equatable, Sendable {
+    public var lineWidth: Double
+    public var dashPattern: [Double]
+    public var dashOffset: Double
+    public var lineCap: LineCap
+    public var lineJoin: LineJoin
+    public var miterLimit: Double
+
+    @_disfavoredOverload
+    public init(
+        lineWidth: Double = 1,
+        dashPattern: [Double] = [],
+        dashOffset: Double = 0,
+        lineCap: LineCap = .butt,
+        lineJoin: LineJoin = .miter,
+        miterLimit: Double = 10
+    ) {
+        self.lineWidth = lineWidth
+        self.dashPattern = dashPattern
+        self.dashOffset = dashOffset
+        self.lineCap = lineCap
+        self.lineJoin = lineJoin
+        self.miterLimit = miterLimit
+    }
+
+    public enum LineCap: Equatable, Sendable {
+        case butt
+        case round
+        case square
+    }
+
+    public enum LineJoin: Equatable, Sendable {
+        case miter
+        case round
+        case bevel
+    }
+}
+
+public struct WindowTitleBarVisibility: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case visible
+        case hidden
+        case hiddenInFullScreen
+        case automatic
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let visible = WindowTitleBarVisibility(kind: .visible)
+    public static let hidden = WindowTitleBarVisibility(kind: .hidden)
+    public static let hiddenInFullScreen = WindowTitleBarVisibility(kind: .hiddenInFullScreen)
+    public static let automatic = WindowTitleBarVisibility(kind: .automatic)
 }

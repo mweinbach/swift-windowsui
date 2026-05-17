@@ -32,6 +32,14 @@ playground.xcworkspace
 .build/
 artifacts/
 
+# Local agent/build/test scratch output. Keep generated screenshots under artifacts/.
+/*.log
+/all_errors.txt
+/full_test*.txt
+/test[0-9]*.txt
+/test_output*.txt
+/screenshot*.png
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However

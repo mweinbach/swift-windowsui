@@ -18,7 +18,16 @@ struct QuadInstance
     float gradientAxis;
     float clipX, clipY;
     float clipWidth, clipHeight;
-    float pad1, pad2;
+    float effectType;
+    float effectIntensity;
+    float blurRadius;
+    float blurOpaque;
+    float effectParam1;
+    float effectParam2;
+    float effectParam3;
+    float effectParam4;
+    float clipCornerRadius;
+    float blendMode;
 };
 
 StructuredBuffer<QuadInstance> instances : register(t0);
@@ -34,6 +43,15 @@ struct VSOutput
     float4 endColor : COLOR1;
     float4 clipRect : TEXCOORD4;
     float2 pixelPosition : TEXCOORD5;
+    float effectType : TEXCOORD6;
+    float effectIntensity : TEXCOORD7;
+    float blurRadius : TEXCOORD8;
+    float blurOpaque : TEXCOORD9;
+    float effectParam1 : TEXCOORD10;
+    float effectParam2 : TEXCOORD11;
+    float effectParam3 : TEXCOORD12;
+    float effectParam4 : TEXCOORD13;
+    float clipRadius : TEXCOORD14;
 };
 
 VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
@@ -67,6 +85,15 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     output.endColor = float4(inst.endR, inst.endG, inst.endB, inst.endA);
     output.clipRect = float4(inst.clipX, inst.clipY, inst.clipWidth, inst.clipHeight);
     output.pixelPosition = pixelPosition;
+    output.effectType = inst.effectType;
+    output.effectIntensity = inst.effectIntensity;
+    output.blurRadius = inst.blurRadius;
+    output.blurOpaque = inst.blurOpaque;
+    output.effectParam1 = inst.effectParam1;
+    output.effectParam2 = inst.effectParam2;
+    output.effectParam3 = inst.effectParam3;
+    output.effectParam4 = inst.effectParam4;
+    output.clipRadius = inst.clipCornerRadius;
     return output;
 }
 
@@ -80,8 +107,57 @@ float roundedRectDistance(float2 localPosition, float2 size, float radius)
     return length(max(delta, float2(0.0, 0.0))) + min(max(delta.x, delta.y), 0.0) - clampedRadius;
 }
 
+float3 applyColorEffect(float3 rgb, float effectType, float intensity, float param1, float param2, float param3, float param4)
+{
+    // 0 = none
+    if (effectType < 0.5) return rgb;
+
+    // 1 = brightness
+    if (effectType < 1.5) return rgb + intensity;
+
+    // 2 = contrast
+    if (effectType < 2.5) return (rgb - 0.5) * (1.0 + intensity) + 0.5;
+
+    // 3 = saturation
+    if (effectType < 3.5)
+    {
+        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
+        return lerp(float3(lum, lum, lum), rgb, 1.0 + intensity);
+    }
+
+    // 4 = grayscale
+    if (effectType < 4.5)
+    {
+        float lum = dot(rgb, float3(0.299, 0.587, 0.114));
+        return lerp(rgb, float3(lum, lum, lum), intensity);
+    }
+
+    // 5 = colorInvert
+    if (effectType < 5.5) return 1.0 - rgb;
+
+    // 6 = hueRotation
+    if (effectType < 6.5)
+    {
+        float cosA = cos(param1);
+        float sinA = sin(param1);
+        float3x3 rot = float3x3(
+            float3(0.299 + 0.701 * cosA + 0.168 * sinA, 0.587 - 0.587 * cosA + 0.330 * sinA, 0.114 - 0.114 * cosA - 0.497 * sinA),
+            float3(0.299 - 0.299 * cosA - 0.328 * sinA, 0.587 + 0.413 * cosA + 0.035 * sinA, 0.114 - 0.114 * cosA + 0.292 * sinA),
+            float3(0.299 - 0.300 * cosA + 1.250 * sinA, 0.587 - 0.588 * cosA - 1.050 * sinA, 0.114 + 0.886 * cosA - 0.203 * sinA)
+        );
+        return mul(rot, rgb);
+    }
+
+    // 7 = colorMultiply
+    if (effectType < 7.5) return rgb * float3(param1, param2, param3);
+
+    return rgb;
+}
+
 float4 psMain(VSOutput input) : SV_Target
 {
+    float clipAlpha = 1.0;
+
     // Per-pixel clip check: if clip rect has positive dimensions, discard outside it
     if (input.clipRect.z > 0.0 && input.clipRect.w > 0.0)
     {
@@ -91,18 +167,46 @@ float4 psMain(VSOutput input) : SV_Target
         {
             discard;
         }
+
+        if (input.clipRadius > 0.0)
+        {
+            float2 clipLocalPosition = input.pixelPosition - input.clipRect.xy;
+            float clipDistance = roundedRectDistance(clipLocalPosition, input.clipRect.zw, input.clipRadius);
+            float clipAA = max(fwidth(clipDistance), 0.75);
+            clipAlpha = saturate(0.5 - clipDistance / clipAA);
+            if (clipAlpha <= 0.0)
+            {
+                discard;
+            }
+        }
     }
 
     float distance = roundedRectDistance(input.localPosition, input.size, input.radius);
     float aa = max(fwidth(distance), 0.75);
-    float alpha = saturate(0.5 - distance / aa);
+    // Soft edge falloff when blurRadius is active (GPU approximation)
+    float blur = max(input.blurRadius, 0.0);
+    float edgeSoftness = aa + blur * 2.0;
+    float alpha = saturate(0.5 - distance / edgeSoftness);
 
     float gradientT = input.gradientAxis > 0.5
         ? saturate(input.localPosition.x / max(input.size.x, 1.0))
         : saturate(input.localPosition.y / max(input.size.y, 1.0));
 
     float4 color = lerp(input.startColor, input.endColor, gradientT);
-    return float4(color.rgb * color.a * alpha, color.a * alpha);
+
+    // 8 = luminanceToAlpha
+    if (input.effectType > 7.5 && input.effectType < 8.5)
+    {
+        float lum = dot(color.rgb, float3(0.299, 0.587, 0.114));
+        color.rgb = float3(lum, lum, lum);
+        color.a = lum;
+    }
+    else
+    {
+        color.rgb = applyColorEffect(color.rgb, input.effectType, input.effectIntensity, input.effectParam1, input.effectParam2, input.effectParam3, input.effectParam4);
+    }
+
+    return float4(color.rgb * color.a * alpha * clipAlpha, color.a * alpha * clipAlpha);
 }
 """#
 

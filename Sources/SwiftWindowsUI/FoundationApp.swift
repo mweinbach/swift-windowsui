@@ -247,13 +247,13 @@ public final class FoundationApp: WindowDelegate {
             UI.panel(
                 frame: layout.backgroundAccentA,
                 backgroundColor: selectedModule.glowColor,
-                backgroundGradient: LinearGradient(startColor: selectedModule.glowColor, endColor: selectedModule.stripeColor, axis: .horizontal),
+                backgroundGradient: .linear(LinearGradient(startColor: selectedModule.glowColor, endColor: selectedModule.stripeColor, axis: .horizontal)),
                 cornerRadius: 44
             )
             UI.panel(
                 frame: layout.backgroundAccentB,
                 backgroundColor: selectedModule.stripeColor,
-                backgroundGradient: LinearGradient(startColor: selectedModule.stripeColor, endColor: selectedModule.glowColor, axis: .vertical),
+                backgroundGradient: .linear(LinearGradient(startColor: selectedModule.stripeColor, endColor: selectedModule.glowColor, axis: .vertical)),
                 cornerRadius: 34
             )
             buildToolbar(layout)
@@ -302,11 +302,11 @@ public final class FoundationApp: WindowDelegate {
     private func buildToolbar(_ layout: DemoLayout) -> Component {
         UI.toolbar(
             frame: layout.toolbarFrame,
-            backgroundGradient: LinearGradient(
+            backgroundGradient: .linear(LinearGradient(
                 startColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
                 endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
                 axis: .horizontal
-            ),
+            )),
             cornerRadius: layout.toolbarCornerRadius,
             stackLayout: .horizontal(
                 spacing: layout.toolbarSpacing,
@@ -388,11 +388,11 @@ public final class FoundationApp: WindowDelegate {
         UI.section(
             title: "WORKSPACE",
             backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
-            backgroundGradient: LinearGradient(
+            backgroundGradient: .linear(LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
                 endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
                 axis: .vertical
-            ),
+            )),
             borderColor: Color(red: 0.76, green: 0.84, blue: 0.93, alpha: 0.12),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
@@ -474,7 +474,7 @@ public final class FoundationApp: WindowDelegate {
             title: "CONTROL CENTER",
             preferredSize: Size(width: 0, height: layout.heroHeight),
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
-            backgroundGradient: LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal),
+            backgroundGradient: .linear(LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal)),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
             cornerRadius: layout.heroCornerRadius,
             stackLayout: .vertical(
@@ -574,11 +574,11 @@ public final class FoundationApp: WindowDelegate {
         UI.section(
             title: "RECENT ACTIVITY",
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
-            backgroundGradient: LinearGradient(
+            backgroundGradient: .linear(LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
                 endColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
                 axis: .vertical
-            ),
+            )),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
@@ -604,11 +604,11 @@ public final class FoundationApp: WindowDelegate {
         UI.section(
             title: "DETAILS",
             backgroundColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
-            backgroundGradient: LinearGradient(
+            backgroundGradient: .linear(LinearGradient(
                 startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
                 endColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.98),
                 axis: .vertical
-            ),
+            )),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(

@@ -112,7 +112,8 @@ final class WinSwiftUITextTests: XCTestCase {
             )
             let storedStyleNode = makeNode(Text("STYLE").foregroundStyle(ForegroundStyle.color(secondaryColor)))
             let gradientNode = makeNode(Text("GRADIENT").foregroundStyle(gradient))
-            let multiNode = makeNode(Text("MULTI").foregroundStyle(primaryColor, secondaryColor, .blue))
+            let multiText: Text = Text("MULTI").foregroundStyle(primaryColor, secondaryColor, Color.blue)
+            let multiNode = makeNode(multiText)
             let multiGradientNode = makeNode(Text("MULTIGRADIENT").foregroundStyle(gradient, gradient))
 
             XCTAssertEqual(colorNode.textStyle.color, primaryColor)
@@ -125,47 +126,46 @@ final class WinSwiftUITextTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testLineStyleDecorationModifiersMapToRetainedTextStyle() async {
-        await MainActor.run {
-            let directNode = makeNode(
-                Text("DECORATED")
-                    .underline(pattern: .dash, color: .blue)
-                    .strikethrough(Text.LineStyle(pattern: .dashDotDot, color: .red))
-            )
-            let inheritedNode = makeNode(
-                VStack {
-                    Text("INHERITED")
-                    Text("PLAIN")
-                        .underline(false)
-                        .strikethrough(false)
-                }
-                .underline(pattern: .dot, color: .green)
-                .strikethrough(pattern: .dashDot, color: .yellow)
-            )
+        let directNode = makeNode(
+            Text("DECORATED")
+                .underline(pattern: .dash, color: .blue)
+                .strikethrough(Text.LineStyle(pattern: .dashDotDot, color: .red))
+        )
+        let inheritedNode = makeNode(
+            VStack {
+                Text("INHERITED")
+                Text("PLAIN")
+                    .underline(false)
+                    .strikethrough(false)
+            }
+            .underline(pattern: .dot, color: .green)
+            .strikethrough(pattern: .dashDot, color: .yellow)
+        )
 
-            XCTAssertTrue(directNode.textStyle.underline)
-            XCTAssertEqual(directNode.textStyle.underlinePattern, .dash)
-            XCTAssertEqual(directNode.textStyle.underlineColor, .blue)
-            XCTAssertTrue(directNode.textStyle.strikethrough)
-            XCTAssertEqual(directNode.textStyle.strikethroughPattern, .dashDotDot)
-            XCTAssertEqual(directNode.textStyle.strikethroughColor, .red)
+        XCTAssertTrue(directNode.textStyle.underline)
+        XCTAssertEqual(directNode.textStyle.underlinePattern, .dash)
+        XCTAssertEqual(directNode.textStyle.underlineColor, .blue)
+        XCTAssertTrue(directNode.textStyle.strikethrough)
+        XCTAssertEqual(directNode.textStyle.strikethroughPattern, .dashDotDot)
+        XCTAssertEqual(directNode.textStyle.strikethroughColor, .red)
 
-            let inheritedText = inheritedNode.children[0]
-            XCTAssertTrue(inheritedText.textStyle.underline)
-            XCTAssertEqual(inheritedText.textStyle.underlinePattern, .dot)
-            XCTAssertEqual(inheritedText.textStyle.underlineColor, .green)
-            XCTAssertTrue(inheritedText.textStyle.strikethrough)
-            XCTAssertEqual(inheritedText.textStyle.strikethroughPattern, .dashDot)
-            XCTAssertEqual(inheritedText.textStyle.strikethroughColor, .yellow)
+        let inheritedText = inheritedNode.children[0]
+        XCTAssertTrue(inheritedText.textStyle.underline)
+        XCTAssertEqual(inheritedText.textStyle.underlinePattern, .dot)
+        XCTAssertEqual(inheritedText.textStyle.underlineColor, .green)
+        XCTAssertTrue(inheritedText.textStyle.strikethrough)
+        XCTAssertEqual(inheritedText.textStyle.strikethroughPattern, .dashDot)
+        XCTAssertEqual(inheritedText.textStyle.strikethroughColor, .yellow)
 
-            let plainText = inheritedNode.children[1]
-            XCTAssertFalse(plainText.textStyle.underline)
-            XCTAssertEqual(plainText.textStyle.underlinePattern, .solid)
-            XCTAssertNil(plainText.textStyle.underlineColor)
-            XCTAssertFalse(plainText.textStyle.strikethrough)
-            XCTAssertEqual(plainText.textStyle.strikethroughPattern, .solid)
-            XCTAssertNil(plainText.textStyle.strikethroughColor)
-        }
+        let plainText = inheritedNode.children[1]
+        XCTAssertFalse(plainText.textStyle.underline)
+        XCTAssertEqual(plainText.textStyle.underlinePattern, .solid)
+        XCTAssertNil(plainText.textStyle.underlineColor)
+        XCTAssertFalse(plainText.textStyle.strikethrough)
+        XCTAssertEqual(plainText.textStyle.strikethroughPattern, .solid)
+        XCTAssertNil(plainText.textStyle.strikethroughColor)
     }
 
     func testAttributedStringInitializerFlattensToRetainedText() async {

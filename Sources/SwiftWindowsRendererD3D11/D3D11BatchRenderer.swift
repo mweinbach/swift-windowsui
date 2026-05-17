@@ -110,6 +110,7 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         case glyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
         case pixelGlyphs(layerIndex: Int, range: Range<Int>, atlasSource: AtlasSource)
         case images(layerIndex: Int, range: Range<Int>, textureID: Int32)
+        case paths(layerIndex: Int, range: Range<Int>)
     }
 
     public struct RenderPlan: Equatable {
@@ -218,22 +219,22 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         var steps: [RenderStep] = []
         for (layerIndex, layer) in scene.layers.enumerated() {
-            var batches = layer.orderedBatches()
-            while let batch = batches.next() {
-                switch batch {
-                case .shadows(let range):
+            for operation in layer.paintOperations {
+                let range = operation.startIndex..<(operation.startIndex + operation.count)
+                switch operation.kind {
+                case .shadow:
                     steps.append(.shadows(layerIndex: layerIndex, range: range))
-                case .quads(let range):
+                case .quad:
                     steps.append(.quads(layerIndex: layerIndex, range: range))
-                case .glyphs(let range):
+                case .glyph:
                     if let glyphAtlasSource {
                         steps.append(.glyphs(layerIndex: layerIndex, range: range, atlasSource: glyphAtlasSource))
                     }
-                case .pixelGlyphs(let range):
+                case .pixelGlyph:
                     if let pixelGlyphAtlasSource {
                         steps.append(.pixelGlyphs(layerIndex: layerIndex, range: range, atlasSource: pixelGlyphAtlasSource))
                     }
-                case .images(let range):
+                case .image:
                     var runStart = range.lowerBound
                     while runStart < range.upperBound {
                         let textureID = layer.images[runStart].textureID
@@ -244,6 +245,8 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         steps.append(.images(layerIndex: layerIndex, range: runStart..<runEnd, textureID: textureID))
                         runStart = runEnd
                     }
+                case .path:
+                    steps.append(.paths(layerIndex: layerIndex, range: range))
                 }
             }
         }
@@ -426,6 +429,13 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                         deviceContext: deviceContext,
                         textureSRV: imageSRV
                     )
+            case .paths(let layerIndex, let range):
+                let layer = finishedScene.layers[layerIndex]
+                try renderPathBatch(
+                    layer.paths,
+                    range: range,
+                    deviceContext: deviceContext
+                )
             }
         }
 
@@ -1280,6 +1290,47 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         var nullSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = nil
         deviceContext.pointee.lpVtbl.pointee.VSSetShaderResources(deviceContext, 0, 1, &nullSRV)
         deviceContext.pointee.lpVtbl.pointee.PSSetShaderResources(deviceContext, 1, 1, &nullSRV)
+    }
+
+    private func renderPathBatch(
+        _ instances: [PathPrimitive],
+        range: Range<Int>,
+        deviceContext: UnsafeMutablePointer<ID3D11DeviceContext>
+    ) throws {
+        guard !range.isEmpty else { return }
+
+        for index in range {
+            let path = instances[index]
+            guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(path) else {
+                continue
+            }
+            let (texture, srv) = try createImageTextureResource(for: bitmap)
+            defer {
+                var releasableSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = srv
+                releaseCOMPointer(&releasableSRV)
+                var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
+                releaseCOMPointer(&releasableTexture)
+            }
+
+            let bounds = path.contentMaskedBounds ?? path.bounds
+            let syntheticImage = ImagePrimitive(
+                screenX: Float(bounds.origin.x),
+                screenY: Float(bounds.origin.y),
+                screenW: Float(bounds.size.width),
+                screenH: Float(bounds.size.height),
+                uvX: 0, uvY: 0, uvW: 1, uvH: 1,
+                opacity: 1,
+                clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 0,
+                textureID: -1
+            )
+
+            try renderImageBatch(
+                [syntheticImage],
+                range: 0..<1,
+                deviceContext: deviceContext,
+                textureSRV: srv
+            )
+        }
     }
 
     // MARK: - Helpers

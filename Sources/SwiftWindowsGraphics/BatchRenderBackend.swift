@@ -1,12 +1,11 @@
 import SwiftWindowsCore
-import SwiftWindowsGraphics
 
 /// Protocol for renderers that consume GPUIScene (batched rendering).
 ///
 /// This sits alongside the existing ``RenderBackend`` protocol. A batch
 /// renderer groups primitives by type and issues fewer, larger draw calls
 /// instead of one draw per command. Concrete implementations (e.g. the
-/// D3D11BatchRenderer from Unit 7) will conform to both ``RenderBackend``
+/// D3D11BatchRenderer) will conform to both ``RenderBackend``
 /// and ``BatchRenderBackend``.
 @MainActor
 public protocol BatchRenderBackend: AnyObject {

@@ -34,8 +34,8 @@ extension GPUIScene {
     /// ## Soft-Failure Behavior (VAL-SCENE-010, VAL-SCENE-011)
     /// Unsupported commands are skipped safely without placeholder primitives:
     /// - `drawText`: Skipped (text rendered through separate scene path)
-    /// - `fillPath`: Skipped (vector paths not yet supported)
-    /// - `strokePath`: Skipped (vector paths not yet supported)
+    /// - `fillPath`: Converted to `PathPrimitive` with fill
+    /// - `strokePath`: Converted to `PathPrimitive` with stroke
     /// - `applyBlur`: Skipped (blur effects not yet supported)
     ///
     /// Unsupported style features degrade to explicit fallbacks:
@@ -122,7 +122,60 @@ extension GPUIScene {
                     clipStack.removeLast()
                 }
 
-            case .drawText, .fillPath, .strokePath, .applyBlur:
+            case .fillPath(let cmd):
+                let effectiveClip = Self.resolveEffectiveClip(
+                    commandClip: cmd.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: surfaceSize
+                )
+                guard !effectiveClip.isEmpty else {
+                    continue
+                }
+                let path = PathPrimitive(
+                    elements: cmd.path.segments.map { segment in
+                        switch segment {
+                        case .moveTo(let p): return .moveTo(p)
+                        case .lineTo(let p): return .lineTo(p)
+                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                        case .close: return .close
+                        }
+                    },
+                    bounds: cmd.path.segments.boundingRect ?? effectiveClip,
+                    fillColor: cmd.color,
+                    clipBounds: effectiveClip
+                )
+                self.addPath(path, toLayer: 0)
+
+            case .strokePath(let cmd):
+                let effectiveClip = Self.resolveEffectiveClip(
+                    commandClip: cmd.clipRect,
+                    clipStack: clipStack,
+                    surfaceSize: surfaceSize
+                )
+                guard !effectiveClip.isEmpty else {
+                    continue
+                }
+                let path = PathPrimitive(
+                    elements: cmd.path.segments.map { segment in
+                        switch segment {
+                        case .moveTo(let p): return .moveTo(p)
+                        case .lineTo(let p): return .lineTo(p)
+                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                        case .close: return .close
+                        }
+                    },
+                    bounds: cmd.path.segments.boundingRect ?? effectiveClip,
+                    strokeColor: cmd.color,
+                    lineWidth: cmd.style.lineWidth,
+                    clipBounds: effectiveClip
+                )
+                self.addPath(path, toLayer: 0)
+
+            case .drawText, .applyBlur:
                 // VAL-SCENE-010: Unsupported commands are skipped safely
                 // No placeholder primitives, no crashes, no reordering of neighbors
                 break

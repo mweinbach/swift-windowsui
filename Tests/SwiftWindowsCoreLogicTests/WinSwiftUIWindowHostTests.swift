@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 @testable import SwiftWindowsPlatform

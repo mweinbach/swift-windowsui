@@ -12,7 +12,7 @@ public struct GPUIContentMask: Equatable, Sendable {
 
 /// A rounded rectangle with optional gradient fill, designed for direct upload
 /// to a D3D11 structured buffer. All fields are `Float` for GPU compatibility.
-/// Total: 20 floats = 80 bytes (divisible by 16).
+/// Total: 24 floats = 96 bytes (divisible by 16 for StructuredBuffer alignment).
 @frozen
 public struct QuadPrimitive: Equatable, Sendable {
     // Position & size (pixels)
@@ -39,9 +39,23 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var clipY: Float
     public var clipWidth: Float
     public var clipHeight: Float
-    // Padding to reach 80 bytes (20 floats)
-    public var _pad0: Float
-    public var _pad1: Float
+    // Visual effect: 0=none, 1=brightness, 2=contrast, 3=saturation,
+    //                 4=grayscale, 5=colorInvert, 6=hueRotation,
+    //                 7=colorMultiply, 8=luminanceToAlpha
+    public var effectType: Float
+    // Intensity parameter for the active effect (ignored by colorInvert)
+    public var effectIntensity: Float
+    // Post-process blur radius in pixels (0 = no blur)
+    public var blurRadius: Float
+    // 0 = blur with transparency, 1 = blur fills with opaque background
+    public var blurOpaque: Float
+    // Generic effect parameters (usage depends on effectType)
+    public var effectParam1: Float
+    public var effectParam2: Float
+    public var effectParam3: Float
+    public var effectParam4: Float
+    public var clipCornerRadius: Float
+    public var blendMode: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
@@ -49,7 +63,17 @@ public struct QuadPrimitive: Equatable, Sendable {
         startR: Float = 0, startG: Float = 0, startB: Float = 0, startA: Float = 1,
         endR: Float = 0, endG: Float = 0, endB: Float = 0, endA: Float = 1,
         gradientAxis: Float = 0,
-        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0
+        clipX: Float = 0, clipY: Float = 0, clipWidth: Float = 0, clipHeight: Float = 0,
+        clipCornerRadius: Float = 0,
+        blendMode: Float = 0,
+        effectType: Float = 0,
+        effectIntensity: Float = 0,
+        blurRadius: Float = 0,
+        blurOpaque: Float = 0,
+        effectParam1: Float = 0,
+        effectParam2: Float = 0,
+        effectParam3: Float = 0,
+        effectParam4: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -69,8 +93,16 @@ public struct QuadPrimitive: Equatable, Sendable {
         self.clipY = clipY
         self.clipWidth = clipWidth
         self.clipHeight = clipHeight
-        self._pad0 = 0
-        self._pad1 = 0
+        self.clipCornerRadius = clipCornerRadius
+        self.blendMode = blendMode
+        self.effectType = effectType
+        self.effectIntensity = effectIntensity
+        self.blurRadius = blurRadius
+        self.blurOpaque = blurOpaque
+        self.effectParam1 = effectParam1
+        self.effectParam2 = effectParam2
+        self.effectParam3 = effectParam3
+        self.effectParam4 = effectParam4
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }
@@ -358,5 +390,107 @@ public struct ShadowPrimitive: Equatable, Sendable {
             clipWidth = Float(bounds.size.width)
             clipHeight = Float(bounds.size.height)
         }
+    }
+}
+
+// MARK: - Path Primitive
+
+/// A CPU-rasterized path with fill and/or stroke. Not designed for D3D11
+/// structured buffers; the D3D11 backend tessellates or skips paths.
+public struct PathPrimitive: Equatable, Sendable {
+    public var elements: [PathElement]
+    public var bounds: Rect
+    public var fillColor: Color
+    public var strokeColor: Color
+    public var lineWidth: Double
+    public var clipBounds: Rect?
+
+    public init(
+        elements: [PathElement],
+        bounds: Rect,
+        fillColor: Color = .clear,
+        strokeColor: Color = .clear,
+        lineWidth: Double = 0,
+        clipBounds: Rect? = nil
+    ) {
+        self.elements = elements
+        self.bounds = bounds
+        self.fillColor = fillColor
+        self.strokeColor = strokeColor
+        self.lineWidth = lineWidth
+        self.clipBounds = clipBounds
+    }
+
+    public var contentMask: GPUIContentMask {
+        get {
+            guard let bounds = clipBounds, !bounds.isEmpty else {
+                return GPUIContentMask()
+            }
+            return GPUIContentMask(bounds: bounds)
+        }
+        set {
+            clipBounds = newValue.bounds
+        }
+    }
+
+    public var contentMaskedBounds: Rect? {
+        guard !bounds.isEmpty else { return nil }
+        if let clip = clipBounds, !clip.isEmpty {
+            return bounds.intersected(with: clip) ?? bounds
+        }
+        return bounds
+    }
+
+    /// Returns a new path with all element coordinates and bounds offset by the given point.
+    public func translated(by offset: Point) -> PathPrimitive {
+        let translatedElements = elements.map { element -> PathElement in
+            switch element {
+            case .moveTo(let p):
+                return .moveTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+            case .lineTo(let p):
+                return .lineTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+            case .quadraticCurveTo(let c, let e):
+                return .quadraticCurveTo(
+                    control: Point(x: c.x + offset.x, y: c.y + offset.y),
+                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                )
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(
+                    control1: Point(x: c1.x + offset.x, y: c1.y + offset.y),
+                    control2: Point(x: c2.x + offset.x, y: c2.y + offset.y),
+                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                )
+            case .arc(let c, let r, let s, let e, let cw):
+                return .arc(
+                    center: Point(x: c.x + offset.x, y: c.y + offset.y),
+                    radius: r,
+                    startAngle: s,
+                    endAngle: e,
+                    clockwise: cw
+                )
+            case .close:
+                return .close
+            }
+        }
+
+        let translatedBounds = Rect(
+            origin: Point(x: bounds.origin.x + offset.x, y: bounds.origin.y + offset.y),
+            size: bounds.size
+        )
+        let translatedClip = clipBounds.map { clip in
+            Rect(
+                origin: Point(x: clip.origin.x + offset.x, y: clip.origin.y + offset.y),
+                size: clip.size
+            )
+        }
+
+        return PathPrimitive(
+            elements: translatedElements,
+            bounds: translatedBounds,
+            fillColor: fillColor,
+            strokeColor: strokeColor,
+            lineWidth: lineWidth,
+            clipBounds: translatedClip
+        )
     }
 }

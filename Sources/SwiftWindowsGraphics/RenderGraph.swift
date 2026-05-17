@@ -60,12 +60,12 @@ public enum RenderCommand: Equatable, Sendable {
 
 /// Gap 4: no per-command blend control existed. Fix: BlendMode enum lets
 /// each drawing command specify its compositing operation.
-public enum BlendMode: Equatable, Sendable {
-    case normal
-    case multiply
-    case screen
-    case overlay
-    case additive
+public enum BlendMode: Int, Equatable, Sendable {
+    case normal = 0
+    case multiply = 1
+    case screen = 2
+    case overlay = 3
+    case additive = 4
 }
 
 // MARK: - Gradient Types (Gaps 2 & 3 fix)
@@ -172,6 +172,37 @@ public enum GradientType: Equatable, Sendable {
     case linear(LinearGradient)
     case radial(RadialGradient)
     case conic(ConicGradient)
+
+    public var startColor: Color {
+        switch self {
+        case .linear(let g): return g.startColor
+        case .radial(let g): return g.stops.first?.color ?? .clear
+        case .conic(let g): return g.stops.first?.color ?? .clear
+        }
+    }
+
+    public var endColor: Color {
+        switch self {
+        case .linear(let g): return g.stops.last?.color ?? g.startColor
+        case .radial(let g): return g.stops.last?.color ?? .clear
+        case .conic(let g): return g.stops.last?.color ?? .clear
+        }
+    }
+
+    public func withMultipliedOpacity(_ opacity: Double) -> GradientType {
+        let floatOpacity = Float(opacity)
+        switch self {
+        case .linear(var g):
+            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            return .linear(g)
+        case .radial(var g):
+            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            return .radial(g)
+        case .conic(var g):
+            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            return .conic(g)
+        }
+    }
 }
 
 // MARK: - Render Path (Gap 1 fix)
@@ -188,6 +219,7 @@ public struct RenderPath: Equatable, Sendable {
         case lineTo(Point)
         case quadCurveTo(control: Point, end: Point)
         case cubicCurveTo(control1: Point, control2: Point, end: Point)
+        case arc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
         case close
     }
 
@@ -195,6 +227,19 @@ public struct RenderPath: Equatable, Sendable {
 
     public init(segments: [Segment] = []) {
         self.segments = segments
+    }
+
+    public init(path: Path) {
+        self.segments = path.elements.map { element in
+            switch element {
+            case .moveTo(let p): return .moveTo(p)
+            case .lineTo(let p): return .lineTo(p)
+            case .quadraticCurveTo(let control, let end): return .quadCurveTo(control: control, end: end)
+            case .cubicCurveTo(let control1, let control2, let end): return .cubicCurveTo(control1: control1, control2: control2, end: end)
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise): return .arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
+            case .close: return .close
+            }
+        }
     }
 
     // MARK: Builder helpers
@@ -218,51 +263,133 @@ public struct RenderPath: Equatable, Sendable {
     public mutating func close() {
         segments.append(.close)
     }
+
+    public mutating func addArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool = false) {
+        segments.append(.arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
+    }
+
+    public var boundingRect: Rect? {
+        segments.boundingRect
+    }
+
+    public func scaled(to rect: Rect) -> RenderPath {
+        let sx = rect.size.width
+        let sy = rect.size.height
+        let ox = rect.origin.x
+        let oy = rect.origin.y
+        return RenderPath(segments: segments.map { segment in
+            switch segment {
+            case .moveTo(let p):
+                return .moveTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
+            case .lineTo(let p):
+                return .lineTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
+            case .quadCurveTo(let c, let e):
+                return .quadCurveTo(
+                    control: Point(x: c.x * sx + ox, y: c.y * sy + oy),
+                    end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
+                )
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(
+                    control1: Point(x: c1.x * sx + ox, y: c1.y * sy + oy),
+                    control2: Point(x: c2.x * sx + ox, y: c2.y * sy + oy),
+                    end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
+                )
+            case .arc(let c, let r, let s, let e, let cw):
+                return .arc(
+                    center: Point(x: c.x * sx + ox, y: c.y * sy + oy),
+                    radius: r * max(sx, sy),
+                    startAngle: s,
+                    endAngle: e,
+                    clockwise: cw
+                )
+            case .close:
+                return .close
+            }
+        })
+    }
+
+    public func translated(by offset: Point) -> RenderPath {
+        RenderPath(segments: segments.map { segment in
+            switch segment {
+            case .moveTo(let p):
+                return .moveTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+            case .lineTo(let p):
+                return .lineTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+            case .quadCurveTo(let c, let e):
+                return .quadCurveTo(
+                    control: Point(x: c.x + offset.x, y: c.y + offset.y),
+                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                )
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(
+                    control1: Point(x: c1.x + offset.x, y: c1.y + offset.y),
+                    control2: Point(x: c2.x + offset.x, y: c2.y + offset.y),
+                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                )
+            case .arc(let c, let r, let s, let e, let cw):
+                return .arc(
+                    center: Point(x: c.x + offset.x, y: c.y + offset.y),
+                    radius: r,
+                    startAngle: s,
+                    endAngle: e,
+                    clockwise: cw
+                )
+            case .close:
+                return .close
+            }
+        })
+    }
 }
 
-// MARK: - Stroke Style (Gap 8 fix)
+extension [RenderPath.Segment] {
+    public var boundingRect: Rect? {
+        var minX = Double.infinity
+        var minY = Double.infinity
+        var maxX = -Double.infinity
+        var maxY = -Double.infinity
+        var hasPoint = false
+        var current = Point.zero
 
-/// Gap 8: stroke style only supported named presets; no dash pattern data.
-/// Fix: StrokeStyle carries a full dash array and dash offset so backends
-/// can render arbitrary dash patterns.
-public struct StrokeStyle: Equatable, Sendable {
-    public var lineWidth: Double
-    /// Dash pattern as alternating on/off lengths (e.g. [6, 2, 2, 2]).
-    /// Empty array means a solid stroke.
-    public var dashPattern: [Double]
-    /// Offset into the dash pattern at which the stroke begins.
-    public var dashOffset: Double
-    public var lineCap: LineCap
-    public var lineJoin: LineJoin
-    public var miterLimit: Double
-
-    @_disfavoredOverload
-    public init(
-        lineWidth: Double = 1,
-        dashPattern: [Double] = [],
-        dashOffset: Double = 0,
-        lineCap: LineCap = .butt,
-        lineJoin: LineJoin = .miter,
-        miterLimit: Double = 10
-    ) {
-        self.lineWidth = lineWidth
-        self.dashPattern = dashPattern
-        self.dashOffset = dashOffset
-        self.lineCap = lineCap
-        self.lineJoin = lineJoin
-        self.miterLimit = miterLimit
-    }
-
-    public enum LineCap: Equatable, Sendable {
-        case butt
-        case round
-        case square
-    }
-
-    public enum LineJoin: Equatable, Sendable {
-        case miter
-        case round
-        case bevel
+        for segment in self {
+            switch segment {
+            case .moveTo(let p), .lineTo(let p):
+                current = p
+                minX = Swift.min(minX, p.x)
+                minY = Swift.min(minY, p.y)
+                maxX = Swift.max(maxX, p.x)
+                maxY = Swift.max(maxY, p.y)
+                hasPoint = true
+            case .quadCurveTo(let c, let e):
+                minX = Swift.min(minX, current.x, c.x, e.x)
+                minY = Swift.min(minY, current.y, c.y, e.y)
+                maxX = Swift.max(maxX, current.x, c.x, e.x)
+                maxY = Swift.max(maxY, current.y, c.y, e.y)
+                current = e
+                hasPoint = true
+            case .cubicCurveTo(let c1, let c2, let e):
+                minX = Swift.min(minX, current.x, c1.x, c2.x, e.x)
+                minY = Swift.min(minY, current.y, c1.y, c2.y, e.y)
+                maxX = Swift.max(maxX, current.x, c1.x, c2.x, e.x)
+                maxY = Swift.max(maxY, current.y, c1.y, c2.y, e.y)
+                current = e
+                hasPoint = true
+            case .arc(let c, let r, _, _, _):
+                minX = Swift.min(minX, c.x - r)
+                minY = Swift.min(minY, c.y - r)
+                maxX = Swift.max(maxX, c.x + r)
+                maxY = Swift.max(maxY, c.y + r)
+                hasPoint = true
+            case .close:
+                break
+            }
+        }
+        guard hasPoint else { return nil }
+        return Rect(
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY
+        )
     }
 }
 
@@ -346,6 +473,51 @@ public struct BitmapSurface: Equatable, Sendable {
         self.bytesPerRow = bytesPerRow
         self.pixels = pixels
     }
+
+    /// Reads the BGRA color at the given pixel coordinates (top-left origin).
+    public func pixelColor(atX x: Int, y: Int) -> Color? {
+        guard x >= 0, x < Int(width), y >= 0, y < Int(height) else { return nil }
+        let offset = y * Int(bytesPerRow) + x * 4
+        guard offset + 3 < pixels.count else { return nil }
+        return Color(
+            red: Float(pixels[offset + 2]) / 255,
+            green: Float(pixels[offset + 1]) / 255,
+            blue: Float(pixels[offset]) / 255,
+            alpha: Float(pixels[offset + 3]) / 255
+        )
+    }
+
+    /// Writes the bitmap as an uncompressed 32-bit BGRA BMP file to `url`.
+    /// The alpha channel is preserved; most viewers ignore it.
+    public func writeBMP(to url: URL) throws {
+        let fileHeaderSize = 14
+        let dibHeaderSize = 40
+        let pixelDataSize = Int(bytesPerRow) * Int(height)
+        let fileSize = fileHeaderSize + dibHeaderSize + pixelDataSize
+
+        var data = Data(capacity: fileSize)
+        data.append(contentsOf: [0x42, 0x4D]) // "BM"
+        data.append(contentsOf: withUnsafeBytes(of: Int32(fileSize)) { Array($0) })
+        data.append(contentsOf: [0, 0, 0, 0]) // reserved
+        data.append(contentsOf: withUnsafeBytes(of: Int32(fileHeaderSize + dibHeaderSize)) { Array($0) }) // pixel offset
+
+        // BITMAPINFOHEADER (40 bytes)
+        data.append(contentsOf: withUnsafeBytes(of: Int32(dibHeaderSize)) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: Int32(width)) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: Int32(-height)) { Array($0) }) // negative = top-down
+        data.append(contentsOf: [1, 0]) // planes
+        data.append(contentsOf: [32, 0]) // bits per pixel
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // BI_RGB compression
+        data.append(contentsOf: withUnsafeBytes(of: Int32(pixelDataSize)) { Array($0) })
+        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) }) // X pixels/meter
+        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) }) // Y pixels/meter
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // colors in palette
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // important colors
+
+        // Pixel array
+        data.append(pixels)
+        try data.write(to: url)
+    }
 }
 
 /// Gap 4 fix: optional blendMode added to DrawBitmapCommand.
@@ -379,19 +551,22 @@ public struct FillPathCommand: Equatable, Sendable {
     public var gradient: GradientType?
     public var transform: AffineTransform
     public var blendMode: BlendMode
+    public var clipRect: Rect?
 
     public init(
         path: RenderPath,
         color: Color,
         gradient: GradientType? = nil,
         transform: AffineTransform = .identity,
-        blendMode: BlendMode = .normal
+        blendMode: BlendMode = .normal,
+        clipRect: Rect? = nil
     ) {
         self.path = path
         self.color = color
         self.gradient = gradient
         self.transform = transform
         self.blendMode = blendMode
+        self.clipRect = clipRect
     }
 }
 
@@ -402,19 +577,22 @@ public struct StrokePathCommand: Equatable, Sendable {
     public var style: StrokeStyle
     public var transform: AffineTransform
     public var blendMode: BlendMode
+    public var clipRect: Rect?
 
     public init(
         path: RenderPath,
         color: Color,
         style: StrokeStyle = StrokeStyle(),
         transform: AffineTransform = .identity,
-        blendMode: BlendMode = .normal
+        blendMode: BlendMode = .normal,
+        clipRect: Rect? = nil
     ) {
         self.path = path
         self.color = color
         self.style = style
         self.transform = transform
         self.blendMode = blendMode
+        self.clipRect = clipRect
     }
 }
 

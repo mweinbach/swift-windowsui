@@ -93,6 +93,7 @@ public final class Win32Window {
 
     public let title: String
     public private(set) var clientSize: IntSize
+    public let titleBarVisibility: WindowTitleBarVisibility
 
     private var hwnd: HWND?
     private var isTrackingMouseLeave = false
@@ -132,9 +133,10 @@ public final class Win32Window {
         }
     }
 
-    public init(title: String, clientSize: IntSize) {
+    public init(title: String, clientSize: IntSize, titleBarVisibility: WindowTitleBarVisibility = .automatic) {
         self.title = title
         self.clientSize = clientSize
+        self.titleBarVisibility = titleBarVisibility
     }
 
     public var nativeHandle: NativeWindowHandle? {
@@ -179,7 +181,14 @@ public final class Win32Window {
         }
 
         let rawSelf = Unmanaged.passUnretained(self).toOpaque()
-        let style = DWORD(UInt32(bitPattern: Int32(WS_OVERLAPPEDWINDOW)))
+        let style: DWORD
+        switch titleBarVisibility.kind {
+        case .hidden:
+            let hiddenStyle = Int32(WS_POPUP) | Int32(WS_THICKFRAME) | Int32(WS_MINIMIZEBOX) | Int32(WS_MAXIMIZEBOX)
+            style = DWORD(UInt32(bitPattern: hiddenStyle))
+        default:
+            style = DWORD(UInt32(bitPattern: Int32(WS_OVERLAPPEDWINDOW)))
+        }
 
         let createdWindow: HWND? = try Self.className.withWideChars { className in
             try title.withWideChars { title in

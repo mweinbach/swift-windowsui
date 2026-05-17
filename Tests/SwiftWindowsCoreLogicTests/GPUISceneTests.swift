@@ -493,6 +493,21 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(operations[4].kind, .image)
     }
 
+    func testFinishPreservesAcceptedPaintOperationSequence() {
+        var scene = GPUIScene()
+        scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 24, height: 24))
+        scene.addGlyph(GlyphPrimitive(screenX: 4, screenY: 4, screenW: 8, screenH: 8))
+        scene.addQuad(QuadPrimitive(x: 48, y: 0, width: 24, height: 24))
+
+        scene.finish()
+
+        XCTAssertEqual(scene.layers[0].paintOperations, [
+            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
+            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+        ])
+    }
+
     func testAdjacentSameFamilyPrimitivesCoalesce() {
         var scene = GPUIScene()
 

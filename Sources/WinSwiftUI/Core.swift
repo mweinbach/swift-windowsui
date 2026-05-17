@@ -4,18 +4,20 @@ import SwiftWindowsGraphics
 import SwiftWindowsLayout
 import SwiftWindowsUI
 
+public typealias CGFloat = Double
 public typealias Color = SwiftWindowsCore.Color
 public typealias EdgeInsets = SwiftWindowsCore.EdgeInsets
-public typealias CGFloat = Double
 public typealias CGPoint = SwiftWindowsCore.Point
 public typealias CGRect = SwiftWindowsCore.Rect
 public typealias CGSize = SwiftWindowsCore.Size
 public typealias IntSize = SwiftWindowsCore.IntSize
-public typealias LinearGradient = SwiftWindowsGraphics.LinearGradient
 public typealias Point = SwiftWindowsCore.Point
 public typealias Rect = SwiftWindowsCore.Rect
 public typealias Size = SwiftWindowsCore.Size
-public typealias StrokeStyle = SwiftWindowsGraphics.StrokeStyle
+public typealias CGImage = SwiftWindowsGraphics.BitmapSurface
+public typealias Angle = SwiftWindowsCore.Angle
+public typealias FillStyle = SwiftWindowsCore.FillStyle
+public typealias StrokeStyle = SwiftWindowsCore.StrokeStyle
 public typealias ControlAnimationStyle = SwiftWindowsUI.ControlAnimationStyle
 public typealias SurfaceChrome = SwiftWindowsUI.SurfaceChrome
 public typealias SurfacePalette = SwiftWindowsUI.SurfacePalette
@@ -26,40 +28,97 @@ extension String: Transferable {}
 extension URL: Transferable {}
 extension Data: Transferable {}
 
-public struct UTType: Sendable, Equatable, Hashable, ExpressibleByStringLiteral, CustomStringConvertible {
-    public var identifier: String
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+@preconcurrency public protocol TransferRepresentation {
+    associatedtype Body: TransferRepresentation
+    @TransferRepresentationBuilder var body: Body { get }
+}
 
-    public init(_ identifier: String) {
-        self.identifier = identifier
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct DataRepresentation<Content: Transferable>: TransferRepresentation {
+    public typealias Body = Never
+    public let contentType: UTType
+    public let exporting: (Content) -> Data?
+    public let importing: (Data) -> Content?
+
+    public init(contentType: UTType, exporting: @escaping (Content) -> Data?, importing: @escaping (Data) -> Content?) {
+        self.contentType = contentType
+        self.exporting = exporting
+        self.importing = importing
     }
 
-    public init(filenameExtension: String) {
-        self.identifier = "public.filename-extension.\(filenameExtension)"
+    public var body: Never {
+        fatalError("DataRepresentation has no body")
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct FileRepresentation<Content: Transferable>: TransferRepresentation {
+    public typealias Body = Never
+    public let contentType: UTType
+    public let exporting: (Content) -> URL?
+    public let importing: (URL) -> Content?
+
+    public init(contentType: UTType, exporting: @escaping (Content) -> URL?, importing: @escaping (URL) -> Content?) {
+        self.contentType = contentType
+        self.exporting = exporting
+        self.importing = importing
     }
 
-    public init(mimeType: String) {
-        self.identifier = mimeType
+    public var body: Never {
+        fatalError("FileRepresentation has no body")
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct ProxyRepresentation<Content: Transferable, Provider: Transferable>: TransferRepresentation {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ProxyRepresentation has no body")
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct CodableRepresentation<Content: Transferable>: TransferRepresentation {
+    public typealias Body = Never
+    public let contentType: UTType
+
+    public init(contentType: UTType) {
+        self.contentType = contentType
+    }
+
+    public var body: Never {
+        fatalError("CodableRepresentation has no body")
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+extension Never: @preconcurrency TransferRepresentation {}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+@resultBuilder
+public struct TransferRepresentationBuilder {
+    public static func buildBlock<R: TransferRepresentation>(_ representation: R) -> R {
+        representation
+    }
+}
+
+public struct Selector: Sendable, Equatable, Hashable, ExpressibleByStringLiteral {
+    public let name: String
+
+    public init(_ name: String) {
+        self.name = name
     }
 
     public init(stringLiteral value: String) {
-        self.init(value)
+        self.name = value
     }
-
-    public var description: String {
-        identifier
-    }
-
-    public static let data = UTType("public.data")
-    public static let text = UTType("public.text")
-    public static let plainText = UTType("public.plain-text")
-    public static let utf8PlainText = UTType("public.utf8-plain-text")
-    public static let url = UTType("public.url")
-    public static let fileURL = UTType("public.file-url")
-    public static let image = UTType("public.image")
-    public static let png = UTType("public.png")
-    public static let jpeg = UTType("public.jpeg")
-    public static let json = UTType("public.json")
 }
+
+public typealias UTType = SwiftWindowsCore.UTType
 
 public final class NSItemProvider: @unchecked Sendable {
     public var registeredTypeIdentifiers: [String]
@@ -84,6 +143,121 @@ public final class NSItemProvider: @unchecked Sendable {
         if !registeredTypeIdentifiers.contains(typeIdentifier) {
             registeredTypeIdentifiers.append(typeIdentifier)
         }
+    }
+}
+
+public final class NSUserActivity: @unchecked Sendable {
+    public var activityType: String
+    public var title: String?
+    public var userInfo: [String: Any]?
+    public var isEligibleForHandoff: Bool
+    public var isEligibleForSearch: Bool
+    public var isEligibleForPublicIndexing: Bool
+    public var needsSave: Bool
+    public var webpageURL: URL?
+    public var expirationDate: Date?
+
+    public init(activityType: String) {
+        self.activityType = activityType
+        self.title = nil
+        self.userInfo = nil
+        self.isEligibleForHandoff = true
+        self.isEligibleForSearch = false
+        self.isEligibleForPublicIndexing = false
+        self.needsSave = false
+        self.webpageURL = nil
+        self.expirationDate = nil
+    }
+
+    public func addUserInfoEntries(from otherDictionary: [String: Any]) {
+        if userInfo == nil {
+            userInfo = [:]
+        }
+        for (key, value) in otherDictionary {
+            userInfo?[key] = value
+        }
+    }
+
+    public func resignCurrent() {}
+    public func becomeCurrent() {}
+}
+
+public class FileWrapper: @unchecked Sendable {
+    public var filename: String?
+    public var regularFileContents: Data?
+    public var fileWrappers: [String: FileWrapper]?
+    public var preferredFilename: String?
+
+    public init() {}
+
+    public init(regularFileWithContents data: Data) {
+        self.regularFileContents = data
+    }
+
+    public init(directoryWithFileWrappers childrenByPreferredName: [String: FileWrapper]) {
+        self.fileWrappers = childrenByPreferredName
+    }
+}
+
+public struct FileDocumentReadConfiguration: Sendable {
+    public let file: FileWrapper
+    public let contentType: UTType
+
+    public init(file: FileWrapper, contentType: UTType) {
+        self.file = file
+        self.contentType = contentType
+    }
+}
+
+public struct FileDocumentWriteConfiguration: Sendable {
+    public let existingFile: FileWrapper?
+    public let contentType: UTType
+
+    public init(existingFile: FileWrapper? = nil, contentType: UTType) {
+        self.existingFile = existingFile
+        self.contentType = contentType
+    }
+}
+
+public protocol FileDocument {
+    associatedtype ReadConfiguration = FileDocumentReadConfiguration
+    associatedtype WriteConfiguration = FileDocumentWriteConfiguration
+    static var readableContentTypes: [UTType] { get }
+    init(configuration: ReadConfiguration) throws
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper
+}
+
+public protocol ReferenceFileDocument: ObservableObject {
+    associatedtype Snapshot
+    associatedtype ReadConfiguration = FileDocumentReadConfiguration
+    associatedtype WriteConfiguration = FileDocumentWriteConfiguration
+    static var readableContentTypes: [UTType] { get }
+    func snapshot() -> Snapshot
+    func fileWrapper(snapshot: Snapshot, configuration: WriteConfiguration) throws -> FileWrapper
+}
+
+@MainActor
+public struct FileDocumentConfiguration<Document>: DynamicProperty {
+    public var document: Binding<Document>
+    public var fileURL: URL?
+    public var isEditable: Bool
+
+    public init(document: Binding<Document>, fileURL: URL? = nil, isEditable: Bool = true) {
+        self.document = document
+        self.fileURL = fileURL
+        self.isEditable = isEditable
+    }
+}
+
+public struct ReferenceFileDocumentConfiguration<Document>: DynamicProperty {
+    public var document: Binding<Document>
+    public var fileURL: URL?
+    public var isEditable: Bool
+
+    public init(document: Binding<Document>, fileURL: URL? = nil, isEditable: Bool = true) {
+        self.document = document
+        self.fileURL = fileURL
+        self.isEditable = isEditable
     }
 }
 
@@ -346,88 +520,71 @@ public struct ColorResource: Equatable, Hashable, @unchecked Sendable {
     }
 }
 
-public struct Angle: Sendable, Equatable {
-    public var radians: Double
+public struct PhysicalMetric: Sendable, Comparable, Equatable {
+    public var points: CGFloat
 
-    public init(radians: Double) {
-        self.radians = radians
+    public init(_ points: CGFloat) {
+        self.points = points
     }
 
-    public init(degrees: Double) {
-        self.radians = degrees * .pi / 180
+    public init(meters: Double) {
+        self.points = CGFloat(meters * 2834.64567)
     }
 
-    public var degrees: Double {
-        radians * 180 / .pi
+    public init(millimeters: Double) {
+        self.points = CGFloat(millimeters * 2.83464567)
     }
 
-    public static func radians(_ radians: Double) -> Angle {
-        Angle(radians: radians)
+    public init(inches: Double) {
+        self.points = CGFloat(inches * 72)
     }
 
-    public static func degrees(_ degrees: Double) -> Angle {
-        Angle(degrees: degrees)
-    }
-}
-
-public struct CGAffineTransform: Sendable, Equatable {
-    public var a: CGFloat
-    public var b: CGFloat
-    public var c: CGFloat
-    public var d: CGFloat
-    public var tx: CGFloat
-    public var ty: CGFloat
-
-    public init() {
-        self = .identity
+    public var meters: Double {
+        Double(points) / 2834.64567
     }
 
-    public init(a: CGFloat, b: CGFloat, c: CGFloat, d: CGFloat, tx: CGFloat, ty: CGFloat) {
-        self.a = a
-        self.b = b
-        self.c = c
-        self.d = d
-        self.tx = tx
-        self.ty = ty
+    public var millimeters: Double {
+        Double(points) / 2.83464567
     }
 
-    public init(translationX tx: CGFloat, y ty: CGFloat) {
-        self.init(a: 1, b: 0, c: 0, d: 1, tx: tx, ty: ty)
+    public var inches: Double {
+        Double(points) / 72
     }
 
-    public init(scaleX sx: CGFloat, y sy: CGFloat) {
-        self.init(a: sx, b: 0, c: 0, d: sy, tx: 0, ty: 0)
+    public static func points(_ points: CGFloat) -> PhysicalMetric {
+        PhysicalMetric(points)
     }
 
-    public init(rotationAngle angle: CGFloat) {
-        let cosine = cos(angle)
-        let sine = sin(angle)
-        self.init(a: cosine, b: sine, c: -sine, d: cosine, tx: 0, ty: 0)
+    public static func meters(_ meters: Double) -> PhysicalMetric {
+        PhysicalMetric(meters: meters)
     }
 
-    public static let identity = CGAffineTransform(a: 1, b: 0, c: 0, d: 1, tx: 0, ty: 0)
-
-    public func concatenating(_ other: CGAffineTransform) -> CGAffineTransform {
-        CGAffineTransform(
-            a: a * other.a + b * other.c,
-            b: a * other.b + b * other.d,
-            c: c * other.a + d * other.c,
-            d: c * other.b + d * other.d,
-            tx: tx * other.a + ty * other.c + other.tx,
-            ty: tx * other.b + ty * other.d + other.ty
-        )
+    public static func millimeters(_ millimeters: Double) -> PhysicalMetric {
+        PhysicalMetric(millimeters: millimeters)
     }
 
-    public func translatedBy(x: CGFloat, y: CGFloat) -> CGAffineTransform {
-        concatenating(CGAffineTransform(translationX: x, y: y))
+    public static func inches(_ inches: Double) -> PhysicalMetric {
+        PhysicalMetric(inches: inches)
     }
 
-    public func scaledBy(x sx: CGFloat, y sy: CGFloat) -> CGAffineTransform {
-        concatenating(CGAffineTransform(scaleX: sx, y: sy))
+    public static func < (lhs: PhysicalMetric, rhs: PhysicalMetric) -> Bool {
+        lhs.points < rhs.points
     }
 
-    public func rotated(by angle: CGFloat) -> CGAffineTransform {
-        concatenating(CGAffineTransform(rotationAngle: angle))
+    public static func + (lhs: PhysicalMetric, rhs: PhysicalMetric) -> PhysicalMetric {
+        PhysicalMetric(lhs.points + rhs.points)
+    }
+
+    public static func - (lhs: PhysicalMetric, rhs: PhysicalMetric) -> PhysicalMetric {
+        PhysicalMetric(lhs.points - rhs.points)
+    }
+
+    public static func * (lhs: PhysicalMetric, rhs: CGFloat) -> PhysicalMetric {
+        PhysicalMetric(lhs.points * rhs)
+    }
+
+    public static func / (lhs: PhysicalMetric, rhs: CGFloat) -> PhysicalMetric {
+        PhysicalMetric(lhs.points / rhs)
     }
 }
 
@@ -775,6 +932,19 @@ public struct Shader: ShapeStyle, Sendable, Equatable, Hashable, CustomStringCon
     }
 }
 
+public typealias ShaderArgument = Shader.Argument
+
+public enum ShaderPrecision: Sendable, Hashable {
+    case float
+    case half
+}
+
+public struct ShaderConfiguration: Sendable, Equatable, Hashable {
+    public static let `default` = ShaderConfiguration()
+
+    public init() {}
+}
+
 @dynamicCallable
 public struct ShaderFunction: Sendable, Equatable, Hashable {
     public var libraryName: String
@@ -814,77 +984,235 @@ public struct ShaderLibrary: Sendable, Equatable, Hashable {
     }
 }
 
-public struct Animation: Sendable {
-    public var duration: Double
-    public var easing: AnimationEasing
+public struct LayerShader: Sendable, Equatable, Hashable {
+    public var function: ShaderFunction
 
-    public init(duration: Double = 0.25, easing: AnimationEasing = .easeInOut) {
-        self.duration = duration
-        self.easing = easing
-    }
-
-    public static let `default` = Animation()
-    public static let linear = Animation(easing: .linear)
-    public static let easeIn = Animation(easing: .easeIn)
-    public static let easeOut = Animation(easing: .easeOut)
-    public static let easeInOut = Animation(easing: .easeInOut)
-
-    public static func linear(duration: Double) -> Animation {
-        Animation(duration: duration, easing: .linear)
-    }
-
-    public static func easeIn(duration: Double) -> Animation {
-        Animation(duration: duration, easing: .easeIn)
-    }
-
-    public static func easeOut(duration: Double) -> Animation {
-        Animation(duration: duration, easing: .easeOut)
-    }
-
-    public static func easeInOut(duration: Double) -> Animation {
-        Animation(duration: duration, easing: .easeInOut)
+    public init(_ function: ShaderFunction) {
+        self.function = function
     }
 }
 
-public struct AnimationCompletionCriteria: Sendable, Equatable {
-    private enum Kind: Sendable, Equatable {
-        case logicallyComplete
-        case removed
-    }
+public struct DistortionEffect: Sendable, Equatable, Hashable {
+    public var function: ShaderFunction
 
-    private var kind: Kind
-
-    private init(kind: Kind) {
-        self.kind = kind
-    }
-
-    public static let logicallyComplete = AnimationCompletionCriteria(kind: .logicallyComplete)
-    public static let removed = AnimationCompletionCriteria(kind: .removed)
-}
-
-public struct Transaction: Sendable {
-    public var animation: Animation?
-    public var disablesAnimations: Bool
-    public var isContinuous: Bool
-    public var scrollTargetAnchor: UnitPoint?
-    public var tracksVelocity: Bool
-
-    public init(animation: Animation? = nil) {
-        self.animation = animation
-        self.disablesAnimations = false
-        self.isContinuous = false
-        self.scrollTargetAnchor = nil
-        self.tracksVelocity = false
-    }
-
-    public mutating func addAnimationCompletion(
-        criteria: AnimationCompletionCriteria = .logicallyComplete,
-        _ completion: @escaping () -> Void
-    ) {
-        _ = criteria
-        completion()
+    public init(_ function: ShaderFunction) {
+        self.function = function
     }
 }
+
+public struct LayerEffect: Sendable, Equatable, Hashable {
+    public var function: ShaderFunction
+
+    public init(_ function: ShaderFunction) {
+        self.function = function
+    }
+}
+
+public struct AnyShader: Sendable, Equatable, Hashable {
+    public var function: ShaderFunction
+
+    public init(_ function: ShaderFunction) {
+        self.function = function
+    }
+}
+
+public typealias Animation = SwiftWindowsCore.Animation
+
+public typealias AnimationCompletionCriteria = SwiftWindowsCore.AnimationCompletionCriteria
+
+public struct Spring: Sendable, Equatable, Hashable {
+    public static func == (lhs: Spring, rhs: Spring) -> Bool {
+        lhs.response == rhs.response && lhs.dampingRatio == rhs.dampingRatio
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(response)
+        hasher.combine(dampingRatio)
+    }
+
+    public var response: Double
+    public var dampingRatio: Double
+    public var mass: Double {
+        get { 1.0 }
+        set { }
+    }
+    public var stiffness: Double {
+        get { 100.0 }
+        set { }
+    }
+    public var damping: Double {
+        get { 10.0 }
+        set { }
+    }
+    public var initialVelocity: Double = 0
+    public var bounce: Double {
+        get { 1.0 - dampingRatio }
+        set { dampingRatio = 1.0 - newValue }
+    }
+    public var settleDuration: Double {
+        response * 7.0
+    }
+
+    public init(response: Double, dampingRatio: Double) {
+        self.response = response
+        self.dampingRatio = dampingRatio
+    }
+
+    public init(duration: Double, bounce: Double = 0) {
+        self.response = duration
+        self.dampingRatio = 1.0 - bounce
+    }
+
+    public init(mass: Double = 1, stiffness: Double, damping: Double, initialVelocity: Double = 0) {
+        let response = 2.0 * Double.pi / sqrt(max(stiffness / max(mass, 0.001), 0.001))
+        let dampingRatio = damping / (2.0 * sqrt(max(mass * stiffness, 0.001)))
+        self.response = response
+        self.dampingRatio = dampingRatio
+        self.initialVelocity = initialVelocity
+    }
+
+    public static let smooth = Spring(response: 0.55, dampingRatio: 0.825)
+    public static let snappy = Spring(response: 0.35, dampingRatio: 0.7)
+    public static let bouncy = Spring(response: 0.5, dampingRatio: 0.4)
+
+    public func setResponse(_ response: Double) -> Spring {
+        var copy = self
+        copy.response = response
+        return copy
+    }
+
+    public func setDampingRatio(_ dampingRatio: Double) -> Spring {
+        var copy = self
+        copy.dampingRatio = dampingRatio
+        return copy
+    }
+}
+
+public struct SpringPhase: Sendable, Equatable, Hashable {
+    public let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let approaching = SpringPhase("approaching")
+    public static let tracking = SpringPhase("tracking")
+}
+
+public struct SpringResponse: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SpringDampingRatio: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SpringMass: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SpringStiffness: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SpringDuration: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SpringBlendDuration: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct Bounce: Sendable, Equatable, Hashable {
+    public let amount: Double
+
+    public init(_ amount: Double = 0) {
+        self.amount = amount
+    }
+
+    public static let `default` = Bounce(0)
+}
+
+public struct InterpolatingSpring: Sendable, Equatable {
+    public var mass: Double
+    public var stiffness: Double
+    public var damping: Double
+    public var initialVelocity: Double
+
+    public init(mass: Double = 1, stiffness: Double = 100, damping: Double = 10, initialVelocity: Double = 0) {
+        self.mass = mass
+        self.stiffness = stiffness
+        self.damping = damping
+        self.initialVelocity = initialVelocity
+    }
+}
+
+public struct HapticFeedback: Sendable, Equatable, Hashable {
+    public enum Style: Sendable, Equatable, Hashable {
+        case light
+        case medium
+        case heavy
+        case success
+        case warning
+        case error
+    }
+
+    public let style: Style
+
+    public init(_ style: Style) {
+        self.style = style
+    }
+}
+
+public struct HapticFeedbackStyle: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct HapticFeedbackGenerator: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ScrollTargetAlignment: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct ScrollTargetID: Equatable, Hashable {
+    public let id: AnyHashable
+
+    public init<ID: Hashable>(_ id: ID) {
+        self.id = AnyHashable(id)
+    }
+}
+
+public struct ScrollAnchor: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public typealias Transaction = SwiftWindowsCore.Transaction
 
 public protocol VectorArithmetic: AdditiveArithmetic {
     mutating func scale(by rhs: Double)
@@ -913,6 +1241,37 @@ public struct EmptyAnimatableData: VectorArithmetic, Sendable, Equatable {
     }
 }
 
+public struct AnimatablePair<First: Animatable, Second: Animatable>: VectorArithmetic, Sendable where First.AnimatableData: Sendable, Second.AnimatableData: Sendable {
+    public var first: First.AnimatableData
+    public var second: Second.AnimatableData
+
+    public init(_ first: First.AnimatableData, _ second: Second.AnimatableData) {
+        self.first = first
+        self.second = second
+    }
+
+    public static var zero: AnimatablePair<First, Second> {
+        AnimatablePair(First.AnimatableData.zero, Second.AnimatableData.zero)
+    }
+
+    public static func + (lhs: AnimatablePair<First, Second>, rhs: AnimatablePair<First, Second>) -> AnimatablePair<First, Second> {
+        AnimatablePair(lhs.first + rhs.first, lhs.second + rhs.second)
+    }
+
+    public static func - (lhs: AnimatablePair<First, Second>, rhs: AnimatablePair<First, Second>) -> AnimatablePair<First, Second> {
+        AnimatablePair(lhs.first - rhs.first, lhs.second - rhs.second)
+    }
+
+    public mutating func scale(by rhs: Double) {
+        first.scale(by: rhs)
+        second.scale(by: rhs)
+    }
+
+    public var magnitudeSquared: Double {
+        first.magnitudeSquared + second.magnitudeSquared
+    }
+}
+
 public protocol Animatable {
     associatedtype AnimatableData: VectorArithmetic = EmptyAnimatableData
     var animatableData: AnimatableData { get set }
@@ -924,6 +1283,30 @@ public extension Animatable where AnimatableData == EmptyAnimatableData {
         set { _ = newValue }
     }
 }
+
+@MainActor
+public protocol GeometryEffect: Animatable, ViewModifier {
+    func effectValue(size: CGSize) -> ProjectionTransform
+}
+
+public extension GeometryEffect {
+    func body(content: Content) -> some View {
+        let effect = self
+        return ModifiedView(content: content) { innerContent, context in
+            let component = innerContent.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                let size = CGSize(width: node.frame.size.width, height: node.frame.size.height)
+                let transform = effect.effectValue(size: size)
+                node.transform = node.transform.concatenating(transform.affineTransform)
+                return node
+            }
+        }
+    }
+}
+
+@MainActor
+public protocol AnimatableModifier: Animatable, ViewModifier {}
 
 public struct ProposedViewSize: Sendable, Equatable {
     public var width: CGFloat?
@@ -970,6 +1353,125 @@ public struct LayoutProperties: Sendable, Equatable {
     }
 }
 
+@MainActor
+public protocol Layout {
+    associatedtype Cache = ()
+    static var layoutProperties: LayoutProperties { get }
+    func makeCache(subviews: LayoutSubviews) -> Cache
+    func updateCache(_ cache: inout Cache, subviews: LayoutSubviews)
+    func sizeThatFits(proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout Cache) -> CGSize
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout Cache)
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout Cache) -> CGFloat?
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout Cache) -> CGFloat?
+    func spacing(subviews: LayoutSubviews, cache: inout Cache) -> ViewSpacing
+}
+
+public extension Layout {
+    static var layoutProperties: LayoutProperties { LayoutProperties() }
+    func makeCache(subviews: LayoutSubviews) -> () { () }
+    func updateCache(_ cache: inout (), subviews: LayoutSubviews) {}
+    func explicitAlignment(of guide: HorizontalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) -> CGFloat? { nil }
+    func explicitAlignment(of guide: VerticalAlignment, in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) -> CGFloat? { nil }
+    func spacing(subviews: LayoutSubviews, cache: inout ()) -> ViewSpacing { ViewSpacing() }
+}
+
+@MainActor
+public struct LayoutSubview {
+    public let sizeThatFits: (ProposedViewSize) -> CGSize
+    public let place: (CGRect, ProposedViewSize, CGPoint) -> Void
+    public let spacing: ViewSpacing
+    public let dimensions: [AnyHashable: CGFloat]
+    public let alignmentGuides: [AnyHashable: CGFloat?]
+
+    public func sizeThatFits(_ proposal: ProposedViewSize) -> CGSize {
+        sizeThatFits(proposal)
+    }
+
+    public func place(at position: CGPoint, anchor: UnitPoint = .topLeading, proposal: ProposedViewSize) {
+        let rect = CGRect(
+            x: position.x - anchor.x * (proposal.width ?? 0),
+            y: position.y - anchor.y * (proposal.height ?? 0),
+            width: proposal.width ?? 0,
+            height: proposal.height ?? 0
+        )
+        place(rect, proposal, position)
+    }
+}
+
+public struct LayoutSubviews: RandomAccessCollection {
+    public typealias Element = LayoutSubview
+    public typealias Index = Int
+
+    private let subviews: [LayoutSubview]
+
+    public init(subviews: [LayoutSubview] = []) {
+        self.subviews = subviews
+    }
+
+    public var startIndex: Int { subviews.startIndex }
+    public var endIndex: Int { subviews.endIndex }
+    public subscript(position: Int) -> LayoutSubview { subviews[position] }
+}
+
+public struct LayoutSubviewProxy: Sendable {
+    public init() {}
+}
+
+public struct LayoutProxy: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct FlowLayout: Layout {
+    public var alignment: Alignment
+    public var spacing: CGFloat
+    public var horizontalSpacing: CGFloat
+    public var verticalSpacing: CGFloat
+
+    public init(
+        alignment: Alignment = .center,
+        spacing: CGFloat = 8
+    ) {
+        self.alignment = alignment
+        self.spacing = spacing
+        self.horizontalSpacing = spacing
+        self.verticalSpacing = spacing
+    }
+
+    public init(
+        alignment: Alignment = .center,
+        horizontalSpacing: CGFloat = 8,
+        verticalSpacing: CGFloat = 8
+    ) {
+        self.alignment = alignment
+        self.spacing = max(horizontalSpacing, verticalSpacing)
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+    }
+
+    public func sizeThatFits(proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    public func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: LayoutSubviews, cache: inout ()) {
+        var x = bounds.origin.x
+        var y = bounds.origin.y
+        var rowHeight: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(proposal)
+            if x + size.width > bounds.maxX && x > bounds.origin.x {
+                x = bounds.origin.x
+                y += rowHeight + verticalSpacing
+                rowHeight = 0
+            }
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: size.width, height: size.height))
+            x += size.width + horizontalSpacing
+            rowHeight = max(rowHeight, size.height)
+        }
+    }
+}
+
 public struct TextProxy: Sendable {
     public init() {}
 
@@ -1010,11 +1512,20 @@ public extension TextRenderer {
 
 public protocol TextAttribute {}
 
+@MainActor
 @discardableResult
 public func withAnimation<Result>(_ animation: Animation? = .default, _ body: () throws -> Result) rethrows -> Result {
-    try body()
+    let previous = currentAnimationTransaction
+    defer { currentAnimationTransaction = previous }
+    if let animation {
+        currentAnimationTransaction = (duration: animation.duration, easing: animation.easing)
+    } else {
+        currentAnimationTransaction = nil
+    }
+    return try body()
 }
 
+@MainActor
 @discardableResult
 public func withAnimation<Result>(
     _ animation: Animation? = .default,
@@ -1022,18 +1533,87 @@ public func withAnimation<Result>(
     _ body: () throws -> Result,
     completion: @escaping () -> Void
 ) rethrows -> Result {
-    _ = animation
-    _ = completionCriteria
+    let previous = currentAnimationTransaction
+    defer {
+        currentAnimationTransaction = previous
+        completion()
+    }
+    if let animation {
+        currentAnimationTransaction = (duration: animation.duration, easing: animation.easing)
+    } else {
+        currentAnimationTransaction = nil
+    }
     let result = try body()
-    completion()
     return result
 }
 
 @discardableResult
-public func withTransaction<Result>(_ transaction: Transaction, _ body: () throws -> Result) rethrows -> Result {
-    try body()
+@MainActor
+public func withAnimation<Result>(
+    _ animation: Animation? = .default,
+    completionCriteria: AnimationCompletionCriteria = .logicallyComplete,
+    _ body: () throws -> Result
+) rethrows -> Result {
+    try withAnimation(animation, completionCriteria: completionCriteria, body, completion: {})
 }
 
+@MainActor
+@discardableResult
+public func withTransaction<Result>(_ transaction: Transaction, _ body: () throws -> Result) rethrows -> Result {
+    let previous = currentTransaction
+    let previousAnimation = currentAnimationTransaction
+    defer {
+        currentTransaction = previous
+        currentAnimationTransaction = previousAnimation
+    }
+    currentTransaction = transaction
+    if let animation = transaction.animation, !transaction.disablesAnimations {
+        currentAnimationTransaction = (duration: animation.duration, easing: animation.easing)
+    } else {
+        currentAnimationTransaction = nil
+    }
+    return try body()
+}
+
+@available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
+open class CADisplayLink {
+    public var timestamp: TimeInterval = 0
+    public var duration: TimeInterval = 0
+    public var targetTimestamp: TimeInterval = 0
+    public var isPaused: Bool = false
+    public var preferredFramesPerSecond: Int = 60
+    public var preferredFrameRateRange: CAFrameRateRange = .default
+    public var invalidateOnPause: Bool = false
+
+    public private(set) weak var target: AnyObject?
+    public let selector: Selector
+
+    public init(target: AnyObject, selector: Selector) {
+        self.target = target
+        self.selector = selector
+    }
+
+    open func add(to runloop: Any, forMode mode: String) {}
+    open func remove(from runloop: Any, forMode mode: String) {}
+    open func invalidate() {}
+}
+
+@available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
+public struct CAFrameRateRange: Sendable, Equatable {
+    public var minimum: Float
+    public var maximum: Float
+    public var preferred: Float
+
+    public init(minimum: Float, maximum: Float, preferred: Float) {
+        self.minimum = minimum
+        self.maximum = maximum
+        self.preferred = preferred
+    }
+
+    public static let `default` = CAFrameRateRange(minimum: 0, maximum: .infinity, preferred: 60)
+}
+
+@MainActor
 @discardableResult
 public func withTransaction<Value, Result>(
     _ keyPath: WritableKeyPath<Transaction, Value>,
@@ -1045,25 +1625,7 @@ public func withTransaction<Value, Result>(
     return try withTransaction(transaction, body)
 }
 
-public struct UnitPoint: Sendable, Equatable {
-    public var x: Double
-    public var y: Double
-
-    public init(x: Double, y: Double) {
-        self.x = x
-        self.y = y
-    }
-
-    public static let top = UnitPoint(x: 0.5, y: 0.0)
-    public static let bottom = UnitPoint(x: 0.5, y: 1.0)
-    public static let leading = UnitPoint(x: 0.0, y: 0.5)
-    public static let trailing = UnitPoint(x: 1.0, y: 0.5)
-    public static let center = UnitPoint(x: 0.5, y: 0.5)
-    public static let topLeading = UnitPoint(x: 0.0, y: 0.0)
-    public static let topTrailing = UnitPoint(x: 1.0, y: 0.0)
-    public static let bottomLeading = UnitPoint(x: 0.0, y: 1.0)
-    public static let bottomTrailing = UnitPoint(x: 1.0, y: 1.0)
-}
+public typealias UnitPoint = SwiftWindowsCore.UnitPoint
 
 public struct UnitPoint3D: Sendable, Equatable {
     public var x: CGFloat
@@ -1080,6 +1642,7 @@ public struct UnitPoint3D: Sendable, Equatable {
         self.init(x: point.x, y: point.y, z: z)
     }
 
+    public static let zero = UnitPoint3D(x: 0.0, y: 0.0, z: 0.0)
     public static let center = UnitPoint3D(x: 0.5, y: 0.5, z: 0.5)
     public static let top = UnitPoint3D(x: 0.5, y: 0.0, z: 0.5)
     public static let bottom = UnitPoint3D(x: 0.5, y: 1.0, z: 0.5)
@@ -1091,6 +1654,593 @@ public struct UnitPoint3D: Sendable, Equatable {
     public static let topTrailing = UnitPoint3D(x: 1.0, y: 0.0, z: 0.5)
     public static let bottomLeading = UnitPoint3D(x: 0.0, y: 1.0, z: 0.5)
     public static let bottomTrailing = UnitPoint3D(x: 1.0, y: 1.0, z: 0.5)
+}
+
+public struct WindowResizability: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case contentSize
+        case minSize
+        case maxSize
+    }
+
+    public let kind: Kind
+
+    public static let contentSize = WindowResizability(kind: .contentSize)
+    public static let minSize = WindowResizability(kind: .minSize)
+    public static let maxSize = WindowResizability(kind: .maxSize)
+}
+
+public struct WindowInteractionBehavior: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case enabled
+        case disabled
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = WindowInteractionBehavior(kind: .automatic)
+    public static let enabled = WindowInteractionBehavior(kind: .enabled)
+    public static let disabled = WindowInteractionBehavior(kind: .disabled)
+
+    var retained: RetainedWindowInteractionBehavior {
+        switch kind {
+        case .automatic: return .automatic
+        case .enabled: return .enabled
+        case .disabled: return .disabled
+        }
+    }
+}
+
+public struct WindowPlacement: Sendable, Equatable {
+    public var position: UnitPoint
+    public var displayID: String?
+
+    public init(_ position: UnitPoint, in displayID: String? = nil) {
+        self.position = position
+        self.displayID = displayID
+    }
+
+    public static let automatic = WindowPlacement(.center)
+    public static let center = WindowPlacement(.center)
+    public static let centerOnParent = WindowPlacement(.center)
+
+    public static func coordinates(_ x: Double, _ y: Double) -> WindowPlacement {
+        WindowPlacement(UnitPoint(x: x, y: y))
+    }
+
+    public static func rect(_ rect: CGRect) -> WindowPlacement {
+        WindowPlacement(UnitPoint(x: rect.origin.x / max(rect.size.width, 1), y: rect.origin.y / max(rect.size.height, 1)))
+    }
+}
+
+public struct InterfaceOrientation: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case unknown
+        case portrait
+        case portraitUpsideDown
+        case landscapeLeft
+        case landscapeRight
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let unknown = InterfaceOrientation(kind: .unknown)
+    public static let portrait = InterfaceOrientation(kind: .portrait)
+    public static let portraitUpsideDown = InterfaceOrientation(kind: .portraitUpsideDown)
+    public static let landscapeLeft = InterfaceOrientation(kind: .landscapeLeft)
+    public static let landscapeRight = InterfaceOrientation(kind: .landscapeRight)
+}
+
+public struct WindowToolbarStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case expanded
+        case unified(showsTitle: Bool)
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowToolbarStyle(kind: .automatic)
+    public static let expanded = WindowToolbarStyle(kind: .expanded)
+    public static func unified(showsTitle: Bool = true) -> WindowToolbarStyle {
+        WindowToolbarStyle(kind: .unified(showsTitle: showsTitle))
+    }
+}
+
+public struct WindowTitleDisplayMode: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case inline
+        case large
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = WindowTitleDisplayMode(kind: .automatic)
+    public static let inline = WindowTitleDisplayMode(kind: .inline)
+    public static let large = WindowTitleDisplayMode(kind: .large)
+}
+
+public struct MenuBarExtraStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case window
+        case menu
+    }
+
+    public let kind: Kind
+
+    public static let automatic = MenuBarExtraStyle(kind: .automatic)
+    public static let window = MenuBarExtraStyle(kind: .window)
+    public static let menu = MenuBarExtraStyle(kind: .menu)
+}
+
+public struct WindowStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case hiddenTitleBar
+        case volumetric
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowStyle(kind: .automatic)
+    public static let hiddenTitleBar = WindowStyle(kind: .hiddenTitleBar)
+    public static let volumetric = WindowStyle(kind: .volumetric)
+}
+
+public struct VolumetricWindowStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DefaultWindowStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct WindowActivationBehavior: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case always
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = WindowActivationBehavior(kind: .automatic)
+    public static let always = WindowActivationBehavior(kind: .always)
+}
+
+public struct VolumeBasePlateVisibility: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case visible
+        case hidden
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = VolumeBasePlateVisibility(kind: .automatic)
+    public static let visible = VolumeBasePlateVisibility(kind: .visible)
+    public static let hidden = VolumeBasePlateVisibility(kind: .hidden)
+}
+
+public struct GlassBackgroundEffect: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case enabled
+        case disabled
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = GlassBackgroundEffect(kind: .automatic)
+    public static let enabled = GlassBackgroundEffect(kind: .enabled)
+    public static let disabled = GlassBackgroundEffect(kind: .disabled)
+}
+
+public struct HandAnchor: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case left
+        case right
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let left = HandAnchor(kind: .left)
+    public static let right = HandAnchor(kind: .right)
+}
+
+public struct UpperLimbVisibility: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case visible
+        case hidden
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = UpperLimbVisibility(kind: .automatic)
+    public static let visible = UpperLimbVisibility(kind: .visible)
+    public static let hidden = UpperLimbVisibility(kind: .hidden)
+}
+
+public struct ImmersionStyle: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case mixed
+        case full
+        case progressive
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ImmersionStyle(kind: .automatic)
+    public static let mixed = ImmersionStyle(kind: .mixed)
+    public static let full = ImmersionStyle(kind: .full)
+    public static let progressive = ImmersionStyle(kind: .progressive)
+}
+
+public struct SurroundingsEffect: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case passthrough
+        case systemDefault
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let passthrough = SurroundingsEffect(kind: .passthrough)
+    public static let systemDefault = SurroundingsEffect(kind: .systemDefault)
+}
+
+public struct VolumeWorldAlignment: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case gravityAligned
+        case faceAligned
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = VolumeWorldAlignment(kind: .automatic)
+    public static let gravityAligned = VolumeWorldAlignment(kind: .gravityAligned)
+    public static let faceAligned = VolumeWorldAlignment(kind: .faceAligned)
+}
+
+public struct ScrollIndicatorsBehavior: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case never
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ScrollIndicatorsBehavior(kind: .automatic)
+    public static let never = ScrollIndicatorsBehavior(kind: .never)
+}
+
+public struct MapControlVisibility: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case visible
+        case hidden
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = MapControlVisibility(kind: .automatic)
+    public static let visible = MapControlVisibility(kind: .visible)
+    public static let hidden = MapControlVisibility(kind: .hidden)
+}
+
+public struct SpatialImage: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ImmersiveEnvironment: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case mixed
+        case full
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ImmersiveEnvironment(kind: .automatic)
+    public static let mixed = ImmersiveEnvironment(kind: .mixed)
+    public static let full = ImmersiveEnvironment(kind: .full)
+}
+
+public struct PointerStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case arrow
+        case pointingHand
+        case iBeam
+        case openHand
+        case closedHand
+        case resizeLeftRight
+        case resizeUpDown
+        case resizeAllDirections
+        case crosshair
+        case disappearingItem
+        case operationNotAllowed
+        case dragLink
+        case dragCopy
+        case contextMenu
+    }
+
+    public let kind: Kind
+
+    public static let automatic = PointerStyle(kind: .automatic)
+    public static let arrow = PointerStyle(kind: .arrow)
+    public static let pointingHand = PointerStyle(kind: .pointingHand)
+    public static let iBeam = PointerStyle(kind: .iBeam)
+    public static let openHand = PointerStyle(kind: .openHand)
+    public static let closedHand = PointerStyle(kind: .closedHand)
+    public static let resizeLeftRight = PointerStyle(kind: .resizeLeftRight)
+    public static let resizeUpDown = PointerStyle(kind: .resizeUpDown)
+    public static let resizeAllDirections = PointerStyle(kind: .resizeAllDirections)
+    public static let crosshair = PointerStyle(kind: .crosshair)
+    public static let disappearingItem = PointerStyle(kind: .disappearingItem)
+    public static let operationNotAllowed = PointerStyle(kind: .operationNotAllowed)
+    public static let dragLink = PointerStyle(kind: .dragLink)
+    public static let dragCopy = PointerStyle(kind: .dragCopy)
+    public static let contextMenu = PointerStyle(kind: .contextMenu)
+
+    var retained: RetainedPointerStyle {
+        switch kind {
+        case .automatic: return .automatic
+        case .arrow: return .arrow
+        case .pointingHand: return .pointingHand
+        case .iBeam: return .iBeam
+        case .openHand: return .openHand
+        case .closedHand: return .closedHand
+        case .resizeLeftRight: return .resizeLeftRight
+        case .resizeUpDown: return .resizeUpDown
+        case .resizeAllDirections: return .resizeAllDirections
+        case .crosshair: return .crosshair
+        case .disappearingItem: return .disappearingItem
+        case .operationNotAllowed: return .operationNotAllowed
+        case .dragLink: return .dragLink
+        case .dragCopy: return .dragCopy
+        case .contextMenu: return .contextMenu
+        }
+    }
+}
+
+public struct PointerStyleShape: Sendable, Equatable {
+    public init() {}
+}
+
+public typealias PointerVisibility = SwiftWindowsCore.PointerVisibility
+
+public enum PointerBehavior: Sendable, Equatable {
+    case automatic
+    case verticalOffset(Double)
+}
+
+public struct SceneRestorationBehavior: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case disabled
+        case allowed
+    }
+
+    public let kind: Kind
+
+    public static let disabled = SceneRestorationBehavior(kind: .disabled)
+    public static let allowed = SceneRestorationBehavior(kind: .allowed)
+}
+
+public struct LaunchBehavior: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case presented
+        case suppressed
+    }
+
+    public let kind: Kind
+
+    public static let automatic = LaunchBehavior(kind: .automatic)
+    public static let presented = LaunchBehavior(kind: .presented)
+    public static let suppressed = LaunchBehavior(kind: .suppressed)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct ScenePersistenceBehavior: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case disabled
+    }
+
+    public let kind: Kind
+
+    public static let automatic = ScenePersistenceBehavior(kind: .automatic)
+    public static let disabled = ScenePersistenceBehavior(kind: .disabled)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct WindowManagerRole: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case primary
+        case auxiliary
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowManagerRole(kind: .automatic)
+    public static let primary = WindowManagerRole(kind: .primary)
+    public static let auxiliary = WindowManagerRole(kind: .auxiliary)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct WindowDragInteraction: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case disabled
+        case enabled
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowDragInteraction(kind: .automatic)
+    public static let disabled = WindowDragInteraction(kind: .disabled)
+    public static let enabled = WindowDragInteraction(kind: .enabled)
+
+    public var retained: RetainedWindowDragInteraction {
+        switch kind {
+        case .automatic: return .automatic
+        case .disabled: return .disabled
+        case .enabled: return .enabled
+        }
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct WindowResizeInteraction: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case disabled
+        case enabled
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowResizeInteraction(kind: .automatic)
+    public static let disabled = WindowResizeInteraction(kind: .disabled)
+    public static let enabled = WindowResizeInteraction(kind: .enabled)
+
+    public var retained: RetainedWindowResizeInteraction {
+        switch kind {
+        case .automatic: return .automatic
+        case .disabled: return .disabled
+        case .enabled: return .enabled
+        }
+    }
+}
+
+public struct WindowActivationMode: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case afterFirstLaunch
+        case always
+        case never
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowActivationMode(kind: .automatic)
+    public static let afterFirstLaunch = WindowActivationMode(kind: .afterFirstLaunch)
+    public static let always = WindowActivationMode(kind: .always)
+    public static let never = WindowActivationMode(kind: .never)
+}
+
+public struct WindowBackgroundDragBehavior: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case disabled
+        case enabled
+    }
+
+    public let kind: Kind
+
+    public static let automatic = WindowBackgroundDragBehavior(kind: .automatic)
+    public static let disabled = WindowBackgroundDragBehavior(kind: .disabled)
+    public static let enabled = WindowBackgroundDragBehavior(kind: .enabled)
+}
+
+public struct WindowLevel: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case normal
+        case floating
+        case tornOffMenu
+        case modalPanel
+        case mainMenu
+        case statusBar
+        case popUpMenu
+        case screenSaver
+        case base
+        case overlay
+    }
+
+    public let kind: Kind
+
+    public static let normal = WindowLevel(kind: .normal)
+    public static let floating = WindowLevel(kind: .floating)
+    public static let tornOffMenu = WindowLevel(kind: .tornOffMenu)
+    public static let modalPanel = WindowLevel(kind: .modalPanel)
+    public static let mainMenu = WindowLevel(kind: .mainMenu)
+    public static let statusBar = WindowLevel(kind: .statusBar)
+    public static let popUpMenu = WindowLevel(kind: .popUpMenu)
+    public static let screenSaver = WindowLevel(kind: .screenSaver)
+    public static let base = WindowLevel(kind: .base)
+    public static let overlay = WindowLevel(kind: .overlay)
+}
+
+public struct MeshGradientPoint: Sendable, Equatable {
+    public var x: Float
+    public var y: Float
+
+    public init(x: Float, y: Float) {
+        self.x = x
+        self.y = y
+    }
 }
 
 public struct RotationAxis3D: Sendable, Equatable {
@@ -1107,6 +2257,7 @@ public struct RotationAxis3D: Sendable, Equatable {
     public static let x = RotationAxis3D(x: 1, y: 0, z: 0)
     public static let y = RotationAxis3D(x: 0, y: 1, z: 0)
     public static let z = RotationAxis3D(x: 0, y: 0, z: 1)
+    public static let all = RotationAxis3D(x: 1, y: 1, z: 1)
 }
 
 public struct PopoverAttachmentAnchor: Sendable, Equatable {
@@ -1256,21 +2407,345 @@ public struct MatchedGeometryProperties: OptionSet, Sendable {
     public static let frame: MatchedGeometryProperties = [.position, .size]
 }
 
+public struct MatchedViewConfiguration: Sendable, Equatable {
+    public init() {}
+}
+
 public struct Gradient: Sendable, Equatable {
     public var colors: [Color]
 
     public init(colors: [Color]) {
         self.colors = colors
     }
+
+    public init(stops: [GradientStop]) {
+        self.colors = stops.map { $0.color }
+    }
+
+    public struct Stop: Sendable, Equatable {
+        public var color: Color
+        public var location: Double
+        public init(color: Color, location: Double) {
+            self.color = color
+            self.location = location
+        }
+    }
+
+    public var stops: [GradientStop] {
+        colors.enumerated().map { index, color in
+            GradientStop(
+                color: color,
+                position: colors.count > 1 ? Float(index) / Float(colors.count - 1) : 0
+            )
+        }
+    }
 }
 
-public struct FillStyle: Sendable, Equatable {
-    public var isEOFilled: Bool
-    public var isAntialiased: Bool
+public struct LinearGradient: View, Sendable, Equatable {
+    public typealias Body = Never
 
-    public init(eoFill: Bool = false, antialiased: Bool = true) {
-        self.isEOFilled = eoFill
-        self.isAntialiased = antialiased
+    public var body: Never {
+        fatalError("LinearGradient has no body")
+    }
+
+    nonisolated public var gradient: Gradient
+    nonisolated public var startPoint: UnitPoint
+    nonisolated public var endPoint: UnitPoint
+
+    nonisolated public init(gradient: Gradient, startPoint: UnitPoint, endPoint: UnitPoint) {
+        self.gradient = gradient
+        self.startPoint = startPoint
+        self.endPoint = endPoint
+    }
+
+    nonisolated public init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
+        self.init(gradient: Gradient(colors: colors), startPoint: startPoint, endPoint: endPoint)
+    }
+
+    nonisolated public var stops: [GradientStop] { gradient.stops }
+    nonisolated public var startColor: Color { gradient.stops.first?.color ?? .clear }
+    nonisolated public var endColor: Color { gradient.stops.last?.color ?? startColor }
+    nonisolated public var axis: GradientAxis {
+        let dx = abs(endPoint.x - startPoint.x)
+        let dy = abs(endPoint.y - startPoint.y)
+        return dx >= dy ? .horizontal : .vertical
+    }
+
+    nonisolated public init(startColor: Color, endColor: Color, axis: GradientAxis = .vertical) {
+        let startPoint: UnitPoint = axis == .horizontal ? .leading : .top
+        let endPoint: UnitPoint = axis == .horizontal ? .trailing : .bottom
+        self.init(gradient: Gradient(colors: [startColor, endColor]), startPoint: startPoint, endPoint: endPoint)
+    }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .linearGradient(self)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Rectangle()
+            .fill(self)
+            .makeComponent(context: context)
+    }
+}
+
+extension LinearGradient: @preconcurrency ShapeStyle {}
+
+extension LinearGradient {
+    nonisolated init(_ gradient: SwiftWindowsGraphics.LinearGradient) {
+        let startPoint: UnitPoint = gradient.axis == .horizontal ? .leading : .top
+        let endPoint: UnitPoint = gradient.axis == .horizontal ? .trailing : .bottom
+        self.init(gradient: Gradient(stops: gradient.stops), startPoint: startPoint, endPoint: endPoint)
+    }
+}
+
+public struct AnyGradient: Sendable, Equatable {
+    public init() {}
+}
+
+public struct StrokeShapeStyle: ShapeStyle, Sendable, Equatable {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(.clear)
+    }
+
+    @MainActor public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: nil, isHitTestVisible: false)
+        }
+    }
+}
+
+public struct RadialGradient: View, Sendable, Equatable {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("RadialGradient has no body")
+    }
+
+    nonisolated public var gradient: Gradient
+    nonisolated public var center: UnitPoint
+    nonisolated public var startRadius: CGFloat
+    nonisolated public var endRadius: CGFloat
+
+    nonisolated public init(
+        gradient: Gradient,
+        center: UnitPoint,
+        startRadius: CGFloat,
+        endRadius: CGFloat
+    ) {
+        self.gradient = gradient
+        self.center = center
+        self.startRadius = startRadius
+        self.endRadius = endRadius
+    }
+
+    nonisolated public init(
+        colors: [Color],
+        center: UnitPoint,
+        startRadius: CGFloat,
+        endRadius: CGFloat
+    ) {
+        self.init(
+            gradient: Gradient(colors: colors),
+            center: center,
+            startRadius: startRadius,
+            endRadius: endRadius
+        )
+    }
+
+    nonisolated public var stops: [GradientStop] { gradient.stops }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .radialGradient(self)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Rectangle()
+            .fill(self)
+            .makeComponent(context: context)
+    }
+}
+
+extension RadialGradient: @preconcurrency ShapeStyle {}
+
+extension RadialGradient {
+    nonisolated init(_ gradient: SwiftWindowsGraphics.RadialGradient) {
+        self.init(gradient: Gradient(stops: gradient.stops), center: UnitPoint(x: gradient.center.x, y: gradient.center.y), startRadius: 0, endRadius: gradient.radius)
+    }
+}
+
+public struct AngularGradient: View, Sendable, Equatable {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("AngularGradient has no body")
+    }
+
+    nonisolated public var gradient: Gradient
+    nonisolated public var center: UnitPoint
+    nonisolated public var startAngle: Angle
+    nonisolated public var endAngle: Angle
+
+    nonisolated public init(
+        gradient: Gradient,
+        center: UnitPoint,
+        startAngle: Angle = .zero,
+        endAngle: Angle = .zero
+    ) {
+        self.gradient = gradient
+        self.center = center
+        self.startAngle = startAngle
+        self.endAngle = endAngle
+    }
+
+    nonisolated public init(
+        colors: [Color],
+        center: UnitPoint,
+        startAngle: Angle = .zero,
+        endAngle: Angle = .zero
+    ) {
+        self.init(
+            gradient: Gradient(colors: colors),
+            center: center,
+            startAngle: startAngle,
+            endAngle: endAngle
+        )
+    }
+
+    nonisolated public var stops: [GradientStop] { gradient.stops }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .conicGradient(self)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Rectangle()
+            .fill(self)
+            .makeComponent(context: context)
+    }
+}
+
+public typealias ConicGradient = AngularGradient
+
+extension AngularGradient: @preconcurrency ShapeStyle {}
+
+extension AngularGradient {
+    nonisolated init(_ gradient: SwiftWindowsGraphics.ConicGradient) {
+        self.init(gradient: Gradient(stops: gradient.stops), center: UnitPoint(x: gradient.center.x, y: gradient.center.y), startAngle: Angle(radians: gradient.angle), endAngle: Angle(radians: gradient.angle))
+    }
+}
+
+public struct EllipticalGradient: View, Sendable, Equatable {
+    public typealias Body = Never
+
+    public var body: Never {
+        fatalError("EllipticalGradient has no body")
+    }
+
+    public var gradient: Gradient
+    public var center: UnitPoint
+    public var startRadiusFraction: CGFloat
+    public var endRadiusFraction: CGFloat
+
+    public init(
+        gradient: Gradient,
+        center: UnitPoint,
+        startRadiusFraction: CGFloat = 0,
+        endRadiusFraction: CGFloat = 0.5
+    ) {
+        self.gradient = gradient
+        self.center = center
+        self.startRadiusFraction = startRadiusFraction
+        self.endRadiusFraction = endRadiusFraction
+    }
+
+    public init(
+        colors: [Color],
+        center: UnitPoint,
+        startRadiusFraction: CGFloat = 0,
+        endRadiusFraction: CGFloat = 0.5
+    ) {
+        self.init(
+            gradient: Gradient(colors: colors),
+            center: center,
+            startRadiusFraction: startRadiusFraction,
+            endRadiusFraction: endRadiusFraction
+        )
+    }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .radialGradient(
+            RadialGradient(
+                gradient: gradient,
+                center: center,
+                startRadius: 0,
+                endRadius: endRadiusFraction
+            )
+        )
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Rectangle()
+            .fill(self)
+            .makeComponent(context: context)
+    }
+}
+
+extension EllipticalGradient: @preconcurrency ShapeStyle {}
+
+public struct ShadowStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case drop(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat)
+        case inner(color: Color, radius: CGFloat, x: CGFloat, y: CGFloat)
+    }
+
+    public let kind: Kind
+
+    public static func drop(color: Color, radius: CGFloat, x: CGFloat = 0, y: CGFloat = 0) -> ShadowStyle {
+        ShadowStyle(kind: .drop(color: color, radius: radius, x: x, y: y))
+    }
+
+    public static func inner(color: Color, radius: CGFloat, x: CGFloat = 0, y: CGFloat = 0) -> ShadowStyle {
+        ShadowStyle(kind: .inner(color: color, radius: radius, x: x, y: y))
+    }
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+}
+
+@MainActor
+public struct MeshGradient: View, Sendable, Equatable {
+    public typealias Body = Never
+
+    public var width: Int
+    public var height: Int
+    public var points: [MeshGradientPoint]
+    public var colors: [Color]
+    public var smoothsColors: Bool
+
+    public init(
+        width: Int,
+        height: Int,
+        points: [MeshGradientPoint],
+        colors: [Color],
+        smoothsColors: Bool = true
+    ) {
+        self.width = width
+        self.height = height
+        self.points = points
+        self.colors = colors
+        self.smoothsColors = smoothsColors
+    }
+
+    public var body: Never {
+        fatalError("MeshGradient has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let fallbackColor = colors.first ?? Color.clear
+        return Rectangle()
+            .fill(fallbackColor)
+            .makeComponent(context: context)
     }
 }
 
@@ -1321,6 +2796,8 @@ public enum NavigationSplitViewVisibility: Sendable, Equatable {
     case detailOnly
 }
 
+public typealias NavigationSplitViewColumn = SwiftWindowsCore.NavigationSplitViewColumn
+
 public struct NavigationViewStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -1362,6 +2839,7 @@ public struct NavigationSplitViewStyle: Sendable, Equatable {
         case automatic
         case balanced
         case prominentDetail
+        case prominentDetailAndSidebar
     }
 
     let kind: Kind
@@ -1373,6 +2851,7 @@ public struct NavigationSplitViewStyle: Sendable, Equatable {
     public static let automatic = NavigationSplitViewStyle(kind: .automatic)
     public static let balanced = NavigationSplitViewStyle(kind: .balanced)
     public static let prominentDetail = NavigationSplitViewStyle(kind: .prominentDetail)
+    public static let prominentDetailAndSidebar = NavigationSplitViewStyle(kind: .prominentDetailAndSidebar)
 }
 
 public struct AutomaticNavigationSplitViewStyle: Sendable, Equatable {
@@ -1384,6 +2863,32 @@ public struct BalancedNavigationSplitViewStyle: Sendable, Equatable {
 }
 
 public struct ProminentDetailNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ProminentDetailAndSidebarNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DefaultNavigationSplitViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct NavigationStackStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = NavigationStackStyle(kind: .automatic)
+}
+
+public struct AutomaticNavigationStackStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -1453,29 +2958,12 @@ public extension ObservableObject {
     }
 }
 
-@MainActor
-public protocol DynamicProperty {
-    mutating func update()
-}
-
-public extension DynamicProperty {
-    mutating func update() {}
-}
+public typealias DynamicProperty = SwiftWindowsCore.DynamicProperty
 
 @MainActor
 @propertyWrapper
 public struct Namespace: DynamicProperty {
-    public struct ID: Sendable, Hashable, CustomStringConvertible {
-        fileprivate let rawValue: String
-
-        fileprivate init(rawValue: String = UUID().uuidString) {
-            self.rawValue = rawValue
-        }
-
-        public var description: String {
-            rawValue
-        }
-    }
+    public typealias ID = SwiftWindowsCore.NamespaceID
 
     @MainActor
     private final class Storage {
@@ -1498,6 +2986,13 @@ public struct Namespace: DynamicProperty {
 }
 
 @MainActor
+public protocol TransitionSource: View {
+    associatedtype ID: Hashable
+    var transitionSourceID: ID { get }
+    var transitionSourceNamespace: Namespace.ID { get }
+}
+
+@MainActor
 public final class ObservationToken {
     private let cancelHandler: @MainActor () -> Void
 
@@ -1507,6 +3002,328 @@ public final class ObservationToken {
 
     public func cancel() {
         cancelHandler()
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public protocol Observable {}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+private final class ObservationTrackingContext: @unchecked Sendable {
+    var accesses: [(object: AnyObject, keyPath: AnyKeyPath)] = []
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+private final class ObservationTrackingState: @unchecked Sendable {
+    static let shared = ObservationTrackingState()
+    var contexts: [ObservationTrackingContext] = []
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+final class ObservationCenter: @unchecked Sendable {
+    static let shared = ObservationCenter()
+    private var observers: [ObjectIdentifier: [AnyKeyPath: [UUID: () -> Void]]] = [:]
+
+    func addObserver(
+        for object: AnyObject,
+        keyPath: AnyKeyPath,
+        observer: @escaping () -> Void
+    ) -> UUID {
+        let id = UUID()
+        let objectID = ObjectIdentifier(object)
+        if observers[objectID] == nil {
+            observers[objectID] = [:]
+        }
+        if observers[objectID]![keyPath] == nil {
+            observers[objectID]![keyPath] = [:]
+        }
+        observers[objectID]![keyPath]![id] = observer
+        return id
+    }
+
+    func removeObserver(for object: AnyObject, keyPath: AnyKeyPath, id: UUID) {
+        let objectID = ObjectIdentifier(object)
+        observers[objectID]?[keyPath]?.removeValue(forKey: id)
+    }
+
+    func notify(object: AnyObject, keyPath: AnyKeyPath) {
+        let objectID = ObjectIdentifier(object)
+        guard let keyPathObservers = observers[objectID]?[keyPath] else { return }
+        let callbacks = Array(keyPathObservers.values)
+        observers[objectID]?[keyPath] = nil
+        for callback in callbacks {
+            callback()
+        }
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct ObservationRegistrar: Sendable {
+    public init() {}
+
+    public func access<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {
+        guard let object = subject as? AnyObject else { return }
+        guard let context = ObservationTrackingState.shared.contexts.last else { return }
+        context.accesses.append((object, keyPath))
+    }
+
+    public func willSet<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {
+        guard let object = subject as? AnyObject else { return }
+        ObservationCenter.shared.notify(object: object, keyPath: keyPath)
+    }
+
+    public func didSet<Subject>(subject: Subject, keyPath: KeyPath<Subject, some Any>) {}
+
+    public func withMutation<Subject, Member, TransactionResult>(
+        of subject: Subject,
+        keyPath: KeyPath<Subject, Member>,
+        @_implicitSelfCapture mutation: () throws -> TransactionResult
+    ) rethrows -> TransactionResult {
+        willSet(subject: subject, keyPath: keyPath)
+        defer { didSet(subject: subject, keyPath: keyPath) }
+        return try mutation()
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public func withObservationTracking<T>(
+    apply: () -> T,
+    onChange: @escaping () -> Void
+) -> T {
+    let context = ObservationTrackingContext()
+    ObservationTrackingState.shared.contexts.append(context)
+    let result = apply()
+    ObservationTrackingState.shared.contexts.removeLast()
+
+    for (object, keyPath) in context.accesses {
+        _ = ObservationCenter.shared.addObserver(for: object, keyPath: keyPath, observer: onChange)
+    }
+
+    return result
+}
+
+public func WithObservationTracking<T>(
+    apply: () -> T,
+    onChange: @autoclosure () -> Void
+) -> T {
+    apply()
+}
+
+public struct ObservationTracking: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct ObservationNotifier: Sendable {
+    public init() {}
+    public func notify() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public final class ModelContext: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public final class ModelContainer: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public protocol Model {
+    static var schema: Schema { get }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct ModelConfiguration: Sendable {
+    public let schema: Schema
+    public init(schema: Schema) {
+        self.schema = schema
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct Schema: Sendable {
+    public let name: String
+    public init(name: String) {
+        self.name = name
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct FetchDescriptor<T>: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct Predicate<T>: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+@propertyWrapper
+public struct Query<T>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        var value: [T]
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: [T]) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init() {
+        self.storage = Storage(value: [])
+    }
+
+    public var wrappedValue: [T] {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = { context.invalidate() }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<[T]> {
+        Binding(get: { wrappedValue }, set: { newValue in wrappedValue = newValue })
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+@propertyWrapper
+public struct FetchRequest<T>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        var value: FetchedResults<T>
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: FetchedResults<T>) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+    private let fetchRequest: FetchDescriptor<T>
+
+    public init(fetchRequest: FetchDescriptor<T> = FetchDescriptor()) {
+        self.fetchRequest = fetchRequest
+        self.storage = Storage(value: FetchedResults())
+    }
+
+    public init(sortDescriptors: [SortDescriptor<T>] = []) {
+        self.fetchRequest = FetchDescriptor()
+        self.storage = Storage(value: FetchedResults())
+    }
+
+    public var wrappedValue: FetchedResults<T> {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = { context.invalidate() }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<FetchedResults<T>> {
+        Binding(get: { wrappedValue }, set: { newValue in wrappedValue = newValue })
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct FetchedResults<T>: RandomAccessCollection {
+    private var values: [T] = []
+
+    public init() {}
+
+    public var startIndex: Int { values.startIndex }
+    public var endIndex: Int { values.endIndex }
+    public subscript(position: Int) -> T { values[position] }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct SortDescriptor<T>: Sendable {
+    public init() {}
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct SectionedFetchResults<SectionIdentifier: Hashable & Sendable, Result>: RandomAccessCollection {
+    public struct Section: RandomAccessCollection {
+        private var values: [Result] = []
+        public let id: SectionIdentifier
+
+        public init(id: SectionIdentifier) {
+            self.id = id
+        }
+
+        public var startIndex: Int { values.startIndex }
+        public var endIndex: Int { values.endIndex }
+        public subscript(position: Int) -> Result { values[position] }
+    }
+
+    private var sections: [Section] = []
+
+    public init() {}
+
+    public var startIndex: Int { sections.startIndex }
+    public var endIndex: Int { sections.endIndex }
+    public subscript(position: Int) -> Section { sections[position] }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+@propertyWrapper
+public struct SectionedFetchRequest<SectionIdentifier: Hashable & Sendable, Result>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        var value: SectionedFetchResults<SectionIdentifier, Result>
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: SectionedFetchResults<SectionIdentifier, Result>) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init(fetchRequest: FetchDescriptor<Result> = FetchDescriptor(), sectionIdentifier: KeyPath<Result, SectionIdentifier>) {
+        self.storage = Storage(value: SectionedFetchResults())
+    }
+
+    public init(sortDescriptors: [SortDescriptor<Result>] = [], sectionIdentifier: KeyPath<Result, SectionIdentifier>) {
+        self.storage = Storage(value: SectionedFetchResults())
+    }
+
+    public var wrappedValue: SectionedFetchResults<SectionIdentifier, Result> {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = { context.invalidate() }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<SectionedFetchResults<SectionIdentifier, Result>> {
+        Binding(get: { wrappedValue }, set: { newValue in wrappedValue = newValue })
     }
 }
 
@@ -1861,6 +3678,26 @@ final class ObservableObjectCenter {
 }
 
 @MainActor
+public class ImageRenderer<Content: View>: ObservableObject {
+    public var content: Content
+    public var scale: Double
+    public var proposedSize: ProposedViewSize
+    public var renderingMode: Image.TemplateRenderingMode?
+    public var isRendering: Bool { false }
+
+    public init(content: Content) {
+        self.content = content
+        self.scale = 1.0
+        self.proposedSize = ProposedViewSize(width: nil, height: nil)
+        self.renderingMode = nil
+    }
+
+    public func render() -> BitmapSurface? {
+        nil
+    }
+}
+
+@MainActor
 @propertyWrapper
 public struct Published<Value> {
     @MainActor
@@ -2044,9 +3881,25 @@ public enum LayoutDirection: Sendable, Equatable {
     case rightToLeft
 }
 
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public enum LayoutDirectionBehavior: Sendable, Equatable, Hashable {
+    case automatic
+    case fixed
+}
+
 public enum UserInterfaceSizeClass: Sendable, Equatable, Hashable {
     case compact
     case regular
+}
+
+public enum UserInterfaceIdiom: Sendable, Equatable, Hashable {
+    case unspecified
+    case phone
+    case pad
+    case tv
+    case carPlay
+    case mac
+    case vision
 }
 
 public enum DynamicTypeSize: Int, CaseIterable, Comparable, Sendable {
@@ -2106,6 +3959,36 @@ public enum TextInputAutocapitalization: Sendable, Equatable {
     case words
     case sentences
     case characters
+}
+
+public enum LineBreakMode: Sendable, Equatable {
+    case wordWrap
+    case charWrap
+    case clip
+    case headTruncation
+    case tailTruncation
+    case middleTruncation
+
+    var retainedTextLineBreakMode: TextLineBreakMode {
+        switch self {
+        case .wordWrap, .charWrap:
+            return .wrap
+        case .clip:
+            return .clip
+        case .headTruncation:
+            return .truncateHead
+        case .tailTruncation:
+            return .truncateTail
+        case .middleTruncation:
+            return .truncateMiddle
+        }
+    }
+}
+
+public enum HyphenationFrequency: Sendable, Equatable {
+    case automatic
+    case none
+    case normal
 }
 
 public enum TextSelectionAffinity: Sendable, Equatable, Hashable {
@@ -2213,6 +4096,24 @@ public struct TextSelection: Sendable, Equatable, Hashable {
     static func insertion(at offset: Int, in text: String, affinity: TextSelectionAffinity) -> TextSelection {
         let index = textIndex(at: offset, in: text)
         return TextSelection(indices: .selection(index..<index), affinity: affinity)
+    }
+}
+
+public struct TypesettingWidth: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case standard
+        case width(Double)
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let standard = TypesettingWidth(kind: .standard)
+    public static func width(_ width: Double) -> TypesettingWidth {
+        TypesettingWidth(kind: .width(width))
     }
 }
 
@@ -2418,11 +4319,23 @@ public struct NSTextContentType: RawRepresentable, Sendable, Equatable, Hashable
     }
 }
 
-public enum Visibility: Sendable, Equatable {
+public enum Visibility: Sendable, Equatable, CustomStringConvertible {
     case automatic
     case visible
     case hidden
 
+    public var description: String {
+        switch self {
+        case .automatic: return "automatic"
+        case .visible: return "visible"
+        case .hidden: return "hidden"
+        }
+    }
+}
+
+public typealias MenuIndicatorVisibility = Visibility
+
+extension Visibility {
     var hidesRetainedScrollContentBackground: Bool {
         self == .hidden
     }
@@ -2799,6 +4712,104 @@ public struct PresentationBackgroundInteraction: Sendable, Equatable, Hashable {
     }
 }
 
+public struct PresentationCompactAdaptation: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case none
+        case sheet
+        case fullScreenCover
+        case popOver
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PresentationCompactAdaptation(kind: .automatic)
+    public static let none = PresentationCompactAdaptation(kind: .none)
+    public static let sheet = PresentationCompactAdaptation(kind: .sheet)
+    public static let fullScreenCover = PresentationCompactAdaptation(kind: .fullScreenCover)
+    public static let popOver = PresentationCompactAdaptation(kind: .popOver)
+}
+
+public struct PresentationSizing: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case fitted
+        case page
+        case form
+        case fittedHorizontal
+        case fittedVertical
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = PresentationSizing(kind: .automatic)
+    public static let fitted = PresentationSizing(kind: .fitted)
+    public static let page = PresentationSizing(kind: .page)
+    public static let form = PresentationSizing(kind: .form)
+
+    public static func fitted(horizontal: Bool, vertical: Bool) -> PresentationSizing {
+        if horizontal && vertical {
+            return .fitted
+        } else if horizontal {
+            return PresentationSizing(kind: .fittedHorizontal)
+        } else if vertical {
+            return PresentationSizing(kind: .fittedVertical)
+        } else {
+            return .page
+        }
+    }
+
+    var retainedSizing: RetainedPresentationSizing {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .fitted:
+            return .fitted
+        case .page:
+            return .page
+        case .form:
+            return .form
+        case .fittedHorizontal:
+            return .fittedHorizontal
+        case .fittedVertical:
+            return .fittedVertical
+        }
+    }
+}
+
+public struct DialogSeverity: Sendable, Equatable, Hashable {
+    enum Kind: Sendable, Equatable, Hashable {
+        case standard
+        case critical
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let standard = DialogSeverity(kind: .standard)
+    public static let critical = DialogSeverity(kind: .critical)
+
+    var retained: RetainedDialogSeverity {
+        switch kind {
+        case .standard:
+            return .standard
+        case .critical:
+            return .critical
+        }
+    }
+}
+
 public struct HoverEffect: Sendable, Equatable, Hashable {
     enum Kind: Sendable, Equatable, Hashable {
         case automatic
@@ -2833,6 +4844,182 @@ public enum HoverPhase: Sendable, Equatable {
     case ended
 }
 
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct HoverEffectStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case highlight
+        case lift
+        case custom(identifier: String)
+    }
+    public let kind: Kind
+
+    public static let automatic = HoverEffectStyle(kind: .automatic)
+    public static let highlight = HoverEffectStyle(kind: .highlight)
+    public static let lift = HoverEffectStyle(kind: .lift)
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct CustomHoverEffect: Sendable, Equatable {
+    public let identifier: String
+
+    public init(_ identifier: String) {
+        self.identifier = identifier
+    }
+}
+
+public enum TimelineViewCadence: Sendable, Equatable, Hashable {
+    case live
+    case seconds
+    case minutes
+}
+
+public struct TimelineViewContext: Sendable {
+    public var date: Date
+    public var cadence: TimelineViewCadence
+
+    public init(date: Date, cadence: TimelineViewCadence) {
+        self.date = date
+        self.cadence = cadence
+    }
+}
+
+public enum TimelineScheduleMode: Sendable, Equatable, Hashable {
+    case normal
+    case lowFrequency
+}
+
+public struct TimelineScheduleEntries: Sequence, Sendable {
+    public struct Iterator: IteratorProtocol {
+        private var dates: [Date]
+        private var index: Int
+
+        init(dates: [Date]) {
+            self.dates = dates
+            self.index = 0
+        }
+
+        public mutating func next() -> Date? {
+            guard index < dates.count else { return nil }
+            let date = dates[index]
+            index += 1
+            return date
+        }
+    }
+
+    private let dates: [Date]
+
+    public init(dates: [Date]) {
+        self.dates = dates
+    }
+
+    public func makeIterator() -> Iterator {
+        Iterator(dates: dates)
+    }
+}
+
+public protocol TimelineSchedule {
+    func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries
+}
+
+public struct EverySecondTimelineSchedule: TimelineSchedule, Sendable {
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        var dates: [Date] = []
+        let calendar = Calendar.current
+        var current = calendar.dateInterval(of: .second, for: startDate)?.start ?? startDate
+        for _ in 0..<5 {
+            dates.append(current)
+            current = calendar.date(byAdding: .second, value: 1, to: current)!
+        }
+        return TimelineScheduleEntries(dates: dates)
+    }
+}
+
+public struct EveryMinuteTimelineSchedule: TimelineSchedule, Sendable {
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        var dates: [Date] = []
+        let calendar = Calendar.current
+        var current = calendar.dateInterval(of: .minute, for: startDate)?.start ?? startDate
+        for _ in 0..<5 {
+            dates.append(current)
+            current = calendar.date(byAdding: .minute, value: 1, to: current)!
+        }
+        return TimelineScheduleEntries(dates: dates)
+    }
+}
+
+public struct EveryHourTimelineSchedule: TimelineSchedule, Sendable {
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        var dates: [Date] = []
+        let calendar = Calendar.current
+        var current = calendar.dateInterval(of: .hour, for: startDate)?.start ?? startDate
+        for _ in 0..<5 {
+            dates.append(current)
+            current = calendar.date(byAdding: .hour, value: 1, to: current)!
+        }
+        return TimelineScheduleEntries(dates: dates)
+    }
+}
+
+public struct ExplicitTimelineSchedule: TimelineSchedule, Sendable {
+    private let dates: [Date]
+
+    public init(dates: [Date]) {
+        self.dates = dates
+    }
+
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        let futureDates = dates.filter { $0 >= startDate }
+        return TimelineScheduleEntries(dates: futureDates.isEmpty ? [startDate] : futureDates)
+    }
+}
+
+public extension TimelineSchedule where Self == EverySecondTimelineSchedule {
+    static var everySecond: EverySecondTimelineSchedule { EverySecondTimelineSchedule() }
+}
+
+public extension TimelineSchedule where Self == EveryMinuteTimelineSchedule {
+    static var everyMinute: EveryMinuteTimelineSchedule { EveryMinuteTimelineSchedule() }
+}
+
+public extension TimelineSchedule where Self == EveryHourTimelineSchedule {
+    static var everyHour: EveryHourTimelineSchedule { EveryHourTimelineSchedule() }
+}
+
+public extension TimelineSchedule where Self == ExplicitTimelineSchedule {
+    static func explicit(_ dates: [Date]) -> ExplicitTimelineSchedule {
+        ExplicitTimelineSchedule(dates: dates)
+    }
+}
+
+public struct AnimationTimelineSchedule: TimelineSchedule, Sendable {
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        TimelineScheduleEntries(dates: [startDate])
+    }
+}
+
+public extension TimelineSchedule where Self == AnimationTimelineSchedule {
+    static var animation: AnimationTimelineSchedule { AnimationTimelineSchedule() }
+}
+
+public struct SearchPresentationBehavior: Sendable, Equatable {
+    private enum Kind: Sendable, Equatable {
+        case automatic
+        case always
+        case never
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = SearchPresentationBehavior(kind: .automatic)
+    public static let always = SearchPresentationBehavior(kind: .always)
+    public static let never = SearchPresentationBehavior(kind: .never)
+}
+
 public struct RedactionReasons: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: Int
 
@@ -2850,6 +5037,8 @@ public struct RedactionReasons: OptionSet, Sendable, Equatable, Hashable {
         return reasons
     }
 }
+
+public typealias EditActions = SwiftWindowsCore.EditActions
 
 public enum Prominence: Sendable, Equatable, Hashable {
     case standard
@@ -2890,26 +5079,9 @@ public struct BadgeProminence: Sendable, Equatable, Hashable {
     public static let increased = BadgeProminence(.increased)
 }
 
-public struct ContainerBackgroundPlacement: Sendable, Equatable, Hashable, CustomStringConvertible {
-    private let identifier: String
+public typealias ContainerBackgroundPlacement = SwiftWindowsCore.ContainerBackgroundPlacement
 
-    private init(_ identifier: String) {
-        self.identifier = identifier
-    }
-
-    public static let navigation = ContainerBackgroundPlacement("navigation")
-    public static let navigationSplitView = ContainerBackgroundPlacement("navigationSplitView")
-    public static let tabView = ContainerBackgroundPlacement("tabView")
-    public static let widget = ContainerBackgroundPlacement("widget")
-    public static let window = ContainerBackgroundPlacement("window")
-    public static let subscriptionStore = ContainerBackgroundPlacement("subscriptionStore")
-    public static let subscriptionStoreFullHeight = ContainerBackgroundPlacement("subscriptionStoreFullHeight")
-    public static let subscriptionStoreHeader = ContainerBackgroundPlacement("subscriptionStoreHeader")
-
-    public var description: String {
-        identifier
-    }
-}
+public typealias WidgetRelevancy = SwiftWindowsCore.WidgetRelevancy
 
 public protocol EnvironmentKey {
     associatedtype Value
@@ -2969,8 +5141,9 @@ public struct ContainerValues: @unchecked Sendable {
 
 public struct Anchor<Value>: @unchecked Sendable {
     public struct Source: Sendable, Equatable {
-        enum Kind: Sendable {
+        enum Kind: Sendable, Equatable {
             case bounds
+            case rect(Rect)
         }
 
         let kind: Kind
@@ -2989,6 +5162,13 @@ public struct Anchor<Value>: @unchecked Sendable {
 
 public extension Anchor.Source where Value == Rect {
     static let bounds = Anchor<Rect>.Source(kind: .bounds)
+    static func rect(_ rect: Rect) -> Anchor<Rect>.Source {
+        Anchor<Rect>.Source(kind: .rect(rect))
+    }
+}
+
+public struct AnchorValue: Sendable, Equatable {
+    public init() {}
 }
 
 public protocol FocusedValueKey {
@@ -3200,6 +5380,75 @@ public struct DismissSearchAction: @unchecked Sendable {
     public static let noop = DismissSearchAction {}
 }
 
+public struct PresentationMode: @unchecked Sendable {
+    public var isPresented: Bool { false }
+
+    public func dismiss() {}
+}
+
+public struct ResetFocusAction: @unchecked Sendable {
+    private let handler: @MainActor (Namespace.ID) -> Void
+
+    public init(handler: @escaping @MainActor (Namespace.ID) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction(in namespace: Namespace.ID) {
+        handler(namespace)
+    }
+
+    public static let noop = ResetFocusAction { _ in }
+}
+
+public struct FocusAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = FocusAction {}
+}
+
+public struct DefaultAppStorage: Equatable {
+    public var defaults: UserDefaults
+
+    public init(_ defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+}
+
+public struct AppStorageSceneStorageMigration: Sendable, Equatable {
+    public let key: String
+
+    public init(_ key: String) {
+        self.key = key
+    }
+}
+
+public struct SearchPresentationMode: @unchecked Sendable {
+    public var isPresented: Bool
+    private let dismissHandler: @MainActor () -> Void
+
+    public init(isPresented: Bool = false, dismissHandler: @escaping @MainActor () -> Void = {}) {
+        self.isPresented = isPresented
+        self.dismissHandler = dismissHandler
+    }
+
+    @MainActor
+    public func dismiss() {
+        dismissHandler()
+    }
+
+    public static let inactive = SearchPresentationMode(isPresented: false)
+}
+
 public struct RenameAction: @unchecked Sendable {
     private let handler: () -> Void
 
@@ -3215,14 +5464,22 @@ public struct RenameAction: @unchecked Sendable {
 
 public struct RefreshAction: @unchecked Sendable {
     private let handler: @Sendable () async -> Void
+    public let id: AnyHashable?
+    public let priority: TaskPriority
 
-    public init(action: @escaping @Sendable () async -> Void) {
+    public init(action: @escaping @Sendable () async -> Void, id: AnyHashable? = nil, priority: TaskPriority = .userInitiated) {
         self.handler = action
+        self.id = id
+        self.priority = priority
     }
 
     public func callAsFunction() async {
         await handler()
     }
+}
+
+public class NSManagedObjectContext: @unchecked Sendable {
+    public init() {}
 }
 
 public struct WindowActionPayload: @unchecked Sendable, Equatable {
@@ -3313,6 +5570,56 @@ public struct OpenSettingsAction: @unchecked Sendable {
     public static let noop = OpenSettingsAction {}
 }
 
+public struct NewDocumentAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = NewDocumentAction {}
+}
+
+public struct OpenDocumentAction: @unchecked Sendable {
+    private let handler: @MainActor (_ urls: [URL]) -> Void
+
+    public init(handler: @escaping @MainActor (_ urls: [URL]) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction(_ url: URL) {
+        handler([url])
+    }
+
+    @MainActor
+    public func callAsFunction(_ urls: [URL]) {
+        handler(urls)
+    }
+
+    public static let noop = OpenDocumentAction { _ in }
+}
+
+public struct SaveDocumentAction: @unchecked Sendable {
+    private let handler: @MainActor (_ url: URL) -> Void
+
+    public init(handler: @escaping @MainActor (_ url: URL) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction(_ url: URL) {
+        handler(url)
+    }
+
+    public static let noop = SaveDocumentAction { _ in }
+}
+
 public struct RequestReviewAction: @unchecked Sendable {
     private let handler: @MainActor () -> Void
 
@@ -3326,6 +5633,81 @@ public struct RequestReviewAction: @unchecked Sendable {
     }
 
     public static let noop = RequestReviewAction {}
+}
+
+public struct ImportFromDevicesAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = ImportFromDevicesAction {}
+}
+
+public struct RevealInFinderAction: @unchecked Sendable {
+    private let handler: @MainActor (_ url: URL) -> Void
+
+    public init(handler: @escaping @MainActor (_ url: URL) -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction(_ url: URL) {
+        handler(url)
+    }
+
+    public static let noop = RevealInFinderAction { _ in }
+}
+
+public struct OpenImmersiveSpaceAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = OpenImmersiveSpaceAction {}
+}
+
+public struct DismissImmersiveSpaceAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = DismissImmersiveSpaceAction {}
+}
+
+public struct ToggleImmersiveSpaceAction: @unchecked Sendable {
+    private let handler: @MainActor () -> Void
+
+    public init(handler: @escaping @MainActor () -> Void = {}) {
+        self.handler = handler
+    }
+
+    @MainActor
+    public func callAsFunction() {
+        handler()
+    }
+
+    public static let noop = ToggleImmersiveSpaceAction {}
 }
 
 public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
@@ -3365,6 +5747,448 @@ public struct SearchFieldPlacement: Sendable, Equatable, Hashable {
     ) -> SearchFieldPlacement {
         SearchFieldPlacement(.navigationBarDrawer(displayMode))
     }
+}
+
+public struct SearchSuggestionsPlacement: Sendable, Equatable, Hashable {
+    private let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let automatic = SearchSuggestionsPlacement("automatic")
+    public static let content = SearchSuggestionsPlacement("content")
+    public static let suggestionsList = SearchSuggestionsPlacement("suggestionsList")
+}
+
+public struct SearchScopeActivation: Sendable, Equatable, Hashable {
+    private let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let automatic = SearchScopeActivation("automatic")
+    public static let onTextEntry = SearchScopeActivation("onTextEntry")
+    public static let onSearchPresentation = SearchScopeActivation("onSearchPresentation")
+}
+
+public struct SearchField: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("SearchField has no body")
+    }
+}
+
+public struct SearchSuggestions: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SearchCompletion: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SearchScope: Sendable, Equatable {
+    public init() {}
+}
+
+public struct URLRepresentation: Sendable, Equatable {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url
+    }
+}
+
+public struct Deeplink: Sendable, Equatable {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url
+    }
+}
+
+public struct UniversalLink: Sendable, Equatable {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url
+    }
+}
+
+public struct AppLink: Sendable, Equatable {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url
+    }
+}
+
+public struct WebLink: Sendable, Equatable {
+    public let url: URL
+
+    public init(_ url: URL) {
+        self.url = url
+    }
+}
+
+public struct URLScheme: Sendable, Equatable, Hashable {
+    public let rawValue: String
+
+    public init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+}
+
+public protocol UIViewRepresentable: View where Body == Never {
+    associatedtype UIViewType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makeUIView(context: ViewRepresentableContext<Self>) -> UIViewType
+    func updateUIView(_ uiView: UIViewType, context: ViewRepresentableContext<Self>)
+    static func dismantleUIView(_ uiView: UIViewType, coordinator: Coordinator)
+}
+
+public protocol UIViewControllerRepresentable: View where Body == Never {
+    associatedtype UIViewControllerType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makeUIViewController(context: ViewControllerRepresentableContext<Self>) -> UIViewControllerType
+    func updateUIViewController(_ uiViewController: UIViewControllerType, context: ViewControllerRepresentableContext<Self>)
+    static func dismantleUIViewController(_ uiViewController: UIViewControllerType, coordinator: Coordinator)
+}
+
+public protocol NSViewRepresentable: View where Body == Never {
+    associatedtype NSViewType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makeNSView(context: ViewRepresentableContext<Self>) -> NSViewType
+    func updateNSView(_ nsView: NSViewType, context: ViewRepresentableContext<Self>)
+    static func dismantleNSView(_ nsView: NSViewType, coordinator: Coordinator)
+}
+
+public protocol NSViewControllerRepresentable: View where Body == Never {
+    associatedtype NSViewControllerType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makeNSViewController(context: ViewControllerRepresentableContext<Self>) -> NSViewControllerType
+    func updateNSViewController(_ nsViewController: NSViewControllerType, context: ViewControllerRepresentableContext<Self>)
+    static func dismantleNSViewController(_ nsViewController: NSViewControllerType, coordinator: Coordinator)
+}
+
+public protocol PlatformViewRepresentable: View where Body == Never {
+    associatedtype PlatformViewType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makePlatformView(context: PlatformViewRepresentableContext<Self>) -> PlatformViewType
+    func updatePlatformView(_ platformView: PlatformViewType, context: PlatformViewRepresentableContext<Self>)
+    static func dismantlePlatformView(_ platformView: PlatformViewType, coordinator: Coordinator)
+}
+
+public protocol PlatformViewControllerRepresentable: View where Body == Never {
+    associatedtype PlatformViewControllerType
+    associatedtype Coordinator = Void
+    func makeCoordinator() -> Coordinator
+    func makePlatformViewController(context: PlatformViewControllerRepresentableContext<Self>) -> PlatformViewControllerType
+    func updatePlatformViewController(_ platformViewController: PlatformViewControllerType, context: PlatformViewControllerRepresentableContext<Self>)
+    static func dismantlePlatformViewController(_ platformViewController: PlatformViewControllerType, coordinator: Coordinator)
+}
+
+public extension PlatformViewRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public extension PlatformViewControllerRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public extension NSViewRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public extension NSViewControllerRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public extension UIViewRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public extension UIViewControllerRepresentable where Coordinator == Void {
+    func makeCoordinator() -> Coordinator { () }
+}
+
+public struct ViewRepresentableContext<Representable: View> {
+    public var coordinator: Any
+    public var environment: EnvironmentValues
+    public var transaction: Transaction
+
+    public init(coordinator: Any, environment: EnvironmentValues, transaction: Transaction) {
+        self.coordinator = coordinator
+        self.environment = environment
+        self.transaction = transaction
+    }
+}
+
+public struct ViewControllerRepresentableContext<Representable: View> {
+    public var coordinator: Any
+    public var environment: EnvironmentValues
+    public var transaction: Transaction
+
+    public init(coordinator: Any, environment: EnvironmentValues, transaction: Transaction) {
+        self.coordinator = coordinator
+        self.environment = environment
+        self.transaction = transaction
+    }
+}
+
+public struct PlatformViewRepresentableContext<Representable: PlatformViewRepresentable> {
+    public var coordinator: Representable.Coordinator
+    public var environment: EnvironmentValues
+    public var transaction: Transaction
+
+    public init(coordinator: Representable.Coordinator, environment: EnvironmentValues, transaction: Transaction) {
+        self.coordinator = coordinator
+        self.environment = environment
+        self.transaction = transaction
+    }
+}
+
+public struct PlatformViewControllerRepresentableContext<Representable: PlatformViewControllerRepresentable> {
+    public var coordinator: Representable.Coordinator
+    public var environment: EnvironmentValues
+    public var transaction: Transaction
+
+    public init(coordinator: Representable.Coordinator, environment: EnvironmentValues, transaction: Transaction) {
+        self.coordinator = coordinator
+        self.environment = environment
+        self.transaction = transaction
+    }
+}
+
+public extension PlatformViewRepresentable {
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let representable = self
+        let environment = context.environmentValues
+        let transaction = currentTransaction ?? Transaction()
+        return Component { runtime in
+            let node = ViewNode(frame: .zero)
+            node.onUpdatePlatformView = { targetNode in
+                let typeName = String(describing: PlatformViewType.self)
+                if let existingView = targetNode.platformView,
+                   targetNode.platformViewTypeName == typeName {
+                    let coordinator = targetNode.platformViewCoordinator as! Coordinator
+                    let ctx = PlatformViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    representable.updatePlatformView(existingView as! PlatformViewType, context: ctx)
+                } else {
+                    if let oldView = targetNode.platformView, let oldCoordinator = targetNode.platformViewCoordinator {
+                        let oldTypeName = targetNode.platformViewTypeName
+                        if oldTypeName == typeName {
+                            Self.dismantlePlatformView(oldView as! PlatformViewType, coordinator: oldCoordinator as! Coordinator)
+                        }
+                    }
+                    let coordinator = representable.makeCoordinator()
+                    let ctx = PlatformViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    let newView = representable.makePlatformView(context: ctx)
+                    targetNode.platformView = newView
+                    targetNode.platformViewCoordinator = coordinator
+                    targetNode.platformViewTypeName = typeName
+                }
+            }
+            node.onDismantlePlatformView = { targetNode in
+                if let view = targetNode.platformView, let coordinator = targetNode.platformViewCoordinator,
+                   let typeName = targetNode.platformViewTypeName,
+                   typeName == String(describing: PlatformViewType.self) {
+                    Self.dismantlePlatformView(view as! PlatformViewType, coordinator: coordinator as! Coordinator)
+                }
+                targetNode.platformView = nil
+                targetNode.platformViewCoordinator = nil
+                targetNode.platformViewTypeName = nil
+            }
+            return node
+        }
+    }
+}
+
+public extension NSViewRepresentable {
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let representable = self
+        let environment = context.environmentValues
+        let transaction = currentTransaction ?? Transaction()
+        return Component { runtime in
+            let node = ViewNode(frame: .zero)
+            node.onUpdatePlatformView = { targetNode in
+                let typeName = String(describing: NSViewType.self)
+                if let existingView = targetNode.platformView,
+                   targetNode.platformViewTypeName == typeName {
+                    let coordinator = targetNode.platformViewCoordinator as! Coordinator
+                    let ctx = ViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    representable.updateNSView(existingView as! NSViewType, context: ctx)
+                } else {
+                    if let oldView = targetNode.platformView, let oldCoordinator = targetNode.platformViewCoordinator {
+                        let oldTypeName = targetNode.platformViewTypeName
+                        if oldTypeName == typeName {
+                            Self.dismantleNSView(oldView as! NSViewType, coordinator: oldCoordinator as! Coordinator)
+                        }
+                    }
+                    let coordinator = representable.makeCoordinator()
+                    let ctx = ViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    let newView = representable.makeNSView(context: ctx)
+                    targetNode.platformView = newView
+                    targetNode.platformViewCoordinator = coordinator
+                    targetNode.platformViewTypeName = typeName
+                }
+            }
+            node.onDismantlePlatformView = { targetNode in
+                if let view = targetNode.platformView, let coordinator = targetNode.platformViewCoordinator,
+                   let typeName = targetNode.platformViewTypeName,
+                   typeName == String(describing: NSViewType.self) {
+                    Self.dismantleNSView(view as! NSViewType, coordinator: coordinator as! Coordinator)
+                }
+                targetNode.platformView = nil
+                targetNode.platformViewCoordinator = nil
+                targetNode.platformViewTypeName = nil
+            }
+            return node
+        }
+    }
+}
+
+public extension UIViewRepresentable {
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let representable = self
+        let environment = context.environmentValues
+        let transaction = currentTransaction ?? Transaction()
+        return Component { runtime in
+            let node = ViewNode(frame: .zero)
+            node.onUpdatePlatformView = { targetNode in
+                let typeName = String(describing: UIViewType.self)
+                if let existingView = targetNode.platformView,
+                   targetNode.platformViewTypeName == typeName {
+                    let coordinator = targetNode.platformViewCoordinator as! Coordinator
+                    let ctx = ViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    representable.updateUIView(existingView as! UIViewType, context: ctx)
+                } else {
+                    if let oldView = targetNode.platformView, let oldCoordinator = targetNode.platformViewCoordinator {
+                        let oldTypeName = targetNode.platformViewTypeName
+                        if oldTypeName == typeName {
+                            Self.dismantleUIView(oldView as! UIViewType, coordinator: oldCoordinator as! Coordinator)
+                        }
+                    }
+                    let coordinator = representable.makeCoordinator()
+                    let ctx = ViewRepresentableContext<Self>(
+                        coordinator: coordinator,
+                        environment: environment,
+                        transaction: transaction
+                    )
+                    let newView = representable.makeUIView(context: ctx)
+                    targetNode.platformView = newView
+                    targetNode.platformViewCoordinator = coordinator
+                    targetNode.platformViewTypeName = typeName
+                }
+            }
+            node.onDismantlePlatformView = { targetNode in
+                if let view = targetNode.platformView, let coordinator = targetNode.platformViewCoordinator,
+                   let typeName = targetNode.platformViewTypeName,
+                   typeName == String(describing: UIViewType.self) {
+                    Self.dismantleUIView(view as! UIViewType, coordinator: coordinator as! Coordinator)
+                }
+                targetNode.platformView = nil
+                targetNode.platformViewCoordinator = nil
+                targetNode.platformViewTypeName = nil
+            }
+            return node
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct PlottableValue: Sendable, Equatable {
+    public let label: String?
+    public let value: AnyPlottable
+
+    public init<Value: Plottable>(_ label: String? = nil, _ value: Value) {
+        self.label = label
+        self.value = AnyPlottable(value)
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct ChartStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ChartStyle(kind: .automatic)
+}
+
+public enum ChartScaleType: Sendable, Equatable {
+    case linear
+    case log
+    case symmetricLog
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct DefaultChartStyle: Sendable, Equatable {
+    public init() {}
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public protocol Plottable: Sendable, Equatable {
+    associatedtype PrimitivePlottable: Plottable
+    var primitivePlottable: PrimitivePlottable { get }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AnyPlottable: Sendable, Equatable {
+    public init<T: Plottable>(_ value: T) {}
+    public static func == (lhs: AnyPlottable, rhs: AnyPlottable) -> Bool {
+        false
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+extension Int: Plottable {
+    public var primitivePlottable: Int { self }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+extension Double: Plottable {
+    public var primitivePlottable: Double { self }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+extension String: Plottable {
+    public var primitivePlottable: String { self }
 }
 
 struct TextDecorationSetting: Sendable {
@@ -3408,12 +6232,21 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var timeZone: TimeZone
     public var locale: Locale
     public var layoutDirection: LayoutDirection
+    public var layoutDirectionBehavior: LayoutDirectionBehavior
     public var horizontalSizeClass: UserInterfaceSizeClass?
     public var verticalSizeClass: UserInterfaceSizeClass?
+    public var interfaceOrientation: InterfaceOrientation
+    public var windowScene: UIWindowScene?
+    public var userInterfaceIdiom: UserInterfaceIdiom?
     public var dynamicTypeSize: DynamicTypeSize
+    public var minDynamicTypeSize: DynamicTypeSize?
+    public var maxDynamicTypeSize: DynamicTypeSize?
     public var isEnabled: Bool
+    public var foregroundColor: Color?
     public var foregroundStyle: ForegroundStyle?
-    public var backgroundStyle: AnyShapeStyle?
+    public var backgroundStyle: ForegroundStyle?
+    public var containerForegroundColor: ForegroundStyle?
+    public var accentColor: Color?
     public var tint: Color?
     public var font: Font?
     public var fontWidth: Font.Width?
@@ -3438,6 +6271,8 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var imageScale: Image.Scale
     public var symbolRenderingMode: SymbolRenderingMode?
     public var symbolVariants: SymbolVariants
+    public var symbolVariableValue: Double?
+    public var allowedDynamicRange: DynamicRange?
     public var controlSize: ControlSize
     public var labelStyle: LabelStyle
     public var labeledContentStyle: LabeledContentStyle
@@ -3446,20 +6281,34 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var disclosureGroupStyle: DisclosureGroupStyle
     public var menuStyle: MenuStyle
     public var controlGroupStyle: ControlGroupStyle
+    public var buttonStyle: ButtonStyle
     public var progressViewStyle: ProgressViewStyle
     public var gaugeStyle: GaugeStyle
+    public var tipViewStyle: TipViewStyle
+    public var productViewStyle: ProductViewStyle?
+    public var subscriptionStoreViewStyle: SubscriptionStoreViewStyle?
+    public var storeViewStyle: StoreViewStyle?
     public var datePickerStyle: DatePickerStyle
+    public var pickerStyle: PickerStyle
     public var tabViewStyle: TabViewStyle
+    public var tabViewCustomization: TabViewCustomization
+    public var tableOfContentsStyle: TableOfContentsStyle
     public var indexViewStyle: IndexViewStyle
     public var toggleStyle: ToggleStyle
+    public var sliderStyle: SliderStyle
     public var textFieldStyle: TextFieldStyle
+    public var textEditorStyle: TextEditorStyle
     public var submitLabel: SubmitLabel
     public var contentTransition: ContentTransition
     public var contentTransitionAddsDrawingGroup: Bool
+    public var textTransition: TextTransition?
     public var listStyle: ListStyle
+    public var tableStyle: TableStyle
+    public var chartStyle: ChartStyle
     public var listItemTint: ListItemTint?
     public var textInputAutocapitalization: TextInputAutocapitalization?
     public var isAutocorrectionDisabled: Bool
+    public var isSpellCheckingDisabled: Bool
     var textContentType: NSTextContentType?
     var keyboardType: UIKeyboardType
     var textInputCompletion: String?
@@ -3467,26 +6316,36 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var writingToolsBehavior: WritingToolsBehavior?
     public var writingToolsAffordanceVisibility: Visibility
     var searchDictationBehavior: TextInputDictationBehavior?
+    var searchSuggestions: [AnyView]?
+    var searchCompletion: String?
     var isFindDisabled: Bool
     var isReplaceDisabled: Bool
     var isFindNavigatorPresented: Bool
     public var isScrollEnabled: Bool
+    public var defaultScrollDisabled: Bool
+    public var defaultScrollIndicatorsBehavior: ScrollIndicatorsBehavior
     var isSelectionDisabled: Bool
     var isDeleteDisabled: Bool
     var isMoveDisabled: Bool
     public var defaultHoverEffect: HoverEffect?
     public var isHoverEffectEnabled: Bool
+    public var hoverEffectStyle: HoverEffectStyle?
+    public var customHoverEffect: CustomHoverEffect?
     public var isFocusEffectEnabled: Bool
     public var springLoadingBehavior: SpringLoadingBehavior
     public var buttonRepeatBehavior: ButtonRepeatBehavior
     public var buttonSizing: ButtonSizing
     public var buttonBorderShape: ButtonBorderShape
-    public var menuIndicatorVisibility: Visibility
+    public var menuIndicatorVisibility: MenuIndicatorVisibility
+    public var paletteSelection: PaletteSelection?
     public var navigationViewStyle: NavigationViewStyle
     public var navigationSplitViewStyle: NavigationSplitViewStyle
+    public var navigationStackStyle: NavigationStackStyle
     public var isLuminanceReduced: Bool
     public var redactionReasons: RedactionReasons
     public var isPrivacySensitive: Bool
+    public var defersSystemGestures: Bool
+    public var prefersStatusBarHidden: Bool
     var isScrollClipDisabled: Bool
     var scrollContentBackgroundVisibility: Visibility
     var contentMargins: ContentMarginValues
@@ -3495,9 +6354,12 @@ public struct EnvironmentValues: @unchecked Sendable {
     var listSectionSpacing: ListSectionSpacing?
     var gridHorizontalSpacing: Double?
     public var defaultMinListRowHeight: Double
+    public var defaultMaxListRowHeight: Double?
     public var defaultMinListHeaderHeight: CGFloat?
+    public var sidebarRowSize: SidebarRowSize
     public var backgroundProminence: BackgroundProminence
     public var headerProminence: Prominence
+    public var sectionHeaderProminence: Prominence
     public var badgeProminence: BadgeProminence
     public var defaultWheelPickerItemHeight: CGFloat
     public var horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility
@@ -3509,21 +6371,42 @@ public struct EnvironmentValues: @unchecked Sendable {
     public var scrollIndicatorsFlashOnAppear: Bool
     public var scrollIndicatorsFlashTrigger: String?
     var scrollPositionMetadata: String?
+    var defaultScrollPositionMetadata: String?
     public var scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode
     public var isSearching: Bool
+    public var searchPresentationMode: SearchPresentationMode
+    public var url: URL?
     public var openURL: OpenURLAction
     public var dismiss: DismissAction
     public var dismissSearch: DismissSearchAction
+    public var presentationMode: Binding<PresentationMode>?
+    public var resetFocus: ResetFocusAction
     public var rename: RenameAction?
     public var refresh: RefreshAction?
     public var undoManager: UndoManager?
     public var openWindow: OpenWindowAction
     public var dismissWindow: DismissWindowAction
+    public var openImmersiveSpace: OpenImmersiveSpaceAction
+    public var dismissImmersiveSpace: DismissImmersiveSpaceAction
+    public var toggleImmersiveSpace: ToggleImmersiveSpaceAction
     public var openSettings: OpenSettingsAction
+    public var newDocument: NewDocumentAction
+    public var openDocument: OpenDocumentAction
+    public var saveDocument: SaveDocumentAction
     public var requestReview: RequestReviewAction
+    public var importFromDevices: ImportFromDevicesAction
+    public var revealInFinder: RevealInFinderAction
     public var defaultAppStorage: UserDefaults
+    public var defaultSceneStorage: UserDefaults
     public var focusedValues: FocusedValues
     public var environmentObjects: EnvironmentObjectValues
+    public var backgroundMaterial: Material?
+    public var managedObjectContext: NSManagedObjectContext?
+    public var modelContext: ModelContext?
+    public var dateFormatter: DateFormatter?
+    public var widgetFamily: WidgetFamily?
+    public var widgetRenderingMode: WidgetRenderingMode?
+    public var showsWidgetContainerBackground: Bool
     private var customValues: [ObjectIdentifier: Any]
 
     public init(
@@ -3561,12 +6444,19 @@ public struct EnvironmentValues: @unchecked Sendable {
         timeZone: TimeZone = TimeZone(secondsFromGMT: 0)!,
         locale: Locale = .current,
         layoutDirection: LayoutDirection = .leftToRight,
+        layoutDirectionBehavior: LayoutDirectionBehavior = .automatic,
         horizontalSizeClass: UserInterfaceSizeClass? = nil,
         verticalSizeClass: UserInterfaceSizeClass? = nil,
+        interfaceOrientation: InterfaceOrientation = .unknown,
+        windowScene: UIWindowScene? = nil,
+        userInterfaceIdiom: UserInterfaceIdiom? = nil,
         dynamicTypeSize: DynamicTypeSize = .large,
+        minDynamicTypeSize: DynamicTypeSize? = nil,
+        maxDynamicTypeSize: DynamicTypeSize? = nil,
         isEnabled: Bool = true,
         foregroundStyle: ForegroundStyle? = nil,
-        backgroundStyle: AnyShapeStyle? = nil,
+        backgroundStyle: ForegroundStyle? = nil,
+        containerForegroundColor: ForegroundStyle? = nil,
         tint: Color? = nil,
         font: Font? = nil,
         fontWidth: Font.Width? = nil,
@@ -3587,6 +6477,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         imageScale: Image.Scale = .medium,
         symbolRenderingMode: SymbolRenderingMode? = nil,
         symbolVariants: SymbolVariants = .none,
+        symbolVariableValue: Double? = nil,
+        allowedDynamicRange: DynamicRange? = nil,
         controlSize: ControlSize = .regular,
         labelStyle: LabelStyle = .automatic,
         labeledContentStyle: LabeledContentStyle = .automatic,
@@ -3595,41 +6487,66 @@ public struct EnvironmentValues: @unchecked Sendable {
         disclosureGroupStyle: DisclosureGroupStyle = .automatic,
         menuStyle: MenuStyle = .automatic,
         controlGroupStyle: ControlGroupStyle = .automatic,
+        buttonStyle: ButtonStyle = .automatic,
         progressViewStyle: ProgressViewStyle = .automatic,
         gaugeStyle: GaugeStyle = .automatic,
+        tipViewStyle: TipViewStyle = .automatic,
+        productViewStyle: ProductViewStyle? = nil,
+        subscriptionStoreViewStyle: SubscriptionStoreViewStyle? = nil,
+        storeViewStyle: StoreViewStyle? = nil,
         datePickerStyle: DatePickerStyle = .automatic,
+        pickerStyle: PickerStyle = .automatic,
         tabViewStyle: TabViewStyle = .automatic,
+        tabViewCustomization: TabViewCustomization = TabViewCustomization(),
+        tableOfContentsStyle: TableOfContentsStyle = .automatic,
         indexViewStyle: IndexViewStyle = .page,
         toggleStyle: ToggleStyle = .automatic,
+        sliderStyle: SliderStyle = .automatic,
         textFieldStyle: TextFieldStyle = .automatic,
+        textEditorStyle: TextEditorStyle = .automatic,
         submitLabel: SubmitLabel = .return,
         contentTransition: ContentTransition = .identity,
         contentTransitionAddsDrawingGroup: Bool = false,
+        textTransition: TextTransition? = nil,
         listStyle: ListStyle = .automatic,
+        tableStyle: TableStyle = .automatic,
+        chartStyle: ChartStyle = .automatic,
         listItemTint: ListItemTint? = nil,
         textInputAutocapitalization: TextInputAutocapitalization? = nil,
         isAutocorrectionDisabled: Bool = false,
+        isSpellCheckingDisabled: Bool = false,
         isScrollEnabled: Bool = true,
+        defaultScrollDisabled: Bool = false,
+        defaultScrollIndicatorsBehavior: ScrollIndicatorsBehavior = .automatic,
         isSelectionDisabled: Bool = false,
         isDeleteDisabled: Bool = false,
         isMoveDisabled: Bool = false,
         defaultHoverEffect: HoverEffect? = nil,
         isHoverEffectEnabled: Bool = true,
+        hoverEffectStyle: HoverEffectStyle? = nil,
+        customHoverEffect: CustomHoverEffect? = nil,
         isFocusEffectEnabled: Bool = true,
         springLoadingBehavior: SpringLoadingBehavior = .automatic,
         buttonRepeatBehavior: ButtonRepeatBehavior = .automatic,
         buttonSizing: ButtonSizing = .automatic,
         buttonBorderShape: ButtonBorderShape = .automatic,
-        menuIndicatorVisibility: Visibility = .automatic,
+        menuIndicatorVisibility: MenuIndicatorVisibility = .automatic,
+        paletteSelection: PaletteSelection? = nil,
         navigationViewStyle: NavigationViewStyle = .automatic,
         navigationSplitViewStyle: NavigationSplitViewStyle = .automatic,
+        navigationStackStyle: NavigationStackStyle = .automatic,
         isLuminanceReduced: Bool = false,
         redactionReasons: RedactionReasons = [],
         isPrivacySensitive: Bool = false,
+        defersSystemGestures: Bool = false,
+        prefersStatusBarHidden: Bool = false,
         defaultMinListRowHeight: Double = 0,
+        defaultMaxListRowHeight: Double? = nil,
         defaultMinListHeaderHeight: CGFloat? = nil,
+        sidebarRowSize: SidebarRowSize = .medium,
         backgroundProminence: BackgroundProminence = .standard,
         headerProminence: Prominence = .standard,
+        sectionHeaderProminence: Prominence = .standard,
         badgeProminence: BadgeProminence = .standard,
         defaultWheelPickerItemHeight: CGFloat = 32,
         horizontalScrollIndicatorVisibility: ScrollIndicatorVisibility = .automatic,
@@ -3641,21 +6558,40 @@ public struct EnvironmentValues: @unchecked Sendable {
         scrollIndicatorsFlashOnAppear: Bool = false,
         scrollIndicatorsFlashTrigger: String? = nil,
         scrollPositionMetadata: String? = nil,
+        defaultScrollPositionMetadata: String? = nil,
         scrollDismissesKeyboardMode: ScrollDismissesKeyboardMode = .automatic,
         isSearching: Bool = false,
+        searchPresentationMode: SearchPresentationMode = .inactive,
         openURL: OpenURLAction = .system,
         dismiss: DismissAction = .noop,
         dismissSearch: DismissSearchAction = .noop,
+        resetFocus: ResetFocusAction = .noop,
         rename: RenameAction? = nil,
         refresh: RefreshAction? = nil,
         undoManager: UndoManager? = nil,
         openWindow: OpenWindowAction = .noop,
         dismissWindow: DismissWindowAction = .noop,
+        openImmersiveSpace: OpenImmersiveSpaceAction = .noop,
+        dismissImmersiveSpace: DismissImmersiveSpaceAction = .noop,
+        toggleImmersiveSpace: ToggleImmersiveSpaceAction = .noop,
         openSettings: OpenSettingsAction = .noop,
+        newDocument: NewDocumentAction = .noop,
+        openDocument: OpenDocumentAction = .noop,
+        saveDocument: SaveDocumentAction = .noop,
         requestReview: RequestReviewAction = .noop,
+        importFromDevices: ImportFromDevicesAction = .noop,
+        revealInFinder: RevealInFinderAction = .noop,
         defaultAppStorage: UserDefaults = .standard,
+        defaultSceneStorage: UserDefaults = .standard,
         focusedValues: FocusedValues = FocusedValues(),
-        environmentObjects: EnvironmentObjectValues = EnvironmentObjectValues()
+        environmentObjects: EnvironmentObjectValues = EnvironmentObjectValues(),
+        backgroundMaterial: Material? = nil,
+        managedObjectContext: NSManagedObjectContext? = nil,
+        modelContext: ModelContext? = nil,
+        dateFormatter: DateFormatter? = nil,
+        widgetFamily: WidgetFamily? = nil,
+        widgetRenderingMode: WidgetRenderingMode? = nil,
+        showsWidgetContainerBackground: Bool = true
     ) {
         self.colorScheme = colorScheme
         self.colorSchemeContrast = colorSchemeContrast
@@ -3693,12 +6629,21 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.timeZone = timeZone
         self.locale = locale
         self.layoutDirection = layoutDirection
+        self.layoutDirectionBehavior = layoutDirectionBehavior
         self.horizontalSizeClass = horizontalSizeClass
         self.verticalSizeClass = verticalSizeClass
+        self.interfaceOrientation = interfaceOrientation
+        self.windowScene = windowScene
+        self.userInterfaceIdiom = userInterfaceIdiom
         self.dynamicTypeSize = dynamicTypeSize
+        self.minDynamicTypeSize = minDynamicTypeSize
+        self.maxDynamicTypeSize = maxDynamicTypeSize
         self.isEnabled = isEnabled
+        self.foregroundColor = nil
         self.foregroundStyle = foregroundStyle
         self.backgroundStyle = backgroundStyle
+        self.containerForegroundColor = containerForegroundColor
+        self.accentColor = nil
         self.tint = tint
         self.font = font
         self.fontWidth = fontWidth
@@ -3723,6 +6668,8 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.imageScale = imageScale
         self.symbolRenderingMode = symbolRenderingMode
         self.symbolVariants = symbolVariants
+        self.symbolVariableValue = symbolVariableValue
+        self.allowedDynamicRange = allowedDynamicRange
         self.controlSize = controlSize
         self.labelStyle = labelStyle
         self.labeledContentStyle = labeledContentStyle
@@ -3731,20 +6678,34 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.disclosureGroupStyle = disclosureGroupStyle
         self.menuStyle = menuStyle
         self.controlGroupStyle = controlGroupStyle
+        self.buttonStyle = buttonStyle
         self.progressViewStyle = progressViewStyle
         self.gaugeStyle = gaugeStyle
+        self.tipViewStyle = tipViewStyle
+        self.productViewStyle = productViewStyle
+        self.subscriptionStoreViewStyle = subscriptionStoreViewStyle
+        self.storeViewStyle = storeViewStyle
         self.datePickerStyle = datePickerStyle
+        self.pickerStyle = pickerStyle
         self.tabViewStyle = tabViewStyle
+        self.tabViewCustomization = tabViewCustomization
+        self.tableOfContentsStyle = tableOfContentsStyle
         self.indexViewStyle = indexViewStyle
         self.toggleStyle = toggleStyle
+        self.sliderStyle = sliderStyle
         self.textFieldStyle = textFieldStyle
+        self.textEditorStyle = textEditorStyle
         self.submitLabel = submitLabel
         self.contentTransition = contentTransition
         self.contentTransitionAddsDrawingGroup = contentTransitionAddsDrawingGroup
+        self.textTransition = textTransition
         self.listStyle = listStyle
+        self.tableStyle = tableStyle
+        self.chartStyle = chartStyle
         self.listItemTint = listItemTint
         self.textInputAutocapitalization = textInputAutocapitalization
         self.isAutocorrectionDisabled = isAutocorrectionDisabled
+        self.isSpellCheckingDisabled = isSpellCheckingDisabled
         self.textContentType = nil
         self.keyboardType = .default
         self.textInputCompletion = nil
@@ -3752,26 +6713,36 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.writingToolsBehavior = nil
         self.writingToolsAffordanceVisibility = .automatic
         self.searchDictationBehavior = nil
+        self.searchSuggestions = nil
+        self.searchCompletion = nil
         self.isFindDisabled = false
         self.isReplaceDisabled = false
         self.isFindNavigatorPresented = false
         self.isScrollEnabled = isScrollEnabled
+        self.defaultScrollDisabled = defaultScrollDisabled
+        self.defaultScrollIndicatorsBehavior = defaultScrollIndicatorsBehavior
         self.isSelectionDisabled = isSelectionDisabled
         self.isDeleteDisabled = isDeleteDisabled
         self.isMoveDisabled = isMoveDisabled
         self.defaultHoverEffect = defaultHoverEffect
         self.isHoverEffectEnabled = isHoverEffectEnabled
+        self.hoverEffectStyle = hoverEffectStyle
+        self.customHoverEffect = customHoverEffect
         self.isFocusEffectEnabled = isFocusEffectEnabled
         self.springLoadingBehavior = springLoadingBehavior
         self.buttonRepeatBehavior = buttonRepeatBehavior
         self.buttonSizing = buttonSizing
         self.buttonBorderShape = buttonBorderShape
         self.menuIndicatorVisibility = menuIndicatorVisibility
+        self.paletteSelection = paletteSelection
         self.navigationViewStyle = navigationViewStyle
         self.navigationSplitViewStyle = navigationSplitViewStyle
+        self.navigationStackStyle = navigationStackStyle
         self.isLuminanceReduced = isLuminanceReduced
         self.redactionReasons = redactionReasons
         self.isPrivacySensitive = isPrivacySensitive
+        self.defersSystemGestures = defersSystemGestures
+        self.prefersStatusBarHidden = prefersStatusBarHidden
         self.isScrollClipDisabled = false
         self.scrollContentBackgroundVisibility = .automatic
         self.contentMargins = .empty
@@ -3780,9 +6751,12 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.listSectionSpacing = nil
         self.gridHorizontalSpacing = nil
         self.defaultMinListRowHeight = defaultMinListRowHeight
+        self.defaultMaxListRowHeight = defaultMaxListRowHeight
         self.defaultMinListHeaderHeight = defaultMinListHeaderHeight
+        self.sidebarRowSize = sidebarRowSize
         self.backgroundProminence = backgroundProminence
         self.headerProminence = headerProminence
+        self.sectionHeaderProminence = sectionHeaderProminence
         self.badgeProminence = badgeProminence
         self.defaultWheelPickerItemHeight = defaultWheelPickerItemHeight
         self.horizontalScrollIndicatorVisibility = horizontalScrollIndicatorVisibility
@@ -3794,21 +6768,42 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.scrollIndicatorsFlashOnAppear = scrollIndicatorsFlashOnAppear
         self.scrollIndicatorsFlashTrigger = scrollIndicatorsFlashTrigger
         self.scrollPositionMetadata = scrollPositionMetadata
+        self.defaultScrollPositionMetadata = defaultScrollPositionMetadata
         self.scrollDismissesKeyboardMode = scrollDismissesKeyboardMode
         self.isSearching = isSearching
+        self.searchPresentationMode = searchPresentationMode
+        self.url = nil
         self.openURL = openURL
         self.dismiss = dismiss
         self.dismissSearch = dismissSearch
+        self.presentationMode = nil
+        self.resetFocus = resetFocus
         self.rename = rename
         self.refresh = refresh
         self.undoManager = undoManager
         self.openWindow = openWindow
         self.dismissWindow = dismissWindow
+        self.openImmersiveSpace = openImmersiveSpace
+        self.dismissImmersiveSpace = dismissImmersiveSpace
+        self.toggleImmersiveSpace = toggleImmersiveSpace
         self.openSettings = openSettings
+        self.newDocument = newDocument
+        self.openDocument = openDocument
+        self.saveDocument = saveDocument
         self.requestReview = requestReview
+        self.importFromDevices = importFromDevices
+        self.revealInFinder = revealInFinder
         self.defaultAppStorage = defaultAppStorage
+        self.defaultSceneStorage = defaultSceneStorage
         self.focusedValues = focusedValues
         self.environmentObjects = environmentObjects
+        self.backgroundMaterial = backgroundMaterial
+        self.managedObjectContext = managedObjectContext
+        self.modelContext = modelContext
+        self.dateFormatter = dateFormatter
+        self.widgetFamily = widgetFamily
+        self.widgetRenderingMode = widgetRenderingMode
+        self.showsWidgetContainerBackground = showsWidgetContainerBackground
         self.customValues = [:]
     }
 
@@ -3957,106 +6952,7 @@ public struct StateObject<ObjectType: ObservableObject>: DynamicProperty {
     }
 }
 
-@MainActor
-@propertyWrapper
-@dynamicMemberLookup
-public struct Binding<Value>: DynamicProperty {
-    private let getValue: @MainActor () -> Value
-    private let setValue: @MainActor (Value) -> Void
-
-    public init(get: @escaping @MainActor () -> Value, set: @escaping @MainActor (Value) -> Void) {
-        self.getValue = get
-        self.setValue = set
-    }
-
-    public init(
-        get: @escaping @MainActor () -> Value,
-        set: @escaping @MainActor (Value, Transaction) -> Void
-    ) {
-        self.getValue = get
-        self.setValue = { value in
-            set(value, Transaction())
-        }
-    }
-
-    public init<Wrapped>(_ base: Binding<Wrapped>) where Value == Wrapped? {
-        self.getValue = {
-            base.wrappedValue
-        }
-        self.setValue = { value in
-            guard let value else {
-                return
-            }
-            base.wrappedValue = value
-        }
-    }
-
-    public init?(_ base: Binding<Value?>) {
-        guard let initialValue = base.wrappedValue else {
-            return nil
-        }
-
-        self.getValue = {
-            base.wrappedValue ?? initialValue
-        }
-        self.setValue = { value in
-            base.wrappedValue = value
-        }
-    }
-
-    public var wrappedValue: Value {
-        get {
-            getValue()
-        }
-        nonmutating set {
-            setValue(newValue)
-        }
-    }
-
-    public var projectedValue: Binding<Value> {
-        self
-    }
-
-    public subscript<Subject>(dynamicMember keyPath: WritableKeyPath<Value, Subject>) -> Binding<Subject> {
-        Binding<Subject>(
-            get: {
-                wrappedValue[keyPath: keyPath]
-            },
-            set: { newValue in
-                var value = wrappedValue
-                value[keyPath: keyPath] = newValue
-                wrappedValue = value
-            }
-        )
-    }
-
-    public subscript<Element>(position: Value.Index) -> Binding<Element> where Value: MutableCollection, Value.Element == Element {
-        Binding<Element>(
-            get: {
-                wrappedValue[position]
-            },
-            set: { newValue in
-                var value = wrappedValue
-                value[position] = newValue
-                wrappedValue = value
-            }
-        )
-    }
-
-    public func transaction(_ transaction: Transaction) -> Binding<Value> {
-        let _ = transaction
-        return self
-    }
-
-    public func animation(_ animation: Animation? = .default) -> Binding<Value> {
-        let _ = animation
-        return self
-    }
-
-    public static func constant(_ value: Value) -> Binding<Value> {
-        Binding(get: { value }, set: { _ in })
-    }
-}
+extension SwiftWindowsCore.Binding: DynamicProperty {}
 
 @MainActor
 @propertyWrapper
@@ -4104,6 +7000,50 @@ public struct State<Value>: DynamicProperty {
             set: { newValue in
                 wrappedValue = newValue
             }
+        )
+    }
+}
+
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+@propertyWrapper
+public struct Bindable<Value>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        var value: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: Value) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init(wrappedValue: Value) {
+        self.storage = Storage(value: wrappedValue)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        Binding(
+            get: { wrappedValue },
+            set: { newValue in wrappedValue = newValue }
         )
     }
 }
@@ -4526,7 +7466,99 @@ public struct AppStorage<Value>: DynamicProperty {
         self.init(wrappedValue: nil, key, store: store)
     }
 
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Date {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.object(forKey: key) as? Date ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == Date? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.object(forKey: key) as? Date ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == [String] {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.stringArray(forKey: key) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
+    public init(wrappedValue: Value, _ key: String, store: UserDefaults? = nil) where Value == [String]? {
+        self.storage = Storage(
+            key: key,
+            defaultValue: wrappedValue,
+            store: store,
+            readValue: { store, key, defaultValue in
+                guard store.object(forKey: key) != nil else {
+                    return defaultValue
+                }
+                return store.stringArray(forKey: key) ?? defaultValue
+            },
+            writeValue: { store, key, value in
+                guard let value else {
+                    store.removeObject(forKey: key)
+                    return
+                }
+                store.set(value, forKey: key)
+            }
+        )
+    }
+
     public init(_ key: String, store: UserDefaults? = nil) where Value == URL? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Date {
+        self.init(wrappedValue: Date(timeIntervalSince1970: 0), key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == Date? {
+        self.init(wrappedValue: nil, key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == [String] {
+        self.init(wrappedValue: [], key, store: store)
+    }
+
+    public init(_ key: String, store: UserDefaults? = nil) where Value == [String]? {
         self.init(wrappedValue: nil, key, store: store)
     }
 
@@ -5104,6 +8136,16 @@ public struct ViewBuildContext {
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             )
+        case .radialGradient(let gradient):
+            return gradient.stops.first?.color.resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            ) ?? .clear
+        case .conicGradient(let gradient):
+            return gradient.stops.first?.color.resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            ) ?? .clear
         case nil:
             return foregroundColorProvider().resolvedForVisualEnvironment(
                 contrast: colorSchemeContrast,
@@ -5142,6 +8184,14 @@ public struct ViewBuildContext {
 
     public var symbolVariants: SymbolVariants {
         environmentValuesProvider().symbolVariants
+    }
+
+    public var symbolVariableValue: Double? {
+        environmentValuesProvider().symbolVariableValue
+    }
+
+    public var allowedDynamicRange: DynamicRange? {
+        environmentValuesProvider().allowedDynamicRange
     }
 
     public var font: Font {
@@ -5275,12 +8325,20 @@ public struct ViewBuildContext {
         environmentValuesProvider().controlGroupStyle
     }
 
+    public var paletteSelection: PaletteSelection? {
+        environmentValuesProvider().paletteSelection
+    }
+
     public var navigationViewStyle: NavigationViewStyle {
         environmentValuesProvider().navigationViewStyle
     }
 
     public var navigationSplitViewStyle: NavigationSplitViewStyle {
         environmentValuesProvider().navigationSplitViewStyle
+    }
+
+    public var navigationStackStyle: NavigationStackStyle {
+        environmentValuesProvider().navigationStackStyle
     }
 
     public var progressViewStyle: ProgressViewStyle {
@@ -5291,12 +8349,36 @@ public struct ViewBuildContext {
         environmentValuesProvider().gaugeStyle
     }
 
+    public var tipViewStyle: TipViewStyle {
+        environmentValuesProvider().tipViewStyle
+    }
+
+    public var productViewStyle: ProductViewStyle? {
+        environmentValuesProvider().productViewStyle
+    }
+
+    public var subscriptionStoreViewStyle: SubscriptionStoreViewStyle? {
+        environmentValuesProvider().subscriptionStoreViewStyle
+    }
+
+    public var storeViewStyle: StoreViewStyle? {
+        environmentValuesProvider().storeViewStyle
+    }
+
     public var datePickerStyle: DatePickerStyle {
         environmentValuesProvider().datePickerStyle
     }
 
     public var tabViewStyle: TabViewStyle {
         environmentValuesProvider().tabViewStyle
+    }
+
+    public var tabViewCustomization: TabViewCustomization {
+        environmentValuesProvider().tabViewCustomization
+    }
+
+    public var tableOfContentsStyle: TableOfContentsStyle {
+        environmentValuesProvider().tableOfContentsStyle
     }
 
     public var indexViewStyle: IndexViewStyle {
@@ -5307,8 +8389,16 @@ public struct ViewBuildContext {
         environmentValuesProvider().toggleStyle
     }
 
+    public var sliderStyle: SliderStyle {
+        environmentValuesProvider().sliderStyle
+    }
+
     public var textFieldStyle: TextFieldStyle {
         environmentValuesProvider().textFieldStyle
+    }
+
+    public var textEditorStyle: TextEditorStyle {
+        environmentValuesProvider().textEditorStyle
     }
 
     public var submitLabel: SubmitLabel {
@@ -5323,8 +8413,20 @@ public struct ViewBuildContext {
         environmentValuesProvider().contentTransitionAddsDrawingGroup
     }
 
+    public var textTransition: TextTransition? {
+        environmentValuesProvider().textTransition
+    }
+
     public var listStyle: ListStyle {
         environmentValuesProvider().listStyle
+    }
+
+    public var tableStyle: TableStyle {
+        environmentValuesProvider().tableStyle
+    }
+
+    public var chartStyle: ChartStyle {
+        environmentValuesProvider().chartStyle
     }
 
     public var listItemTint: ListItemTint? {
@@ -5355,6 +8457,10 @@ public struct ViewBuildContext {
         environmentValuesProvider().isAutocorrectionDisabled
     }
 
+    public var isSpellCheckingDisabled: Bool {
+        environmentValuesProvider().isSpellCheckingDisabled
+    }
+
     var textContentType: NSTextContentType? {
         environmentValuesProvider().textContentType
     }
@@ -5369,6 +8475,14 @@ public struct ViewBuildContext {
 
     var textInputSuggestions: [AnyView]? {
         environmentValuesProvider().textInputSuggestions
+    }
+
+    var searchCompletion: String? {
+        environmentValuesProvider().searchCompletion
+    }
+
+    var searchSuggestions: [AnyView]? {
+        environmentValuesProvider().searchSuggestions
     }
 
     public var writingToolsBehavior: WritingToolsBehavior? {
@@ -5397,6 +8511,14 @@ public struct ViewBuildContext {
 
     public var isScrollEnabled: Bool {
         environmentValuesProvider().isScrollEnabled
+    }
+
+    public var defaultScrollDisabled: Bool {
+        environmentValuesProvider().defaultScrollDisabled
+    }
+
+    public var defaultScrollIndicatorsBehavior: ScrollIndicatorsBehavior {
+        environmentValuesProvider().defaultScrollIndicatorsBehavior
     }
 
     var isScrollClipDisabled: Bool {
@@ -5431,8 +8553,16 @@ public struct ViewBuildContext {
         environmentValuesProvider().defaultMinListRowHeight
     }
 
+    public var defaultMaxListRowHeight: Double? {
+        environmentValuesProvider().defaultMaxListRowHeight
+    }
+
     public var defaultMinListHeaderHeight: CGFloat? {
         environmentValuesProvider().defaultMinListHeaderHeight
+    }
+
+    public var sidebarRowSize: SidebarRowSize {
+        environmentValuesProvider().sidebarRowSize
     }
 
     public var backgroundProminence: BackgroundProminence {
@@ -5441,6 +8571,10 @@ public struct ViewBuildContext {
 
     public var headerProminence: Prominence {
         environmentValuesProvider().headerProminence
+    }
+
+    public var sectionHeaderProminence: Prominence {
+        environmentValuesProvider().sectionHeaderProminence
     }
 
     public var badgeProminence: BadgeProminence {
@@ -5487,6 +8621,10 @@ public struct ViewBuildContext {
         environmentValuesProvider().scrollPositionMetadata
     }
 
+    var defaultScrollPositionMetadata: String? {
+        environmentValuesProvider().defaultScrollPositionMetadata
+    }
+
     func scrollBounceBehavior(for axis: Axis) -> ScrollBounceBehavior {
         switch axis {
         case .horizontal:
@@ -5505,6 +8643,14 @@ public struct ViewBuildContext {
         }
     }
 
+    public var defersSystemGestures: Bool {
+        environmentValuesProvider().defersSystemGestures
+    }
+
+    public var prefersStatusBarHidden: Bool {
+        environmentValuesProvider().prefersStatusBarHidden
+    }
+
     public var environmentValues: EnvironmentValues {
         var values = environmentValuesProvider()
         values.isEnabled = values.isEnabled && isEnabled
@@ -5518,12 +8664,31 @@ public struct ViewBuildContext {
         environmentValues.layoutDirection
     }
 
+    public var layoutDirectionBehavior: LayoutDirectionBehavior {
+        environmentValues.layoutDirectionBehavior
+    }
+
+    public var interfaceOrientation: InterfaceOrientation {
+        environmentValues.interfaceOrientation
+    }
+
+    public var windowScene: UIWindowScene? {
+        environmentValues.windowScene
+    }
+
     public var colorSchemeContrast: ColorSchemeContrast {
         environmentValues.colorSchemeContrast
     }
 
     public var dynamicTypeSize: DynamicTypeSize {
-        environmentValues.dynamicTypeSize
+        var size = environmentValues.dynamicTypeSize
+        if let minSize = environmentValues.minDynamicTypeSize {
+            size = max(size, minSize)
+        }
+        if let maxSize = environmentValues.maxDynamicTypeSize {
+            size = min(size, maxSize)
+        }
+        return size
     }
 
     public var displayScale: Double {
@@ -6202,6 +9367,35 @@ public struct ViewBuildContext {
         )
     }
 
+    func withEnvironmentValues(_ values: EnvironmentValues) -> ViewBuildContext {
+        ViewBuildContext(
+            canvasSizeProvider: canvasSizeProvider,
+            invalidateHandler: invalidateHandler,
+            observedObjectHandler: observedObjectHandler,
+            isEnabledProvider: isEnabledProvider,
+            foregroundColorProvider: foregroundColorProvider,
+            tintProvider: tintProvider,
+            fontProvider: fontProvider,
+            fontDesignProvider: fontDesignProvider,
+            fontWeightProvider: fontWeightProvider,
+            textAlignmentProvider: textAlignmentProvider,
+            lineLimitProvider: lineLimitProvider,
+            truncationModeProvider: truncationModeProvider,
+            allowsTighteningProvider: allowsTighteningProvider,
+            textCaseProvider: textCaseProvider,
+            labelsHiddenProvider: labelsHiddenProvider,
+            controlSizeProvider: controlSizeProvider,
+            stackAxisProvider: stackAxisProvider,
+            buttonStyleProvider: buttonStyleProvider,
+            pickerStyleProvider: pickerStyleProvider,
+            environmentValuesProvider: { values },
+            navigationDestinationHandlerProvider: navigationDestinationHandlerProvider,
+            navigationValueHandlerProvider: navigationValueHandlerProvider,
+            navigationDestinationRegistrationsProvider: navigationDestinationRegistrationsProvider,
+            navigationPresentedDestinationsProvider: navigationPresentedDestinationsProvider
+        )
+    }
+
     func withTransformedEnvironmentValue<Value>(
         _ keyPath: WritableKeyPath<EnvironmentValues, Value>,
         _ transform: @escaping (inout Value) -> Void
@@ -6646,14 +9840,233 @@ public struct EquatableView<Content: View & Equatable>: View, TaggedViewMetadata
 }
 
 @MainActor
-public protocol Shape: View {}
+public protocol Shape: View {
+    func path(in rect: Rect) -> Path
+}
 
 @MainActor
-public protocol InsettableShape: Shape {}
+public protocol InsettableShape: Shape {
+}
+
+public extension InsettableShape {
+    func inset(by amount: CGFloat) -> InsetShape<Self> {
+        InsetShape(self, amount: amount)
+    }
+}
+
+@MainActor
+public protocol _VariadicView_Root: View {}
+
+@MainActor
+public protocol _VariadicView_MultiViewRoot: _VariadicView_Root {}
+
+@MainActor
+public protocol _VariadicView_UnaryViewRoot: _VariadicView_Root {}
+
+@MainActor
+public struct _VariadicView_Children: View {
+    public var body: Never {
+        fatalError("_VariadicView_Children has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component.empty
+    }
+}
 
 public extension Shape {
     var body: Never {
         fatalError("Shape body is not materialized by WinSwiftUI")
+    }
+
+    func makeComponent(context: ViewBuildContext) -> Component {
+        let fill = context.foregroundStyle
+        let fillColor: Color
+        switch fill {
+        case .color(let c): fillColor = c
+        case .linearGradient(let g): fillColor = g.startColor
+        case .radialGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        case .conicGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        }
+        let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
+        return Component { _ in
+            let node = Controls.panel(
+                backgroundColor: fillColor,
+                isHitTestVisible: false
+            )
+            var segments: [RenderPath.Segment] = []
+            for element in unitPath.elements {
+                switch element {
+                case .moveTo(let p): segments.append(.moveTo(p))
+                case .lineTo(let p): segments.append(.lineTo(p))
+                case .quadraticCurveTo(let c, let e): segments.append(.quadCurveTo(control: c, end: e))
+                case .cubicCurveTo(let c1, let c2, let e): segments.append(.cubicCurveTo(control1: c1, control2: c2, end: e))
+                case .arc(let center, let radius, let startAngle, let endAngle, _):
+                    let steps = max(4, Int(ceil(abs(endAngle - startAngle) * radius * 0.5)))
+                    let step = (endAngle - startAngle) / Double(steps)
+                    for i in 1...steps {
+                        let a = startAngle + step * Double(i)
+                        let p = Point(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
+                        segments.append(.lineTo(p))
+                    }
+                case .close: segments.append(.close)
+                }
+            }
+            node.backgroundPath = RenderPath(segments: segments)
+            return node
+        }
+    }
+
+    func fill(_ color: Color) -> AnyShape {
+        AnyShape(self).fill(color)
+    }
+
+    func fill(_ style: ForegroundStyle) -> AnyShape {
+        AnyShape(self).fill(style)
+    }
+
+    func fill<S: ShapeStyle>(_ style: S) -> AnyShape {
+        AnyShape(self).fill(style)
+    }
+
+    func fill(_ gradient: LinearGradient) -> AnyShape {
+        AnyShape(self).fill(gradient)
+    }
+
+    func fill(style: FillStyle) -> AnyShape {
+        AnyShape(self).fill(style: style)
+    }
+
+    func fill(_ color: Color, style: FillStyle) -> AnyShape {
+        AnyShape(self).fill(color, style: style)
+    }
+
+    func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> AnyShape {
+        AnyShape(self).fill(foregroundStyle, style: style)
+    }
+
+    func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> AnyShape {
+        AnyShape(self).fill(foregroundStyle, style: style)
+    }
+
+    func fill(_ gradient: LinearGradient, style: FillStyle) -> AnyShape {
+        AnyShape(self).fill(gradient, style: style)
+    }
+
+    func stroke(_ color: Color, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).stroke(color, lineWidth: lineWidth)
+    }
+
+    func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).stroke(style, lineWidth: lineWidth)
+    }
+
+    func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).stroke(style, lineWidth: lineWidth)
+    }
+
+    func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).stroke(gradient, lineWidth: lineWidth)
+    }
+
+    func stroke(lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).stroke(lineWidth: lineWidth)
+    }
+
+    func stroke(style: StrokeStyle) -> AnyShape {
+        AnyShape(self).stroke(style: style)
+    }
+
+    func stroke(_ color: Color, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).stroke(color, style: style)
+    }
+
+    func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).stroke(foregroundStyle, style: style)
+    }
+
+    func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).stroke(foregroundStyle, style: style)
+    }
+
+    func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).stroke(gradient, style: style)
+    }
+
+    func strokeBorder(_ color: Color, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).strokeBorder(color, lineWidth: lineWidth)
+    }
+
+    func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).strokeBorder(style, lineWidth: lineWidth)
+    }
+
+    func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).strokeBorder(style, lineWidth: lineWidth)
+    }
+
+    func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).strokeBorder(gradient, lineWidth: lineWidth)
+    }
+
+    func strokeBorder(lineWidth: Double = 1) -> AnyShape {
+        AnyShape(self).strokeBorder(lineWidth: lineWidth)
+    }
+
+    func strokeBorder(style: StrokeStyle) -> AnyShape {
+        AnyShape(self).strokeBorder(style: style)
+    }
+
+    func strokeBorder(_ color: Color, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).strokeBorder(color, style: style)
+    }
+
+    func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).strokeBorder(foregroundStyle, style: style)
+    }
+
+    func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).strokeBorder(foregroundStyle, style: style)
+    }
+
+    func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> AnyShape {
+        AnyShape(self).strokeBorder(gradient, style: style)
+    }
+
+    func trim(from startFraction: CGFloat = 0, to endFraction: CGFloat = 1) -> TrimmedShape<Self> {
+        TrimmedShape(content: self, startFraction: startFraction, endFraction: endFraction)
+    }
+
+    func size(_ size: CGSize) -> ScaledShape<Self> {
+        ScaledShape(shape: self, scale: size, anchor: .center)
+    }
+
+    func size(width: Double, height: Double) -> ScaledShape<Self> {
+        ScaledShape(shape: self, scale: CGSize(width: width, height: height), anchor: .center)
+    }
+
+    func offset(_ offset: CGSize) -> OffsetShape<Self> {
+        OffsetShape(shape: self, offset: offset)
+    }
+
+    func offset(x: Double = 0, y: Double = 0) -> OffsetShape<Self> {
+        OffsetShape(shape: self, offset: CGSize(width: x, height: y))
+    }
+
+    func scale(_ scale: CGFloat, anchor: UnitPoint = .center) -> ScaledShape<Self> {
+        ScaledShape(shape: self, scale: CGSize(width: scale, height: scale), anchor: anchor)
+    }
+
+    func scale(x: CGFloat = 1, y: CGFloat = 1, anchor: UnitPoint = .center) -> ScaledShape<Self> {
+        ScaledShape(shape: self, scale: CGSize(width: x, height: y), anchor: anchor)
+    }
+
+    func rotation(_ angle: Angle, anchor: UnitPoint = .center) -> RotatedShape<Self> {
+        RotatedShape(shape: self, angle: angle, anchor: anchor)
+    }
+
+    func transform(_ transform: Transform2D) -> TransformedShape<Self> {
+        TransformedShape(shape: self, transform: transform)
     }
 }
 
@@ -6749,6 +10162,7 @@ public struct AnyView: View {
     let toolbarItemPlacement: ToolbarItemPlacement?
     let navigationDestinationRegistrations: [NavigationDestinationRegistration]
     let navigationPresentedDestinations: [NavigationPresentedDestination]
+    let swipeActions: [RetainedSwipeAction]
 
     public init<V: View>(_ view: V) {
         self.selectionTag = (view as? any TaggedViewMetadata)?.anySelectionTag
@@ -6762,6 +10176,7 @@ public struct AnyView: View {
         self.toolbarItemPlacement = (view as? any TaggedViewMetadata)?.anyToolbarItemPlacement
         self.navigationDestinationRegistrations = (view as? any TaggedViewMetadata)?.anyNavigationDestinationRegistrations ?? []
         self.navigationPresentedDestinations = (view as? any TaggedViewMetadata)?.anyNavigationPresentedDestinations ?? []
+        self.swipeActions = (view as? any SwipeActionMetadata)?.swipeActions ?? []
         self.buildComponent = { context in
             ViewBuildContextScope.withCurrent(context) {
                 view.makeComponent(context: context)
@@ -6854,6 +10269,57 @@ extension Optional: TaggedViewMetadata where Wrapped: View {
 }
 
 @MainActor
+public struct TupleView<T>: View {
+    public typealias Body = Never
+
+    public var value: T
+
+    public init(_ value: T) {
+        self.value = value
+    }
+
+    public var body: Never {
+        fatalError("TupleView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        if let view = value as? any View {
+            return view.makeComponent(context: context)
+        }
+        return composeComponent(from: [], context: context)
+    }
+}
+
+@MainActor
+public struct _ConditionalContent<TrueContent: View, FalseContent: View>: View {
+    public typealias Body = Never
+
+    public enum Storage {
+        case trueContent(TrueContent)
+        case falseContent(FalseContent)
+    }
+
+    public var storage: Storage
+
+    public init(storage: Storage) {
+        self.storage = storage
+    }
+
+    public var body: Never {
+        fatalError("_ConditionalContent has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        switch storage {
+        case .trueContent(let content):
+            return content.makeComponent(context: context)
+        case .falseContent(let content):
+            return content.makeComponent(context: context)
+        }
+    }
+}
+
+@MainActor
 @resultBuilder
 public enum ViewBuilder {
     public static func buildExpression<V: View>(_ expression: V) -> [AnyView] {
@@ -6913,6 +10379,163 @@ public struct EmptyView: View {
         Component { _ in
             Controls.panel(preferredSize: .zero, isHitTestVisible: false)
         }
+    }
+}
+
+public struct ConditionalContent<TrueContent: View, FalseContent: View>: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ConditionalContent has no body")
+    }
+}
+
+public struct OptionalView<Content: View>: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("OptionalView has no body")
+    }
+}
+
+public struct EitherView<Left: View, Right: View>: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("EitherView has no body")
+    }
+}
+
+public protocol VariadicView: View {
+    associatedtype Children: View
+    var children: Children { get }
+}
+
+public struct VariadicView_Children: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("VariadicView_Children has no body")
+    }
+}
+
+public struct VariadicView_Root: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("VariadicView_Root has no body")
+    }
+}
+
+public struct CustomViewModifier: ViewModifier {
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _BackgroundModifier<Background: View>: ViewModifier {
+    public let background: Background
+
+    public init(background: Background) {
+        self.background = background
+    }
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _OverlayModifier<Overlay: View>: ViewModifier {
+    public let overlay: Overlay
+
+    public init(overlay: Overlay) {
+        self.overlay = overlay
+    }
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _FrameLayout: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _PaddingLayout: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _AspectRatioLayout: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _FlexFrameLayout: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _AlignmentLayout: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _OffsetEffect: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _ScaleEffect: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _RotationEffect: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
+    }
+}
+
+public struct _OpacityEffect: ViewModifier {
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content
     }
 }
 
@@ -7065,6 +10688,14 @@ public enum TextAlignment: Sendable {
     case trailing
 }
 
+public enum VerticalTextAlignment: Sendable, Equatable, Hashable {
+    case top
+    case center
+    case bottom
+    case firstTextBaseline
+    case lastTextBaseline
+}
+
 public enum TextSelectability: Sendable, Equatable, Hashable {
     case enabled
     case disabled
@@ -7083,7 +10714,7 @@ public enum Axis: Sendable {
     case horizontal
     case vertical
 
-    public struct Set: OptionSet, Sendable {
+    public struct Set: OptionSet, Sendable, CustomStringConvertible {
         public let rawValue: Int
 
         public init(rawValue: Int) {
@@ -7093,19 +10724,22 @@ public enum Axis: Sendable {
         public static let horizontal = Set(rawValue: 1 << 0)
         public static let vertical = Set(rawValue: 1 << 1)
         public static let all: Set = [.horizontal, .vertical]
+
+        public var description: String {
+            switch rawValue {
+            case Self.horizontal.rawValue: return "horizontal"
+            case Self.vertical.rawValue: return "vertical"
+            case Self.all.rawValue: return "all"
+            default: return "unknown"
+            }
+        }
     }
 }
 
-public enum ContentMode: Sendable {
-    case fit
-    case fill
-}
-
-public enum Edge: Sendable, Equatable, Hashable {
-    case top
-    case leading
-    case bottom
-    case trailing
+public enum Axis3D: Sendable {
+    case x
+    case y
+    case z
 
     public struct Set: OptionSet, Sendable {
         public let rawValue: Int
@@ -7114,14 +10748,16 @@ public enum Edge: Sendable, Equatable, Hashable {
             self.rawValue = rawValue
         }
 
-        public static let top = Set(rawValue: 1 << 0)
-        public static let leading = Set(rawValue: 1 << 1)
-        public static let bottom = Set(rawValue: 1 << 2)
-        public static let trailing = Set(rawValue: 1 << 3)
-        public static let horizontal: Set = [.leading, .trailing]
-        public static let vertical: Set = [.top, .bottom]
-        public static let all: Set = [.top, .leading, .bottom, .trailing]
+        public static let x = Set(rawValue: 1 << 0)
+        public static let y = Set(rawValue: 1 << 1)
+        public static let z = Set(rawValue: 1 << 2)
+        public static let all: Set = [.x, .y, .z]
     }
+}
+
+public enum ContentMode: Sendable {
+    case fit
+    case fill
 }
 
 public struct AnyTransition: Sendable, Equatable {
@@ -7135,6 +10771,7 @@ public struct AnyTransition: Sendable, Equatable {
         case slide
         case asymmetric(insertion: AnyTransition, removal: AnyTransition)
         case combined(AnyTransition, AnyTransition)
+        case modifier(activeType: ObjectIdentifier, identityType: ObjectIdentifier)
     }
 
     let kind: Kind
@@ -7164,6 +10801,10 @@ public struct AnyTransition: Sendable, Equatable {
         AnyTransition(kind: .push(from: edge))
     }
 
+    public static func modifier<E: ViewModifier>(active: E, identity: E) -> AnyTransition {
+        AnyTransition(kind: .modifier(activeType: ObjectIdentifier(E.self), identityType: ObjectIdentifier(E.self)))
+    }
+
     public static func scale(scale: Double, anchor: UnitPoint = .center) -> AnyTransition {
         AnyTransition(kind: .scale(scale: scale, anchor: anchor))
     }
@@ -7174,6 +10815,139 @@ public struct AnyTransition: Sendable, Equatable {
 
     public func combined(with other: AnyTransition) -> AnyTransition {
         AnyTransition(kind: .combined(self, other))
+    }
+}
+
+public protocol Transition {
+    var anyTransition: AnyTransition { get }
+}
+
+public struct OpacityTransition: Transition, Sendable, Equatable {
+    public var anyTransition: AnyTransition { .opacity }
+    public init() {}
+}
+
+public struct ScaleTransition: Transition, Sendable, Equatable {
+    public var scale: Double
+    public var anchor: UnitPoint
+    public var anyTransition: AnyTransition { .scale(scale: scale, anchor: anchor) }
+    public init(scale: Double = 1, anchor: UnitPoint = .center) {
+        self.scale = scale
+        self.anchor = anchor
+    }
+}
+
+public struct SlideTransition: Transition, Sendable, Equatable {
+    public var anyTransition: AnyTransition { .slide }
+    public init() {}
+}
+
+public struct MoveTransition: Transition, Sendable, Equatable {
+    public var edge: Edge
+    public var anyTransition: AnyTransition { .move(edge: edge) }
+    public init(edge: Edge) {
+        self.edge = edge
+    }
+}
+
+public struct PushTransition: Transition, Sendable, Equatable {
+    public var edge: Edge
+    public var anyTransition: AnyTransition { .push(from: edge) }
+    public init(edge: Edge) {
+        self.edge = edge
+    }
+}
+
+public struct OffsetTransition: Transition, Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var anyTransition: AnyTransition { .offset(x: x, y: y) }
+    public init(x: Double = 0, y: Double = 0) {
+        self.x = x
+        self.y = y
+    }
+}
+
+public struct NavigationTransition: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case zoom(namespaceID: String, elementID: String)
+        case slide
+        case fade
+        case automatic
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static var slide: NavigationTransition {
+        NavigationTransition(kind: .slide)
+    }
+
+    public static var fade: NavigationTransition {
+        NavigationTransition(kind: .fade)
+    }
+
+    public static var automatic: NavigationTransition {
+        NavigationTransition(kind: .automatic)
+    }
+
+    public static func zoom(sourceID id: String, in namespace: Namespace.ID) -> NavigationTransition {
+        NavigationTransition(kind: .zoom(namespaceID: namespace.rawValue, elementID: id))
+    }
+
+    var retained: RetainedNavigationTransition {
+        switch kind {
+        case .zoom(let namespaceID, let elementID):
+            return RetainedNavigationTransition(kind: .zoom(namespaceID: namespaceID, elementID: elementID))
+        case .slide:
+            return RetainedNavigationTransition(kind: .slide)
+        case .fade:
+            return RetainedNavigationTransition(kind: .fade)
+        case .automatic:
+            return RetainedNavigationTransition(kind: .automatic)
+        }
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct TextTransition: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case numericText
+        case identity
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TextTransition(.automatic)
+    public static let numericText = TextTransition(.numericText)
+    public static let identity = TextTransition(.identity)
+}
+
+public struct AsymmetricTransition: Sendable, Equatable {
+    public let insertion: AnyTransition
+    public let removal: AnyTransition
+
+    public init(insertion: AnyTransition, removal: AnyTransition) {
+        self.insertion = insertion
+        self.removal = removal
+    }
+}
+
+public struct TransitionProperties: Sendable, Equatable {
+    public var hasMotion: Bool
+    public var hasOpacity: Bool
+
+    public init(hasMotion: Bool = true, hasOpacity: Bool = false) {
+        self.hasMotion = hasMotion
+        self.hasOpacity = hasOpacity
     }
 }
 
@@ -7212,6 +10986,23 @@ public struct ContentTransition: Sendable, Equatable {
         options: SymbolEffectOptions = .default
     ) -> ContentTransition where T: ContentTransitionSymbolEffect {
         ContentTransition(kind: .symbolEffectConfiguration(effect.configuration, options))
+    }
+
+    var retained: RetainedContentTransition {
+        switch kind {
+        case .identity:
+            return .identity
+        case .interpolate:
+            return .interpolate
+        case .numericTextCountsDown(let countsDown):
+            return RetainedContentTransition(kind: .numericTextCountsDown, numericTextCountsDown: countsDown)
+        case .numericTextValue(let value):
+            return RetainedContentTransition(kind: .numericTextValue, numericTextValue: value)
+        case .opacity:
+            return .opacity
+        case .symbolEffect, .symbolEffectConfiguration:
+            return RetainedContentTransition(kind: .symbolEffect)
+        }
     }
 }
 
@@ -7367,6 +11158,8 @@ public struct SymbolEffectOptions: Sendable, Equatable, Hashable {
         return copy
     }
 }
+
+public typealias PaletteSelectionEffect = SwiftWindowsCore.PaletteSelectionEffect
 
 protocol ConfigurableSymbolEffect {
     init(configuration: SymbolEffectConfiguration)
@@ -7656,6 +11449,76 @@ public extension SymbolEffect where Self == WiggleSymbolEffect {
     static var wiggle: WiggleSymbolEffect { WiggleSymbolEffect() }
 }
 
+public struct SymbolEffects: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct SymbolEffectRepeatMode: Sendable, Equatable, Hashable {
+    public let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let `default` = SymbolEffectRepeatMode("default")
+    public static let continuous = SymbolEffectRepeatMode("continuous")
+}
+
+public struct SymbolEffectSpeed: Sendable, Equatable, Hashable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct SymbolEffectLayer: Sendable, Equatable, Hashable {
+    public let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let wholeSymbol = SymbolEffectLayer("wholeSymbol")
+    public static let byLayer = SymbolEffectLayer("byLayer")
+}
+
+public struct RideSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .bounce))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+}
+
+public struct SpinSymbolEffect: SymbolEffect, DiscreteSymbolEffect, IndefiniteSymbolEffect, ConfigurableSymbolEffect {
+    public var configuration: SymbolEffectConfiguration
+
+    public init() {
+        self.init(configuration: SymbolEffectConfiguration(effect: .rotate))
+    }
+
+    init(configuration: SymbolEffectConfiguration) {
+        self.configuration = configuration
+    }
+}
+
+public struct ImageScale: Sendable, Equatable, Hashable {
+    public let rawValue: String
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public static let small = ImageScale("small")
+    public static let medium = ImageScale("medium")
+    public static let large = ImageScale("large")
+}
+
 public struct SensoryFeedback: Sendable, Equatable, Hashable {
     public struct Flexibility: Sendable, Equatable, Hashable {
         enum Kind: Sendable, Equatable, Hashable {
@@ -7807,6 +11670,71 @@ public struct SensoryFeedback: Sendable, Equatable, Hashable {
     public static func selection(_ feedback: SelectionFeedback = .default) -> SensoryFeedback {
         SensoryFeedback(kind: .selectionFeedback(feedback))
     }
+
+    var retained: RetainedSensoryFeedback {
+        switch kind {
+        case .alignment:
+            return RetainedSensoryFeedback(kind: .alignment)
+        case .decrease:
+            return RetainedSensoryFeedback(kind: .decrease)
+        case .error:
+            return RetainedSensoryFeedback(kind: .error)
+        case .impact:
+            return RetainedSensoryFeedback(kind: .impact)
+        case .impactFlexibility(let flexibility, let intensity):
+            let flexibilityKind: RetainedSensoryFeedback.FlexibilityKind = switch flexibility.kind {
+            case .rigid: .rigid
+            case .solid: .solid
+            case .soft: .soft
+            }
+            return RetainedSensoryFeedback(kind: .impactFlexibility, flexibility: flexibilityKind, intensity: intensity)
+        case .impactWeight(let weight, let intensity):
+            let weightKind: RetainedSensoryFeedback.WeightKind = switch weight.kind {
+            case .light: .light
+            case .medium: .medium
+            case .heavy: .heavy
+            }
+            return RetainedSensoryFeedback(kind: .impactWeight, weight: weightKind, intensity: intensity)
+        case .increase:
+            return RetainedSensoryFeedback(kind: .increase)
+        case .levelChange:
+            return RetainedSensoryFeedback(kind: .levelChange)
+        case .pathComplete:
+            return RetainedSensoryFeedback(kind: .pathComplete)
+        case .press(let feedback):
+            let pressKind: RetainedSensoryFeedback.PressKind = switch feedback.kind {
+            case .default: .default
+            case .depth: .depth
+            case .start: .start
+            }
+            return RetainedSensoryFeedback(kind: .press, pressKind: pressKind)
+        case .release(let feedback):
+            let releaseKind: RetainedSensoryFeedback.ReleaseKind = switch feedback.kind {
+            case .default: .default
+            case .stop: .stop
+            }
+            return RetainedSensoryFeedback(kind: .release, releaseKind: releaseKind)
+        case .selection:
+            return RetainedSensoryFeedback(kind: .selection)
+        case .selectionFeedback(let feedback):
+            let selectionKind: RetainedSensoryFeedback.SelectionKind = switch feedback.kind {
+            case .default: .default
+            case .maximum: .maximum
+            case .minimum: .minimum
+            case .off: .off
+            case .on: .on
+            }
+            return RetainedSensoryFeedback(kind: .selectionFeedback, selectionKind: selectionKind)
+        case .start:
+            return RetainedSensoryFeedback(kind: .start)
+        case .stop:
+            return RetainedSensoryFeedback(kind: .stop)
+        case .success:
+            return RetainedSensoryFeedback(kind: .success)
+        case .warning:
+            return RetainedSensoryFeedback(kind: .warning)
+        }
+    }
 }
 
 public enum VerticalEdge: Sendable, Equatable {
@@ -7867,6 +11795,7 @@ public struct ContentShapeKinds: OptionSet, Sendable {
     public static let focusEffect = ContentShapeKinds(rawValue: 1 << 3)
     public static let hoverEffect = ContentShapeKinds(rawValue: 1 << 4)
     public static let accessibility = ContentShapeKinds(rawValue: 1 << 5)
+    public static let container = ContentShapeKinds(rawValue: 1 << 6)
 
     var retainedKinds: RetainedContentShapeKinds {
         var retained: RetainedContentShapeKinds = []
@@ -7876,6 +11805,7 @@ public struct ContentShapeKinds: OptionSet, Sendable {
         if contains(.focusEffect) { retained.insert(.focusEffect) }
         if contains(.hoverEffect) { retained.insert(.hoverEffect) }
         if contains(.accessibility) { retained.insert(.accessibility) }
+        if contains(.container) { retained.insert(.container) }
         return retained
     }
 }
@@ -7905,6 +11835,28 @@ public struct AccessibilityTraits: OptionSet, Sendable, Equatable, Hashable {
 
     var retainedTraits: RetainedAccessibilityTraits {
         RetainedAccessibilityTraits(rawValue: rawValue)
+    }
+}
+
+public struct AccessibilityAction {
+    public let name: String
+    public let handler: () -> Void
+
+    public init(name: String, handler: @escaping () -> Void) {
+        self.name = name
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityCustomContent: Sendable, Equatable {
+    public let label: String
+    public let value: String
+    public let importance: AccessibilityCustomContentImportance
+
+    public init(label: String, value: String, importance: AccessibilityCustomContentImportance = .default) {
+        self.label = label
+        self.value = value
+        self.importance = importance
     }
 }
 
@@ -7946,6 +11898,319 @@ public enum AccessibilityActionKind: Sendable, Equatable, Hashable {
             return .decrement
         }
     }
+}
+
+public enum AccessibilityHeadingLevel: Sendable, Equatable, Hashable {
+    case unspecified
+    case h1
+    case h2
+    case h3
+    case h4
+    case h5
+    case h6
+
+    var retained: RetainedAccessibilityHeadingLevel {
+        switch self {
+        case .unspecified:
+            return .unspecified
+        case .h1:
+            return .h1
+        case .h2:
+            return .h2
+        case .h3:
+            return .h3
+        case .h4:
+            return .h4
+        case .h5:
+            return .h5
+        case .h6:
+            return .h6
+        }
+    }
+}
+
+public enum AccessibilityTextualContext: Sendable, Equatable, Hashable {
+    case sourceCode
+    case console
+    case narrative
+    case message
+    case spreadsheet
+    case wordProcessing
+
+    var retained: RetainedAccessibilityTextualContext {
+        switch self {
+        case .sourceCode:
+            return .sourceCode
+        case .console:
+            return .console
+        case .narrative:
+            return .narrative
+        case .message:
+            return .message
+        case .spreadsheet:
+            return .spreadsheet
+        case .wordProcessing:
+            return .wordProcessing
+        }
+    }
+}
+
+public enum AccessibilityAdjustmentDirection: Sendable, Equatable, Hashable {
+    case increment
+    case decrement
+}
+
+public typealias AccessibilityQuickActionStyle = SwiftWindowsCore.AccessibilityQuickActionStyle
+
+public typealias AccessibilityTextContentType = SwiftWindowsCore.AccessibilityTextContentType
+
+public enum AccessibilityCustomContentImportance: Sendable, Equatable, Hashable {
+    case `default`
+    case high
+}
+
+public protocol AccessibilityCustomContentKey {
+    associatedtype Value: Equatable
+    static var defaultValue: Value { get }
+    static var defaultDescription: String? { get }
+}
+
+public extension AccessibilityCustomContentKey {
+    static var defaultDescription: String? { nil }
+}
+
+public struct AccessibilityRotor: Sendable, Equatable {
+    public let label: String
+
+    public init(_ label: String) {
+        self.label = label
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct AccessibilityRotorEntry<ID: Hashable>: Equatable {
+    public var label: String
+    public var id: ID
+
+    public init(_ label: String, id: ID) {
+        self.label = label
+        self.id = id
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct AccessibilityRotorEntryChildren: Equatable {
+    public var entries: [AccessibilityRotorEntry<String>]
+
+    public init(entries: [AccessibilityRotorEntry<String>] = []) {
+        self.entries = entries
+    }
+}
+
+public enum AccessibilityLabeledPairRole: Sendable, Equatable, Hashable {
+    case label
+    case content
+}
+
+public struct AccessibilitySortPriority: Sendable, Equatable, Hashable {
+    public var value: Double
+
+    public init(_ value: Double = 0) {
+        self.value = value
+    }
+}
+
+public struct AccessibilityActionHandler {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public enum AccessibilityPriority: Sendable, Equatable, Hashable {
+    case `default`
+    case high
+}
+
+public struct AccessibilityZoomInAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityZoomOutAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityScrollAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityActivateAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityIncrementAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+public struct AccessibilityDecrementAction {
+    public let handler: () -> Void
+
+    public init(_ handler: @escaping () -> Void) {
+        self.handler = handler
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AccessibilityChartDescriptor: Sendable {
+    public var title: String
+    public var summary: String?
+    public var xAxisDescription: String?
+    public var yAxisDescription: String?
+
+    public init(
+        title: String,
+        summary: String? = nil,
+        xAxisDescription: String? = nil,
+        yAxisDescription: String? = nil
+    ) {
+        self.title = title
+        self.summary = summary
+        self.xAxisDescription = xAxisDescription
+        self.yAxisDescription = yAxisDescription
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct AccessibilityDirectTouchOptions: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case disabled
+        case enabled
+        case custom(identifier: String)
+    }
+    public let kind: Kind
+
+    public static let disabled = AccessibilityDirectTouchOptions(kind: .disabled)
+    public static let enabled = AccessibilityDirectTouchOptions(kind: .enabled)
+
+    public static func custom(_ identifier: String) -> AccessibilityDirectTouchOptions {
+        AccessibilityDirectTouchOptions(kind: .custom(identifier: identifier))
+    }
+
+    var retained: RetainedAccessibilityDirectTouchOptions {
+        switch kind {
+        case .disabled:
+            return .disabled
+        case .enabled:
+            return .enabled
+        case .custom(let identifier):
+            return .custom(identifier: identifier)
+        }
+    }
+}
+
+public struct PreviewLayout: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case device
+        case sizeThatFits
+        case fixed(width: CGFloat, height: CGFloat)
+    }
+
+    public let kind: Kind
+
+    public static let device = PreviewLayout(kind: .device)
+    public static let sizeThatFits = PreviewLayout(kind: .sizeThatFits)
+    public static func fixed(width: CGFloat, height: CGFloat) -> PreviewLayout {
+        PreviewLayout(kind: .fixed(width: width, height: height))
+    }
+}
+
+public struct PreviewDevice: Sendable, Equatable, RawRepresentable, ExpressibleByStringLiteral {
+    public let rawValue: String
+
+    public init(rawValue: String) {
+        self.rawValue = rawValue
+    }
+
+    public init(stringLiteral value: String) {
+        self.rawValue = value
+    }
+}
+
+@MainActor
+public protocol PreviewProvider {
+    associatedtype Previews: View
+    static var previews: Previews { get }
+    static var previewDisplayName: String? { get }
+}
+
+public extension PreviewProvider {
+    static var previewDisplayName: String? { nil }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct Preview<Content: View>: View {
+    public typealias Body = Never
+
+    public let displayName: String?
+    public let content: Content
+
+    public init(_ displayName: String? = nil, @ViewBuilder content: () -> Content) {
+        self.displayName = displayName
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Preview has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component.empty
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public protocol PreviewModifier {
+    associatedtype Body: View
+    @MainActor func body(content: some View) -> Body
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public protocol PreviewTrait {
+    associatedtype Value
+    static var defaultValue: Value { get }
+}
+
+public struct PreviewInteraction: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct PreviewSizeThatFits: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct PreviewWindowAction: Sendable, Equatable, Hashable {
+    public init() {}
 }
 
 public struct EventModifiers: OptionSet, Sendable, Equatable, Hashable {
@@ -8026,6 +12291,71 @@ public struct KeyEquivalent: Sendable, Equatable, Hashable, ExpressibleByExtende
     }
 }
 
+public struct KeyPress: Sendable {
+    public let key: KeyEquivalent
+    public let characters: String
+    public let phases: KeyPress.Phases
+
+    public enum Result: Sendable {
+        case handled
+        case ignored
+    }
+
+    public struct Phases: OptionSet, Sendable {
+        public let rawValue: UInt8
+        public init(rawValue: UInt8) {
+            self.rawValue = rawValue
+        }
+        public static let down = Phases(rawValue: 1 << 0)
+        public static let `repeat` = Phases(rawValue: 1 << 1)
+        public static let up = Phases(rawValue: 1 << 2)
+        public static let all: Phases = [.down, .repeat, .up]
+    }
+
+    init(key: KeyEquivalent, characters: String = "", phases: Phases = .down) {
+        self.key = key
+        self.characters = characters
+        self.phases = phases
+    }
+}
+
+public struct KeyPressPhase: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let down = KeyPressPhase(rawValue: 1 << 0)
+    public static let `repeat` = KeyPressPhase(rawValue: 1 << 1)
+    public static let up = KeyPressPhase(rawValue: 1 << 2)
+    public static let all: KeyPressPhase = [.down, .repeat, .up]
+}
+
+public struct KeyPressMask: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+
+    public init(rawValue: UInt8) {
+        self.rawValue = rawValue
+    }
+
+    public static let down = KeyPressMask(rawValue: 1 << 0)
+    public static let `repeat` = KeyPressMask(rawValue: 1 << 1)
+    public static let up = KeyPressMask(rawValue: 1 << 2)
+}
+
+public struct KeyPressEvent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PhysicalKeyboardEvent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct FocusEvent: Sendable, Equatable {
+    public init() {}
+}
+
 public struct KeyboardShortcut: Sendable, Equatable, Hashable {
     let key: KeyEquivalent
     let modifiers: EventModifiers
@@ -8051,6 +12381,11 @@ public enum MoveCommandDirection: Sendable, Equatable, Hashable {
     case down
     case left
     case right
+}
+
+public enum SeekCommandDirection: Sendable, Equatable, Hashable {
+    case forward
+    case backward
 }
 
 public struct GestureMask: OptionSet, Sendable, Equatable, Hashable {
@@ -8212,6 +12547,102 @@ public struct ExclusiveGesture<First: Gesture, Second: Gesture>: Gesture {
     }
 }
 
+public struct SpatialEventGesture: Gesture {
+    public typealias Value = Void
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
+public struct SpatialPressGesture: Gesture {
+    public typealias Value = Void
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
+public struct SpatialHoverGesture: Gesture {
+    public typealias Value = Bool
+
+    private let action: (@MainActor (Bool) -> Void)?
+
+    public init() {
+        self.action = nil
+    }
+
+    private init(action: (@MainActor (Bool) -> Void)?) {
+        self.action = action
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> SpatialHoverGesture {
+        SpatialHoverGesture(action: action)
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            view.onHover { isHovering in
+                action?(isHovering)
+            }
+        )
+    }
+}
+
+public struct SpatialScrollGesture: Gesture {
+    public typealias Value = CGSize
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
+public struct LookAroundGesture: Gesture {
+    public typealias Value = Void
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
+public struct WristScrollGesture: Gesture {
+    public typealias Value = CGSize
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
+public struct IndirectGesture: Gesture {
+    public typealias Value = Void
+
+    public init() {}
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        let _ = mask
+        return AnyView(view)
+    }
+}
+
 public extension Gesture {
     func simultaneously<Other: Gesture>(with other: Other) -> SimultaneousGesture<Self, Other> {
         SimultaneousGesture(self, other)
@@ -8223,6 +12654,10 @@ public extension Gesture {
 
     func exclusively<Other: Gesture>(before other: Other) -> ExclusiveGesture<Self, Other> {
         ExclusiveGesture(self, other)
+    }
+
+    func anyGesture() -> AnyGesture<Self.Value> {
+        AnyGesture(self)
     }
 }
 
@@ -8256,6 +12691,53 @@ public struct TapGesture: Gesture {
         return AnyView(
             view.onTapGesture(count: count) {
                 endedAction?()
+            }
+        )
+    }
+}
+
+public struct HoverGesture: Gesture {
+    public typealias Value = Bool
+
+    private let changedAction: (@MainActor (Bool) -> Void)?
+    private let endedAction: (@MainActor (Bool) -> Void)?
+
+    public init() {
+        self.changedAction = nil
+        self.endedAction = nil
+    }
+
+    private init(
+        changedAction: (@MainActor (Bool) -> Void)?,
+        endedAction: (@MainActor (Bool) -> Void)?
+    ) {
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> HoverGesture {
+        HoverGesture(
+            changedAction: action,
+            endedAction: endedAction
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> HoverGesture {
+        HoverGesture(
+            changedAction: changedAction,
+            endedAction: action
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        guard mask.contains(.gesture) else {
+            return AnyView(view)
+        }
+
+        return AnyView(
+            view.onHover { isHovering in
+                changedAction?(isHovering)
+                endedAction?(isHovering)
             }
         )
     }
@@ -8615,6 +13097,254 @@ public struct DragGesture: Gesture {
     }
 }
 
+public struct MagnificationGesture: Gesture {
+    public typealias Value = CGFloat
+
+    public var minimumScaleDelta: CGFloat
+    private let changedAction: (@MainActor (Value) -> Void)?
+    private let endedAction: (@MainActor (Value) -> Void)?
+    private let updatingActions: [@MainActor (Value) -> Void]
+    private let resetActions: [@MainActor () -> Void]
+
+    public init(minimumScaleDelta: CGFloat = 0) {
+        self.minimumScaleDelta = minimumScaleDelta
+        self.changedAction = nil
+        self.endedAction = nil
+        self.updatingActions = []
+        self.resetActions = []
+    }
+
+    private init(
+        minimumScaleDelta: CGFloat,
+        changedAction: (@MainActor (Value) -> Void)?,
+        endedAction: (@MainActor (Value) -> Void)?,
+        updatingActions: [@MainActor (Value) -> Void],
+        resetActions: [@MainActor () -> Void]
+    ) {
+        self.minimumScaleDelta = minimumScaleDelta
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+        self.updatingActions = updatingActions
+        self.resetActions = resetActions
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> MagnificationGesture {
+        MagnificationGesture(
+            minimumScaleDelta: minimumScaleDelta,
+            changedAction: action,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> MagnificationGesture {
+        MagnificationGesture(
+            minimumScaleDelta: minimumScaleDelta,
+            changedAction: changedAction,
+            endedAction: action,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> MagnificationGesture {
+        var updatingActions = self.updatingActions
+        var resetActions = self.resetActions
+        updatingActions.append { value in
+            state.update { stateValue, transaction in
+                body(value, &stateValue, &transaction)
+            }
+        }
+        resetActions.append {
+            state.reset()
+        }
+
+        return MagnificationGesture(
+            minimumScaleDelta: minimumScaleDelta,
+            changedAction: changedAction,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        // Platform support for magnification gestures is pending.
+        // Return the view unchanged so the gesture can still be composed.
+        AnyView(view)
+    }
+}
+
+public typealias MagnifyGesture = MagnificationGesture
+
+public struct RotationGesture: Gesture {
+    public typealias Value = Angle
+
+    public var minimumAngleDelta: Angle
+    private let changedAction: (@MainActor (Value) -> Void)?
+    private let endedAction: (@MainActor (Value) -> Void)?
+    private let updatingActions: [@MainActor (Value) -> Void]
+    private let resetActions: [@MainActor () -> Void]
+
+    public init(minimumAngleDelta: Angle = Angle(degrees: 0)) {
+        self.minimumAngleDelta = minimumAngleDelta
+        self.changedAction = nil
+        self.endedAction = nil
+        self.updatingActions = []
+        self.resetActions = []
+    }
+
+    private init(
+        minimumAngleDelta: Angle,
+        changedAction: (@MainActor (Value) -> Void)?,
+        endedAction: (@MainActor (Value) -> Void)?,
+        updatingActions: [@MainActor (Value) -> Void],
+        resetActions: [@MainActor () -> Void]
+    ) {
+        self.minimumAngleDelta = minimumAngleDelta
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+        self.updatingActions = updatingActions
+        self.resetActions = resetActions
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> RotationGesture {
+        RotationGesture(
+            minimumAngleDelta: minimumAngleDelta,
+            changedAction: action,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> RotationGesture {
+        RotationGesture(
+            minimumAngleDelta: minimumAngleDelta,
+            changedAction: changedAction,
+            endedAction: action,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> RotationGesture {
+        var updatingActions = self.updatingActions
+        var resetActions = self.resetActions
+        updatingActions.append { value in
+            state.update { stateValue, transaction in
+                body(value, &stateValue, &transaction)
+            }
+        }
+        resetActions.append {
+            state.reset()
+        }
+
+        return RotationGesture(
+            minimumAngleDelta: minimumAngleDelta,
+            changedAction: changedAction,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        // Platform support for rotation gestures is pending.
+        // Return the view unchanged so the gesture can still be composed.
+        AnyView(view)
+    }
+}
+
+public typealias RotateGesture = RotationGesture
+
+public struct ScrollGesture: Gesture {
+    public typealias Value = CGSize
+
+    public var minimumDelta: CGSize
+    private let changedAction: (@MainActor (Value) -> Void)?
+    private let endedAction: (@MainActor (Value) -> Void)?
+    private let updatingActions: [@MainActor (Value) -> Void]
+    private let resetActions: [@MainActor () -> Void]
+
+    public init(minimumDelta: CGSize = CGSize(width: 0, height: 0)) {
+        self.minimumDelta = minimumDelta
+        self.changedAction = nil
+        self.endedAction = nil
+        self.updatingActions = []
+        self.resetActions = []
+    }
+
+    private init(
+        minimumDelta: CGSize,
+        changedAction: (@MainActor (Value) -> Void)?,
+        endedAction: (@MainActor (Value) -> Void)?,
+        updatingActions: [@MainActor (Value) -> Void],
+        resetActions: [@MainActor () -> Void]
+    ) {
+        self.minimumDelta = minimumDelta
+        self.changedAction = changedAction
+        self.endedAction = endedAction
+        self.updatingActions = updatingActions
+        self.resetActions = resetActions
+    }
+
+    public func onChanged(_ action: @escaping @MainActor (Value) -> Void) -> ScrollGesture {
+        ScrollGesture(
+            minimumDelta: minimumDelta,
+            changedAction: action,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func onEnded(_ action: @escaping @MainActor (Value) -> Void) -> ScrollGesture {
+        ScrollGesture(
+            minimumDelta: minimumDelta,
+            changedAction: changedAction,
+            endedAction: action,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func updating<State>(
+        _ state: GestureState<State>,
+        body: @escaping @MainActor (Value, inout State, inout Transaction) -> Void
+    ) -> ScrollGesture {
+        var updatingActions = self.updatingActions
+        var resetActions = self.resetActions
+        updatingActions.append { value in
+            state.update { stateValue, transaction in
+                body(value, &stateValue, &transaction)
+            }
+        }
+        resetActions.append {
+            state.reset()
+        }
+
+        return ScrollGesture(
+            minimumDelta: minimumDelta,
+            changedAction: changedAction,
+            endedAction: endedAction,
+            updatingActions: updatingActions,
+            resetActions: resetActions
+        )
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        AnyView(view)
+    }
+}
+
 public struct SubmitTriggers: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -8966,6 +13696,15 @@ public struct Font: Sendable, Equatable {
             return .caption2
         }
     }
+
+    public struct Resolved: Sendable, Equatable {
+        public let font: Font
+        public init(font: Font) { self.font = font }
+    }
+
+    public func resolve(in environment: EnvironmentValues) -> Resolved {
+        Resolved(font: self)
+    }
 }
 
 public struct ButtonSurfaceStyle: Sendable {
@@ -9046,6 +13785,20 @@ public struct ButtonSurfaceStyle: Sendable {
 public enum ButtonRole: Sendable, Equatable {
     case destructive
     case cancel
+}
+
+public protocol PrimitiveButtonStyle {
+    associatedtype Body: View
+    @ViewBuilder func makeBody(configuration: PrimitiveButtonStyleConfiguration) -> Body
+}
+
+public struct PrimitiveButtonStyleConfiguration {
+    public let label: AnyView
+    public let action: () -> Void
+    public init(label: AnyView, action: @escaping () -> Void) {
+        self.label = label
+        self.action = action
+    }
 }
 
 public struct ButtonStyle: Sendable, Equatable {
@@ -9175,6 +13928,42 @@ public struct ToolbarItemPlacement: Sendable, Equatable, Hashable {
     public static let navigationBar = ToolbarItemPlacement(.navigationBar)
     public static let tabBar = ToolbarItemPlacement(.tabBar)
     public static let windowToolbar = ToolbarItemPlacement(.windowToolbar)
+}
+
+public struct ToolbarPlacement: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case automatic
+        case navigationBar
+        case bottomBar
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ToolbarPlacement(.automatic)
+    public static let navigationBar = ToolbarPlacement(.navigationBar)
+    public static let bottomBar = ToolbarPlacement(.bottomBar)
+}
+
+public struct SidebarRowSize: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case small
+        case medium
+        case large
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let small = SidebarRowSize(.small)
+    public static let medium = SidebarRowSize(.medium)
+    public static let large = SidebarRowSize(.large)
 }
 
 public struct ToolbarRole: Sendable, Equatable, Hashable {
@@ -9375,6 +14164,15 @@ public struct PalettePickerStyle: Sendable, Equatable {
     public init() {}
 }
 
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+public struct PaletteSelection: Sendable, Equatable {
+    public var selectedIndices: Set<Int>
+
+    public init(selectedIndices: Set<Int> = []) {
+        self.selectedIndices = selectedIndices
+    }
+}
+
 public struct RadioGroupPickerStyle: Sendable, Equatable {
     public init() {}
 }
@@ -9385,6 +14183,18 @@ public struct WheelPickerStyle: Sendable, Equatable {
 
 @available(*, deprecated, message: "Use MenuPickerStyle instead.")
 public struct PopUpButtonPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DefaultWheelPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ListPickerStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AutomaticPickerStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -9452,11 +14262,16 @@ public struct AccessoryCircularCapacityGaugeStyle: Sendable, Equatable {
     public init() {}
 }
 
+public struct StepperStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct ProgressViewStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
         case linear
         case circular
+        case timer
     }
 
     let kind: Kind
@@ -9468,6 +14283,7 @@ public struct ProgressViewStyle: Sendable, Equatable {
     public static let automatic = ProgressViewStyle(kind: .automatic)
     public static let linear = ProgressViewStyle(kind: .linear)
     public static let circular = ProgressViewStyle(kind: .circular)
+    public static let timer = ProgressViewStyle(kind: .timer)
 }
 
 public struct DefaultProgressViewStyle: Sendable, Equatable {
@@ -9479,6 +14295,10 @@ public struct LinearProgressViewStyle: Sendable, Equatable {
 }
 
 public struct CircularProgressViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TimerProgressViewStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -9604,6 +14424,18 @@ public struct TabViewStyle: Sendable, Equatable {
     public static let carousel = TabViewStyle(kind: .carousel)
 }
 
+public struct TabViewCustomization: Sendable, Equatable {
+    private let rawValue: String
+
+    public init() {
+        self.rawValue = "default"
+    }
+
+    private init(_ rawValue: String) {
+        self.rawValue = rawValue
+    }
+}
+
 public struct DefaultTabViewStyle: Sendable, Equatable {
     public init() {}
 }
@@ -9673,6 +14505,30 @@ public struct VerticalPageTabViewStyle: Sendable, Equatable {
 }
 
 public struct CarouselTabViewStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TableOfContentsStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case list
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TableOfContentsStyle(kind: .automatic)
+    public static let list = TableOfContentsStyle(kind: .list)
+}
+
+public struct DefaultTableOfContentsStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ListTableOfContentsStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -9861,13 +14717,21 @@ public struct BorderlessButtonMenuStyle: Sendable, Equatable {
     }
 }
 
-public protocol ShapeStyle: Sendable {
+public enum MenuOrder: Sendable, Equatable {
+    case automatic
+    case priority
+    case fixed
+}
+
+@preconcurrency public protocol ShapeStyle: Sendable {
     var retainedForegroundStyle: ForegroundStyle { get }
 }
 
 public enum ForegroundStyle: Sendable, Equatable {
     case color(Color)
     case linearGradient(LinearGradient)
+    case radialGradient(RadialGradient)
+    case conicGradient(ConicGradient)
 
     public init(_ color: Color) {
         self = .color(color)
@@ -9877,12 +14741,18 @@ public enum ForegroundStyle: Sendable, Equatable {
         self = .linearGradient(gradient)
     }
 
+    public init(_ gradient: RadialGradient) {
+        self = .radialGradient(gradient)
+    }
+
+    public init(_ gradient: ConicGradient) {
+        self = .conicGradient(gradient)
+    }
+
     public init<S: ShapeStyle>(_ style: S) {
         self = style.retainedForegroundStyle
     }
 }
-
-public typealias AnyShapeStyle = ForegroundStyle
 
 public struct OpacityShapeStyle<Base: ShapeStyle>: ShapeStyle, Sendable {
     let base: Base
@@ -10005,7 +14875,19 @@ extension SwiftWindowsCore.Color: ShapeStyle {
 
 extension SwiftWindowsGraphics.LinearGradient: ShapeStyle {
     public var retainedForegroundStyle: ForegroundStyle {
-        .linearGradient(self)
+        .linearGradient(WinSwiftUI.LinearGradient(self))
+    }
+}
+
+extension SwiftWindowsGraphics.RadialGradient: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .radialGradient(WinSwiftUI.RadialGradient(self))
+    }
+}
+
+extension SwiftWindowsGraphics.ConicGradient: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .conicGradient(WinSwiftUI.AngularGradient(self))
     }
 }
 
@@ -10048,6 +14930,22 @@ public struct HierarchicalShapeStyle: ShapeStyle, Sendable, Equatable {
             return Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1)
         }
     }
+}
+
+extension AnyShapeStyle: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        if let style = box.value as? ForegroundStyle {
+            return style
+        }
+        return .color(.clear)
+    }
+
+    public init<S: ShapeStyle>(_ style: S) {
+        self.init()
+        self.box.value = style.retainedForegroundStyle
+    }
+
+    public static let clear = AnyShapeStyle()
 }
 
 public extension ShapeStyle where Self == ForegroundStyle {
@@ -10154,6 +15052,29 @@ public extension ShapeStyle where Self == Material {
     static var bar: Material { .bar }
 }
 
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MaterialThickness: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case ultraThin
+        case thin
+        case regular
+        case thick
+        case ultraThick
+    }
+
+    private let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let ultraThin = MaterialThickness(kind: .ultraThin)
+    public static let thin = MaterialThickness(kind: .thin)
+    public static let regular = MaterialThickness(kind: .regular)
+    public static let thick = MaterialThickness(kind: .thick)
+    public static let ultraThick = MaterialThickness(kind: .ultraThick)
+}
+
 public struct SymbolRenderingMode: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case monochrome
@@ -10208,6 +15129,24 @@ extension SymbolVariants {
     var retainedSymbolVariants: RetainedSymbolVariants {
         RetainedSymbolVariants(rawValue: rawValue)
     }
+}
+
+public struct DynamicRange: Sendable, Equatable, Hashable {
+    private enum Kind: Sendable, Equatable, Hashable {
+        case standard
+        case high
+        case constrainedHigh
+    }
+
+    private let kind: Kind
+
+    private init(_ kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let standard = DynamicRange(.standard)
+    public static let high = DynamicRange(.high)
+    public static let constrainedHigh = DynamicRange(.constrainedHigh)
 }
 
 public enum ControlSize: Sendable, Equatable {
@@ -10290,6 +15229,36 @@ public struct ButtonToggleStyle: Sendable, Equatable {
     public init() {}
 }
 
+public struct SliderStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case linear
+        case stepped
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = SliderStyle(kind: .automatic)
+    public static let linear = SliderStyle(kind: .linear)
+    public static let stepped = SliderStyle(kind: .stepped)
+}
+
+public struct DefaultSliderStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct LinearSliderStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SteppedSliderStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct TextFieldStyle: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case automatic
@@ -10323,6 +15292,36 @@ public struct RoundedBorderTextFieldStyle: Sendable, Equatable {
 }
 
 public struct SquareBorderTextFieldStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct TextEditorStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case plain
+        case roundedBorder
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TextEditorStyle(kind: .automatic)
+    public static let plain = TextEditorStyle(kind: .plain)
+    public static let roundedBorder = TextEditorStyle(kind: .roundedBorder)
+}
+
+public struct DefaultTextEditorStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PlainTextEditorStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RoundedBorderTextEditorStyle: Sendable, Equatable {
     public init() {}
 }
 
@@ -10429,6 +15428,36 @@ public struct ListStyle: Sendable, Equatable {
     }
 }
 
+public struct TableStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case inset
+        case bordered
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = TableStyle(kind: .automatic)
+    public static let inset = TableStyle(kind: .inset)
+    public static let bordered = TableStyle(kind: .bordered)
+}
+
+public struct AutomaticTableStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct InsetTableStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderedTableStyle: Sendable, Equatable {
+    public init() {}
+}
+
 public struct ListItemTint: Sendable, Equatable {
     enum Kind: Sendable, Equatable {
         case fixed(Color)
@@ -10463,6 +15492,31 @@ public struct ListItemTint: Sendable, Equatable {
                 color: Color(red: 0.86, green: 0.90, blue: 0.96, alpha: 0.78),
                 kind: .monochrome
             )
+        }
+    }
+}
+
+public struct ListRowHoverStyle: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case automatic
+        case disabled
+    }
+
+    let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = ListRowHoverStyle(kind: .automatic)
+    public static let disabled = ListRowHoverStyle(kind: .disabled)
+
+    var retained: RetainedListRowHoverStyle {
+        switch kind {
+        case .automatic:
+            return .automatic
+        case .disabled:
+            return .disabled
         }
     }
 }
@@ -10843,65 +15897,133 @@ public protocol VisualEffect: Sendable {
     var retainedVisualEffectDescription: String { get }
 }
 
+internal enum RetainedVisualEffectOperation: Sendable, Equatable {
+    case brightness(Double)
+    case contrast(Double)
+    case saturation(Double)
+    case grayscale(Double)
+    case hueRotation(Double)
+    case colorInvert
+    case colorMultiply(Color)
+    case luminanceToAlpha
+    case blur(radius: Double, opaque: Bool)
+    case opacity(Double)
+    case scaleEffect(x: Double, y: Double)
+    case offset(x: Double, y: Double)
+    case rotationEffect(Double)
+    case blendMode(BlendMode)
+}
+
 public struct EmptyVisualEffect: VisualEffect, Equatable, Hashable, CustomStringConvertible {
     public var retainedVisualEffectDescription: String
+    internal var operations: [RetainedVisualEffectOperation]
 
     public init(retainedVisualEffectDescription: String = "identity") {
         self.retainedVisualEffectDescription = retainedVisualEffectDescription
+        self.operations = []
+    }
+
+    internal init(retainedVisualEffectDescription: String = "identity", operations: [RetainedVisualEffectOperation]) {
+        self.retainedVisualEffectDescription = retainedVisualEffectDescription
+        self.operations = operations
     }
 
     public var description: String {
         retainedVisualEffectDescription
     }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(retainedVisualEffectDescription)
+    }
+
+    public static func == (lhs: EmptyVisualEffect, rhs: EmptyVisualEffect) -> Bool {
+        lhs.retainedVisualEffectDescription == rhs.retainedVisualEffectDescription
+            && lhs.operations == rhs.operations
+    }
+}
+
+private extension VisualEffect {
+    var _baseOperations: [RetainedVisualEffectOperation] {
+        (self as? EmptyVisualEffect)?.operations ?? []
+    }
 }
 
 public extension VisualEffect {
     func brightness(_ amount: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).brightness(\(amount))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).brightness(\(amount))",
+            operations: _baseOperations + [.brightness(amount)]
+        )
     }
 
     func contrast(_ amount: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).contrast(\(amount))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).contrast(\(amount))",
+            operations: _baseOperations + [.contrast(amount)]
+        )
     }
 
     func colorInvert() -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorInvert")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorInvert",
+            operations: _baseOperations + [.colorInvert]
+        )
     }
 
     func colorMultiply(_ color: Color) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorMultiply(\(retainedVisualEffectColorDescription(color)))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorMultiply(\(retainedVisualEffectColorDescription(color)))",
+            operations: _baseOperations + [.colorMultiply(color)]
+        )
     }
 
     func colorEffect(_ shader: Shader, isEnabled: Bool = true) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorEffect(\(retainedVisualEffectShaderDescription(shader)),enabled:\(isEnabled))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).colorEffect(\(retainedVisualEffectShaderDescription(shader)),enabled:\(isEnabled))",
+            operations: _baseOperations
         )
     }
 
     func saturation(_ amount: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).saturation(\(amount))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).saturation(\(amount))",
+            operations: _baseOperations + [.saturation(amount)]
+        )
     }
 
     func grayscale(_ amount: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).grayscale(\(amount))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).grayscale(\(amount))",
+            operations: _baseOperations + [.grayscale(amount)]
+        )
     }
 
     func hueRotation(_ angle: Angle) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).hueRotation(\(angle.radians))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).hueRotation(\(angle.radians))",
+            operations: _baseOperations + [.hueRotation(angle.radians)]
+        )
     }
 
     func luminanceToAlpha() -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).luminanceToAlpha")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).luminanceToAlpha",
+            operations: _baseOperations + [.luminanceToAlpha]
+        )
     }
 
     func blendMode(_ blendMode: BlendMode) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blendMode(\(retainedVisualEffectBlendModeDescription(blendMode)))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blendMode(\(retainedVisualEffectBlendModeDescription(blendMode)))",
+            operations: _baseOperations + [.blendMode(blendMode)]
         )
     }
 
     func opacity(_ value: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).opacity(\(value))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).opacity(\(value))",
+            operations: _baseOperations + [.opacity(value)]
+        )
     }
 
     func scaleEffect(_ scale: Double, anchor: UnitPoint = .center) -> EmptyVisualEffect {
@@ -10909,8 +16031,10 @@ public extension VisualEffect {
     }
 
     func scaleEffect(x: Double = 1, y: Double = 1, anchor: UnitPoint = .center) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect(x:\(x),y:\(y),anchor:\(anchor.x),\(anchor.y))"
+        _ = anchor
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect(x:\(x),y:\(y),anchor:\(anchor.x),\(anchor.y))",
+            operations: _baseOperations + [.scaleEffect(x: x, y: y)]
         )
     }
 
@@ -10924,13 +16048,19 @@ public extension VisualEffect {
         z: Double = 1,
         anchor: UnitPoint3D = .center
     ) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect3D(x:\(x),y:\(y),z:\(z),anchor:\(anchor.x),\(anchor.y),\(anchor.z))"
+        _ = z
+        _ = anchor
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).scaleEffect3D(x:\(x),y:\(y),z:\(z),anchor:\(anchor.x),\(anchor.y),\(anchor.z))",
+            operations: _baseOperations + [.scaleEffect(x: x, y: y)]
         )
     }
 
     func offset(x: Double = 0, y: Double = 0) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(x:\(x),y:\(y))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(x:\(x),y:\(y))",
+            operations: _baseOperations + [.offset(x: x, y: y)]
+        )
     }
 
     func offset(_ offset: CGSize) -> EmptyVisualEffect {
@@ -10938,11 +16068,17 @@ public extension VisualEffect {
     }
 
     func offset(z: Double) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(z:\(z))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).offset(z:\(z))",
+            operations: _baseOperations
+        )
     }
 
     func blur(radius: Double, opaque: Bool = false) -> EmptyVisualEffect {
-        EmptyVisualEffect(retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)),opaque:\(opaque))")
+        EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).blur(radius:\(max(0, radius)),opaque:\(opaque))",
+            operations: _baseOperations + [.blur(radius: max(0, radius), opaque: opaque)]
+        )
     }
 
     func distortionEffect(
@@ -10951,7 +16087,8 @@ public extension VisualEffect {
         isEnabled: Bool = true
     ) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).distortionEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).distortionEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))",
+            operations: _baseOperations
         )
     }
 
@@ -10961,13 +16098,16 @@ public extension VisualEffect {
         isEnabled: Bool = true
     ) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).layerEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).layerEffect(\(retainedVisualEffectShaderDescription(shader)),maxSampleOffset:\(retainedVisualEffectSizeDescription(maxSampleOffset)),enabled:\(isEnabled))",
+            operations: _baseOperations
         )
     }
 
     func rotationEffect(_ angle: Angle, anchor: UnitPoint = .center) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))"
+        _ = anchor
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotationEffect(angle:\(angle.radians),anchor:\(anchor.x),\(anchor.y))",
+            operations: _baseOperations + [.rotationEffect(angle.radians)]
         )
     }
 
@@ -10978,8 +16118,13 @@ public extension VisualEffect {
         anchorZ: CGFloat = 0,
         perspective: CGFloat = 1
     ) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),anchorZ:\(anchorZ),perspective:\(perspective))"
+        _ = anchor
+        _ = anchorZ
+        _ = perspective
+        let retainedAngle = axis.z == 0 ? 0 : angle.radians * (axis.z < 0 ? -1 : 1)
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),anchorZ:\(anchorZ),perspective:\(perspective))",
+            operations: _baseOperations + [.rotationEffect(retainedAngle)]
         )
     }
 
@@ -10988,14 +16133,19 @@ public extension VisualEffect {
         axis: RotationAxis3D,
         anchor: UnitPoint3D = .center
     ) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))"
+        _ = anchor
+        let retainedAngle = axis.z == 0 ? 0 : angle.radians * (axis.z < 0 ? -1 : 1)
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))",
+            operations: _baseOperations + [.rotationEffect(retainedAngle)]
         )
     }
 
     func rotation3DEffect(_ rotation: Rotation3D, anchor: UnitPoint3D = .center) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(\(rotation.description),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))"
+        _ = anchor
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).rotation3DEffect(\(rotation.description),anchor3D:\(anchor.x),\(anchor.y),\(anchor.z))",
+            operations: _baseOperations + [.rotationEffect(rotation.angle.radians * (rotation.axis.z < 0 ? -1 : 1))]
         )
     }
 
@@ -11005,27 +16155,71 @@ public extension VisualEffect {
         anchor: UnitPoint3D = .center,
         perspective: CGFloat = 1
     ) -> EmptyVisualEffect {
-        EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).perspectiveRotationEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),\(anchor.z),perspective:\(perspective))"
+        _ = anchor
+        _ = perspective
+        let retainedAngle = axis.z == 0 ? 0 : angle.radians * (axis.z < 0 ? -1 : 1)
+        return EmptyVisualEffect(
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).perspectiveRotationEffect(angle:\(angle.radians),axis:\(axis.x),\(axis.y),\(axis.z),anchor:\(anchor.x),\(anchor.y),\(anchor.z),perspective:\(perspective))",
+            operations: _baseOperations + [.rotationEffect(retainedAngle)]
         )
     }
 
     func transformEffect(_ transform: CGAffineTransform) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectAffineTransformDescription(transform)))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectAffineTransformDescription(transform)))",
+            operations: _baseOperations
         )
     }
 
     func transformEffect(_ transform: ProjectionTransform) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectProjectionTransformDescription(transform)))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transformEffect(\(retainedVisualEffectProjectionTransformDescription(transform)))",
+            operations: _baseOperations
         )
     }
 
     func transform3DEffect(_ transform: AffineTransform3D) -> EmptyVisualEffect {
         EmptyVisualEffect(
-            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transform3DEffect(\(transform.description))"
+            retainedVisualEffectDescription: "\(retainedVisualEffectDescription).transform3DEffect(\(transform.description))",
+            operations: _baseOperations
         )
+    }
+}
+
+@MainActor
+private func applyRetainedVisualEffectOperations(_ operations: [RetainedVisualEffectOperation], to node: ViewNode) {
+    for op in operations {
+        switch op {
+        case .brightness(let amount):
+            node.colorEffects.append(.brightness(amount))
+        case .contrast(let amount):
+            node.colorEffects.append(.contrast(amount))
+        case .saturation(let amount):
+            node.colorEffects.append(.saturation(amount))
+        case .grayscale(let amount):
+            node.colorEffects.append(.grayscale(amount))
+        case .hueRotation(let angle):
+            node.colorEffects.append(.hueRotation(angle))
+        case .colorInvert:
+            node.colorEffects.append(.colorInvert)
+        case .colorMultiply(let color):
+            node.colorEffects.append(.colorMultiply(color))
+        case .luminanceToAlpha:
+            node.colorEffects.append(.luminanceToAlpha)
+        case .blur(let radius, let opaque):
+            node.blurRadius = max(0, radius)
+            node.blurOpaque = opaque
+        case .opacity(let value):
+            node.opacity *= value
+        case .scaleEffect(let x, let y):
+            node.transform = node.transform.concatenating(.scale(x: x, y: y))
+        case .offset(let x, let y):
+            node.transform = node.transform.concatenating(.translation(x: x, y: y))
+        case .rotationEffect(let angle):
+            node.transform = node.transform.concatenating(Transform2D(rotation: angle))
+        case .blendMode(let mode):
+            node.blendMode = mode.retainedBlendMode
+        }
     }
 }
 
@@ -11121,9 +16315,33 @@ public struct UnitCurve: Sendable, Equatable, Hashable, CustomStringConvertible 
     public static let circularEaseIn = UnitCurve("circularEaseIn")
     public static let circularEaseOut = UnitCurve("circularEaseOut")
     public static let circularEaseInOut = UnitCurve("circularEaseInOut")
+    public static let smooth = UnitCurve("smooth")
+    public static let bouncy = UnitCurve("bouncy")
 
     public var description: String {
         name
+    }
+
+    public func value(at x: Double) -> Double {
+        switch name {
+        case "linear":
+            return x
+        case "easeIn":
+            return x * x
+        case "easeOut":
+            return x * (2 - x)
+        case "easeInOut":
+            return x < 0.5 ? 2 * x * x : -1 + (4 - 2 * x) * x
+        case "smooth":
+            return x < 0.5 ? 2 * x * x : -1 + (4 - 2 * x) * x
+        case "bouncy":
+            let decay = exp(-0.4 * x * 5.0)
+            let oscillation = cos(x * 2.0 * Double.pi)
+            let value = 1.0 - decay * oscillation
+            return max(0.0, min(1.0, value))
+        default:
+            return x
+        }
     }
 }
 
@@ -11677,7 +16895,7 @@ public struct SectionStyle: Sendable {
     public var padding: EdgeInsets
     public var alignment: HorizontalAlignment
     public var backgroundColor: Color
-    public var backgroundGradient: LinearGradient?
+    public var backgroundGradient: GradientType?
     public var borderColor: Color
     public var shadowColor: Color
     public var cornerRadius: Double
@@ -11696,7 +16914,7 @@ public struct SectionStyle: Sendable {
         padding: EdgeInsets = EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
         alignment: HorizontalAlignment = .leading,
         backgroundColor: Color = Color(red: 0.10, green: 0.14, blue: 0.22, alpha: 0.78),
-        backgroundGradient: LinearGradient? = nil,
+        backgroundGradient: GradientType? = nil,
         borderColor: Color = Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 0.10),
         shadowColor: Color = Color(red: 0.02, green: 0.05, blue: 0.10, alpha: 0.16),
         cornerRadius: Double = 28,
@@ -11878,6 +17096,35 @@ extension TaggedViewMetadata {
         []
     }
 }
+
+@MainActor
+protocol SwipeActionMetadata {
+    var swipeActions: [RetainedSwipeAction] { get }
+}
+
+extension Button: SwipeActionMetadata {
+    var swipeActions: [RetainedSwipeAction] {
+        [RetainedSwipeAction(
+            title: _storedTitle ?? "",
+            isDestructive: role == .destructive,
+            action: action
+        )]
+    }
+}
+
+extension ModifiedView: SwipeActionMetadata where Content: SwipeActionMetadata {
+    var swipeActions: [RetainedSwipeAction] {
+        content.swipeActions
+    }
+}
+
+extension ViewModifierContent: SwipeActionMetadata {
+    var swipeActions: [RetainedSwipeAction] {
+        content.swipeActions
+    }
+}
+
+extension AnyView: SwipeActionMetadata {}
 
 @MainActor
 struct TaggedView<Content: View, Tag: Hashable>: View, TaggedViewMetadata {
@@ -12229,24 +17476,6 @@ public extension SwiftWindowsCore.Color {
         case displayP3
     }
 
-    static let red = SwiftWindowsCore.Color(red: 1, green: 0, blue: 0, alpha: 1)
-    static let orange = SwiftWindowsCore.Color(red: 1, green: 0.5, blue: 0, alpha: 1)
-    static let yellow = SwiftWindowsCore.Color(red: 1, green: 1, blue: 0, alpha: 1)
-    static let green = SwiftWindowsCore.Color(red: 0, green: 1, blue: 0, alpha: 1)
-    static let mint = SwiftWindowsCore.Color(red: 0, green: 0.78, blue: 0.75, alpha: 1)
-    static let teal = SwiftWindowsCore.Color(red: 0, green: 0.5, blue: 0.5, alpha: 1)
-    static let cyan = SwiftWindowsCore.Color(red: 0, green: 1, blue: 1, alpha: 1)
-    static let blue = SwiftWindowsCore.Color(red: 0, green: 0, blue: 1, alpha: 1)
-    static let indigo = SwiftWindowsCore.Color(red: 0.29, green: 0, blue: 0.51, alpha: 1)
-    static let purple = SwiftWindowsCore.Color(red: 0.5, green: 0, blue: 0.5, alpha: 1)
-    static let pink = SwiftWindowsCore.Color(red: 1, green: 0.41, blue: 0.71, alpha: 1)
-    static let brown = SwiftWindowsCore.Color(red: 0.6, green: 0.4, blue: 0.2, alpha: 1)
-    static let gray = SwiftWindowsCore.Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
-    static let primary = SwiftWindowsCore.Color.white
-    static let secondary = SwiftWindowsCore.Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
-    static let highContrastSecondary = SwiftWindowsCore.Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
-    static let accentColor = SwiftWindowsCore.Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
-
     init(red: Double, green: Double, blue: Double, opacity: Double = 1.0) {
         self.init(red: Float(red), green: Float(green), blue: Float(blue), alpha: Float(opacity))
     }
@@ -12270,39 +17499,6 @@ public extension SwiftWindowsCore.Color {
         self.init(red: channel, green: channel, blue: channel, alpha: Float(clampedUnitInterval(opacity)))
     }
 
-    init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1.0) {
-        let normalizedHue = normalizedHueUnit(hue)
-        let saturation = clampedUnitInterval(saturation)
-        let brightness = clampedUnitInterval(brightness)
-        let chroma = brightness * saturation
-        let hueSector = normalizedHue * 6
-        let secondary = chroma * (1 - abs(hueSector.truncatingRemainder(dividingBy: 2) - 1))
-        let match = brightness - chroma
-
-        let components: (Double, Double, Double)
-        switch hueSector {
-        case 0..<1:
-            components = (chroma, secondary, 0)
-        case 1..<2:
-            components = (secondary, chroma, 0)
-        case 2..<3:
-            components = (0, chroma, secondary)
-        case 3..<4:
-            components = (0, secondary, chroma)
-        case 4..<5:
-            components = (secondary, 0, chroma)
-        default:
-            components = (chroma, 0, secondary)
-        }
-
-        self.init(
-            red: Float(components.0 + match),
-            green: Float(components.1 + match),
-            blue: Float(components.2 + match),
-            alpha: Float(clampedUnitInterval(opacity))
-        )
-    }
-
     init(_ name: String, bundle: Bundle? = nil) {
         self.init(ColorResource(name: name, bundle: bundle ?? .main))
     }
@@ -12316,7 +17512,7 @@ public extension SwiftWindowsCore.Color {
         return SwiftWindowsCore.Color(red: components.0, green: components.1, blue: components.2, alpha: Float(value))
     }
 
-    func retainedWithMultipliedOpacity(_ opacity: Double) -> SwiftWindowsCore.Color {
+    nonisolated func retainedWithMultipliedOpacity(_ opacity: Double) -> SwiftWindowsCore.Color {
         let clampedOpacity = Float(min(max(opacity, 0), 1))
         let components = rgba
         return SwiftWindowsCore.Color(
@@ -12327,7 +17523,7 @@ public extension SwiftWindowsCore.Color {
         )
     }
 
-    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
+    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> SwiftWindowsCore.Color {
         guard contrast == .increased, self == .secondary else {
             return self
         }
@@ -12335,7 +17531,7 @@ public extension SwiftWindowsCore.Color {
         return resolvedHighContrastSecondary()
     }
 
-    func resolvedForBackgroundProminence(_ prominence: BackgroundProminence) -> SwiftWindowsCore.Color {
+    nonisolated func resolvedForBackgroundProminence(_ prominence: BackgroundProminence) -> SwiftWindowsCore.Color {
         guard prominence == .increased, self == .secondary else {
             return self
         }
@@ -12343,7 +17539,7 @@ public extension SwiftWindowsCore.Color {
         return resolvedHighContrastSecondary()
     }
 
-    func resolvedForVisualEnvironment(
+    nonisolated func resolvedForVisualEnvironment(
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> SwiftWindowsCore.Color {
@@ -12351,7 +17547,7 @@ public extension SwiftWindowsCore.Color {
             .resolvedForBackgroundProminence(backgroundProminence)
     }
 
-    private func resolvedHighContrastSecondary() -> SwiftWindowsCore.Color {
+    nonisolated private func resolvedHighContrastSecondary() -> SwiftWindowsCore.Color {
         let alpha = rgba.3
         let highContrastComponents = SwiftWindowsCore.Color.highContrastSecondary.rgba
         return SwiftWindowsCore.Color(
@@ -12370,6 +17566,10 @@ extension ForegroundStyle {
             return .color(color.retainedWithMultipliedOpacity(opacity))
         case .linearGradient(let gradient):
             return .linearGradient(gradient.retainedWithMultipliedOpacity(opacity))
+        case .radialGradient(let gradient):
+            return .radialGradient(gradient.retainedWithMultipliedOpacity(opacity))
+        case .conicGradient(let gradient):
+            return .conicGradient(gradient.retainedWithMultipliedOpacity(opacity))
         }
     }
 
@@ -12379,6 +17579,10 @@ extension ForegroundStyle {
             return .color(color.resolvedForContrast(contrast))
         case .linearGradient(let gradient):
             return .linearGradient(gradient.resolvedForContrast(contrast))
+        case .radialGradient(let gradient):
+            return .radialGradient(gradient.resolvedForContrast(contrast))
+        case .conicGradient(let gradient):
+            return .conicGradient(gradient.resolvedForContrast(contrast))
         }
     }
 
@@ -12401,44 +17605,167 @@ extension ForegroundStyle {
                     backgroundProminence: backgroundProminence
                 )
             )
+        case .radialGradient(let gradient):
+            return .radialGradient(
+                gradient.resolvedForVisualEnvironment(
+                    contrast: contrast,
+                    backgroundProminence: backgroundProminence
+                )
+            )
+        case .conicGradient(let gradient):
+            return .conicGradient(
+                gradient.resolvedForVisualEnvironment(
+                    contrast: contrast,
+                    backgroundProminence: backgroundProminence
+                )
+            )
         }
     }
 }
 
 extension LinearGradient {
-    func retainedWithMultipliedOpacity(_ opacity: Double) -> LinearGradient {
-        var resolved = self
-        resolved.stops = stops.map { stop in
-            GradientStop(
-                color: stop.color.retainedWithMultipliedOpacity(opacity),
-                position: stop.position
-            )
-        }
-        return resolved
-    }
-
-    func resolvedForContrast(_ contrast: ColorSchemeContrast) -> LinearGradient {
+    nonisolated func retainedWithMultipliedOpacity(_ opacity: Double) -> LinearGradient {
         LinearGradient(
-            startColor: startColor.resolvedForContrast(contrast),
-            endColor: endColor.resolvedForContrast(contrast),
-            axis: axis
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.retainedWithMultipliedOpacity(opacity),
+                    position: stop.position
+                )
+            }),
+            startPoint: startPoint,
+            endPoint: endPoint
         )
     }
 
-    func resolvedForVisualEnvironment(
+    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> LinearGradient {
+        LinearGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForContrast(contrast),
+                    position: stop.position
+                )
+            }),
+            startPoint: startPoint,
+            endPoint: endPoint
+        )
+    }
+
+    nonisolated func resolvedForVisualEnvironment(
         contrast: ColorSchemeContrast,
         backgroundProminence: BackgroundProminence
     ) -> LinearGradient {
         LinearGradient(
-            startColor: startColor.resolvedForVisualEnvironment(
-                contrast: contrast,
-                backgroundProminence: backgroundProminence
-            ),
-            endColor: endColor.resolvedForVisualEnvironment(
-                contrast: contrast,
-                backgroundProminence: backgroundProminence
-            ),
-            axis: axis
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForVisualEnvironment(
+                        contrast: contrast,
+                        backgroundProminence: backgroundProminence
+                    ),
+                    position: stop.position
+                )
+            }),
+            startPoint: startPoint,
+            endPoint: endPoint
+        )
+    }
+}
+
+extension RadialGradient {
+    nonisolated func retainedWithMultipliedOpacity(_ opacity: Double) -> RadialGradient {
+        RadialGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.retainedWithMultipliedOpacity(opacity),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startRadius: startRadius,
+            endRadius: endRadius
+        )
+    }
+
+    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> RadialGradient {
+        RadialGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForContrast(contrast),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startRadius: startRadius,
+            endRadius: endRadius
+        )
+    }
+
+    nonisolated func resolvedForVisualEnvironment(
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> RadialGradient {
+        RadialGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForVisualEnvironment(
+                        contrast: contrast,
+                        backgroundProminence: backgroundProminence
+                    ),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startRadius: startRadius,
+            endRadius: endRadius
+        )
+    }
+}
+
+extension ConicGradient {
+    nonisolated func retainedWithMultipliedOpacity(_ opacity: Double) -> ConicGradient {
+        AngularGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.retainedWithMultipliedOpacity(opacity),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startAngle: startAngle,
+            endAngle: endAngle
+        )
+    }
+
+    nonisolated func resolvedForContrast(_ contrast: ColorSchemeContrast) -> ConicGradient {
+        AngularGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForContrast(contrast),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startAngle: startAngle,
+            endAngle: endAngle
+        )
+    }
+
+    nonisolated func resolvedForVisualEnvironment(
+        contrast: ColorSchemeContrast,
+        backgroundProminence: BackgroundProminence
+    ) -> ConicGradient {
+        AngularGradient(
+            gradient: Gradient(stops: stops.map { stop in
+                GradientStop(
+                    color: stop.color.resolvedForVisualEnvironment(
+                        contrast: contrast,
+                        backgroundProminence: backgroundProminence
+                    ),
+                    position: stop.position
+                )
+            }),
+            center: center,
+            startAngle: startAngle,
+            endAngle: endAngle
         )
     }
 }
@@ -12627,12 +17954,16 @@ private func normalizedHueUnit(_ hue: Double) -> Double {
     return normalized >= 0 ? normalized : normalized + 1
 }
 
-private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, gradient: LinearGradient?) {
+private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, gradient: GradientType?) {
     switch style {
     case .color(let color):
         return (color, nil)
     case .linearGradient(let gradient):
-        return (nil, gradient)
+        return (nil, .linear(.init(gradient)))
+    case .radialGradient(let gradient):
+        return (nil, .radial(.init(gradient)))
+    case .conicGradient(let gradient):
+        return (nil, .conic(.init(gradient)))
     }
 }
 
@@ -12748,6 +18079,10 @@ private func resolvedStyleColor(from style: ForegroundStyle) -> Color {
         return color
     case .linearGradient(let gradient):
         return gradient.startColor
+    case .radialGradient(let gradient):
+        return gradient.stops.first?.color ?? .clear
+    case .conicGradient(let gradient):
+        return gradient.stops.first?.color ?? .clear
     }
 }
 
@@ -12757,27 +18092,32 @@ private func resolvedBorderFill(from style: ForegroundStyle) -> (color: Color, g
         return (color, nil)
     case .linearGradient(let gradient):
         return (gradient.startColor, gradient)
+    case .radialGradient(let gradient):
+        return (gradient.stops.first?.color ?? .clear, nil)
+    case .conicGradient(let gradient):
+        return (gradient.stops.first?.color ?? .clear, nil)
     }
 }
 
 public extension SwiftWindowsGraphics.LinearGradient {
-    init(colors: [Color], startPoint: UnitPoint, endPoint: UnitPoint) {
-        self.init(
-            gradient: Gradient(colors: colors),
-            startPoint: startPoint,
-            endPoint: endPoint
-        )
+    init(_ gradient: WinSwiftUI.LinearGradient) {
+        self.init(stops: gradient.stops, axis: gradient.axis)
     }
+}
 
-    init(gradient: Gradient, startPoint: UnitPoint, endPoint: UnitPoint) {
-        let colors = gradient.colors.isEmpty ? [.clear, .clear] : gradient.colors
-        let startColor = colors.first ?? .clear
-        let endColor = colors.last ?? startColor
-        let horizontalDelta = abs(endPoint.x - startPoint.x)
-        let verticalDelta = abs(endPoint.y - startPoint.y)
-        let axis: GradientAxis = horizontalDelta >= verticalDelta ? .horizontal : .vertical
+public extension SwiftWindowsGraphics.RadialGradient {
+    init(_ gradient: WinSwiftUI.RadialGradient) {
+        let center = Point(x: gradient.center.x, y: gradient.center.y)
+        let radius = max(gradient.startRadius, gradient.endRadius)
+        self.init(center: center, radius: radius, stops: gradient.stops)
+    }
+}
 
-        self.init(startColor: startColor, endColor: endColor, axis: axis)
+public extension SwiftWindowsGraphics.ConicGradient {
+    init(_ gradient: WinSwiftUI.AngularGradient) {
+        let center = Point(x: gradient.center.x, y: gradient.center.y)
+        let angle = gradient.startAngle.radians
+        self.init(center: center, angle: angle, stops: gradient.stops)
     }
 }
 
@@ -12795,7 +18135,7 @@ extension EdgeInsets {
 private func applyToolbarBackgroundStyle(
     to node: ViewNode,
     color: Color?,
-    gradient: LinearGradient?,
+    gradient: GradientType?,
     bars: [ToolbarItemPlacement] = []
 ) {
     if node.isToolbarContainer, retainedToolbarMatches(node.toolbarPlacementTags, bars: bars) {
@@ -13174,12 +18514,17 @@ private func retainedContainerValuesIdentifier() -> ObjectIdentifier {
 }
 
 @MainActor
-private func retainedBoundsAnchor(for node: ViewNode, context: ViewBuildContext) -> Anchor<Rect> {
-    var size = node.intrinsicContentSize()
-    if size.width <= 0 && size.height <= 0 {
-        size = context.canvasSize
+private func retainedAnchor(for node: ViewNode, source: Anchor<Rect>.Source, context: ViewBuildContext) -> Anchor<Rect> {
+    switch source.kind {
+    case .bounds:
+        var size = node.intrinsicContentSize()
+        if size.width <= 0 && size.height <= 0 {
+            size = context.canvasSize
+        }
+        return Anchor(Rect(origin: .zero, size: size))
+    case .rect(let rect):
+        return Anchor(rect)
     }
-    return Anchor(Rect(origin: .zero, size: size))
 }
 
 @MainActor
@@ -13471,7 +18816,6 @@ private func retainedSheetPresentation(
             )
         )
         let root = Controls.panel(
-            preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [baseNode, scrimNode, sheetNode]
@@ -13540,7 +18884,6 @@ private func retainedFullScreenCoverPresentation(
             children: retainedPresentationChildren(contentNode: coverContentNode, chrome: presentationChrome)
         )
         let root = Controls.panel(
-            preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [baseNode, coverNode]
@@ -13600,7 +18943,6 @@ private func retainedPopoverPresentation(
             children: retainedPresentationChildren(contentNode: popoverContentNode, chrome: presentationChrome)
         )
         let root = Controls.panel(
-            preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [baseNode, popoverNode]
@@ -13623,6 +18965,89 @@ private func retainedPopoverPresentation(
             let popoverFrame = Rect(origin: popoverOrigin, size: popoverSize)
             if popoverNode.frame != popoverFrame {
                 popoverNode.frame = popoverFrame
+            }
+        }
+
+        return root
+    }
+}
+
+@MainActor
+private func retainedInspectorPresentation(
+    base: Component,
+    inspector: Component,
+    context: ViewBuildContext,
+    onInteractiveDismiss: @escaping @MainActor () -> Void
+) -> Component {
+    Component { runtime in
+        let baseNode = base.makeNode(runtime: runtime)
+        let inspectorContentNode = inspector.makeNode(runtime: runtime)
+        let presentationChrome = retainedPresentationChrome(in: inspectorContentNode)
+        let inspectorBackgroundColor = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundColor
+            : Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98)
+        let inspectorBackgroundGradient = presentationChrome.hasBackgroundOverride
+            ? presentationChrome.backgroundGradient
+            : nil
+        let style = baseNode.inspectorPresentationStyle ?? .automatic
+        let isSheet = style.kind == .sheet
+
+        let inspectorNode = Controls.stackPanel(
+            backgroundColor: inspectorBackgroundColor,
+            backgroundGradient: inspectorBackgroundGradient,
+            borderColor: isSheet ? .clear : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderWidth: isSheet ? 0 : 1,
+            cornerRadius: isSheet ? 12 : 0,
+            clipsToBounds: true,
+            stackLayout: .vertical(
+                spacing: 10,
+                padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                alignment: .stretch
+            ),
+            isHitTestVisible: false,
+            children: retainedPresentationChildren(
+                contentNode: inspectorContentNode,
+                chrome: presentationChrome,
+                wrapsScrollingContent: true
+            )
+        )
+        let root = Controls.panel(
+            layoutMode: .absolute,
+            isHitTestVisible: false,
+            children: [baseNode, inspectorNode]
+        )
+
+        let columnWidth = baseNode.inspectorColumnWidth
+
+        root.onLayout = { bounds in
+            let boundsFrame = Rect(origin: .zero, size: bounds.size)
+            if baseNode.frame != boundsFrame {
+                baseNode.frame = boundsFrame
+            }
+
+            let inspectorWidth: Double = columnWidth ?? 320
+            let inspectorSize = inspectorNode.intrinsicContentSize()
+            let finalInspectorWidth = min(inspectorWidth, bounds.size.width)
+
+            let inspectorFrame: Rect
+            if isSheet {
+                let sheetWidth = min(finalInspectorWidth, bounds.size.width * 0.9)
+                let sheetHeight = min(inspectorSize.height, bounds.size.height * 0.8)
+                inspectorFrame = Rect(
+                    origin: Point(
+                        x: (bounds.size.width - sheetWidth) / 2,
+                        y: (bounds.size.height - sheetHeight) / 2
+                    ),
+                    size: Size(width: sheetWidth, height: sheetHeight)
+                )
+            } else {
+                inspectorFrame = Rect(
+                    origin: Point(x: bounds.size.width - finalInspectorWidth, y: 0),
+                    size: Size(width: finalInspectorWidth, height: bounds.size.height)
+                )
+            }
+            if inspectorNode.frame != inspectorFrame {
+                inspectorNode.frame = inspectorFrame
             }
         }
 
@@ -13795,7 +19220,6 @@ private func retainedAlertPresentation(
             children: alertChildren
         )
         let root = Controls.panel(
-            preferredSize: baseNode.intrinsicContentSize(),
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [baseNode, scrimNode, alertNode]
@@ -14221,6 +19645,52 @@ public extension View {
         }
     }
 
+    func frame(alignment: Alignment) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    preferredSize: nil,
+                    stackLayout: .vertical(
+                        padding: .zero,
+                        alignment: alignment.horizontal.stackAlignment(layoutDirection: context.layoutDirection),
+                        mainAlignment: alignment.vertical.mainAlignment
+                    ),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
+    }
+
+    func frame(_ rect: CGRect) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.frame = Rect(origin: Point(x: rect.origin.x, y: rect.origin.y), size: Size(width: rect.size.width, height: rect.size.height))
+                return childNode
+            }
+        }
+    }
+
+    func frame(
+        idealWidth: Double? = nil,
+        idealHeight: Double? = nil,
+        alignment: Alignment = .center
+    ) -> some View {
+        frame(
+            minWidth: nil,
+            idealWidth: idealWidth,
+            maxWidth: nil,
+            minHeight: nil,
+            idealHeight: idealHeight,
+            maxHeight: nil,
+            alignment: alignment
+        )
+    }
+
     func frame(
         minWidth: Double? = nil,
         idealWidth: Double? = nil,
@@ -14341,7 +19811,20 @@ public extension View {
     }
 
     func ignoresSafeArea(_ regions: SafeAreaRegions = .all, edges: Edge.Set = .all) -> some View {
-        self
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let largeInset = Double.greatestFiniteMagnitude
+                childNode.ignoresSafeAreaInsets = EdgeInsets(
+                    top: edges.contains(.top) ? largeInset : 0,
+                    leading: edges.contains(.leading) ? largeInset : 0,
+                    bottom: edges.contains(.bottom) ? largeInset : 0,
+                    trailing: edges.contains(.trailing) ? largeInset : 0
+                )
+                return childNode
+            }
+        }
     }
 
     func edgesIgnoringSafeArea(_ edges: Edge.Set) -> some View {
@@ -14482,6 +19965,30 @@ public extension View {
         }
     }
 
+    func contextMenu<A: Identifiable, M: View>(
+        forSelectionType itemType: A.Type,
+        @ViewBuilder menu: @escaping (Set<A.ID>) -> M,
+        primaryAction: ((Set<A.ID>) -> Void)? = nil
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.contextMenuForSelectionType = String(describing: itemType)
+                return childNode
+            }
+        }
+    }
+
+    func contextMenu<A: Identifiable, M: View, P: View>(
+        forSelectionType itemType: A.Type,
+        @ViewBuilder menu: @escaping (Set<A.ID>) -> M,
+        @ViewBuilder preview: @escaping (A) -> P,
+        primaryAction: ((Set<A.ID>) -> Void)? = nil
+    ) -> some View {
+        contextMenu(forSelectionType: itemType, menu: menu, primaryAction: primaryAction)
+    }
+
     func toolbar(@ViewBuilder content toolbarContent: () -> [AnyView]) -> some View {
         toolbar(id: nil, content: toolbarContent)
     }
@@ -14579,12 +20086,20 @@ public extension View {
     }
 
     func toolbarBackground(_ gradient: LinearGradient, for bars: ToolbarItemPlacement...) -> some View {
-        toolbarBackgroundStyle(color: nil, gradient: gradient, bars: bars)
+        toolbarBackgroundStyle(color: nil, gradient: .linear(.init(gradient)), bars: bars)
+    }
+
+    func toolbarBackground(_ gradient: RadialGradient, for bars: ToolbarItemPlacement...) -> some View {
+        toolbarBackgroundStyle(color: nil, gradient: .radial(.init(gradient)), bars: bars)
+    }
+
+    func toolbarBackground(_ gradient: AngularGradient, for bars: ToolbarItemPlacement...) -> some View {
+        toolbarBackgroundStyle(color: nil, gradient: .conic(.init(gradient)), bars: bars)
     }
 
     private func toolbarBackgroundStyle(
         color: Color?,
-        gradient: LinearGradient?,
+        gradient: GradientType?,
         bars: [ToolbarItemPlacement] = []
     ) -> some View {
         ModifiedView(content: self) { content, context in
@@ -14592,6 +20107,28 @@ public extension View {
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
                 applyToolbarBackgroundStyle(to: node, color: color, gradient: gradient, bars: bars)
+                return node
+            }
+        }
+    }
+
+    func toolbarVisibility(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarVisibility(to: node, visibility: visibility, bars: bars)
+                return node
+            }
+        }
+    }
+
+    func defaultToolbarVisibility(_ visibility: Visibility, for bars: ToolbarItemPlacement...) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarVisibility(to: node, visibility: visibility, bars: bars)
                 return node
             }
         }
@@ -14620,6 +20157,43 @@ public extension View {
         }
     }
 
+    func defaultToolbarRole(_ role: ToolbarRole) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                applyToolbarRoleChrome(to: node, role: role)
+                return node
+            }
+        }
+    }
+
+    func toolbarTitleMenu(@ViewBuilder _ content: @escaping () -> [AnyView]) -> some View {
+        ModifiedView(content: self) { viewContent, context in
+            let menuViews = content()
+            let menuComponents = menuViews.map { $0.makeComponent(context: context) }
+            let baseComponent = viewContent.makeComponent(context: context)
+            return Component { runtime in
+                let node = baseComponent.makeNode(runtime: runtime)
+                node.toolbarTitleMenuChildren = menuComponents.map { $0.makeNode(runtime: runtime) }
+                return node
+            }
+        }
+    }
+
+    func toolbarTitleActions(@ViewBuilder _ content: @escaping () -> [AnyView]) -> some View {
+        ModifiedView(content: self) { viewContent, context in
+            let actionViews = content()
+            let actionComponents = actionViews.map { $0.makeComponent(context: context) }
+            let baseComponent = viewContent.makeComponent(context: context)
+            return Component { runtime in
+                let node = baseComponent.makeNode(runtime: runtime)
+                node.toolbarTitleActionsChildren = actionComponents.map { $0.makeNode(runtime: runtime) }
+                return node
+            }
+        }
+    }
+
     func toolbarTitleDisplayMode(_ mode: ToolbarTitleDisplayMode) -> some View {
         return ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
@@ -14628,6 +20202,18 @@ public extension View {
                 applyToolbarTitleDisplayMode(to: node, mode: mode)
                 return node
             }
+        }
+    }
+
+    func toolbarBackButtonDisplayMode(_ mode: ToolbarBackButtonDisplayMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func backButtonDisplayMode(_ mode: ToolbarBackButtonDisplayMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
         }
     }
 
@@ -14897,6 +20483,224 @@ public extension View {
         }
     }
 
+    func popover(
+        isPresented: Binding<Bool>,
+        attachmentAnchor: PopoverAttachmentAnchor = .rect(),
+        arrowEdge: Edge = .top,
+        @ViewBuilder content popoverContent: @escaping () -> [AnyView],
+        onDismiss: (() -> Void)?
+    ) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let popoverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard isPresented.wrappedValue else {
+                        return
+                    }
+
+                    isPresented.wrappedValue = false
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let popover = composeComponent(
+                from: popoverContent(),
+                context: popoverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            let dismiss: @MainActor @Sendable () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                onDismiss?()
+                context.invalidate()
+            }
+
+            return retainedCompactAdaptivePopoverPresentation(
+                base: base,
+                popover: popover,
+                context: context,
+                attachmentAnchor: attachmentAnchor,
+                arrowEdge: arrowEdge,
+                onInteractiveDismiss: dismiss
+            )
+        }
+    }
+
+    func popover<Item>(
+        item: Binding<Item?>,
+        attachmentAnchor: PopoverAttachmentAnchor = .rect(),
+        arrowEdge: Edge = .top,
+        @ViewBuilder content popoverContent: @escaping (Item) -> [AnyView],
+        onDismiss: (() -> Void)?
+    ) -> some View where Item: Identifiable {
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let popoverContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: {
+                    guard item.wrappedValue != nil else {
+                        return
+                    }
+
+                    item.wrappedValue = nil
+                    onDismiss?()
+                    context.invalidate()
+                }))
+                .withEnvironmentValue(\.isPresented, true)
+            let popover = composeComponent(
+                from: popoverContent(selectedItem),
+                context: popoverContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            let dismiss: @MainActor @Sendable () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
+
+                item.wrappedValue = nil
+                onDismiss?()
+                context.invalidate()
+            }
+
+            return retainedCompactAdaptivePopoverPresentation(
+                base: base,
+                popover: popover,
+                context: context,
+                attachmentAnchor: attachmentAnchor,
+                arrowEdge: arrowEdge,
+                onInteractiveDismiss: dismiss
+            )
+        }
+    }
+
+    func inspector(
+        isPresented: Binding<Bool>,
+        @ViewBuilder content inspectorContent: @escaping () -> [AnyView]
+    ) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+            let inspectorContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+                .withEnvironmentValue(\.isPresented, true)
+            let inspector = composeComponent(
+                from: inspectorContent(),
+                context: inspectorContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedInspectorPresentation(
+                base: base,
+                inspector: inspector,
+                context: context,
+                onInteractiveDismiss: dismiss
+            )
+        }
+    }
+
+    func inspector<Item>(
+        item: Binding<Item?>,
+        @ViewBuilder content inspectorContent: @escaping (Item) -> [AnyView]
+    ) -> some View where Item: Identifiable {
+        return ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard let selectedItem = item.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard item.wrappedValue != nil else {
+                    return
+                }
+
+                item.wrappedValue = nil
+                context.invalidate()
+            }
+            let inspectorContext = context
+                .withEnvironmentValue(\.dismiss, DismissAction(handler: dismiss))
+                .withEnvironmentValue(\.isPresented, true)
+            let inspector = composeComponent(
+                from: inspectorContent(selectedItem),
+                context: inspectorContext,
+                fallbackLayout: .stack(.vertical(spacing: 8, alignment: .stretch))
+            )
+
+            return retainedInspectorPresentation(
+                base: base,
+                inspector: inspector,
+                context: context,
+                onInteractiveDismiss: dismiss
+            )
+        }
+    }
+
+    func inspectorColumnWidth(_ width: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.inspectorColumnWidth = width
+                return node
+            }
+        }
+    }
+
+    func inspectorColumnWidthFraction(_ fraction: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.inspectorColumnWidthFraction = fraction
+                return node
+            }
+        }
+    }
+
+    func inspectorColumnWidthMin(_ minWidth: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.inspectorColumnWidthMin = minWidth
+                return node
+            }
+        }
+    }
+
+    func inspectorPresentationStyle(_ style: InspectorPresentationStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.inspectorPresentationStyle = style
+                return node
+            }
+        }
+    }
+
     func presentationDetents(_ detents: Set<PresentationDetent>) -> some View {
         return ModifiedView(content: self) { content, context in
             let retainedDetents = retainedPresentationDetents(from: detents)
@@ -14970,7 +20774,15 @@ public extension View {
     }
 
     func presentationBackground(_ gradient: LinearGradient) -> some View {
-        presentationBackgroundStyle(color: nil, gradient: gradient)
+        presentationBackgroundStyle(color: nil, gradient: .linear(.init(gradient)))
+    }
+
+    func presentationBackground(_ gradient: RadialGradient) -> some View {
+        presentationBackground(gradient.retainedForegroundStyle)
+    }
+
+    func presentationBackground(_ gradient: AngularGradient) -> some View {
+        presentationBackground(gradient.retainedForegroundStyle)
     }
 
     func presentationBackground(
@@ -15029,7 +20841,31 @@ public extension View {
         }
     }
 
-    private func presentationBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+    func presentationDragCornerRadius(_ cornerRadius: Double?) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasDragCornerRadiusOverride = true
+                node.presentationChrome.dragCornerRadius = cornerRadius
+                return node
+            }
+        }
+    }
+
+    func sheetCornerRadius(_ cornerRadius: Double?) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasCornerRadiusOverride = true
+                node.presentationChrome.cornerRadius = cornerRadius
+                return node
+            }
+        }
+    }
+
+    private func presentationBackgroundStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
             return Component { runtime in
@@ -15093,6 +20929,201 @@ public extension View {
                 node.presentationChrome.hasCompactAdaptationOverride = true
                 node.presentationChrome.horizontalCompactAdaptation = horizontalAdaptation
                 node.presentationChrome.verticalCompactAdaptation = verticalAdaptation
+                return node
+            }
+        }
+    }
+
+    func presentationSizing(_ sizing: PresentationSizing) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasSizingOverride = true
+                node.presentationChrome.sizing = sizing.retainedSizing
+                return node
+            }
+        }
+    }
+
+    func dialogSeverity(_ severity: DialogSeverity) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasDialogSeverityOverride = true
+                node.presentationChrome.dialogSeverity = severity.retained
+                return node
+            }
+        }
+    }
+
+    func presentationEdgeAttached(_ isEdgeAttached: Bool = true) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasEdgeAttachedOverride = true
+                node.presentationChrome.isEdgeAttached = isEdgeAttached
+                return node
+            }
+        }
+    }
+
+    func presentationIsModal(_ isModal: Bool = true) -> some View {
+        return ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.presentationChrome.hasIsModalOverride = true
+                node.presentationChrome.isModal = isModal
+                return node
+            }
+        }
+    }
+
+    func fileExporter(
+        isPresented: Binding<Bool>,
+        document: Any,
+        contentType: UTType,
+        defaultFilename: String? = nil,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileExporterConfiguration = RetainedFileExporterConfiguration(
+                    isPresented: isPresented,
+                    document: document,
+                    contentType: contentType,
+                    defaultFilename: defaultFilename,
+                    onCompletion: onCompletion
+                )
+                return node
+            }
+        }
+    }
+
+    func fileExporter(
+        isPresented: Binding<Bool>,
+        documents: [Any],
+        contentType: UTType,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileExporterConfiguration = RetainedFileExporterConfiguration(
+                    isPresented: isPresented,
+                    documents: documents,
+                    contentType: contentType,
+                    onCompletion: onCompletion
+                )
+                return node
+            }
+        }
+    }
+
+    func fileImporter(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileImporterConfiguration = RetainedFileImporterConfiguration(
+                    isPresented: isPresented,
+                    allowedContentTypes: allowedContentTypes,
+                    onCompletion: onCompletion
+                )
+                return node
+            }
+        }
+    }
+
+    func fileImporter(
+        isPresented: Binding<Bool>,
+        allowedContentTypes: [UTType],
+        allowsMultipleSelection: Bool,
+        onCompletion: @escaping (Result<[URL], Error>) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileImporterMultiConfiguration = RetainedFileImporterMultiConfiguration(
+                    isPresented: isPresented,
+                    allowedContentTypes: allowedContentTypes,
+                    allowsMultipleSelection: allowsMultipleSelection,
+                    onCompletion: onCompletion
+                )
+                return node
+            }
+        }
+    }
+
+    func fileMover(
+        isPresented: Binding<Bool>,
+        file: URL,
+        onCompletion: @escaping (Result<URL, Error>) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileMoverConfiguration = RetainedFileMoverConfiguration(
+                    isPresented: isPresented,
+                    file: file,
+                    onCompletion: onCompletion
+                )
+                return node
+            }
+        }
+    }
+
+    func fileDialogCustomizationID(_ id: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileDialogCustomizationID = id
+                return node
+            }
+        }
+    }
+
+    func fileDialogConfirmationLabel(_ label: Text?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileDialogConfirmationLabel = label?.retainedTextDescription
+                return node
+            }
+        }
+    }
+
+    func fileDialogDefaultDirectory(_ url: URL?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileDialogDefaultDirectory = url
+                return node
+            }
+        }
+    }
+
+    func fileDialogMessage(_ message: Text?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = base.makeNode(runtime: runtime)
+                node.fileDialogMessage = message?.retainedTextDescription
                 return node
             }
         }
@@ -15197,6 +21228,38 @@ public extension View {
         )
     }
 
+    func alert(
+        _ title: Text,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView] = { [] },
+        @ViewBuilder message: @escaping () -> [AnyView] = { [] }
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: title,
+                messageViews: message(),
+                actionViews: actions(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
     func alert<Data>(
         _ titleKey: LocalizedStringKey,
         isPresented: Binding<Bool>,
@@ -15244,6 +21307,113 @@ public extension View {
             actions: actions,
             message: message
         )
+    }
+
+    func alert(
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: Text(""),
+                messageViews: [],
+                actionViews: actions(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert<E: Error>(
+        isPresented: Binding<Bool>,
+        error: E?,
+        @ViewBuilder actions: @escaping (E) -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue, let presentedError = error else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            let errorMessage: String
+            if let localizedError = presentedError as? LocalizedError {
+                errorMessage = localizedError.errorDescription ?? String(describing: presentedError)
+            } else {
+                errorMessage = String(describing: presentedError)
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: Text("Error"),
+                messageViews: [AnyView(Text(errorMessage))],
+                actionViews: actions(presentedError),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func alert<E: Error>(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        error: E?,
+        @ViewBuilder actions: @escaping (E) -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue, let presentedError = error else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            let errorMessage: String
+            if let localizedError = presentedError as? LocalizedError {
+                errorMessage = localizedError.errorDescription ?? String(describing: presentedError)
+            } else {
+                errorMessage = String(describing: presentedError)
+            }
+
+            return retainedAlertBuilderPresentation(
+                base: base,
+                title: Text(titleKey),
+                messageViews: [AnyView(Text(errorMessage))],
+                actionViews: actions(presentedError),
+                context: context,
+                dismiss: dismiss
+            )
+        }
     }
 
     func actionSheet(isPresented: Binding<Bool>, content actionSheetContent: @escaping () -> ActionSheet) -> some View {
@@ -15297,6 +21467,97 @@ public extension View {
                 dismiss: dismiss
             )
         }
+    }
+
+    func actionSheet(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedConfirmationDialogPresentation(
+                base: base,
+                title: Text(titleKey),
+                titleVisibility: .visible,
+                messageViews: [],
+                actionViews: actions(),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func actionSheet<S: StringProtocol>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        @ViewBuilder actions: @escaping () -> [AnyView]
+    ) -> some View {
+        actionSheet(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            actions: actions
+        )
+    }
+
+    func actionSheet<Data>(
+        _ titleKey: LocalizedStringKey,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let base = content.makeComponent(context: context)
+            guard isPresented.wrappedValue, let presentedData = data else {
+                return base
+            }
+
+            let dismiss: @MainActor () -> Void = {
+                guard isPresented.wrappedValue else {
+                    return
+                }
+
+                isPresented.wrappedValue = false
+                context.invalidate()
+            }
+
+            return retainedConfirmationDialogPresentation(
+                base: base,
+                title: Text(titleKey),
+                titleVisibility: .visible,
+                messageViews: [],
+                actionViews: actions(presentedData),
+                context: context,
+                dismiss: dismiss
+            )
+        }
+    }
+
+    func actionSheet<S: StringProtocol, Data>(
+        _ title: S,
+        isPresented: Binding<Bool>,
+        presenting data: Data?,
+        @ViewBuilder actions: @escaping (Data) -> [AnyView]
+    ) -> some View {
+        actionSheet(
+            LocalizedStringKey(String(title)),
+            isPresented: isPresented,
+            presenting: data,
+            actions: actions
+        )
     }
 
     func confirmationDialog(
@@ -15556,18 +21817,7 @@ public extension View {
     }
 
     func background(_ gradient: LinearGradient) -> some View {
-        ModifiedView(content: self) { content, context in
-            let child = content.makeComponent(context: context)
-            return Component { runtime in
-                let childNode = child.makeNode(runtime: runtime)
-                return Controls.stackPanel(
-                    backgroundGradient: gradient,
-                    stackLayout: .vertical(alignment: .stretch),
-                    isHitTestVisible: false,
-                    children: [childNode]
-                )
-            }
-        }
+        backgroundStyle(color: nil, gradient: .linear(.init(gradient)))
     }
 
     func background(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
@@ -15578,6 +21828,14 @@ public extension View {
     func background(_ gradient: LinearGradient, alignment: Alignment) -> some View {
         _ = alignment
         return background(gradient)
+    }
+
+    func background(_ gradient: RadialGradient) -> some View {
+        background(gradient.retainedForegroundStyle)
+    }
+
+    func background(_ gradient: AngularGradient) -> some View {
+        background(gradient.retainedForegroundStyle)
     }
 
     func background<Style: ShapeStyle, Clip: Shape>(
@@ -15641,7 +21899,7 @@ public extension View {
         }
     }
 
-    private func backgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+    private func backgroundStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
@@ -15659,7 +21917,7 @@ public extension View {
 
     private func shapedBackgroundStyle<Clip: Shape>(
         color: Color?,
-        gradient: LinearGradient?,
+        gradient: GradientType?,
         shape: Clip,
         fillStyle: FillStyle
     ) -> some View {
@@ -15732,6 +21990,15 @@ public extension View {
                     isHitTestVisible: false,
                     children: [backgroundNode, baseNode]
                 )
+
+                if let gradient = backgroundNode.backgroundGradient {
+                    let opacity = backgroundNode.opacity
+                    root.backgroundGradient = opacity < 1 ? gradient.withMultipliedOpacity(opacity) : gradient
+                }
+                if let color = backgroundNode.backgroundColor {
+                    let opacity = backgroundNode.opacity
+                    root.backgroundColor = opacity < 1 ? color.retainedWithMultipliedOpacity(opacity) : color
+                }
 
                 root.onLayout = { bounds in
                     let containerSize = bounds.size
@@ -15872,7 +22139,7 @@ public extension View {
     }
 
     func overlay(_ gradient: LinearGradient) -> some View {
-        overlayStyle(color: nil, gradient: gradient)
+        overlayStyle(color: nil, gradient: .linear(.init(gradient)))
     }
 
     func overlay(_ gradient: LinearGradient, ignoresSafeAreaEdges edges: Edge.Set) -> some View {
@@ -15883,6 +22150,14 @@ public extension View {
     func overlay(_ gradient: LinearGradient, alignment: Alignment) -> some View {
         _ = alignment
         return overlay(gradient)
+    }
+
+    func overlay(_ gradient: RadialGradient) -> some View {
+        overlay(gradient.retainedForegroundStyle)
+    }
+
+    func overlay(_ gradient: AngularGradient) -> some View {
+        overlay(gradient.retainedForegroundStyle)
     }
 
     func overlay<Style: ShapeStyle, Clip: Shape>(
@@ -15937,7 +22212,7 @@ public extension View {
 
     private func shapedOverlayStyle<Clip: Shape>(
         color: Color?,
-        gradient: LinearGradient?,
+        gradient: GradientType?,
         shape: Clip,
         fillStyle: FillStyle
     ) -> some View {
@@ -16036,7 +22311,7 @@ public extension View {
         }
     }
 
-    private func overlayStyle(color: Color?, gradient: LinearGradient?) -> some View {
+    private func overlayStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             guard color != nil || gradient != nil else {
                 return content.makeComponent(context: context)
@@ -16112,7 +22387,7 @@ public extension View {
             switch style {
             case .color(let color):
                 content.makeComponent(context: context.withForegroundColor(color))
-            case .linearGradient:
+            case .linearGradient, .radialGradient, .conicGradient:
                 content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, style))
             }
         }
@@ -16170,7 +22445,19 @@ public extension View {
 
     func backgroundStyle<S: ShapeStyle>(_ style: S) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withEnvironmentValue(\.backgroundStyle, AnyShapeStyle(style)))
+            content.makeComponent(context: context.withEnvironmentValue(\.backgroundStyle, ForegroundStyle(style)))
+        }
+    }
+
+    func containerForegroundColor(_ color: Color) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.containerForegroundColor, ForegroundStyle.color(color)))
+        }
+    }
+
+    func containerForegroundColor<S: ShapeStyle>(_ style: S) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.containerForegroundColor, style.retainedForegroundStyle))
         }
     }
 
@@ -16189,6 +22476,31 @@ public extension View {
     func symbolVariant(_ variant: SymbolVariants) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.symbolVariants, variant))
+        }
+    }
+
+    func symbolVariableValue(_ value: Double?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.symbolVariableValue, value))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func allowedDynamicRange(_ dynamicRange: DynamicRange?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.allowedDynamicRange, dynamicRange))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func paletteSelectionEffect(_ effect: PaletteSelectionEffect) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.paletteSelectionEffect = effect
+                return childNode
+            }
         }
     }
 
@@ -16276,7 +22588,7 @@ public extension View {
         }
     }
 
-    func menuIndicator(_ visibility: Visibility) -> some View {
+    func menuIndicator(_ visibility: MenuIndicatorVisibility) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.menuIndicatorVisibility, visibility))
         }
@@ -16308,6 +22620,13 @@ public extension View {
         pickerStyle(.navigationLink)
     }
 
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func paletteSelection(_ selection: Binding<PaletteSelection>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.paletteSelection, selection.wrappedValue))
+        }
+    }
+
     func pickerStyle(_ style: PalettePickerStyle) -> some View {
         pickerStyle(.palette)
     }
@@ -16323,6 +22642,18 @@ public extension View {
     @available(*, deprecated, message: "Use MenuPickerStyle instead.")
     func pickerStyle(_ style: PopUpButtonPickerStyle) -> some View {
         pickerStyle(.popUpButton)
+    }
+
+    func horizontalRadioGroupLayout() -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func verticalRadioGroupLayout() -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
     }
 
     func labelStyle(_ style: LabelStyle) -> some View {
@@ -16401,6 +22732,17 @@ public extension View {
         menuStyle(MenuStyle(kind: .borderlessButtonStyle(showsMenuIndicator: style.showsMenuIndicator)))
     }
 
+    func menuOrder(_ order: MenuOrder) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.menuOrder = String(describing: order)
+                return childNode
+            }
+        }
+    }
+
     func controlGroupStyle(_ style: ControlGroupStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.controlGroupStyle, style))
@@ -16445,6 +22787,10 @@ public extension View {
         progressViewStyle(.circular)
     }
 
+    func progressViewStyle(_ style: TimerProgressViewStyle) -> some View {
+        progressViewStyle(.timer)
+    }
+
     func gaugeStyle(_ style: GaugeStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.gaugeStyle, style))
@@ -16487,6 +22833,33 @@ public extension View {
 
     func gaugeStyle(_ style: AccessoryCircularCapacityGaugeStyle) -> some View {
         gaugeStyle(.accessoryCircularCapacity)
+    }
+
+    func tipViewStyle(_ style: TipViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.tipViewStyle, style))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func productViewStyle(_ style: ProductViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.productViewStyle, style))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func subscriptionStoreViewStyle(_ style: SubscriptionStoreViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.subscriptionStoreViewStyle, style))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func storeViewStyle(_ style: StoreViewStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.storeViewStyle, style))
+        }
     }
 
     func datePickerStyle(_ style: DatePickerStyle) -> some View {
@@ -16553,6 +22926,28 @@ public extension View {
         tabViewStyle(.carousel)
     }
 
+    func tabViewCustomization(_ customization: Binding<TabViewCustomization>) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(\.tabViewCustomization, customization.wrappedValue)
+            )
+        }
+    }
+
+    func tableOfContentsStyle(_ style: TableOfContentsStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.tableOfContentsStyle, style))
+        }
+    }
+
+    func tableOfContentsStyle(_ style: DefaultTableOfContentsStyle) -> some View {
+        tableOfContentsStyle(.automatic)
+    }
+
+    func tableOfContentsStyle(_ style: ListTableOfContentsStyle) -> some View {
+        tableOfContentsStyle(.list)
+    }
+
     func indexViewStyle(_ style: IndexViewStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.indexViewStyle, style))
@@ -16566,6 +22961,12 @@ public extension View {
     func toggleStyle(_ style: ToggleStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.toggleStyle, style))
+        }
+    }
+
+    func sliderStyle(_ style: SliderStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.sliderStyle, style))
         }
     }
 
@@ -16607,10 +23008,67 @@ public extension View {
         textFieldStyle(.squareBorder)
     }
 
+    func textEditorStyle(_ style: TextEditorStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textEditorStyle, style))
+        }
+    }
+
+    func textEditorStyle(_ style: DefaultTextEditorStyle) -> some View {
+        textEditorStyle(.automatic)
+    }
+
+    func textEditorStyle(_ style: PlainTextEditorStyle) -> some View {
+        textEditorStyle(.plain)
+    }
+
+    func textEditorStyle(_ style: RoundedBorderTextEditorStyle) -> some View {
+        textEditorStyle(.roundedBorder)
+    }
+
     func listStyle(_ style: ListStyle) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.listStyle, style))
         }
+    }
+
+    func tableStyle(_ style: TableStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.tableStyle, style))
+        }
+    }
+
+    func tableStyle(_ style: AutomaticTableStyle) -> some View {
+        tableStyle(.automatic)
+    }
+
+    func tableStyle(_ style: InsetTableStyle) -> some View {
+        tableStyle(.inset)
+    }
+
+    func tableStyle(_ style: BorderedTableStyle) -> some View {
+        tableStyle(.bordered)
+    }
+
+    func tableColumnHeaders(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.tableColumnHeadersVisible = (visibility != .hidden)
+                return node
+            }
+        }
+    }
+
+    func chartStyle(_ style: ChartStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.chartStyle, style))
+        }
+    }
+
+    func chartStyle(_ style: DefaultChartStyle) -> some View {
+        chartStyle(.automatic)
     }
 
     func listStyle(_ style: DefaultListStyle) -> some View {
@@ -16669,9 +23127,81 @@ public extension View {
         }
     }
 
+    func listRowHoverStyle(_ style: ListRowHoverStyle) -> some View {
+        let retained = style.retained
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.listRowHoverStyle = retained
+                return childNode
+            }
+        }
+    }
+
+    func listRowHoverEffect(_ effect: HoverEffect?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.hoverEffect = effect?.retainedEffect
+                return childNode
+            }
+        }
+    }
+
+    func listRowHoverEffectDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isHoverEffectDisabled = disabled
+                return childNode
+            }
+        }
+    }
+
     func textInputAutocapitalization(_ textInputAutocapitalization: TextInputAutocapitalization?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.textInputAutocapitalization, textInputAutocapitalization))
+        }
+    }
+
+    func defaultTextInputAutocapitalization(_ style: TextInputAutocapitalization) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textInputAutocapitalization, style))
+        }
+    }
+
+    func autocapitalization(_ style: TextInputAutocapitalization?) -> some View {
+        textInputAutocapitalization(style)
+    }
+
+    func allowsInlinePredictions(_ enabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = enabled
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func typesettingLanguage(_ language: Locale.Language?) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = language
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func typesettingLanguage(_ language: String?) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = language
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func typesettingWidth(_ width: TypesettingWidth?) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = width
+            return content.makeComponent(context: context)
         }
     }
 
@@ -16689,6 +23219,12 @@ public extension View {
 
     func disableAutocorrection(_ disable: Bool?) -> some View {
         autocorrectionDisabled(disable ?? false)
+    }
+
+    func spellCheckingDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.isSpellCheckingDisabled, disabled))
+        }
     }
 
     func textContentType(_ textContentType: NSTextContentType?) -> some View {
@@ -16786,6 +23322,10 @@ public extension View {
         }
         modified.navigationTitle = [AnyView(title)]
         return modified
+    }
+
+    func navigationTitle(_ title: Binding<String>) -> some View {
+        navigationTitle(Text(title.wrappedValue))
     }
 
     func navigationSubtitle<S: StringProtocol>(_ subtitle: S) -> some View {
@@ -16945,6 +23485,63 @@ public extension View {
         navigationSplitViewStyle(.prominentDetail)
     }
 
+    func navigationSplitViewStyle(_ style: ProminentDetailAndSidebarNavigationSplitViewStyle) -> some View {
+        navigationSplitViewStyle(.prominentDetailAndSidebar)
+    }
+
+    func navigationSplitViewStyle(_ style: DefaultNavigationSplitViewStyle) -> some View {
+        navigationSplitViewStyle(.automatic)
+    }
+
+    func navigationStackStyle(_ style: NavigationStackStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.navigationStackStyle, style))
+        }
+    }
+
+    func navigationStackStyle(_ style: AutomaticNavigationStackStyle) -> some View {
+        navigationStackStyle(.automatic)
+    }
+
+    func navigationSplitViewColumnWidth(_ width: CGFloat?) -> some View {
+        let retained = width.map { RetainedNavigationSplitViewColumnWidth(ideal: $0) }
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.navigationSplitViewColumnWidth = retained
+                return childNode
+            }
+        }
+    }
+
+    func navigationSplitViewColumnWidth(min: CGFloat?, ideal: CGFloat, max: CGFloat?) -> some View {
+        let retained = RetainedNavigationSplitViewColumnWidth(
+            min: min.map { Foundation.CGFloat($0) },
+            ideal: Foundation.CGFloat(ideal),
+            max: max.map { Foundation.CGFloat($0) }
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.navigationSplitViewColumnWidth = retained
+                return childNode
+            }
+        }
+    }
+
+    func preferredCompactColumn(_ column: Binding<NavigationSplitViewColumn?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.preferredCompactColumn = column.wrappedValue
+                return childNode
+            }
+        }
+    }
+
     func tabItem(@ViewBuilder _ label: () -> [AnyView]) -> some View {
         var modified = ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
@@ -16961,6 +23558,10 @@ public extension View {
 
     func defaultAppStorage(_ store: UserDefaults) -> some View {
         environment(\.defaultAppStorage, store)
+    }
+
+    func defaultSceneStorage(_ store: UserDefaults) -> some View {
+        environment(\.defaultSceneStorage, store)
     }
 
     func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some View {
@@ -17016,12 +23617,11 @@ public extension View {
         value source: Anchor<Rect>.Source = .bounds,
         transform: @escaping (Anchor<Rect>) -> Key.Value
     ) -> some View {
-        let _ = source
-        return ModifiedView(content: self) { content, context in
+        ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let anchor = retainedBoundsAnchor(for: childNode, context: context)
+                let anchor = retainedAnchor(for: childNode, source: source, context: context)
                 setRetainedPreference(key, value: transform(anchor), on: childNode)
                 return childNode
             }
@@ -17033,12 +23633,11 @@ public extension View {
         value source: Anchor<Rect>.Source = .bounds,
         transform: @escaping (inout Key.Value, Anchor<Rect>) -> Void
     ) -> some View {
-        let _ = source
-        return ModifiedView(content: self) { content, context in
+        ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
-                let anchor = retainedBoundsAnchor(for: childNode, context: context)
+                let anchor = retainedAnchor(for: childNode, source: source, context: context)
                 var value = retainedPreferenceValue(in: childNode, key: key)
                 transform(&value, anchor)
                 setRetainedPreference(key, value: value, on: childNode)
@@ -17117,6 +23716,33 @@ public extension View {
         }
     }
 
+    func dynamicTypeSize(_ range: ClosedRange<DynamicTypeSize>) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values.minDynamicTypeSize = range.lowerBound
+            values.maxDynamicTypeSize = range.upperBound
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
+    func dynamicTypeSize(_ range: PartialRangeFrom<DynamicTypeSize>) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values.minDynamicTypeSize = range.lowerBound
+            values.maxDynamicTypeSize = nil
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
+    func dynamicTypeSize(_ range: PartialRangeThrough<DynamicTypeSize>) -> some View {
+        ModifiedView(content: self) { content, context in
+            var values = context.environmentValues
+            values.minDynamicTypeSize = nil
+            values.maxDynamicTypeSize = range.upperBound
+            return content.makeComponent(context: context.withEnvironmentValues(values))
+        }
+    }
+
     func legibilityWeight(_ weight: LegibilityWeight?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.legibilityWeight, weight))
@@ -17126,6 +23752,12 @@ public extension View {
     func headerProminence(_ prominence: Prominence) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.headerProminence, prominence))
+        }
+    }
+
+    func sectionHeaderProminence(_ prominence: Prominence) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.sectionHeaderProminence, prominence))
         }
     }
 
@@ -17166,6 +23798,12 @@ public extension View {
         }
         modified.badge = label.map { [AnyView($0)] }
         return modified
+    }
+
+    func backgroundProminence(_ prominence: BackgroundProminence) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.backgroundProminence, prominence))
+        }
     }
 
     func badgeProminence(_ prominence: BadgeProminence) -> some View {
@@ -17306,8 +23944,12 @@ public extension View {
 
     func textRenderer<T: TextRenderer>(_ renderer: T) -> some View {
         ModifiedView(content: self) { content, context in
-            _ = renderer
-            return content.makeComponent(context: context)
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.textRenderer = renderer as Any
+                return node
+            }
         }
     }
 
@@ -17335,6 +23977,12 @@ public extension View {
     }
 
     func textCase(_ textCase: Text.Case?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withTextCase(textCase))
+        }
+    }
+
+    func defaultTextCase(_ textCase: Text.Case?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withTextCase(textCase))
         }
@@ -17452,16 +24100,43 @@ public extension View {
         }
     }
 
+    func clipShape<S: Shape>(_ shape: S, antialiased: Bool) -> some View {
+        clipShape(shape, style: FillStyle(eoFill: false, antialiased: antialiased))
+    }
+
     func contentShape<S: Shape>(_ shape: S, eoFill: Bool = false) -> some View {
         contentShape(.interaction, shape, eoFill: eoFill)
     }
 
-    func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false) -> some View {
+    func contentShape<S: Shape>(_ shape: S, mask: Bool) -> some View {
+        contentShape(.interaction, shape, mask: mask)
+    }
+
+    func contentShape<S: Shape>(_ kind: ContentShapeKinds, _ shape: S, eoFill: Bool = false, mask: Bool = false) -> some View {
         let retainedStyle = resolvedRetainedContentShapeStyle(for: shape)
         let retainedShape = RetainedContentShape(
             kinds: kind.retainedKinds,
             style: retainedStyle,
-            eoFill: eoFill
+            eoFill: eoFill,
+            mask: mask
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.contentShapes.append(retainedShape)
+                return childNode
+            }
+        }
+    }
+
+    func containerShape<S: Shape>(_ shape: S) -> some View {
+        let retainedStyle = resolvedRetainedContentShapeStyle(for: shape)
+        let retainedShape = RetainedContentShape(
+            kinds: .container,
+            style: retainedStyle,
+            eoFill: false,
+            mask: false
         )
         return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -17474,9 +24149,17 @@ public extension View {
     }
 
     func coordinateSpace(_ coordinateSpace: some CoordinateSpaceProtocol) -> some View {
-        ModifiedView(content: self) { content, context in
-            _ = coordinateSpace
-            return content.makeComponent(context: context)
+        let name: String? = switch coordinateSpace.coordinateSpace {
+        case .named(let n): n
+        default: nil
+        }
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.coordinateSpaceName = name
+                return childNode
+            }
         }
     }
 
@@ -17494,13 +24177,14 @@ public extension View {
         width: Double,
         cornerRadius: Double
     ) -> some View {
-        ModifiedView(content: self) { content, context in
+        let borderGradient: SwiftWindowsGraphics.GradientType? = gradient.map { .linear(SwiftWindowsGraphics.LinearGradient($0)) }
+        return ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 return Controls.stackPanel(
                     borderColor: color,
-                    borderGradient: gradient,
+                    borderGradient: borderGradient,
                     borderWidth: width,
                     cornerRadius: cornerRadius,
                     stackLayout: .vertical(alignment: .stretch),
@@ -17545,12 +24229,58 @@ public extension View {
         shadow(color: .black.opacity(0.33), radius: radius, x: x, y: y)
     }
 
+    func shadow(_ style: ShadowStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                switch style.kind {
+                case .drop(let color, let radius, let x, let y):
+                    return Controls.stackPanel(
+                        shadowColor: color,
+                        shadowOffset: Point(x: x, y: y),
+                        shadowSpread: radius,
+                        stackLayout: .vertical(alignment: .stretch),
+                        isHitTestVisible: false,
+                        children: [childNode]
+                    )
+                case .inner:
+                    return childNode
+                }
+            }
+        }
+    }
+
     func layoutPriority(_ priority: Double) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.layoutPriority = priority
+                return childNode
+            }
+        }
+    }
+
+    func spatialCompressionResistance(_ resistance: Double, axes: Axis3D.Set = .all) -> some View {
+        _ = axes
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.spatialCompressionResistance = resistance
+                return childNode
+            }
+        }
+    }
+
+    func spatialExpansionResistance(_ resistance: Double, axes: Axis3D.Set = .all) -> some View {
+        _ = axes
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.spatialExpansionResistance = resistance
                 return childNode
             }
         }
@@ -17627,18 +24357,6 @@ public extension View {
         }
     }
 
-    func gridCellColumns(_ count: Int) -> some View {
-        ModifiedView(content: self) { content, context in
-            let child = content.makeComponent(context: context)
-            let retainedPriority = Double(max(1, count))
-            return Component { runtime in
-                let childNode = child.makeNode(runtime: runtime)
-                childNode.layoutPriority = max(childNode.layoutPriority, retainedPriority)
-                return childNode
-            }
-        }
-    }
-
     func gridCellAnchor(_ anchor: UnitPoint) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
@@ -17657,6 +24375,21 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.gridCellUnsizedAxes = retainedAxes
+                return childNode
+            }
+        }
+    }
+
+    func gridCellColumns(_ count: Int) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let effectiveCount = max(1, count)
+                childNode.gridCellColumns = effectiveCount
+                if childNode.layoutPriority == 0 {
+                    childNode.layoutPriority = Double(effectiveCount)
+                }
                 return childNode
             }
         }
@@ -17682,6 +24415,71 @@ public extension View {
                 childNode.isHitTestVisible = enabled
                 return childNode
             }
+        }
+    }
+
+    func allowsAutomaticWindowDecorations(_ enabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.allowsAutomaticWindowDecorations = enabled
+                return childNode
+            }
+        }
+    }
+
+    func windowActivationBehavior(_ behavior: WindowActivationBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = behavior
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func allowsWindowActivationEvents(_ enabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = enabled
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func interactionActivityTrackingTag(_ tag: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = tag
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func preferredScreenEdgesDeferringSystemGestures(_ edges: Edge.Set) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = edges
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func prefersHomeIndicatorAutoHidden(_ prefersHidden: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = prefersHidden
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func prefersPersistentSystemOverlays(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func defersSystemGestures(_ defers: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defersSystemGestures, defers))
+        }
+    }
+
+    func prefersStatusBarHidden(_ hidden: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.prefersStatusBarHidden, hidden))
         }
     }
 
@@ -17752,6 +24550,17 @@ public extension View {
                 return childNode
             }
         }
+    }
+
+    func focusedScene(_ condition: FocusState<Bool>.Binding) -> some View {
+        focused(condition)
+    }
+
+    func focusedScene<Value>(
+        _ binding: FocusState<Value?>.Binding,
+        equals value: Value
+    ) -> some View where Value: Hashable {
+        focused(binding, equals: value)
     }
 
     func hoverEffect(_ effect: HoverEffect = .automatic, isEnabled: Bool = true) -> some View {
@@ -17990,6 +24799,29 @@ public extension View {
         )
     }
 
+    func swipeActions(
+        edge: HorizontalEdge = .trailing,
+        allowsFullSwipe: Bool = true,
+        @ViewBuilder content: () -> [AnyView]
+    ) -> some View {
+        let actionViews = content()
+        let actions = actionViews.flatMap(\.swipeActions)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                switch edge {
+                case .leading:
+                    childNode.swipeActionsLeading = actions
+                case .trailing:
+                    childNode.swipeActionsTrailing = actions
+                }
+                childNode.swipeActionsAllowsFullSwipe = allowsFullSwipe
+                return childNode
+            }
+        }
+    }
+
     func onDrop(
         of supportedContentTypes: [UTType],
         delegate: any DropDelegate
@@ -18102,6 +24934,54 @@ public extension View {
         }
     }
 
+    func pasteDestination<T: Transferable>(for payloadType: T.Type = T.self, action: @escaping ([T]) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isDropDestinationEnabled = true
+                return childNode
+            }
+        }
+    }
+
+    func copyable(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return childNode
+            }
+        }
+    }
+
+    func cuttable(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return childNode
+            }
+        }
+    }
+
+    func pasteable(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return childNode
+            }
+        }
+    }
+
+    func readOnly(_ isReadOnly: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = isReadOnly
+            return content.makeComponent(context: context)
+        }
+    }
+
     func defaultHoverEffect(_ effect: HoverEffect?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(
@@ -18128,6 +25008,20 @@ public extension View {
         }
     }
 
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func hoverEffectStyle(_ style: HoverEffectStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.hoverEffectStyle, style))
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func customHoverEffect(_ effect: CustomHoverEffect) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.customHoverEffect, effect))
+        }
+    }
+
     func focusEffectDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             let resolvedContext = context.withEnvironmentValue(
@@ -18138,6 +25032,280 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isFocusEffectDisabled = disabled
+                return childNode
+            }
+        }
+    }
+
+    func focusEffect(_ enabled: Bool) -> some View {
+        focusEffectDisabled(!enabled)
+    }
+
+    func focusDestination(_ isDestination: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusDestination = isDestination
+                return childNode
+            }
+        }
+    }
+
+    func focusActive(_ isActive: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusActive = isActive
+                return childNode
+            }
+        }
+    }
+
+    func focusEnabled(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusEnabled = isEnabled
+                return childNode
+            }
+        }
+    }
+
+    func pointerStyle(_ style: PointerStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.pointerStyle = style.retained
+                return childNode
+            }
+        }
+    }
+
+    func pointerVisibility(_ visibility: PointerVisibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.pointerVisibility = visibility
+                return childNode
+            }
+        }
+    }
+
+    func pointerInteraction(_ enabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = enabled
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func pointerLock(_ enabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = enabled
+            return content.makeComponent(context: context)
+        }
+    }
+}
+
+@available(watchOS 9.0, *)
+public enum DigitalCrownAccessory: Sendable, Equatable {
+    case automatic
+    case hidden
+}
+
+public extension View {
+    func digitalCrownAccessory(_ accessory: DigitalCrownAccessory) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = accessory
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func spatialImage(_ spatialImage: SpatialImage = SpatialImage()) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = spatialImage
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func immersiveEnvironment(_ environment: ImmersiveEnvironment) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = environment
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func preferredImmersionStyle(_ style: ImmersionStyle, in: Visibility = .automatic) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = style
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func onVolumeViewpointChange(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = action
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func volumeWorldAlignment(_ alignment: VolumeWorldAlignment) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = alignment
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func volumeBasePlateVisibility(_ visibility: VolumeBasePlateVisibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func upperLimbVisibility(_ visibility: UpperLimbVisibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func handAnchor(_ anchor: HandAnchor) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = anchor
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func glassBackgroundEffect(_ effect: GlassBackgroundEffect = .automatic) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = effect
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func ornamentVisibility(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func mapStyle(_ style: MapStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = style
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func mapCameraPosition(_ position: MapCameraPosition) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = position
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func mapControlVisibility(_ visibility: MapControlVisibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func digitalCrownRotation(_ binding: Binding<Double>, from minValue: Double = 0, through maxValue: Double = 1, by sensitivity: DigitalCrownRotationalSensitivity = .medium, isContinuous: Bool = false, isHapticFeedbackEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.digitalCrownRotation = RetainedDigitalCrownRotation(value: binding.wrappedValue, minValue: minValue, maxValue: maxValue, sensitivity: sensitivity, isContinuous: isContinuous, isHapticFeedbackEnabled: isHapticFeedbackEnabled)
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowDragInteraction(_ interaction: WindowDragInteraction = .automatic) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowDragInteraction = interaction.retained
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowResizeInteraction(_ interaction: WindowResizeInteraction = .automatic) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowResizeInteraction = interaction.retained
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func windowCornerRadius(_ cornerRadius: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowCornerRadius = cornerRadius
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowDismissBehavior(_ behavior: WindowInteractionBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowDismissBehavior = behavior.retained
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowFullScreenBehavior(_ behavior: WindowInteractionBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowFullScreenBehavior = behavior.retained
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowMinimizeBehavior(_ behavior: WindowInteractionBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowMinimizeBehavior = behavior.retained
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowResizeBehavior(_ behavior: WindowInteractionBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.windowResizeBehavior = behavior.retained
                 return childNode
             }
         }
@@ -18243,6 +25411,98 @@ public extension View {
         }
     }
 
+    func onCopyCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x43, event.modifiers.contains(.control) else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onCutCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x58, event.modifiers.contains(.control) else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onPasteCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x56, event.modifiers.contains(.control) else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onSelectAllCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x41, event.modifiers.contains(.control) else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onUndoCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x5A, event.modifiers.contains(.control), !event.modifiers.contains(.shift) else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onRedoCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            let isCtrlShiftZ = event.keyCode == 0x5A && event.modifiers.contains(.control) && event.modifiers.contains(.shift)
+            let isCtrlY = event.keyCode == 0x59 && event.modifiers.contains(.control)
+            guard isCtrlShiftZ || isCtrlY else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onEscapeCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0x1B else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onPlayCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB3 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onPauseCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB3 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
     func pageCommand<V>(
         value: Binding<V>,
         in bounds: ClosedRange<V>,
@@ -18279,6 +25539,92 @@ public extension View {
         }
     }
 
+    func onStopCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB2 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onNextTrackCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB0 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onPreviousTrackCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB1 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onSeekCommand(perform action: ((SeekCommandDirection) -> Void)?) -> some View {
+        keyCommandModifier { event in
+            let direction: SeekCommandDirection
+            switch event.key {
+            case .rightArrow:
+                direction = .forward
+            case .leftArrow:
+                direction = .backward
+            default:
+                return false
+            }
+            action?(direction)
+            return true
+        }
+    }
+
+    func onSkipForwardCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB0 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onSkipBackwardCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB1 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onChangePlaybackRateCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB3 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
+    func onChangePlaybackPositionCommand(perform action: (() -> Void)?) -> some View {
+        keyCommandModifier { event in
+            guard event.keyCode == 0xB3 else {
+                return false
+            }
+            action?()
+            return true
+        }
+    }
+
     func gesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
         gesture._applying(to: self, including: mask)
     }
@@ -18292,12 +25638,21 @@ public extension View {
     }
 
     func gesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
-        let _ = name
         guard isEnabled else {
             return AnyView(self)
         }
 
-        return AnyView(gesture._applying(to: self, including: .all))
+        let view = gesture._applying(to: self, including: .all)
+        return AnyView(
+            ModifiedView(content: view) { content, context in
+                let component = content.makeComponent(context: context)
+                return Component { runtime in
+                    let node = component.makeNode(runtime: runtime)
+                    node.gestureName = name
+                    return node
+                }
+            }
+        )
     }
 
     func highPriorityGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
@@ -18313,12 +25668,21 @@ public extension View {
     }
 
     func highPriorityGesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
-        let _ = name
         guard isEnabled else {
             return AnyView(self)
         }
 
-        return AnyView(gesture._applying(to: self, including: .all))
+        let view = gesture._applying(to: self, including: .all)
+        return AnyView(
+            ModifiedView(content: view) { content, context in
+                let component = content.makeComponent(context: context)
+                return Component { runtime in
+                    let node = component.makeNode(runtime: runtime)
+                    node.gestureName = name
+                    return node
+                }
+            }
+        )
     }
 
     func simultaneousGesture<G: Gesture>(_ gesture: G, including mask: GestureMask = .all) -> some View {
@@ -18334,12 +25698,21 @@ public extension View {
     }
 
     func simultaneousGesture<G: Gesture>(_ gesture: G, name: String, isEnabled: Bool = true) -> some View {
-        let _ = name
         guard isEnabled else {
             return AnyView(self)
         }
 
-        return AnyView(gesture._applying(to: self, including: .all))
+        let view = gesture._applying(to: self, including: .all)
+        return AnyView(
+            ModifiedView(content: view) { content, context in
+                let component = content.makeComponent(context: context)
+                return Component { runtime in
+                    let node = component.makeNode(runtime: runtime)
+                    node.gestureName = name
+                    return node
+                }
+            }
+        )
     }
 
     private func keyCommandModifier(
@@ -18408,6 +25781,17 @@ public extension View {
                     opaque: opaque,
                     colorMode: colorMode.retainedColorRenderingMode
                 )
+                return childNode
+            }
+        }
+    }
+
+    func geometryGroup() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isGeometryGroup = true
                 return childNode
             }
         }
@@ -18500,11 +25884,30 @@ public extension View {
     }
 
     func mask(alignment: Alignment = .center, @ViewBuilder _ mask: () -> [AnyView]) -> some View {
+        self.mask(alignment: alignment, inverse: false, mask)
+    }
+
+    func mask<Mask: View>(_ mask: Mask, inverse: Bool) -> some View {
+        self.mask(alignment: .center, inverse: inverse) {
+            mask
+        }
+    }
+
+    func inverseMask<Mask: View>(_ mask: Mask) -> some View {
+        self.mask(mask, inverse: true)
+    }
+
+    func mask(
+        alignment: Alignment = .center,
+        inverse: Bool,
+        @ViewBuilder _ mask: () -> [AnyView]
+    ) -> some View {
         let maskViews = mask()
         return ModifiedView(content: self) { content, context in
             let base = content.makeComponent(context: context)
             let maskSource = composeComponent(from: maskViews, context: context, fallbackLayout: .absolute)
-            let retainedMask = alignment.retainedViewMask
+            var retainedMask = alignment.retainedViewMask
+            retainedMask.isInverse = inverse
 
             return Component { runtime in
                 let baseNode = base.makeNode(runtime: runtime)
@@ -18577,6 +25980,17 @@ public extension View {
         }
     }
 
+    func accessibilityDescription(_ description: String?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityDescription = description
+                return childNode
+            }
+        }
+    }
+
     func accessibilityValue<S: StringProtocol>(_ value: S) -> some View {
         accessibilityValueText(String(value))
     }
@@ -18639,12 +26053,282 @@ public extension View {
         accessibilityHintText(text)
     }
 
+    func tooltip(_ text: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.tooltip = text
+                return childNode
+            }
+        }
+    }
+
+    func tooltip(_ textKey: LocalizedStringKey) -> some View {
+        tooltip(textKey.resolvedString)
+    }
+
+    func tooltip<S: StringProtocol>(_ text: S) -> some View {
+        tooltip(String(text))
+    }
+
+    func accessibilityIgnoresInvertColors(_ shouldIgnore: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityIgnoresInvertColors = shouldIgnore
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityRespondsToUserInteraction(_ responds: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityRespondsToUserInteraction = responds
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityActivationPoint(_ activationPoint: UnitPoint) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityActivationPoint = activationPoint
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityActivationPoint(_ activationPoint: CGPoint) -> some View {
+        accessibilityActivationPoint(UnitPoint(x: activationPoint.x, y: activationPoint.y))
+    }
+
+    func accessibilityPrefersSliderBehavior(_ prefersSliderBehavior: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityPrefersSliderBehavior = prefersSliderBehavior
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityRequiresActivationPoint(_ requiresActivationPoint: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityRequiresActivationPoint = requiresActivationPoint
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityPrefersCrossFadeTransitions(_ prefersCrossFadeTransitions: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityPrefersCrossFadeTransitions = prefersCrossFadeTransitions
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityShowLargeContentViewer(_ showsLargeContentViewer: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityShowLargeContentViewer = showsLargeContentViewer
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityTextContentType(_ textContentType: AccessibilityTextContentType) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityTextContentType = textContentType
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityCustomContent(
+        _ label: String,
+        _ value: String,
+        importance: AccessibilityCustomContentImportance = .default
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityCustomContent.append(
+                    RetainedAccessibilityCustomContent(
+                        label: label,
+                        value: value,
+                        importance: importance == .high ? 1 : 0
+                    )
+                )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityCustomContent<K: AccessibilityCustomContentKey>(
+        _ key: K.Type,
+        value: K.Value,
+        importance: AccessibilityCustomContentImportance = .default
+    ) -> some View {
+        let label = key.defaultDescription ?? String(describing: key)
+        let valueString = String(describing: value)
+        return accessibilityCustomContent(label, valueString, importance: importance)
+    }
+
+    func accessibilityRotor(_ label: String, entries: [String]) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityRotors.append(
+                    RetainedAccessibilityRotor(label: label, entries: entries)
+                )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityRotor(_ rotor: AccessibilityRotor, entries: [String]) -> some View {
+        accessibilityRotor(rotor.label, entries: entries)
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func accessibilityRotor<ID: Hashable>(_ label: String, entries: [AccessibilityRotorEntry<ID>]) -> some View {
+        let entryLabels = entries.map(\.label)
+        return accessibilityRotor(label, entries: entryLabels)
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func accessibilityRotorEntry<ID: Hashable>(id: ID, in namespace: Namespace.ID) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = id
+            _ = namespace
+            return content.makeComponent(context: context)
+        }
+    }
+
+    @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+    func accessibilityChartDescriptor(_ descriptor: AccessibilityChartDescriptor) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityDescription = descriptor.title
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func accessibilityDirectTouch(_ options: AccessibilityDirectTouchOptions = .enabled) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityDirectTouchOptions = options.retained
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityMagicTap(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityMagicTapAction = action
+                return childNode
+            }
+        }
+    }
+
+    func ornament<Content: View>(
+        attachmentAnchor: UnitPoint = .bottom,
+        contentAnchor: UnitPoint = .top,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let _ = content()
+        return ModifiedView(content: self) { viewContent, context in
+            let _ = attachmentAnchor
+            let _ = contentAnchor
+            return viewContent.makeComponent(context: context)
+        }
+    }
+
+    func ornament<Content: View>(
+        visibility: Visibility,
+        attachmentAnchor: UnitPoint = .bottom,
+        contentAlignment: Alignment = .center,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let _ = content()
+        return ModifiedView(content: self) { viewContent, context in
+            let _ = visibility
+            let _ = attachmentAnchor
+            let _ = contentAlignment
+            return viewContent.makeComponent(context: context)
+        }
+    }
+
+    func hoverOrnament<Content: View>(
+        visibility: Visibility = .automatic,
+        attachmentAnchor: UnitPoint = .bottom,
+        contentAlignment: Alignment = .center,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let _ = content()
+        return ModifiedView(content: self) { viewContent, context in
+            let _ = visibility
+            let _ = attachmentAnchor
+            let _ = contentAlignment
+            return viewContent.makeComponent(context: context)
+        }
+    }
+
+    func touchBar(@ViewBuilder _ content: () -> [AnyView]) -> some View {
+        let _ = content()
+        return ModifiedView(content: self) { viewContent, context in
+            return viewContent.makeComponent(context: context)
+        }
+    }
+
     func accessibilityIdentifier(_ identifier: String) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilityIdentifier = identifier
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityLanguage(_ language: String?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityLanguage = language
                 return childNode
             }
         }
@@ -18694,12 +26378,62 @@ public extension View {
         }
     }
 
+    func accessibilityChildren(_ behavior: AccessibilityChildBehavior = .ignore) -> some View {
+        accessibilityElement(children: behavior)
+    }
+
     func accessibilitySortPriority(_ priority: Double) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.accessibilitySortPriority = priority
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityInputLabels(_ inputLabels: [String]) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityInputLabels = inputLabels
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityHeading(_ headingLevel: AccessibilityHeadingLevel) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityHeadingLevel = headingLevel.retained
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityTextualContext(_ context: AccessibilityTextualContext) -> some View {
+        ModifiedView(content: self) { content, viewContext in
+            let child = content.makeComponent(context: viewContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityTextualContext = context.retained
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityRepresentation<V: View>(@ViewBuilder _ representation: () -> V) -> some View {
+        let view = representation()
+        return ModifiedView(content: self) { content, context in
+            let repComponents = view.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityRepresentationChildren = [repComponents.makeNode(runtime: runtime)]
                 return childNode
             }
         }
@@ -18725,6 +26459,11 @@ public extension View {
         accessibilityAction(kind: nil, name: name.plainContent, action)
     }
 
+    func accessibilityActions(_ content: @escaping () -> Void) -> some View {
+        let _ = content
+        return self
+    }
+
     private func accessibilityAction(
         kind: RetainedAccessibilityActionKind?,
         name: String?,
@@ -18741,6 +26480,236 @@ public extension View {
                         handler: action
                     )
                 )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityAdjustableAction(_ handler: @escaping (AccessibilityAdjustmentDirection) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(
+                        name: nil,
+                        kind: .adjustable,
+                        handler: {
+                            // Default to increment on activation; actual direction handled by separate flow
+                        }
+                    )
+                )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityZoomInAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(
+                        name: "Zoom In",
+                        kind: .zoomIn,
+                        handler: action
+                    )
+                )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityZoomOutAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityActions.append(
+                    RetainedAccessibilityAction(
+                        name: "Zoom Out",
+                        kind: .zoomOut,
+                        handler: action
+                    )
+                )
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityShowsLargeContentViewer() -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityShowsLargeContentViewer = true
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityQuickAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityQuickActionEnabled = true
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityQuickAction(
+        _ style: AccessibilityQuickActionStyle,
+        _ action: @escaping () -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityQuickActionEnabled = true
+                childNode.accessibilityQuickActionStyle = style
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityZoomAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityZoomActionEnabled = true
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityScrollAction(_ action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityScrollActionEnabled = true
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityFocusSection(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityFocusSection = isEnabled
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityImage(_ isImage: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isAccessibilityImage = isImage
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityLinkDestination(_ url: URL?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityLinkDestination = url
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityLinkedGroup(_ id: String, in namespace: Namespace.ID) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityLinkedGroup = id
+                return childNode
+            }
+        }
+    }
+
+    func accessibilityPage(_ page: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.accessibilityPage = page
+                return childNode
+            }
+        }
+    }
+
+    func widgetURL(_ url: URL?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.widgetURL = url
+                return childNode
+            }
+        }
+    }
+
+    func widgetAccentable(_ accentable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isWidgetAccentable = accentable
+                return childNode
+            }
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func widgetAccentedRenderingMode(_ mode: WidgetAccentedRenderingMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.widgetAccentedRenderingMode = mode
+                return childNode
+            }
+        }
+    }
+
+    func widgetRenderingMode(_ mode: WidgetRenderingMode) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.widgetRenderingMode, mode))
+        }
+    }
+
+    func widgetBackground(_ style: ForegroundStyle, for placement: ContainerBackgroundPlacement = .widget) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.widgetBackgroundStyle = AnyShapeStyle()
+                childNode.widgetBackgroundPlacement = placement
+                return childNode
+            }
+        }
+    }
+
+    func widgetRelevancy(_ relevancy: WidgetRelevancy) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.widgetRelevancy = relevancy
                 return childNode
             }
         }
@@ -18797,6 +26766,25 @@ public extension View {
         self.offset(x: offset.width, y: offset.height)
     }
 
+    func offset(_ offset: CGPoint) -> some View {
+        self.offset(x: offset.x, y: offset.y)
+    }
+
+    func position(_ position: CGPoint) -> some View {
+        self.position(x: position.x, y: position.y)
+    }
+
+    func position(x: Double = 0, y: Double = 0) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.position = Point(x: x, y: y)
+                return childNode
+            }
+        }
+    }
+
     func scaleEffect(_ scale: Double) -> some View {
         scaleEffect(x: scale, y: scale)
     }
@@ -18826,6 +26814,16 @@ public extension View {
         _ = z
         _ = anchor
         return scaleEffect(x: x, y: y)
+    }
+
+    func scaleEffect(_ scale: Double, anchor: UnitPoint3D) -> some View {
+        _ = anchor
+        return scaleEffect(x: scale, y: scale)
+    }
+
+    func scaleEffect(_ scale: CGSize, anchor: UnitPoint = .center) -> some View {
+        _ = anchor
+        return scaleEffect(x: scale.width, y: scale.height)
     }
 
     func flipsForRightToLeftLayoutDirection(_ enabled: Bool) -> some View {
@@ -18943,9 +26941,46 @@ public extension View {
         }
     }
 
+    func geometryEffect(_ effect: some GeometryEffect) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.geometryEffect = "present"
+                return childNode
+            }
+        }
+    }
+
     func disabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnabled(!disabled))
+        }
+    }
+
+    func disabled(_ disabled: Bool, reason: String?) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = reason
+            return content.makeComponent(context: context.withEnabled(!disabled))
+        }
+    }
+
+    func layoutDirection(_ layoutDirection: LayoutDirection) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.layoutDirection, layoutDirection))
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func layoutDirectionBehavior(_ behavior: LayoutDirectionBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.layoutDirectionBehavior, behavior))
+        }
+    }
+
+    func displayScale(_ displayScale: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.displayScale, displayScale))
         }
     }
 
@@ -18991,9 +27026,91 @@ public extension View {
         }
     }
 
+    func onDelete(perform action: ((IndexSet) -> Void)?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.onDeleteAction = action
+                return node
+            }
+        }
+    }
+
+    func onMove(perform action: ((IndexSet, Int) -> Void)?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.onMoveAction = action
+                return node
+            }
+        }
+    }
+
+    func onInsert(of supportedContentTypes: [UTType], perform action: @escaping (Int, [NSItemProvider]) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.onInsertRows = { index, itemProviders in
+                    action(index, itemProviders as! [NSItemProvider])
+                }
+                return node
+            }
+        }
+    }
+
+    func editActions(_ actions: EditActions) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.editActions = RetainedEditActions(actions)
+                return node
+            }
+        }
+    }
+
+    func defaultMinListRowHeight(_ height: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultMinListRowHeight, height))
+        }
+    }
+
+    func defaultMaxListRowHeight(_ height: Double?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultMaxListRowHeight, height))
+        }
+    }
+
+    func defaultMinListHeaderHeight(_ height: CGFloat?) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultMinListHeaderHeight, height))
+        }
+    }
+
+    func sidebarRowSize(_ size: SidebarRowSize) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.sidebarRowSize, size))
+        }
+    }
+
     func scrollDisabled(_ disabled: Bool = true) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.isScrollEnabled, !disabled))
+        }
+    }
+
+    func defaultScrollDisabled(_ disabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultScrollDisabled, disabled))
+        }
+    }
+
+    func defaultScrollIndicatorsBehavior(_ behavior: ScrollIndicatorsBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.defaultScrollIndicatorsBehavior, behavior))
         }
     }
 
@@ -19052,6 +27169,17 @@ public extension View {
         }
     }
 
+    func scrollTargetPaging(isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                _ = isEnabled
+                return node
+            }
+        }
+    }
+
     func scrollInputBehavior(_ behavior: ScrollInputBehavior, for input: ScrollInputKind) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(
@@ -19097,6 +27225,28 @@ public extension View {
         }
     }
 
+    func defaultScrollPosition(_ position: ScrollPosition, anchor: UnitPoint? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.defaultScrollPositionMetadata,
+                    scrollPositionMetadataDescription(position, anchor: anchor)
+                )
+            )
+        }
+    }
+
+    func defaultScrollPosition<ID: Hashable>(id: ID, anchor: UnitPoint? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.defaultScrollPositionMetadata,
+                    scrollPositionIDMetadataDescription(id, anchor: anchor)
+                )
+            )
+        }
+    }
+
     func onScrollGeometryChange<Value: Equatable>(
         for type: Value.Type,
         of transform: @escaping (ScrollGeometry) -> Value,
@@ -19136,6 +27286,11 @@ public extension View {
         return scrollObservation("targetVisibility:idType:\(String(describing: ID.self)),threshold:\(threshold)")
     }
 
+    func onScroll(_ action: @escaping (ScrollPhase) -> Void) -> some View {
+        let _ = action
+        return scrollObservation("scroll")
+    }
+
     private func scrollObservation(_ description: String) -> some View {
         ModifiedView(content: self) { content, context in
             let component = content.makeComponent(context: context)
@@ -19155,9 +27310,11 @@ public extension View {
             let geometry = GeometryProxy(size: context.canvasSize)
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
-                node.visualEffects.append(
-                    effect(EmptyVisualEffect(), geometry).retainedVisualEffectDescription
-                )
+                let effectResult = effect(EmptyVisualEffect(), geometry)
+                if let empty = effectResult as? EmptyVisualEffect {
+                    applyRetainedVisualEffectOperations(empty.operations, to: node)
+                }
+                node.visualEffects.append(effectResult.retainedVisualEffectDescription)
                 return node
             }
         }
@@ -19172,9 +27329,11 @@ public extension View {
             let geometry = GeometryProxy3D(size: Size3D(width: size.width, height: size.height, depth: 0))
             return Component { runtime in
                 let node = component.makeNode(runtime: runtime)
-                node.visualEffects.append(
-                    effect(EmptyVisualEffect(), geometry).retainedVisualEffectDescription
-                )
+                let effectResult = effect(EmptyVisualEffect(), geometry)
+                if let empty = effectResult as? EmptyVisualEffect {
+                    applyRetainedVisualEffectOperations(empty.operations, to: node)
+                }
+                node.visualEffects.append(effectResult.retainedVisualEffectDescription)
                 return node
             }
         }
@@ -19256,6 +27415,17 @@ public extension View {
         }
     }
 
+    func scenePadding(_ edges: Edge.Set = .all) -> some View {
+        ModifiedView(content: self) { content, context in
+            let component = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = component.makeNode(runtime: runtime)
+                node.scenePaddingEdges = edges
+                return node
+            }
+        }
+    }
+
     func defaultScrollAnchor(_ anchor: UnitPoint?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(
@@ -19333,7 +27503,15 @@ public extension View {
     }
 
     func listRowBackground(_ gradient: LinearGradient?) -> some View {
-        listRowBackgroundStyle(color: nil, gradient: gradient)
+        listRowBackgroundStyle(color: nil, gradient: gradient.map { .linear(.init($0)) })
+    }
+
+    func listRowBackground(_ gradient: RadialGradient?) -> some View {
+        listRowBackgroundStyle(color: nil, gradient: gradient.map { .radial(.init($0)) })
+    }
+
+    func listRowBackground(_ gradient: AngularGradient?) -> some View {
+        listRowBackgroundStyle(color: nil, gradient: gradient.map { .conic(.init($0)) })
     }
 
     func listRowBackground(_ style: ForegroundStyle?) -> some View {
@@ -19345,7 +27523,7 @@ public extension View {
         return listRowBackgroundStyle(color: fill.color, gradient: fill.gradient)
     }
 
-    private func listRowBackgroundStyle(color: Color?, gradient: LinearGradient?) -> some View {
+    private func listRowBackgroundStyle(color: Color?, gradient: GradientType?) -> some View {
         ModifiedView(content: self) { content, context in
             guard color != nil || gradient != nil else {
                 return content.makeComponent(context: context)
@@ -19516,6 +27694,18 @@ public extension View {
         }
     }
 
+    func alternatingRowBackgrounds(_ visibility: Visibility) -> some View {
+        let retained = RetainedAlternatingRowBackgrounds(visibility: visibility.retainedListSeparatorVisibility)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.alternatingRowBackgrounds = retained
+                return childNode
+            }
+        }
+    }
+
     func listRowSpacing(_ spacing: Double?) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.listRowSpacing, spacing))
@@ -19529,6 +27719,17 @@ public extension View {
     func listSectionSpacing(_ spacing: ListSectionSpacing) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.listSectionSpacing, Optional(spacing)))
+        }
+    }
+
+    func listRowPlatterColor(_ color: Color?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.listRowPlatterColor = color
+                return childNode
+            }
         }
     }
 
@@ -19556,6 +27757,95 @@ public extension View {
                 childNode.onDisappear = {
                     existingOnDisappear?()
                     action?()
+                }
+                return childNode
+            }
+        }
+    }
+
+    func userActivity(
+        _ activityType: String,
+        isActive: Bool = true,
+        _ update: @escaping (NSUserActivity) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                if isActive {
+                    let activity = NSUserActivity(activityType: activityType)
+                    update(activity)
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onContinueUserActivity(
+        _ activityType: String,
+        perform action: @escaping (NSUserActivity) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnAppear = childNode.onAppear
+                childNode.onAppear = {
+                    existingOnAppear?()
+                    // Stub: in a full implementation, this would register
+                    // a handler for incoming user activities of this type.
+                    let _ = activityType
+                    let _ = action
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onGeometryChange<T: Equatable>(
+        for type: T.Type,
+        of transform: @escaping (GeometryProxy) -> T,
+        action: @escaping (_ newValue: T, _ oldValue: T?) -> Void
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                var lastValue: T?
+                let existingOnLayout = childNode.onLayout
+                childNode.onLayout = { rect in
+                    existingOnLayout?(rect)
+                    let proxy = GeometryProxy(size: rect.size, frameResolver: { space in
+                        switch space {
+                        case .local:
+                            return Rect(origin: .zero, size: rect.size)
+                        case .global:
+                            var origin = rect.origin
+                            var ancestor = childNode.parent
+                            while let a = ancestor {
+                                origin = Point(x: origin.x + a.frame.origin.x, y: origin.y + a.frame.origin.y)
+                                ancestor = a.parent
+                            }
+                            return Rect(origin: origin, size: rect.size)
+                        case .named(let name):
+                            var origin = rect.origin
+                            var ancestor = childNode.parent
+                            while let a = ancestor {
+                                if a.coordinateSpaceName == name {
+                                    return Rect(origin: origin, size: rect.size)
+                                }
+                                origin = Point(x: origin.x + a.frame.origin.x, y: origin.y + a.frame.origin.y)
+                                ancestor = a.parent
+                            }
+                            return Rect(origin: origin, size: rect.size)
+                        }
+                    })
+                    let newValue = transform(proxy)
+                    if let last = lastValue, last == newValue {
+                        return
+                    }
+                    action(newValue, lastValue)
+                    lastValue = newValue
                 }
                 return childNode
             }
@@ -19644,12 +27934,88 @@ public extension View {
         }
     }
 
+    func refreshable<ID: Hashable>(id: ID, priority: TaskPriority = .userInitiated, action: @escaping @Sendable () async -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.refresh,
+                    RefreshAction(action: action, id: AnyHashable(id), priority: priority)
+                )
+            )
+        }
+    }
+
+    func invalidatableContent(_ invalidatable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isContentInvalidatable = invalidatable
+                return childNode
+            }
+        }
+    }
+
+    func lineSelection(_ selectable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isLineSelectable = selectable
+                return childNode
+            }
+        }
+    }
+
     func renameAction(_ action: @escaping () -> Void) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(
                 context: context.withEnvironmentValue(
                     \.rename,
                     RenameAction(action: action)
+                )
+            )
+        }
+    }
+
+    func renameable(_ isRenameable: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            _ = isRenameable
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func newDocumentAction(_ action: @escaping @Sendable () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.newDocument,
+                    NewDocumentAction(handler: action)
+                )
+            )
+        }
+    }
+
+    func openDocumentAction(_ action: @escaping @Sendable ([URL]) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.openDocument,
+                    OpenDocumentAction(handler: action)
+                )
+            )
+        }
+    }
+
+    func onOpenURL(perform action: @escaping (URL) -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(
+                context: context.withEnvironmentValue(
+                    \.openURL,
+                    OpenURLAction { url in
+                        action(url)
+                        return .handled
+                    }
                 )
             )
         }
@@ -19768,6 +28134,89 @@ public extension View {
             return Component { runtime in
                 let childNode = child.makeNode(runtime: runtime)
                 childNode.isSubmitScopeBoundary = isBlocking
+                return childNode
+            }
+        }
+    }
+
+    func submitScope(_ triggers: SubmitTriggers) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isSubmitScopeBoundary = true
+                childNode.submitScopeTriggersRawValue = triggers.rawValue
+                return childNode
+            }
+        }
+    }
+
+    func focusSection(_ isEnabled: Bool = true) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusSection = isEnabled
+                return childNode
+            }
+        }
+    }
+
+    func focusScope(_ namespace: Namespace.ID) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusSection = true
+                childNode.focusNamespace = namespace
+                return childNode
+            }
+        }
+    }
+
+    func prefersDefaultFocus(_ prefersDefaultFocus: Bool = true, in namespace: Namespace.ID) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.prefersDefaultFocus = prefersDefaultFocus
+                childNode.focusNamespace = namespace
+                return childNode
+            }
+        }
+    }
+
+    func defaultFocus(_ condition: FocusState<Bool>.Binding, in namespace: Namespace.ID) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                childNode.isHitTestVisible = true
+                childNode.focusNamespace = namespace
+                if condition.wrappedValue {
+                    runtime.requestFocus(childNode)
+                }
+                return childNode
+            }
+        }
+    }
+
+    func defaultFocus<Value>(
+        _ binding: FocusState<Value?>.Binding,
+        equals value: Value,
+        in namespace: Namespace.ID
+    ) -> some View where Value: Hashable {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                childNode.isHitTestVisible = true
+                childNode.focusNamespace = namespace
+                if binding.wrappedValue == value {
+                    runtime.requestFocus(childNode)
+                }
                 return childNode
             }
         }
@@ -19892,6 +28341,18 @@ public extension View {
         }
     }
 
+    func spatialTapGesture(
+        count: Int = 1,
+        coordinateSpace: CoordinateSpace = .local,
+        perform action: @escaping (CGPoint) -> Void
+    ) -> some View {
+        onTapGesture(count: count, coordinateSpace: coordinateSpace, perform: action)
+    }
+
+    func spatialEventGesture() -> some View {
+        gesture(SpatialEventGesture())
+    }
+
     func onLongPressGesture(
         minimumDuration: Double = 0.5,
         maximumDistance: CGFloat = 10,
@@ -20007,6 +28468,138 @@ public extension View {
         }
     }
 
+    func onKeyPress(
+        keys: Set<KeyEquivalent>,
+        phases: KeyPress.Phases = .all,
+        action: @escaping (KeyPress) -> KeyPress.Result
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnKeyDown = childNode.onKeyDown
+                childNode.onKeyDown = { event in
+                    guard let scalar = UnicodeScalar(event.keyCode) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    let key = KeyEquivalent(unicodeScalarLiteral: scalar)
+                    guard keys.contains(key) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    var phase: KeyPress.Phases = .down
+                    if event.isRepeat {
+                        phase = .repeat
+                    }
+                    guard phases.contains(phase) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    let press = KeyPress(key: key, characters: "", phases: phase)
+                    let result = action(press)
+                    if result == .ignored {
+                        existingOnKeyDown?(event)
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onKeyPress(
+        phases: KeyPress.Phases = .all,
+        action: @escaping (KeyPress) -> KeyPress.Result
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnKeyDown = childNode.onKeyDown
+                childNode.onKeyDown = { event in
+                    var phase: KeyPress.Phases = .down
+                    if event.isRepeat {
+                        phase = .repeat
+                    }
+                    guard phases.contains(phase) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    guard let scalar = UnicodeScalar(event.keyCode) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    let key = KeyEquivalent(unicodeScalarLiteral: scalar)
+                    let press = KeyPress(key: key, characters: "", phases: phase)
+                    let result = action(press)
+                    if result == .ignored {
+                        existingOnKeyDown?(event)
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
+    func onKeyPress(
+        action: @escaping (KeyPress) -> KeyPress.Result
+    ) -> some View {
+        onKeyPress(phases: .all, action: action)
+    }
+
+    func onKeyPress(
+        characters: String,
+        phases: KeyPress.Phases = .all,
+        action: @escaping (KeyPress) -> KeyPress.Result
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                let existingOnKeyDown = childNode.onKeyDown
+                let characterKeyCodes = Set(characters.map { KeyEquivalent($0).retainedKeyCode })
+                childNode.onKeyDown = { event in
+                    var phase: KeyPress.Phases = .down
+                    if event.isRepeat {
+                        phase = .repeat
+                    }
+                    guard phases.contains(phase) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    guard let scalar = UnicodeScalar(event.keyCode) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    let key = KeyEquivalent(unicodeScalarLiteral: scalar)
+                    let press = KeyPress(key: key, characters: "", phases: phase)
+                    guard characterKeyCodes.contains(event.keyCode) else {
+                        existingOnKeyDown?(event)
+                        return
+                    }
+                    let result = action(press)
+                    if result == .ignored {
+                        existingOnKeyDown?(event)
+                    }
+                }
+                return childNode
+            }
+        }
+    }
+
+    /// Register an action to perform when a command with the given selector
+    /// is invoked anywhere in this view's subtree.
+    func onCommand(_ command: Selector, perform action: @escaping () -> Void) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.commandHandlers[command.name] = action
+                return childNode
+            }
+        }
+    }
+
     /// Assign a stable identity to this view so the diffing algorithm can
     /// match it across rebuilds by identity rather than position.
     func id(_ identifier: String) -> some View {
@@ -20060,10 +28653,144 @@ public extension View {
         }
     }
 
-    func transition(_ transition: AnyTransition) -> some View {
+    func matchedGeometrySource<ID: Hashable>(
+        id: ID,
+        in namespace: Namespace.ID,
+        properties: MatchedGeometryProperties = .frame,
+        anchor: UnitPoint = .center
+    ) -> some View {
+        matchedGeometryEffect(
+            id: id,
+            in: namespace,
+            properties: properties,
+            anchor: anchor,
+            isSource: true
+        )
+    }
+
+    func matchedGeometryDestination<ID: Hashable>(
+        id: ID,
+        in namespace: Namespace.ID,
+        properties: MatchedGeometryProperties = .frame,
+        anchor: UnitPoint = .center
+    ) -> some View {
+        matchedGeometryEffect(
+            id: id,
+            in: namespace,
+            properties: properties,
+            anchor: anchor,
+            isSource: false
+        )
+    }
+
+    func matchedTransitionSource<ID: Hashable>(
+        id: ID,
+        in namespace: Namespace.ID
+    ) -> some View {
         ModifiedView(content: self) { content, context in
-            _ = transition
-            return content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.matchedTransitionSource = RetainedMatchedTransitionSource(
+                    namespaceID: namespace.rawValue,
+                    elementID: String(describing: id)
+                )
+                return node
+            }
+        }
+    }
+
+    func navigationTransition(_ transition: NavigationTransition) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.navigationTransition = transition.retained
+                return node
+            }
+        }
+    }
+
+    @MainActor
+    private func retainedTransition(from transition: AnyTransition) -> RetainedTransition {
+        switch transition.kind {
+        case .identity:
+            return .identity
+        case .opacity:
+            return RetainedTransition(kind: .opacity)
+        case .scale(let scale, let anchor):
+            return RetainedTransition(kind: .scale(scaleX: scale, scaleY: scale, anchorX: anchor.x, anchorY: anchor.y))
+        case .offset(let x, let y):
+            return RetainedTransition(kind: .offset(x: x, y: y))
+        case .move(let edge):
+            return RetainedTransition(kind: .move(edge: retainedEdge(from: edge)))
+        case .slide:
+            return RetainedTransition(kind: .slide)
+        case .push(let edge):
+            return RetainedTransition(kind: .push(from: retainedEdge(from: edge)))
+        case .asymmetric(let insertion, let removal):
+            return RetainedTransition(
+                kind: .asymmetric(
+                    insertion: retainedTransition(from: insertion),
+                    removal: retainedTransition(from: removal)
+                )
+            )
+        case .combined(let first, let second):
+            return RetainedTransition(
+                kind: .combined(
+                    retainedTransition(from: first),
+                    retainedTransition(from: second)
+                )
+            )
+        case .modifier(let activeType, let identityType):
+            return RetainedTransition(kind: .modifier(activeType: activeType, identityType: identityType))
+        }
+    }
+
+    @MainActor
+    private func retainedEdge(from edge: Edge) -> RetainedEdge {
+        switch edge {
+        case .top: return .top
+        case .leading: return .leading
+        case .bottom: return .bottom
+        case .trailing: return .trailing
+        }
+    }
+
+    func transition(_ transition: AnyTransition) -> some View {
+        let retained = retainedTransition(from: transition)
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.transition = retained
+                return node
+            }
+        }
+    }
+
+    func transition(as transition: AnyTransition) -> some View {
+        self.transition(transition)
+    }
+
+    func transition<T: Transition>(_ transition: T) -> some View {
+        self.transition(transition.anyTransition)
+    }
+
+    func transition(_ transition: AsymmetricTransition) -> some View {
+        let retained = RetainedTransition(
+            kind: .combined(
+                retainedTransition(from: transition.insertion),
+                retainedTransition(from: transition.removal)
+            )
+        )
+        return ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.transition = retained
+                return node
+            }
         }
     }
 
@@ -20072,15 +28799,11 @@ public extension View {
         @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
         animation: @escaping (Phase) -> Animation? = { _ in .default }
     ) -> some View where Phase: Equatable, Phases.Element == Phase {
-        var iterator = phases.makeIterator()
-        let initialPhase = iterator.next()
-        let hasAdditionalPhases = iterator.next() != nil
-        return retainedPhaseAnimator(
-            initialPhase: initialPhase,
-            triggerDescription: nil,
-            hasAdditionalPhases: hasAdditionalPhases,
-            content: phaseContent,
-            animation: animation
+        PhaseAnimator(
+            phases,
+            content: { phase in phaseContent(PlaceholderContentView(self), phase) },
+            animation: animation,
+            fallbackContent: [AnyView(self)]
         )
     }
 
@@ -20090,64 +28813,51 @@ public extension View {
         @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
         animation: @escaping (Phase) -> Animation? = { _ in .default }
     ) -> some View where Phase: Equatable, Phases.Element == Phase {
-        var iterator = phases.makeIterator()
-        let initialPhase = iterator.next()
-        let hasAdditionalPhases = iterator.next() != nil
-        return retainedPhaseAnimator(
-            initialPhase: initialPhase,
-            triggerDescription: "\(Trigger.self):\(String(describing: trigger))",
-            hasAdditionalPhases: hasAdditionalPhases,
-            content: phaseContent,
-            animation: animation
+        PhaseAnimator(
+            phases,
+            trigger: trigger,
+            content: { phase in phaseContent(PlaceholderContentView(self), phase) },
+            animation: animation,
+            fallbackContent: [AnyView(self)]
         )
     }
 
-    private func retainedPhaseAnimator<Phase: Equatable>(
-        initialPhase: Phase?,
-        triggerDescription: String?,
-        hasAdditionalPhases: Bool,
-        @ViewBuilder content phaseContent: @escaping (PlaceholderContentView<Self>, Phase) -> [AnyView],
-        animation: @escaping (Phase) -> Animation?
+    func keyframeAnimator<Value: Animatable>(
+        initialValue: Value,
+        repeating: Bool = true,
+        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> [AnyView],
+        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
     ) -> some View {
-        ModifiedView(content: self) { content, context in
-            guard let initialPhase else {
-                let base = content.makeComponent(context: context)
-                return Component { runtime in
-                    let node = base.makeNode(runtime: runtime)
-                    node.visualEffects.append(
-                        retainedPhaseAnimatorDescription(
-                            phase: nil as Phase?,
-                            triggerDescription: triggerDescription,
-                            hasAdditionalPhases: false,
-                            animation: nil
-                        )
-                    )
-                    return node
-                }
-            }
+        KeyframeAnimator(
+            initialValue: initialValue,
+            repeating: repeating,
+            content: { value in keyframeContent(PlaceholderContentView(self), value) },
+            keyframes: keyframes
+        )
+    }
 
-            let phaseViews = phaseContent(PlaceholderContentView(self), initialPhase)
-            let phaseComponent = composeComponent(from: phaseViews, context: context)
-            let phaseAnimation = animation(initialPhase)
-
-            return Component { runtime in
-                let node = phaseComponent.makeNode(runtime: runtime)
-                node.visualEffects.append(
-                    retainedPhaseAnimatorDescription(
-                        phase: initialPhase,
-                        triggerDescription: triggerDescription,
-                        hasAdditionalPhases: hasAdditionalPhases,
-                        animation: phaseAnimation
-                    )
-                )
-                return node
-            }
-        }
+    func keyframeAnimator<Value: Animatable, Trigger: Equatable>(
+        initialValue: Value,
+        trigger: Trigger,
+        @ViewBuilder content keyframeContent: @escaping (PlaceholderContentView<Self>, Value) -> [AnyView],
+        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
+    ) -> some View {
+        KeyframeAnimator(
+            initialValue: initialValue,
+            trigger: trigger,
+            content: { value in keyframeContent(PlaceholderContentView(self), value) },
+            keyframes: keyframes
+        )
     }
 
     func contentTransition(_ transition: ContentTransition) -> some View {
         ModifiedView(content: self) { content, context in
-            content.makeComponent(context: context.withEnvironmentValue(\.contentTransition, transition))
+            let child = content.makeComponent(context: context.withEnvironmentValue(\.contentTransition, transition))
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.contentTransition = transition.retained
+                return node
+            }
         }
     }
 
@@ -20159,6 +28869,13 @@ public extension View {
                     addsDrawingGroup
                 )
             )
+        }
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func textTransition(_ transition: TextTransition) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.textTransition, transition))
         }
     }
 
@@ -20197,9 +28914,12 @@ public extension View {
 
     func sensoryFeedback<T: Equatable>(_ feedback: SensoryFeedback, trigger: T) -> some View {
         ModifiedView(content: self) { content, context in
-            _ = feedback
-            _ = trigger
-            return content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.sensoryFeedback = feedback.retained
+                return node
+            }
         }
     }
 
@@ -20209,10 +28929,12 @@ public extension View {
         condition: @escaping (T, T) -> Bool
     ) -> some View {
         ModifiedView(content: self) { content, context in
-            _ = feedback
-            _ = trigger
-            _ = condition
-            return content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                node.sensoryFeedback = feedback.retained
+                return node
+            }
         }
     }
 
@@ -20221,9 +28943,11 @@ public extension View {
         _ feedback: @escaping (T, T) -> SensoryFeedback?
     ) -> some View {
         ModifiedView(content: self) { content, context in
-            _ = trigger
-            _ = feedback
-            return content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                return node
+            }
         }
     }
 
@@ -20231,8 +28955,55 @@ public extension View {
         ModifiedView(content: self) { content, context in
             var transaction = Transaction()
             transform(&transaction)
-            _ = transaction
-            return content.makeComponent(context: context)
+            let child = content.makeComponent(context: context)
+            guard let animation = transaction.animation, !transaction.disablesAnimations, !context.accessibilityReduceMotion else {
+                return child
+            }
+            return Component { runtime in
+                let node = child.makeNode(runtime: runtime)
+                let now = 0.0
+                node.animationStates[.opacity] = AnimationState(
+                    startValue: Double(node.opacity), endValue: Double(node.opacity),
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.frameOriginX] = AnimationState(
+                    startValue: node.frame.origin.x, endValue: node.frame.origin.x,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.frameOriginY] = AnimationState(
+                    startValue: node.frame.origin.y, endValue: node.frame.origin.y,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.frameWidth] = AnimationState(
+                    startValue: node.frame.size.width, endValue: node.frame.size.width,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.frameHeight] = AnimationState(
+                    startValue: node.frame.size.height, endValue: node.frame.size.height,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.transformScaleX] = AnimationState(
+                    startValue: node.transform.scaleX, endValue: node.transform.scaleX,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.transformScaleY] = AnimationState(
+                    startValue: node.transform.scaleY, endValue: node.transform.scaleY,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.transformTranslationX] = AnimationState(
+                    startValue: node.transform.translationX, endValue: node.transform.translationX,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.transformTranslationY] = AnimationState(
+                    startValue: node.transform.translationY, endValue: node.transform.translationY,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                node.animationStates[.transformRotation] = AnimationState(
+                    startValue: node.transform.rotation, endValue: node.transform.rotation,
+                    startTime: now, duration: animation.duration, easing: animation.easing
+                )
+                return node
+            }
         }
     }
 
@@ -20248,7 +29019,7 @@ public extension View {
                 // Snapshot the current property values so that subsequent
                 // property changes can be detected and animated.
                 node.previousPropertyValues = PropertySnapshot(
-                    opacity: Double(node.backgroundColor?.alpha ?? 1.0),
+                    opacity: Double(node.opacity),
                     backgroundColor: node.backgroundColor
                 )
 
@@ -20258,8 +29029,36 @@ public extension View {
                 let now = 0.0 // Placeholder; actual start time is set when
                               // a property change is detected at reconciliation.
                 node.animationStates[.opacity] = AnimationState(
-                    startValue: Double(node.backgroundColor?.alpha ?? 1.0),
-                    endValue: Double(node.backgroundColor?.alpha ?? 1.0),
+                    startValue: Double(node.opacity),
+                    endValue: Double(node.opacity),
+                    startTime: now,
+                    duration: animation.duration,
+                    easing: animation.easing
+                )
+                node.animationStates[.frameOriginX] = AnimationState(
+                    startValue: node.frame.origin.x,
+                    endValue: node.frame.origin.x,
+                    startTime: now,
+                    duration: animation.duration,
+                    easing: animation.easing
+                )
+                node.animationStates[.frameOriginY] = AnimationState(
+                    startValue: node.frame.origin.y,
+                    endValue: node.frame.origin.y,
+                    startTime: now,
+                    duration: animation.duration,
+                    easing: animation.easing
+                )
+                node.animationStates[.frameWidth] = AnimationState(
+                    startValue: node.frame.size.width,
+                    endValue: node.frame.size.width,
+                    startTime: now,
+                    duration: animation.duration,
+                    easing: animation.easing
+                )
+                node.animationStates[.frameHeight] = AnimationState(
+                    startValue: node.frame.size.height,
+                    endValue: node.frame.size.height,
                     startTime: now,
                     duration: animation.duration,
                     easing: animation.easing
@@ -20292,6 +29091,880 @@ public extension View {
     func animation<Value: Equatable>(_ animation: Animation?, value: Value) -> some View {
         self.animation(animation)
     }
+
+    func previewDisplayName(_ name: String?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = name
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func previewLayout(_ layout: PreviewLayout) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = layout
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func previewDevice(_ device: PreviewDevice?) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = device
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func previewInterfaceOrientation(_ value: InterfaceOrientation) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = value
+            return content.makeComponent(context: context)
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func previewSizeThatFits(_ sizeThatFits: PreviewSizeThatFits) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = sizeThatFits
+            return content.makeComponent(context: context)
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func previewInteraction(_ interaction: PreviewInteraction) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = interaction
+            return content.makeComponent(context: context)
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func previewTraits<T: PreviewTrait>(_ traits: T...) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = traits
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func previewContext<C: PreviewContext>(_ context: C) -> some View {
+        ModifiedView(content: self) { content, viewContext in
+            let _ = context
+            return content.makeComponent(context: viewContext)
+        }
+    }
+
+    func subscriptionStoreControlStyle(_ style: SubscriptionStoreControlStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = style
+            return content.makeComponent(context: context)
+        }
+    }
+
+    @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+    func subscriptionStoreButtonLabel(_ label: SubscriptionStoreButtonLabel) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = label
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func subscriptionStorePickerItemBackground(_ background: SubscriptionStorePickerItemBackground) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = background
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func storeButton(_ button: StoreButton, action: @escaping () -> Void = {}) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = button
+            let _ = action
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func storeButtonVisibility(_ visibility: Visibility, for button: StoreButton) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = visibility
+            let _ = button
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func popoverTip<TipType: Tip>(_ tip: TipType, arrowEdge: Edge? = nil) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = tip
+            let _ = arrowEdge
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func tip<TipType: Tip>(_ tip: TipType) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = tip
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func tipImageSize(_ size: Size) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = size
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func tipCornerRadius(_ cornerRadius: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = cornerRadius
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func tipBackground(_ style: some ShapeStyle) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = style
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func persistentSystemOverlays(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = visibility
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func statusBarHidden(_ hidden: Bool) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = hidden
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func chartXAxis(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartXAxis = visibility.description
+                return childNode
+            }
+        }
+    }
+
+    func chartYAxis(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartYAxis = visibility.description
+                return childNode
+            }
+        }
+    }
+
+    func chartBackground(@ViewBuilder content: @escaping (ChartProxy) -> [AnyView]) -> some View {
+        let chartContent = content
+        return ModifiedView(content: self) { content, viewContext in
+            let child = content.makeComponent(context: viewContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                _ = chartContent(ChartProxy())
+                childNode.chartBackground = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartPlotStyle(@ViewBuilder content: @escaping (ChartProxy) -> some View) -> some View {
+        let chartContent = content
+        return ModifiedView(content: self) { content, viewContext in
+            let child = content.makeComponent(context: viewContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                _ = chartContent(ChartProxy())
+                childNode.chartPlotStyle = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartOverlay(@ViewBuilder content: @escaping (ChartProxy) -> [AnyView]) -> some View {
+        let chartContent = content
+        return ModifiedView(content: self) { content, viewContext in
+            let child = content.makeComponent(context: viewContext)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                _ = chartContent(ChartProxy())
+                childNode.chartOverlay = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartXScale(domain: ClosedRange<Double>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartXScale = "domain:\(domain.lowerBound)...\(domain.upperBound)"
+                return childNode
+            }
+        }
+    }
+
+    func chartLegend(_ visibility: Visibility) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartLegend = visibility.description
+                return childNode
+            }
+        }
+    }
+
+    func chartYScale(domain: ClosedRange<Double>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartYScale = "domain:\(domain.lowerBound)...\(domain.upperBound)"
+                return childNode
+            }
+        }
+    }
+
+    func chartXScale(type: ChartScaleType) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartXScale = "type:\(type)"
+                return childNode
+            }
+        }
+    }
+
+    func chartYScale(type: ChartScaleType) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartYScale = "type:\(type)"
+                return childNode
+            }
+        }
+    }
+
+    func chartSelection(_ selection: Binding<[AnyHashable]?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartSelection = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartScrollableAxes(_ axes: Axis.Set) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartScrollableAxes = axes.description
+                return childNode
+            }
+        }
+    }
+
+    func chartForegroundStyleScale(_ domain: some Collection<AnyHashable>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartForegroundStyleScale = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartSymbolSize(_ size: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartSymbolSize = "size:\(size)"
+                return childNode
+            }
+        }
+    }
+
+    func chartSymbol<Content: View>(@ViewBuilder _ content: @escaping (AnyHashable) -> Content) -> some View {
+        ModifiedView(content: self) { viewContent, context in
+            let child = viewContent.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartSymbol = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartXSelection<Value: Plottable>(value: Binding<Value?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartXSelection = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartYSelection<Value: Plottable>(value: Binding<Value?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartYSelection = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartAngleSelection<Value: Plottable>(value: Binding<Value?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartAngleSelection = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartScrollPosition<Value: Plottable>(x: Binding<Value?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartScrollPositionX = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartScrollPosition<Value: Plottable>(y: Binding<Value?>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartScrollPositionY = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartAngleScale(domain: ClosedRange<Double>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartAngleScale = "domain:\(domain.lowerBound)...\(domain.upperBound)"
+                return childNode
+            }
+        }
+    }
+
+    func meshGradient(
+        width: Int,
+        height: Int,
+        points: [MeshGradientPoint],
+        colors: [Color],
+        smoothsColors: Bool = true
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.meshGradient = "width:\(width),height:\(height),smoothsColors:\(smoothsColors)"
+                return childNode
+            }
+        }
+    }
+
+    func chartBackgroundStyleScale(_ domain: some Collection<AnyHashable>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartBackgroundStyleScale = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartSymbolScale(_ domain: some Collection<AnyHashable>) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartSymbolScale = "present"
+                return childNode
+            }
+        }
+    }
+
+    func chartXVisibleDomain(length: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartXVisibleDomain = "length:\(length)"
+                return childNode
+            }
+        }
+    }
+
+    func chartYVisibleDomain(length: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.chartYVisibleDomain = "length:\(length)"
+                return childNode
+            }
+        }
+    }
+}
+
+public enum FocusSectionDispatch: Sendable, Equatable, Hashable {
+    case immediately
+    case asynchronously
+}
+
+public struct FocusSection: View {
+    public typealias Body = Never
+    public var dispatch: FocusSectionDispatch
+
+    public init(dispatch: FocusSectionDispatch = .immediately) {
+        self.dispatch = dispatch
+    }
+
+    public var body: Never {
+        fatalError("FocusSection has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let node = Controls.panel(preferredSize: Size(width: 0, height: 0))
+            node.isFocusSection = true
+            return node
+        }
+    }
+}
+
+public protocol PreviewContext {
+    var sceneID: String { get }
+    var device: PreviewDevice? { get }
+}
+
+public struct PreviewContextTrait<Key>: PreviewContext {
+    public let sceneID: String
+    public let device: PreviewDevice?
+
+    public init() {
+        self.sceneID = "preview"
+        self.device = nil
+    }
+}
+
+public struct ColorMatrix: Sendable, Equatable {
+    public var r1: Float = 1, r2: Float = 0, r3: Float = 0, r4: Float = 0, r5: Float = 0
+    public var g1: Float = 0, g2: Float = 1, g3: Float = 0, g4: Float = 0, g5: Float = 0
+    public var b1: Float = 0, b2: Float = 0, b3: Float = 1, b4: Float = 0, b5: Float = 0
+    public var a1: Float = 0, a2: Float = 0, a3: Float = 0, a4: Float = 1, a5: Float = 0
+
+    public init() {}
+}
+
+public struct ImagePaint: ShapeStyle, Sendable {
+    public let image: Image
+    public let sourceRect: CGRect
+    public let scale: CGFloat
+
+    public init(image: Image, sourceRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1), scale: CGFloat = 1) {
+        self.image = image
+        self.sourceRect = sourceRect
+        self.scale = scale
+    }
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(.clear)
+    }
+}
+
+public enum TypesettingLanguage: Sendable, Equatable, Hashable {
+    case explicit(Locale.Language)
+    case automatic
+}
+
+public struct OrnamentAttachmentAnchor: Sendable, Equatable {
+    public enum Edge: Sendable, Equatable, Hashable {
+        case top, bottom, leading, trailing
+    }
+    public let edge: Edge
+    public init(edge: Edge) { self.edge = edge }
+}
+
+public struct AccessoryWidgetBackground: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(.clear)
+    }
+}
+
+public struct ContainerBackground: ShapeStyle, Sendable, Equatable {
+    public init() {}
+
+    public var retainedForegroundStyle: ForegroundStyle {
+        .color(.clear)
+    }
+}
+
+public struct WidgetPreviewContext: PreviewContext {
+    public let sceneID: String
+    public let device: PreviewDevice?
+    public let family: WidgetFamily
+
+    public init(family: WidgetFamily) {
+        self.sceneID = "widget-preview"
+        self.device = nil
+        self.family = family
+    }
+}
+
+public enum WidgetRenderingMode: Sendable, Equatable, Hashable {
+    case fullColor
+    case accentuated
+    case vibrant
+}
+
+public typealias WidgetAccentedRenderingMode = SwiftWindowsCore.WidgetAccentedRenderingMode
+
+public struct ImportFileAction {
+    public let url: URL
+    public init(url: URL) { self.url = url }
+}
+
+public struct ExportFileAction {
+    public let url: URL
+    public init(url: URL) { self.url = url }
+}
+
+@MainActor
+@propertyWrapper
+public struct AccessibilityFocusState<Value>: DynamicProperty {
+    @MainActor
+    private final class Storage {
+        var value: Value
+        var invalidate: (@MainActor () -> Void)?
+
+        init(value: Value) {
+            self.value = value
+        }
+    }
+
+    private let storage: Storage
+
+    public init() where Value == Bool {
+        self.storage = Storage(value: false)
+    }
+
+    public init() where Value: Hashable {
+        self.storage = Storage(value: Optional<Value>.none as! Value)
+    }
+
+    public var wrappedValue: Value {
+        get {
+            if let context = ViewBuildContextScope.current {
+                storage.invalidate = {
+                    context.invalidate()
+                }
+            }
+            return storage.value
+        }
+        nonmutating set {
+            storage.value = newValue
+            storage.invalidate?()
+        }
+    }
+
+    public var projectedValue: Binding<Value> {
+        Binding(
+            get: {
+                wrappedValue
+            },
+            set: { newValue in
+                wrappedValue = newValue
+            }
+        )
+    }
+}
+
+public struct AccessibilityFocusedBinding<Value> {
+    public let binding: Binding<Value>
+    public init(_ binding: Binding<Value>) { self.binding = binding }
+}
+
+public extension Color {
+    func resolve(in environment: EnvironmentValues) -> Resolved {
+        resolved
+    }
+}
+
+open class UIHostingController<Content: View>: View {
+    public var rootView: Content
+    public init(rootView: Content) {
+        self.rootView = rootView
+    }
+    public var body: Never {
+        fatalError("UIHostingController has no body")
+    }
+}
+
+open class NSHostingController<Content: View>: View {
+    public var rootView: Content
+    public init(rootView: Content) {
+        self.rootView = rootView
+    }
+    public var body: Never {
+        fatalError("NSHostingController has no body")
+    }
+}
+
+@MainActor
+public struct UIHostingConfiguration<Content: View, Background: View> {
+    public let content: Content
+    public let background: Background
+    public init(@ViewBuilder content: () -> Content, @ViewBuilder background: () -> Background) {
+        self.content = content()
+        self.background = background()
+    }
+    public init(@ViewBuilder content: () -> Content) where Background == EmptyView {
+        self.content = content()
+        self.background = EmptyView()
+    }
+}
+
+public struct PeriodicTimelineSchedule: TimelineSchedule {
+    public let startDate: Date
+    public let interval: TimeInterval
+    public init(from startDate: Date, by interval: TimeInterval) {
+        self.startDate = startDate
+        self.interval = interval
+    }
+    public func entries(from startDate: Date, mode: TimelineScheduleMode) -> TimelineScheduleEntries {
+        var dates: [Date] = []
+        var current = self.startDate
+        while current < startDate {
+            current = current.addingTimeInterval(interval)
+        }
+        for _ in 0..<5 {
+            dates.append(current)
+            current = current.addingTimeInterval(interval)
+        }
+        return TimelineScheduleEntries(dates: dates)
+    }
+}
+
+public typealias DigitalCrownRotationalSensitivity = SwiftWindowsUI.DigitalCrownRotationalSensitivity
+public typealias RetainedDigitalCrownRotation = SwiftWindowsUI.RetainedDigitalCrownRotation
+
+public protocol TableColumnContent {
+    associatedtype TableValue
+    associatedtype SortValue : Comparable = TableValue
+    associatedtype Body : View
+    @ViewBuilder var body: Self.Body { get }
+    var valueComparator: ((TableValue, TableValue) -> Bool)? { get }
+    var title: String { get }
+}
+
+public extension TableColumnContent {
+    var valueComparator: ((TableValue, TableValue) -> Bool)? { nil }
+}
+
+public protocol TableRowContent {
+    associatedtype TableValue
+    associatedtype Body : View
+    @ViewBuilder var body: Self.Body { get }
+}
+
+@MainActor
+@resultBuilder
+public enum ChartContentBuilder {
+    public static func buildExpression<C: ChartContent>(_ content: C) -> AnyChart {
+        AnyChart(content)
+    }
+    public static func buildBlock(_ content: AnyChart...) -> AnyChart {
+        content.first ?? AnyChart(ChartBackground())
+    }
+    public static func buildOptional(_ content: AnyChart?) -> AnyChart {
+        content ?? AnyChart(ChartBackground())
+    }
+    public static func buildEither(first content: AnyChart) -> AnyChart { content }
+    public static func buildEither(second content: AnyChart) -> AnyChart { content }
+}
+
+public struct ChartPlotContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RealityViewContent {
+    public init() {}
+}
+
+public struct TipGroup {
+    public init() {}
+}
+
+public struct SpatialEventCollection: Sendable {
+    public struct Event: Sendable {
+        public let id: UInt64
+        public init(id: UInt64) { self.id = id }
+    }
+    public let events: [Event]
+    public init(events: [Event] = []) { self.events = events }
+}
+
+public struct GridCellUnsizedAxes: OptionSet, Sendable, Equatable, Hashable {
+    public let rawValue: UInt8
+    public init(rawValue: UInt8) { self.rawValue = rawValue }
+    public static let horizontal = GridCellUnsizedAxes(rawValue: 1 << 0)
+    public static let vertical = GridCellUnsizedAxes(rawValue: 1 << 1)
+    public static let all: GridCellUnsizedAxes = [.horizontal, .vertical]
+}
+
+public struct DefaultFormStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DefaultTableStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct AutomaticGroupBoxStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct BorderedGroupBoxStyle: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SearchUnavailableContent: View {
+    public init() {}
+    public var body: Never {
+        fatalError("SearchUnavailableContent has no body")
+    }
+}
+
+public struct TableColumnCustomization: Sendable, Equatable {
+    public init() {}
+}
+
+public struct GestureStateGesture<Base: Gesture, State>: Gesture {
+    public typealias Value = Base.Value
+    public let base: Base
+    public let state: GestureState<State>
+    public let body: (Base.Value, inout State) -> Void
+    public var updating: (inout State, Base.Value, Transaction) -> Void
+    public init(base: Base, state: GestureState<State>, body: @escaping (Base.Value, inout State) -> Void) {
+        self.base = base
+        self.state = state
+        self.body = body
+        self.updating = { _, _, _ in }
+    }
+
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        base._applying(to: view, including: mask)
+    }
+}
+
+public struct Subview: Identifiable {
+    public let id: AnyHashable
+    public init(id: AnyHashable) { self.id = id }
+}
+
+public struct ContextMenu<Content: View>: View {
+    public let content: Content
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    public var body: Never {
+        fatalError("ContextMenu has no body")
+    }
+}
+
+public enum ToolbarBackButtonDisplayMode: Sendable, Equatable, Hashable {
+    case automatic
+    case generic
+    case minimal
+}
+
+public enum ShapeRole: Sendable, Equatable, Hashable {
+    case fill
+    case stroke
+    case separator
+}
+
+public enum SearchPresentationToolbarBehavior: Sendable, Equatable, Hashable {
+    case automatic
+    case always
+    case never
+}
+
+public struct SentTransferredFile: Sendable, Equatable {
+    public let file: URL
+    public init(file: URL) { self.file = file }
+}
+
+public struct ReceivedTransferredFile: Sendable, Equatable {
+    public let file: URL
+    public let isOriginalFile: Bool
+    public init(file: URL, isOriginalFile: Bool) {
+        self.file = file
+        self.isOriginalFile = isOriginalFile
+    }
+}
+
+public protocol CustomizableToolbarContent: View {
+    associatedtype Body: View
+    @ViewBuilder var body: Body { get }
+}
+
+public extension Image {
+    enum Orientation: Sendable, Equatable, Hashable {
+        case up
+        case upMirrored
+        case down
+        case downMirrored
+        case left
+        case leftMirrored
+        case right
+        case rightMirrored
+    }
+}
+
+public enum DismissBehavior: Sendable, Equatable, Hashable {
+    case automatic
+    case interactive
+    case interactiveOnSwipe
+}
+
+public enum ImmersiveContentBrightness: Sendable, Equatable, Hashable {
+    case dark
+    case light
 }
 
 @MainActor
@@ -20302,8 +29975,15 @@ private func attachSubmitHandler(
     invalidate: @escaping () -> Void,
     isRoot: Bool = true
 ) {
-    guard isRoot || !node.isSubmitScopeBoundary else {
-        return
+    if !isRoot && node.isSubmitScopeBoundary {
+        if let raw = node.submitScopeTriggersRawValue {
+            let blockedTriggers = SubmitTriggers(rawValue: raw)
+            if !blockedTriggers.intersection(triggers).isEmpty {
+                return
+            }
+        } else {
+            return
+        }
     }
 
     if node.onKeyDown != nil {
@@ -20327,5 +30007,77 @@ private func attachSubmitHandler(
             invalidate: invalidate,
             isRoot: false
         )
+    }
+}
+
+public struct TextContentType: RawRepresentable, Sendable, Equatable, Hashable, ExpressibleByStringLiteral {
+    public var rawValue: String
+    public init(rawValue: String) { self.rawValue = rawValue }
+    public init(stringLiteral value: String) { self.rawValue = value }
+    public static let username = TextContentType(rawValue: "username")
+    public static let password = TextContentType(rawValue: "password")
+    public static let newPassword = TextContentType(rawValue: "newPassword")
+    public static let oneTimeCode = TextContentType(rawValue: "oneTimeCode")
+    public static let emailAddress = TextContentType(rawValue: "emailAddress")
+    public static let telephoneNumber = TextContentType(rawValue: "telephoneNumber")
+    public static let URL = TextContentType(rawValue: "URL")
+    public static let name = TextContentType(rawValue: "name")
+    public static let fullStreetAddress = TextContentType(rawValue: "fullStreetAddress")
+    public static let streetAddressLine1 = TextContentType(rawValue: "streetAddressLine1")
+    public static let streetAddressLine2 = TextContentType(rawValue: "streetAddressLine2")
+    public static let addressCity = TextContentType(rawValue: "addressCity")
+    public static let addressState = TextContentType(rawValue: "addressState")
+    public static let postalCode = TextContentType(rawValue: "postalCode")
+    public static let countryName = TextContentType(rawValue: "countryName")
+    public static let creditCardNumber = TextContentType(rawValue: "creditCardNumber")
+    public static let creditCardExpiration = TextContentType(rawValue: "creditCardExpiration")
+    public static let creditCardSecurityCode = TextContentType(rawValue: "creditCardSecurityCode")
+}
+
+public enum TextSubstitutionMode: Sendable, Equatable, Hashable {
+    case enabled
+    case disabled
+}
+
+public enum PreviewInterfaceOrientation: Sendable, Equatable, Hashable {
+    case automatic
+    case portrait
+    case landscapeLeft
+    case landscapeRight
+}
+
+public protocol CustomAnimation {
+    static func animate<V: VectorArithmetic>(value: V, time: Double, context: inout AnimationContext<V>) -> V
+}
+
+public struct AnySendable: Sendable {
+    public let base: any Sendable
+    public init(_ base: any Sendable) {
+        self.base = base
+    }
+}
+
+public struct AnimationContext<V: VectorArithmetic> {
+    public var value: V
+    public var state: AnySendable
+    public var environment: EnvironmentValues
+    public init(value: V, state: AnySendable, environment: EnvironmentValues) {
+        self.value = value
+        self.state = state
+        self.environment = environment
+    }
+}
+
+public struct RotateGesture3D: Gesture {
+    public typealias Value = Rotation3D
+    public var minimumAngleDelta: Angle
+    public var axes: RotationAxis3D
+    public init(minimumAngleDelta: Angle = .degrees(1), axes: RotationAxis3D = .all) {
+        self.minimumAngleDelta = minimumAngleDelta
+        self.axes = axes
+    }
+    public var updating: (inout Rotation3D, RotateGesture3D.Value, Transaction) -> Void = { _, _, _ in }
+    public func _applying<V: View>(to view: V, including mask: GestureMask) -> AnyView {
+        AnyView(view)
     }
 }

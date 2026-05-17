@@ -1077,12 +1077,12 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     func testBackgroundGradientFlowsIntoFillRectCommand() async {
         await MainActor.run {
-            let gradient = LinearGradient(
+            let gradient = SwiftWindowsGraphics.LinearGradient(
                 startColor: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
                 endColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
                 axis: .horizontal
             )
-            let node = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: gradient.startColor, backgroundGradient: gradient)
+            let node = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: gradient.startColor, backgroundGradient: .linear(gradient))
             let runtime = RetainedViewRuntime(root: node)
 
             let fills = fillRectCommands(in: runtime.renderFrame())
@@ -1094,7 +1094,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     func testBorderGradientFlowsIntoFillRectCommand() async {
         await MainActor.run {
-            let gradient = LinearGradient(
+            let gradient = SwiftWindowsGraphics.LinearGradient(
                 startColor: Color(red: 0.9, green: 0.2, blue: 0.1, alpha: 1),
                 endColor: Color(red: 0.1, green: 0.3, blue: 0.9, alpha: 0.7),
                 axis: .vertical
@@ -1103,7 +1103,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 frame: Rect(x: 0, y: 0, width: 80, height: 40),
                 backgroundColor: .white,
                 borderColor: gradient.startColor,
-                borderGradient: gradient,
+                borderGradient: .linear(gradient),
                 borderWidth: 4
             )
             let runtime = RetainedViewRuntime(root: node)

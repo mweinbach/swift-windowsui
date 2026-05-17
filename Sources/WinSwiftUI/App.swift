@@ -33,14 +33,27 @@ public protocol App {
     init()
 
     var body: Body { get }
+
+    /// Override to inject a custom render backend factory.
+    /// Default is ``D3D11RenderBackendFactory`` on Windows.
+    static func renderBackendFactory() -> RenderBackendFactory
 }
 
 public extension App {
+    static func renderBackendFactory() -> RenderBackendFactory {
+        D3D11RenderBackendFactory()
+    }
+
     static func main() {
         let app = Self.init()
+        let factory = Self.renderBackendFactory()
 
         do {
-            let host = WinSwiftUIWindowHost(configuration: app.body.makeWindowConfiguration())
+            let host = WinSwiftUIWindowHost(
+                configuration: app.body.makeWindowConfiguration(),
+                renderer: factory.makeRenderBackend(),
+                batchRenderer: factory.makeBatchRenderBackend()
+            )
             _ = try host.run()
         } catch {
             print("Failed to start WinSwiftUI app: \(error)")
@@ -68,6 +81,66 @@ public struct WindowGroup: Scene {
         )
     }
 
+    public init(
+        _ title: String = "WinSwiftUI",
+        id: String,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: content(),
+            windowID: id
+        )
+    }
+
+    public init<Content: View, Value: Codable & Hashable>(
+        _ title: String = "WinSwiftUI",
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        for valueType: Value.Type,
+        @ViewBuilder content: @escaping (Binding<Value>) -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: [],
+            forType: Value.self,
+            dataBoundContent: { anyValue in
+                guard let value = anyValue.base as? Value else { return [] }
+                let binding = Binding<Value>(get: { value }, set: { _ in })
+                return [AnyView(content(binding))]
+            }
+        )
+    }
+
+    public init<Content: View, Value: Codable & Hashable>(
+        _ title: String = "WinSwiftUI",
+        id: String,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        for valueType: Value.Type,
+        @ViewBuilder content: @escaping (Binding<Value>) -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: [],
+            windowID: id,
+            forType: Value.self,
+            dataBoundContent: { anyValue in
+                guard let value = anyValue.base as? Value else { return [] }
+                let binding = Binding<Value>(get: { value }, set: { _ in })
+                return [AnyView(content(binding))]
+            }
+        )
+    }
+
     public var body: Never {
         fatalError("WindowGroup has no body")
     }
@@ -77,17 +150,1502 @@ public struct WindowGroup: Scene {
     }
 }
 
+@MainActor
+public struct Window<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init(
+        _ title: String,
+        id: String? = nil,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: [AnyView(content())],
+            windowID: id
+        )
+    }
+
+    public init(
+        _ title: String,
+        id: String? = nil,
+        resizeToContents: Bool,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: [AnyView(content())],
+            windowID: id,
+            resizeToContents: resizeToContents
+        )
+    }
+
+    public init<Value: Codable & Hashable>(
+        _ title: String,
+        id: String? = nil,
+        size: IntSize = IntSize(width: 1280, height: 720),
+        clearColor: Color = Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+        for valueType: Value.Type,
+        @ViewBuilder content: @escaping (Binding<Value>) -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: size,
+            clearColor: clearColor,
+            content: [],
+            windowID: id,
+            forType: Value.self,
+            dataBoundContent: { anyValue in
+                guard let value = anyValue.base as? Value else { return [] }
+                let binding = Binding<Value>(get: { value }, set: { _ in })
+                return [AnyView(content(binding))]
+            }
+        )
+    }
+
+    public var body: Never {
+        fatalError("Window has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct WindowScene<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init(
+        _ title: String,
+        id: String? = nil,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            windowID: id
+        )
+    }
+
+    public init<Value: Codable & Hashable>(
+        _ title: String,
+        id: String? = nil,
+        for valueType: Value.Type,
+        @ViewBuilder content: @escaping (Binding<Value>) -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [],
+            windowID: id,
+            forType: Value.self,
+            dataBoundContent: { anyValue in
+                guard let value = anyValue.base as? Value else { return [] }
+                let binding = Binding<Value>(get: { value }, set: { _ in })
+                return [AnyView(content(binding))]
+            }
+        )
+    }
+
+    public var body: Never {
+        fatalError("WindowScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct ImmersiveSpace<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init(
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: "ImmersiveSpace",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())]
+        )
+    }
+
+    public init(id: String, @ViewBuilder content: () -> Content) {
+        self.configuration = WindowGroupConfiguration(
+            title: id,
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            windowID: id
+        )
+    }
+
+    public var body: Never {
+        fatalError("ImmersiveSpace has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct Volume<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init(
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: "Volume",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())]
+        )
+    }
+
+    public init(id: String, @ViewBuilder content: () -> Content) {
+        self.configuration = WindowGroupConfiguration(
+            title: id,
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            windowID: id
+        )
+    }
+
+    public var body: Never {
+        fatalError("Volume has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct Settings<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init(
+        @ViewBuilder content: () -> Content
+    ) {
+        self.configuration = WindowGroupConfiguration(
+            title: "Settings",
+            size: IntSize(width: 600, height: 400),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            isSettingsWindow: true
+        )
+    }
+
+    public var body: Never {
+        fatalError("Settings has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct DocumentGroup<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+
+    public init<Document: FileDocument>(
+        newDocument: @autoclosure @escaping () -> Document,
+        @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
+    ) {
+        let document = newDocument()
+        let binding = Binding(get: { document }, set: { _ in })
+        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
+        self.configuration = WindowGroupConfiguration(
+            title: "Untitled",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content(fileConfig))],
+            isDocumentGroup: true
+        )
+    }
+
+    public init<Document: FileDocument>(
+        viewing documentType: Document.Type,
+        @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
+    ) {
+        let document: Document
+        do {
+            let readConfig = FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data) as! Document.ReadConfiguration
+            document = try documentType.init(configuration: readConfig)
+        } catch {
+            fatalError("DocumentGroup(viewing:) requires a document type with a default-readable init: \(error)")
+        }
+        let binding = Binding(get: { document }, set: { _ in })
+        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: false)
+        self.configuration = WindowGroupConfiguration(
+            title: "Untitled",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content(fileConfig))],
+            isDocumentGroup: true
+        )
+    }
+
+    public init<Document: FileDocument>(
+        editing documentType: Document.Type,
+        @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
+    ) {
+        let document: Document
+        do {
+            let readConfig = FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data) as! Document.ReadConfiguration
+            document = try documentType.init(configuration: readConfig)
+        } catch {
+            fatalError("DocumentGroup(editing:) requires a document type with a default-readable init: \(error)")
+        }
+        let binding = Binding(get: { document }, set: { _ in })
+        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
+        self.configuration = WindowGroupConfiguration(
+            title: "Untitled",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content(fileConfig))],
+            isDocumentGroup: true
+        )
+    }
+
+    public init<Document: ReferenceFileDocument>(
+        newDocument: @autoclosure @escaping () -> Document,
+        @ViewBuilder content: @escaping (FileDocumentConfiguration<Document>) -> Content
+    ) {
+        let document = newDocument()
+        let binding = Binding(get: { document }, set: { _ in })
+        let fileConfig = FileDocumentConfiguration(document: binding, fileURL: nil, isEditable: true)
+        self.configuration = WindowGroupConfiguration(
+            title: "Untitled",
+            size: IntSize(width: 1280, height: 720),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content(fileConfig))],
+            isDocumentGroup: true
+        )
+    }
+
+    public var body: Never {
+        fatalError("DocumentGroup has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+public struct DocumentConfiguration: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DocumentTypes: Sendable, Equatable {
+    public init() {}
+}
+
+public struct DocumentTypesConfiguration: Sendable, Equatable {
+    public init() {}
+}
+
+public struct FileImporterConfiguration: Sendable, Equatable {
+    public init() {}
+}
+
+public struct FileExporterConfiguration: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ContentTypes: Sendable, Equatable {
+    public init() {}
+}
+
+public enum DropInteractionPhase: Sendable, Equatable {
+    case entered
+    case updated
+    case exited
+    case cancelled
+}
+
+@MainActor
+public struct MenuBarExtra<Content: View>: Scene {
+    public typealias Body = Never
+
+    private let configuration: WindowGroupConfiguration
+    private let isInserted: Binding<Bool>?
+
+    public init(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isInserted = nil
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: IntSize(width: 400, height: 300),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            isMenuBarExtra: true
+        )
+    }
+
+    public init(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isInserted = nil
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: IntSize(width: 400, height: 300),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            isMenuBarExtra: true
+        )
+    }
+
+    public init(
+        _ title: String,
+        image: String,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isInserted = nil
+        self.configuration = WindowGroupConfiguration(
+            title: title,
+            size: IntSize(width: 400, height: 300),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content())],
+            isMenuBarExtra: true
+        )
+    }
+
+    public init<Label: View>(
+        isInserted: Binding<Bool>,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder label: () -> Label
+    ) {
+        self.isInserted = isInserted
+        self.configuration = WindowGroupConfiguration(
+            title: "MenuBarExtra",
+            size: IntSize(width: 400, height: 300),
+            clearColor: Color(red: 0.07, green: 0.10, blue: 0.14, alpha: 1.0),
+            content: [AnyView(content()), AnyView(label())],
+            isMenuBarExtra: true
+        )
+    }
+
+    public var body: Never {
+        fatalError("MenuBarExtra has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct HandlesExternalEventsScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let conditions: Set<String>
+
+    public init(content: Content, matching conditions: Set<String>) {
+        self.content = content
+        self.conditions = conditions
+    }
+
+    public var body: Never {
+        fatalError("HandlesExternalEventsScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.handlesExternalEvents = conditions
+        return configuration
+    }
+}
+
+public extension Scene {
+    func handlesExternalEvents(matching conditions: Set<String>) -> some Scene {
+        HandlesExternalEventsScene(content: self, matching: conditions)
+    }
+}
+
+@MainActor
+public struct ImmersionStyleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+    private let content: Content
+    public init(content: Content) {
+        self.content = content
+    }
+    public var body: Never {
+        fatalError("ImmersionStyleScene has no body")
+    }
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        content.makeWindowConfiguration()
+    }
+}
+
+@MainActor
+public struct VolumeBaseplateVisibilityScene<Content: Scene>: Scene {
+    public typealias Body = Never
+    private let content: Content
+    public init(content: Content) {
+        self.content = content
+    }
+    public var body: Never {
+        fatalError("VolumeBaseplateVisibilityScene has no body")
+    }
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        content.makeWindowConfiguration()
+    }
+}
+
+@MainActor
+public struct PreferredSurroundingsEffectScene<Content: Scene>: Scene {
+    public typealias Body = Never
+    private let content: Content
+    public init(content: Content) {
+        self.content = content
+    }
+    public var body: Never {
+        fatalError("PreferredSurroundingsEffectScene has no body")
+    }
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        content.makeWindowConfiguration()
+    }
+}
+
+public extension Scene {
+    func immersionStyle(selection: Binding<ImmersionStyle>, in allowedStyles: [ImmersionStyle]) -> some Scene {
+        _ = selection
+        _ = allowedStyles
+        return ImmersionStyleScene(content: self)
+    }
+
+    func volumeBaseplateVisibility(_ visibility: Visibility) -> some Scene {
+        _ = visibility
+        return VolumeBaseplateVisibilityScene(content: self)
+    }
+
+    func preferredSurroundingsEffect(_ effect: SurroundingsEffect?) -> some Scene {
+        _ = effect
+        return PreferredSurroundingsEffectScene(content: self)
+    }
+}
+
+public enum CommandGroupPlacement: Sendable {
+    case appSettings
+    case appTermination
+    case appVisibility
+    case newItem
+    case openItem
+    case saveItem
+    case printItem
+    case undoRedo
+    case textEditing
+    case findAndReplace
+    case toolbar
+    case sidebar
+    case help
+    case textFormatting
+    case windowSize
+    case windowArrangement
+    case windowList
+}
+
+public struct CommandMenuDescriptor: Sendable {
+    public var name: String
+    public var content: [AnyView]
+
+    public init(name: String, content: [AnyView]) {
+        self.name = name
+        self.content = content
+    }
+}
+
+public struct CommandGroupDescriptor: Sendable {
+    public var placement: CommandGroupPlacement
+    public var content: [AnyView]
+    public var replaces: Bool
+
+    public init(placement: CommandGroupPlacement, content: [AnyView], replaces: Bool) {
+        self.placement = placement
+        self.content = content
+        self.replaces = replaces
+    }
+}
+
+public struct CommandsConfiguration: Sendable {
+    public var menus: [CommandMenuDescriptor]
+    public var groups: [CommandGroupDescriptor]
+
+    public init(menus: [CommandMenuDescriptor] = [], groups: [CommandGroupDescriptor] = []) {
+        self.menus = menus
+        self.groups = groups
+    }
+
+    public static let empty = CommandsConfiguration()
+}
+
+@MainActor
+public protocol Commands {
+    associatedtype Body: Commands
+
+    var body: Body { get }
+
+    func makeCommandsConfiguration() -> CommandsConfiguration
+}
+
+public extension Commands {
+    func makeCommandsConfiguration() -> CommandsConfiguration {
+        body.makeCommandsConfiguration()
+    }
+}
+
+public extension Commands where Body == Never {
+    var body: Never {
+        fatalError()
+    }
+}
+
+extension Never: Commands {
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        fatalError()
+    }
+}
+
+@MainActor
+public struct EmptyCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@MainActor
+public struct CommandMenu: Commands {
+    public typealias Body = Never
+
+    private let name: String
+    private let content: [AnyView]
+
+    public init(_ name: String, @ViewBuilder content: () -> [AnyView]) {
+        self.name = name
+        self.content = content()
+    }
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        CommandsConfiguration(menus: [CommandMenuDescriptor(name: name, content: content)])
+    }
+}
+
+@MainActor
+public struct CommandGroup: Commands {
+    public typealias Body = Never
+
+    private let placement: CommandGroupPlacement
+    private let content: [AnyView]
+    private let replaces: Bool
+
+    public init(before: CommandGroupPlacement, @ViewBuilder addition: () -> [AnyView]) {
+        self.placement = before
+        self.content = addition()
+        self.replaces = false
+    }
+
+    public init(after: CommandGroupPlacement, @ViewBuilder addition: () -> [AnyView]) {
+        self.placement = after
+        self.content = addition()
+        self.replaces = false
+    }
+
+    public init(replacing: CommandGroupPlacement, @ViewBuilder addition: () -> [AnyView]) {
+        self.placement = replacing
+        self.content = addition()
+        self.replaces = true
+    }
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        CommandsConfiguration(groups: [CommandGroupDescriptor(placement: placement, content: content, replaces: replaces)])
+    }
+}
+
+@MainActor
+public struct ToolbarCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@MainActor
+public struct SidebarCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@MainActor
+public struct TextEditingCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@MainActor
+public struct InspectorCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@MainActor
+public struct HelpCommands: Commands {
+    public typealias Body = Never
+
+    public init() {}
+
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
+        .empty
+    }
+}
+
+@resultBuilder
+public enum CommandsBuilder {
+    public static func buildExpression(_ expression: CommandsConfiguration) -> CommandsConfiguration {
+        expression
+    }
+
+    @MainActor
+    public static func buildExpression<C: Commands>(_ expression: C) -> CommandsConfiguration {
+        expression.makeCommandsConfiguration()
+    }
+
+    public static func buildBlock(_ configurations: CommandsConfiguration...) -> CommandsConfiguration {
+        configurations.reduce(into: CommandsConfiguration()) { result, config in
+            result.menus.append(contentsOf: config.menus)
+            result.groups.append(contentsOf: config.groups)
+        }
+    }
+
+    public static func buildOptional(_ configuration: CommandsConfiguration?) -> CommandsConfiguration {
+        configuration ?? .empty
+    }
+
+    public static func buildEither(first configuration: CommandsConfiguration) -> CommandsConfiguration {
+        configuration
+    }
+
+    public static func buildEither(second configuration: CommandsConfiguration) -> CommandsConfiguration {
+        configuration
+    }
+}
+
+@MainActor
+public struct CommandsScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let commands: CommandsConfiguration
+
+    public init(content: Content, commands: CommandsConfiguration) {
+        self.content = content
+        self.commands = commands
+    }
+
+    public var body: Never {
+        fatalError("CommandsScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.commands = commands
+        return configuration
+    }
+}
+
+public extension Scene {
+    func commands(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
+        CommandsScene(content: self, commands: commands())
+    }
+
+    func commandsRemoved() -> some Scene {
+        CommandsScene(content: self, commands: .empty)
+    }
+
+    func commandsReplaced(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
+        CommandsScene(content: self, commands: commands())
+    }
+}
+
+@MainActor
+public struct DefaultSizeScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let size: IntSize
+
+    public init(content: Content, size: IntSize) {
+        self.content = content
+        self.size = size
+    }
+
+    public var body: Never {
+        fatalError("DefaultSizeScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.size = size
+        return configuration
+    }
+}
+
+@MainActor
+public struct DefaultPositionScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let position: WindowPlacement
+
+    public init(content: Content, position: WindowPlacement) {
+        self.content = content
+        self.position = position
+    }
+
+    public var body: Never {
+        fatalError("DefaultPositionScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.defaultPosition = position
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowResizabilityScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let resizability: WindowResizability
+
+    public init(content: Content, resizability: WindowResizability) {
+        self.content = content
+        self.resizability = resizability
+    }
+
+    public var body: Never {
+        fatalError("WindowResizabilityScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.resizability = resizability
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowToolbarStyleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let toolbarStyle: WindowToolbarStyle
+
+    public init(content: Content, toolbarStyle: WindowToolbarStyle) {
+        self.content = content
+        self.toolbarStyle = toolbarStyle
+    }
+
+    public var body: Never {
+        fatalError("WindowToolbarStyleScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.toolbarStyle = toolbarStyle
+        return configuration
+    }
+}
+
+public extension Scene {
+    func defaultSize(_ size: IntSize) -> some Scene {
+        DefaultSizeScene(content: self, size: size)
+    }
+
+    func defaultPosition(_ position: WindowPlacement) -> some Scene {
+        DefaultPositionScene(content: self, position: position)
+    }
+
+    func defaultWindowPlacement(_ placement: WindowPlacement) -> some Scene {
+        DefaultPositionScene(content: self, position: placement)
+    }
+
+    func windowPlacement(_ placement: WindowPlacement) -> some Scene {
+        DefaultPositionScene(content: self, position: placement)
+    }
+
+    func windowResizability(_ resizability: WindowResizability) -> some Scene {
+        WindowResizabilityScene(content: self, resizability: resizability)
+    }
+
+    func windowToolbarStyle(_ style: WindowToolbarStyle) -> some Scene {
+        WindowToolbarStyleScene(content: self, toolbarStyle: style)
+    }
+
+    func menuBarExtraStyle(_ style: MenuBarExtraStyle) -> some Scene {
+        MenuBarExtraStyleScene(content: self, style: style)
+    }
+
+    func windowStyle(_ style: WindowStyle) -> some Scene {
+        WindowStyleScene(content: self, style: style)
+    }
+
+    func restorationBehavior(_ behavior: SceneRestorationBehavior) -> some Scene {
+        RestorationBehaviorScene(content: self, behavior: behavior)
+    }
+
+    func defaultLaunchBehavior(_ behavior: LaunchBehavior) -> some Scene {
+        LaunchBehaviorScene(content: self, behavior: behavior)
+    }
+
+    func windowActivationMode(_ mode: WindowActivationMode) -> some Scene {
+        WindowActivationModeScene(content: self, mode: mode)
+    }
+
+    func windowBackgroundDragBehavior(_ behavior: WindowBackgroundDragBehavior) -> some Scene {
+        WindowBackgroundDragBehaviorScene(content: self, behavior: behavior)
+    }
+
+    func windowSubtitle(_ subtitle: String?) -> some Scene {
+        WindowSubtitleScene(content: self, subtitle: subtitle)
+    }
+
+    func windowSubtitle<S: StringProtocol>(_ subtitle: S) -> some Scene {
+        WindowSubtitleScene(content: self, subtitle: String(subtitle))
+    }
+
+    func windowSubtitle(_ subtitleKey: LocalizedStringKey) -> some Scene {
+        WindowSubtitleScene(content: self, subtitle: subtitleKey.resolvedString)
+    }
+
+    func windowLevel(_ level: WindowLevel) -> some Scene {
+        WindowLevelScene(content: self, level: level)
+    }
+
+    func windowTitleBar(_ visibility: WindowTitleBarVisibility) -> some Scene {
+        WindowTitleBarScene(content: self, titleBarVisibility: visibility)
+    }
+
+    func windowMinSize(_ size: IntSize) -> some Scene {
+        WindowMinSizeScene(content: self, size: size)
+    }
+
+    func windowMaxSize(_ size: IntSize) -> some Scene {
+        WindowMaxSizeScene(content: self, size: size)
+    }
+
+    func windowIdealSize(_ size: IntSize) -> some Scene {
+        WindowIdealSizeScene(content: self, size: size)
+    }
+
+    func windowID(_ id: String) -> some Scene {
+        WindowIDScene(content: self, id: id)
+    }
+
+    func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some Scene {
+        EnvironmentScene(content: self, keyPath: keyPath, value: value)
+    }
+
+    func defaultAppStorage(_ store: UserDefaults) -> some Scene {
+        environment(\.defaultAppStorage, store)
+    }
+
+    func defaultColorScheme(_ colorScheme: ColorScheme) -> some Scene {
+        environment(\.colorScheme, colorScheme)
+    }
+
+    func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some Scene {
+        EnvironmentObjectScene(content: self, object: object)
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func persistenceBehavior(_ behavior: ScenePersistenceBehavior) -> some Scene {
+        PersistenceBehaviorScene(content: self, behavior: behavior)
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func windowManagerRole(_ role: WindowManagerRole) -> some Scene {
+        WindowManagerRoleScene(content: self, role: role)
+    }
+
+    @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+    func allowsWindowInlining(_ enabled: Bool = true) -> some Scene {
+        AllowsWindowInliningScene(content: self, enabled: enabled)
+    }
+}
+
+@MainActor
+public struct MenuBarExtraStyleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let style: MenuBarExtraStyle
+
+    public init(content: Content, style: MenuBarExtraStyle) {
+        self.content = content
+        self.style = style
+    }
+
+    public var body: Never {
+        fatalError("MenuBarExtraStyleScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.menuBarExtraStyle = style
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowStyleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let style: WindowStyle
+
+    public init(content: Content, style: WindowStyle) {
+        self.content = content
+        self.style = style
+    }
+
+    public var body: Never {
+        fatalError("WindowStyleScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.windowStyle = style
+        return configuration
+    }
+}
+
+@MainActor
+public struct RestorationBehaviorScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let behavior: SceneRestorationBehavior
+
+    public init(content: Content, behavior: SceneRestorationBehavior) {
+        self.content = content
+        self.behavior = behavior
+    }
+
+    public var body: Never {
+        fatalError("RestorationBehaviorScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.restorationBehavior = behavior
+        return configuration
+    }
+}
+
+@MainActor
+public struct LaunchBehaviorScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let behavior: LaunchBehavior
+
+    public init(content: Content, behavior: LaunchBehavior) {
+        self.content = content
+        self.behavior = behavior
+    }
+
+    public var body: Never {
+        fatalError("LaunchBehaviorScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.launchBehavior = behavior
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowActivationModeScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let mode: WindowActivationMode
+
+    public init(content: Content, mode: WindowActivationMode) {
+        self.content = content
+        self.mode = mode
+    }
+
+    public var body: Never {
+        fatalError("WindowActivationModeScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.activationMode = mode
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowBackgroundDragBehaviorScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let behavior: WindowBackgroundDragBehavior
+
+    public init(content: Content, behavior: WindowBackgroundDragBehavior) {
+        self.content = content
+        self.behavior = behavior
+    }
+
+    public var body: Never {
+        fatalError("WindowBackgroundDragBehaviorScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.backgroundDragBehavior = behavior
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowSubtitleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let subtitle: String?
+
+    public init(content: Content, subtitle: String?) {
+        self.content = content
+        self.subtitle = subtitle
+    }
+
+    public var body: Never {
+        fatalError("WindowSubtitleScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.subtitle = subtitle
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowLevelScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let level: WindowLevel
+
+    public init(content: Content, level: WindowLevel) {
+        self.content = content
+        self.level = level
+    }
+
+    public var body: Never {
+        fatalError("WindowLevelScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.windowLevel = level
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowTitleBarScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let titleBarVisibility: WindowTitleBarVisibility
+
+    public init(content: Content, titleBarVisibility: WindowTitleBarVisibility) {
+        self.content = content
+        self.titleBarVisibility = titleBarVisibility
+    }
+
+    public var body: Never {
+        fatalError("WindowTitleBarScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.titleBarVisibility = titleBarVisibility
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowMinSizeScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let size: IntSize
+
+    public init(content: Content, size: IntSize) {
+        self.content = content
+        self.size = size
+    }
+
+    public var body: Never {
+        fatalError("WindowMinSizeScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.minSize = size
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowMaxSizeScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let size: IntSize
+
+    public init(content: Content, size: IntSize) {
+        self.content = content
+        self.size = size
+    }
+
+    public var body: Never {
+        fatalError("WindowMaxSizeScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.maxSize = size
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowIdealSizeScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let size: IntSize
+
+    public init(content: Content, size: IntSize) {
+        self.content = content
+        self.size = size
+    }
+
+    public var body: Never {
+        fatalError("WindowIdealSizeScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.idealSize = size
+        return configuration
+    }
+}
+
+@MainActor
+public struct WindowIDScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let id: String
+
+    public init(content: Content, id: String) {
+        self.content = content
+        self.id = id
+    }
+
+    public var body: Never {
+        fatalError("WindowIDScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.windowID = id
+        return configuration
+    }
+}
+
+@MainActor
+public struct EnvironmentScene<Content: Scene, Value>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let keyPath: WritableKeyPath<EnvironmentValues, Value>
+    private let value: Value
+
+    public init(content: Content, keyPath: WritableKeyPath<EnvironmentValues, Value>, value: Value) {
+        self.content = content
+        self.keyPath = keyPath
+        self.value = value
+    }
+
+    public var body: Never {
+        fatalError("EnvironmentScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.content = configuration.content.map { AnyView($0.environment(keyPath, value)) }
+        return configuration
+    }
+}
+
+@MainActor
+public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObject>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let object: ObjectType
+
+    public init(content: Content, object: ObjectType) {
+        self.content = content
+        self.object = object
+    }
+
+    public var body: Never {
+        fatalError("EnvironmentObjectScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.content = configuration.content.map { AnyView($0.environmentObject(object)) }
+        return configuration
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct PersistenceBehaviorScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let behavior: ScenePersistenceBehavior
+
+    public init(content: Content, behavior: ScenePersistenceBehavior) {
+        self.content = content
+        self.behavior = behavior
+    }
+
+    public var body: Never {
+        fatalError("PersistenceBehaviorScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.persistenceBehavior = behavior
+        return configuration
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct WindowManagerRoleScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let role: WindowManagerRole
+
+    public init(content: Content, role: WindowManagerRole) {
+        self.content = content
+        self.role = role
+    }
+
+    public var body: Never {
+        fatalError("WindowManagerRoleScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.windowManagerRole = role
+        return configuration
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct AllowsWindowInliningScene<Content: Scene>: Scene {
+    public typealias Body = Never
+
+    private let content: Content
+    private let enabled: Bool
+
+    public init(content: Content, enabled: Bool) {
+        self.content = content
+        self.enabled = enabled
+    }
+
+    public var body: Never {
+        fatalError("AllowsWindowInliningScene has no body")
+    }
+
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
+        var configuration = content.makeWindowConfiguration()
+        configuration.allowsWindowInlining = enabled
+        return configuration
+    }
+}
+
 public struct WindowGroupConfiguration {
     public var title: String
     public var size: IntSize
     public var clearColor: Color
     public var content: [AnyView]
+    public var handlesExternalEvents: Set<String>?
+    public var windowID: String?
+    public var isSettingsWindow: Bool
+    public var isDocumentGroup: Bool
+    public var isMenuBarExtra: Bool
+    public var commands: CommandsConfiguration?
+    public var minSize: IntSize?
+    public var maxSize: IntSize?
+    public var idealSize: IntSize?
+    public var defaultPosition: WindowPlacement?
+    public var resizability: WindowResizability?
+    public var toolbarStyle: WindowToolbarStyle?
+    public var menuBarExtraStyle: MenuBarExtraStyle?
+    public var windowStyle: WindowStyle?
+    public var restorationBehavior: SceneRestorationBehavior?
+    public var launchBehavior: LaunchBehavior?
+    public var activationMode: WindowActivationMode?
+    public var backgroundDragBehavior: WindowBackgroundDragBehavior?
+    public var subtitle: String?
+    public var windowLevel: WindowLevel?
+    public var titleBarVisibility: WindowTitleBarVisibility?
+    public var persistenceBehavior: ScenePersistenceBehavior?
+    public var windowManagerRole: WindowManagerRole?
+    public var allowsWindowInlining: Bool?
+    public var resizeToContents: Bool?
+    public var forType: Any.Type?
+    public var dataBoundContent: ((AnyHashable) -> [AnyView])?
 
-    public init(title: String, size: IntSize, clearColor: Color, content: [AnyView]) {
+    public init(
+        title: String,
+        size: IntSize,
+        clearColor: Color,
+        content: [AnyView],
+        windowID: String? = nil,
+        isSettingsWindow: Bool = false,
+        isDocumentGroup: Bool = false,
+        isMenuBarExtra: Bool = false,
+        commands: CommandsConfiguration? = nil,
+        minSize: IntSize? = nil,
+        maxSize: IntSize? = nil,
+        idealSize: IntSize? = nil,
+        defaultPosition: WindowPlacement? = nil,
+        resizability: WindowResizability? = nil,
+        toolbarStyle: WindowToolbarStyle? = nil,
+        menuBarExtraStyle: MenuBarExtraStyle? = nil,
+        windowStyle: WindowStyle? = nil,
+        restorationBehavior: SceneRestorationBehavior? = nil,
+        launchBehavior: LaunchBehavior? = nil,
+        activationMode: WindowActivationMode? = nil,
+        backgroundDragBehavior: WindowBackgroundDragBehavior? = nil,
+        subtitle: String? = nil,
+        windowLevel: WindowLevel? = nil,
+        titleBarVisibility: WindowTitleBarVisibility? = nil,
+        persistenceBehavior: ScenePersistenceBehavior? = nil,
+        windowManagerRole: WindowManagerRole? = nil,
+        allowsWindowInlining: Bool? = nil,
+        resizeToContents: Bool? = nil,
+        forType: Any.Type? = nil,
+        dataBoundContent: ((AnyHashable) -> [AnyView])? = nil
+    ) {
         self.title = title
         self.size = size
         self.clearColor = clearColor
         self.content = content
+        self.windowID = windowID
+        self.isSettingsWindow = isSettingsWindow
+        self.isDocumentGroup = isDocumentGroup
+        self.isMenuBarExtra = isMenuBarExtra
+        self.titleBarVisibility = titleBarVisibility
+        self.commands = commands
+        self.minSize = minSize
+        self.maxSize = maxSize
+        self.idealSize = idealSize
+        self.defaultPosition = defaultPosition
+        self.forType = forType
+        self.dataBoundContent = dataBoundContent
+        self.resizability = resizability
+        self.toolbarStyle = toolbarStyle
+        self.menuBarExtraStyle = menuBarExtraStyle
+        self.windowStyle = windowStyle
+        self.restorationBehavior = restorationBehavior
+        self.launchBehavior = launchBehavior
+        self.activationMode = activationMode
+        self.backgroundDragBehavior = backgroundDragBehavior
+        self.subtitle = subtitle
+        self.windowLevel = windowLevel
+        self.persistenceBehavior = persistenceBehavior
+        self.windowManagerRole = windowManagerRole
+        self.allowsWindowInlining = allowsWindowInlining
+        self.resizeToContents = resizeToContents
     }
 }
 
@@ -213,7 +1771,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment()
     ) {
         self.configuration = configuration
-        self.window = Win32Window(title: configuration.title, clientSize: configuration.size)
+        self.window = Win32Window(title: configuration.title, clientSize: configuration.size, titleBarVisibility: configuration.titleBarVisibility ?? .automatic)
         self.renderer = renderer
         self.batchRenderer = batchRenderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
@@ -470,6 +2028,10 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         componentHost.observedObjects.removeAll()
         resetObservedObjects()
         componentHost.reload()
+
+        // Present any file-importer / exporter / mover dialogs whose
+        // isPresented binding has been set to true.
+        componentHost.processPendingFileDialogs()
 
         // After rebuild, snapshot which objects were observed.
         for identifier in observedObjectTokens.keys {
@@ -901,4 +2463,163 @@ public struct TimerState: Equatable, Sendable {
         self.usesHighResolution = usesHighResolution
         self.refreshRate = refreshRate
     }
+}
+
+// MARK: - WidgetKit shims
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol Widget {
+    associatedtype Body: WidgetConfiguration
+    var body: Body { get }
+    static var supportedFamilies: [WidgetFamily] { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public extension Widget {
+    static var supportedFamilies: [WidgetFamily] { [.systemSmall, .systemMedium, .systemLarge] }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol WidgetBundle {
+    associatedtype Body: Widget
+    @WidgetBundleBuilder var body: Body { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+@resultBuilder
+public enum WidgetBundleBuilder {
+    public static func buildBlock(_ widgets: Widget...) -> Widget {
+        WidgetGroup(widgets: widgets)
+    }
+    public static func buildOptional(_ widget: Widget?) -> Widget {
+        widget ?? WidgetGroup(widgets: [])
+    }
+    public static func buildEither(first widget: Widget) -> Widget {
+        widget
+    }
+    public static func buildEither(second widget: Widget) -> Widget {
+        widget
+    }
+    public static func buildArray(_ widgets: [Widget]) -> Widget {
+        WidgetGroup(widgets: widgets)
+    }
+    public static func buildExpression(_ widget: Widget) -> Widget {
+        widget
+    }
+    public static func buildLimitedAvailability(_ widget: Widget) -> Widget {
+        widget
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct WidgetGroup: Widget {
+    public typealias Body = Never
+    public var body: Never { fatalError("WidgetGroup has no body") }
+    public let widgets: [Widget]
+    public init(widgets: [Widget]) {
+        self.widgets = widgets
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+@preconcurrency public protocol WidgetConfiguration {
+    associatedtype Body: WidgetConfiguration
+    var body: Body { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+extension Never: @preconcurrency WidgetConfiguration {}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct StaticConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
+    public typealias Body = Never
+    public var body: Never { fatalError("StaticConfiguration has no body") }
+    public init(kind: String, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct IntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
+    public typealias Body = Never
+    public var body: Never { fatalError("IntentConfiguration has no body") }
+    public init(kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+}
+
+@available(macOS 17.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct AppIntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: AppIntent {
+    public typealias Body = Never
+    public var body: Never { fatalError("AppIntentConfiguration has no body") }
+    public init(kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol AccessoryWidgetConfiguration: WidgetConfiguration {}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol WidgetAccentable {
+    var isWidgetAccentable: Bool { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public enum WidgetFamily: Sendable, Equatable, Hashable {
+    case systemSmall
+    case systemMedium
+    case systemLarge
+    case systemExtraLarge
+    case accessoryInline
+    case accessoryCircular
+    case accessoryRectangular
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol TimelineProvider {
+    associatedtype Entry: TimelineEntry
+    func placeholder(in context: TimelineProviderContext) -> Entry
+    func getSnapshot(in context: TimelineProviderContext, completion: @escaping (Entry) -> Void)
+    func getTimeline(in context: TimelineProviderContext, completion: @escaping (Timeline<Entry>) -> Void)
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol TimelineEntry: Sendable, Equatable {
+    var date: Date { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct Timeline<Entry: TimelineEntry>: Sendable, Equatable {
+    public let entries: [Entry]
+    public let policy: TimelineReloadPolicy
+    public init(entries: [Entry], policy: TimelineReloadPolicy = .atEnd) {
+        self.entries = entries
+        self.policy = policy
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public enum TimelineReloadPolicy: Sendable, Equatable {
+    case atEnd
+    case after(Date)
+    case never
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct TimelineProviderContext: Sendable, Equatable {
+    public let family: WidgetFamily
+    public let displaySize: Size
+    public init(family: WidgetFamily, displaySize: Size) {
+        self.family = family
+        self.displaySize = displaySize
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
+public protocol Intent: Sendable, Equatable {}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public protocol AppIntent: Sendable, Equatable {
+    static var title: String { get }
+    static var description: String? { get }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public extension AppIntent {
+    static var description: String? { nil }
 }

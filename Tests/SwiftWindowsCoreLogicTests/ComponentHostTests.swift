@@ -3,6 +3,7 @@ import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
 @testable import SwiftWindowsUI
+@testable import WinSwiftUI
 
 final class ComponentHostTests: XCTestCase {
     func testSetContentBuildsDeclarativeTreeIntoRuntimeRoot() async {
@@ -86,13 +87,13 @@ final class ComponentHostTests: XCTestCase {
                     let borderStrokeStyle = useSecondState
                         ? StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4)
                         : StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8)
-                    let borderGradient = useSecondState
-                        ? LinearGradient(
+                    let borderGradient: GradientType? = useSecondState
+                        ? .linear(SwiftWindowsGraphics.LinearGradient(
                             startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
                             endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
                             axis: .horizontal
-                        )
-                        : LinearGradient(startColor: .white, endColor: .black, axis: .vertical)
+                        ))
+                        : .linear(SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical))
                     let clipFillStyle = RetainedClipFillStyle(
                         eoFill: useSecondState,
                         antialiased: !useSecondState
@@ -134,6 +135,9 @@ final class ComponentHostTests: XCTestCase {
                     let imageInterpolation: RetainedImageInterpolation = useSecondState ? .high : .low
                     let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
+                    let submitScopeTriggersRawValue = useSecondState ? Optional(3) : Optional<Int>(nil)
+                    let accessibilityPrefersCrossFadeTransitions = useSecondState ? true : false
+                    let accessibilityShowLargeContentViewer = useSecondState ? true : false
                     let accessibilityTraits: RetainedAccessibilityTraits = useSecondState
                         ? [.isSelected, .isImage]
                         : [.isButton, .isHeader]
@@ -178,11 +182,11 @@ final class ComponentHostTests: XCTestCase {
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
-                            backgroundGradient: LinearGradient(
+                            backgroundGradient: .linear(SwiftWindowsGraphics.LinearGradient(
                                 startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
                                 endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
                                 axis: .vertical
-                            ),
+                            )),
                             hasCornerRadiusOverride: true,
                             cornerRadius: 8,
                             hasDragIndicatorOverride: true,
@@ -302,6 +306,9 @@ final class ComponentHostTests: XCTestCase {
                     node.imageInterpolation = imageInterpolation
                     node.imageAntialiased = imageAntialiased
                     node.isSubmitScopeBoundary = isSubmitScopeBoundary
+                    node.submitScopeTriggersRawValue = submitScopeTriggersRawValue
+                    node.accessibilityPrefersCrossFadeTransitions = accessibilityPrefersCrossFadeTransitions
+                    node.accessibilityShowLargeContentViewer = accessibilityShowLargeContentViewer
                     node.accessibilityTraits = accessibilityTraits
                     node.accessibilityChildBehavior = accessibilityChildBehavior
                     node.accessibilitySortPriority = accessibilitySortPriority
@@ -439,7 +446,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
             XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
-            XCTAssertEqual(firstNode?.borderGradient, LinearGradient(startColor: .white, endColor: .black, axis: .vertical))
+            XCTAssertEqual(firstNode?.borderGradient, .linear(SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical)))
             XCTAssertEqual(firstNode?.borderStrokeStyle, StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8))
             XCTAssertEqual(firstNode?.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: true))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
@@ -471,6 +478,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.imageInterpolation, .low)
             XCTAssertEqual(firstNode?.imageAntialiased, false)
             XCTAssertEqual(firstNode?.isSubmitScopeBoundary, false)
+            XCTAssertNil(firstNode?.submitScopeTriggersRawValue)
+            XCTAssertEqual(firstNode?.accessibilityPrefersCrossFadeTransitions, false)
+            XCTAssertEqual(firstNode?.accessibilityShowLargeContentViewer, false)
             XCTAssertEqual(firstNode?.accessibilityTraits, [.isButton, .isHeader])
             XCTAssertEqual(firstNode?.accessibilityChildBehavior, .combine)
             XCTAssertEqual(firstNode?.accessibilitySortPriority, 1.25)
@@ -491,11 +501,11 @@ final class ComponentHostTests: XCTestCase {
                 firstNode?.presentationChrome,
                 RetainedPresentationChrome(
                     hasBackgroundOverride: true,
-                    backgroundGradient: LinearGradient(
+                    backgroundGradient: .linear(SwiftWindowsGraphics.LinearGradient(
                         startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
                         endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
                         axis: .vertical
-                    ),
+                    )),
                     hasCornerRadiusOverride: true,
                     cornerRadius: 8,
                     hasDragIndicatorOverride: true,
@@ -529,7 +539,10 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.text, "SECOND")
             XCTAssertEqual(reusedNode?.blurRadius, 9)
             XCTAssertEqual(reusedNode?.blurOpaque, true)
-            XCTAssertEqual(reusedNode?.opacity, 0.85)
+            // Existing animation state is updated rather than snapping opacity immediately.
+            XCTAssertEqual(reusedNode?.opacity, 0.25)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.startValue, 0.25)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.85)
             XCTAssertEqual(reusedNode?.blendMode, .screen)
             XCTAssertEqual(reusedNode?.isCompositingGroup, true)
             XCTAssertEqual(reusedNode?.drawingGroup, RetainedDrawingGroup(opaque: true, colorMode: .linear))
@@ -597,11 +610,11 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
             XCTAssertEqual(
                 reusedNode?.borderGradient,
-                LinearGradient(
+                .linear(SwiftWindowsGraphics.LinearGradient(
                     startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
                     endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
                     axis: .horizontal
-                )
+                ))
             )
             XCTAssertEqual(reusedNode?.borderStrokeStyle, StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4))
             XCTAssertEqual(reusedNode?.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
@@ -634,6 +647,9 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.imageInterpolation, .high)
             XCTAssertEqual(reusedNode?.imageAntialiased, true)
             XCTAssertEqual(reusedNode?.isSubmitScopeBoundary, true)
+            XCTAssertEqual(reusedNode?.submitScopeTriggersRawValue, 3)
+            XCTAssertEqual(reusedNode?.accessibilityPrefersCrossFadeTransitions, true)
+            XCTAssertEqual(reusedNode?.accessibilityShowLargeContentViewer, true)
             XCTAssertEqual(reusedNode?.accessibilityTraits, [.isSelected, .isImage])
             XCTAssertEqual(reusedNode?.accessibilityChildBehavior, .contain)
             XCTAssertEqual(reusedNode?.accessibilitySortPriority, 9.5)
@@ -678,7 +694,7 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.retainedPreferenceValues[preferenceIdentifier] as? String, "second-preference")
             XCTAssertEqual(reusedNode?.retainedPreferenceTransformBoundaries, [preferenceIdentifier])
             XCTAssertEqual(reusedNode?.isFocusable, true)
-            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.55)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.85)
 
             reusedNode?.onPointerDown?()
             XCTAssertEqual(pointerDownEvents, ["second"])
@@ -717,6 +733,893 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(dragPayloadEvents, ["second"])
             XCTAssertEqual(reusedNode?.onMakeDragItemProvider?() as? String, "second")
             XCTAssertEqual(dragItemProviderEvents, ["second"])
+        }
+    }
+
+    func testReloadAnimatesFrameChangesWhenAnimationStateIsPresent() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var frame = Rect(origin: .zero, size: Size(width: 20, height: 20))
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.frame = frame
+                    node.animationStates[.frameWidth] = AnimationState(
+                        startValue: frame.size.width,
+                        endValue: frame.size.width,
+                        startTime: 0,
+                        duration: 1,
+                        easing: .linear
+                    )
+                    node.animationStates[.frameHeight] = AnimationState(
+                        startValue: frame.size.height,
+                        endValue: frame.size.height,
+                        startTime: 0,
+                        duration: 1,
+                        easing: .linear
+                    )
+                    return node
+                }
+            }
+
+            XCTAssertEqual(runtime.root.children.first?.frame.size, Size(width: 20, height: 20))
+
+            frame = Rect(origin: .zero, size: Size(width: 40, height: 40))
+            host.reload()
+
+            let reusedNode = runtime.root.children.first
+            XCTAssertNotNil(reusedNode)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.endValue, 40)
+            XCTAssertEqual(reusedNode?.animationStates[.frameHeight]?.endValue, 40)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.startValue, 20)
+            XCTAssertEqual(reusedNode?.animationStates[.frameHeight]?.startValue, 20)
+
+            let startTime = reusedNode?.animationStates[.frameWidth]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.5)
+
+            XCTAssertEqual(reusedNode?.frame.size, Size(width: 30, height: 30))
+        }
+    }
+
+    func testReloadAnimatesOpacityChangesWhenAnimationStateIsPresent() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var opacity = 0.25
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.opacity = opacity
+                    node.animationStates[.opacity] = AnimationState(
+                        startValue: opacity,
+                        endValue: opacity,
+                        startTime: 0,
+                        duration: 1,
+                        easing: .linear
+                    )
+                    return node
+                }
+            }
+
+            XCTAssertEqual(runtime.root.children.first?.opacity, 0.25)
+
+            opacity = 0.75
+            host.reload()
+
+            let reusedNode = runtime.root.children.first
+            XCTAssertNotNil(reusedNode)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.75)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.startValue, 0.25)
+
+            let startTime = reusedNode?.animationStates[.opacity]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.5)
+
+            XCTAssertEqual(reusedNode?.opacity, 0.5)
+        }
+    }
+
+    func testReloadCreatesFrameAnimationFromCurrentTransactionWhenNoAnimationStatePresent() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.5, easing: .linear)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var frame = Rect(origin: .zero, size: Size(width: 10, height: 10))
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.frame = frame
+                    return node
+                }
+            }
+
+            XCTAssertEqual(runtime.root.children.first?.frame.size, Size(width: 10, height: 10))
+            XCTAssertNil(runtime.root.children.first?.animationStates[.frameWidth])
+
+            frame = Rect(origin: .zero, size: Size(width: 30, height: 30))
+            host.reload()
+
+            let reusedNode = runtime.root.children.first
+            XCTAssertNotNil(reusedNode)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.startValue, 10)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.endValue, 30)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.duration, 0.5)
+            XCTAssertEqual(reusedNode?.animationStates[.frameWidth]?.easing, .linear)
+            XCTAssertEqual(reusedNode?.animationStates[.frameHeight]?.startValue, 10)
+            XCTAssertEqual(reusedNode?.animationStates[.frameHeight]?.endValue, 30)
+
+            let startTime = reusedNode?.animationStates[.frameWidth]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.25)
+
+            XCTAssertEqual(reusedNode?.frame.size, Size(width: 20, height: 20))
+        }
+    }
+
+    func testReloadCreatesOpacityAnimationFromCurrentTransactionWhenNoAnimationStatePresent() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 1.0, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var opacity = 0.2
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.opacity = opacity
+                    return node
+                }
+            }
+
+            XCTAssertEqual(runtime.root.children.first?.opacity, 0.2)
+            XCTAssertNil(runtime.root.children.first?.animationStates[.opacity])
+
+            opacity = 0.8
+            host.reload()
+
+            let reusedNode = runtime.root.children.first
+            XCTAssertNotNil(reusedNode)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.startValue, 0.2)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.endValue, 0.8)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.duration, 1.0)
+            XCTAssertEqual(reusedNode?.animationStates[.opacity]?.easing, .easeInOut)
+
+            let startTime = reusedNode?.animationStates[.opacity]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.5)
+
+            XCTAssertEqual(reusedNode?.opacity, 0.5)
+        }
+    }
+
+    func testReloadCreatesTransformAnimationFromCurrentTransactionWhenNoAnimationStatePresent() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.4, easing: .easeOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var transform = Transform2D.identity
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.transform = transform
+                    return node
+                }
+            }
+
+            XCTAssertTrue(runtime.root.children.first?.transform.isIdentity ?? false)
+            XCTAssertNil(runtime.root.children.first?.animationStates[.transformScaleX])
+
+            transform = Transform2D(translationX: 10, translationY: 5, scaleX: 2, scaleY: 2, rotation: .pi / 2)
+            host.reload()
+
+            let reusedNode = runtime.root.children.first
+            XCTAssertNotNil(reusedNode)
+            XCTAssertEqual(reusedNode?.animationStates[.transformScaleX]?.startValue, 1)
+            XCTAssertEqual(reusedNode?.animationStates[.transformScaleX]?.endValue, 2)
+            XCTAssertEqual(reusedNode?.animationStates[.transformScaleY]?.startValue, 1)
+            XCTAssertEqual(reusedNode?.animationStates[.transformScaleY]?.endValue, 2)
+            XCTAssertEqual(reusedNode?.animationStates[.transformTranslationX]?.startValue, 0)
+            XCTAssertEqual(reusedNode?.animationStates[.transformTranslationX]?.endValue, 10)
+            XCTAssertEqual(reusedNode?.animationStates[.transformTranslationY]?.startValue, 0)
+            XCTAssertEqual(reusedNode?.animationStates[.transformTranslationY]?.endValue, 5)
+            XCTAssertEqual(reusedNode?.animationStates[.transformRotation]?.startValue, 0)
+            XCTAssertEqual(reusedNode?.animationStates[.transformRotation]?.endValue, .pi / 2)
+
+            let startTime = reusedNode?.animationStates[.transformScaleX]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.2)
+
+            // easeOut at t=0.5 (0.2s into 0.4s duration) gives 0.75 progress.
+            XCTAssertEqual(reusedNode?.transform.scaleX ?? 0, 1.75, accuracy: 0.01)
+            XCTAssertEqual(reusedNode?.transform.scaleY ?? 0, 1.75, accuracy: 0.01)
+            XCTAssertEqual(reusedNode?.transform.translationX ?? 0, 7.5, accuracy: 0.01)
+            XCTAssertEqual(reusedNode?.transform.translationY ?? 0, 3.75, accuracy: 0.01)
+            XCTAssertEqual(reusedNode?.transform.rotation ?? 0, 0.75 * .pi / 2, accuracy: 0.01)
+        }
+    }
+
+    func testReloadAppliesInsertionTransitionToNewNode() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeIn)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = false
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.transition = RetainedTransition(kind: .opacity)
+                        node.opacity = 0.8
+                        return node
+                    }
+                }
+            }
+
+            // Node not present initially
+            XCTAssertEqual(runtime.root.children.count, 0)
+
+            showNode = true
+            host.reload()
+
+            let newNode = runtime.root.children.first
+            XCTAssertNotNil(newNode)
+            XCTAssertEqual(newNode?.animationStates[.opacity]?.startValue, 0)
+            XCTAssertEqual(newNode?.animationStates[.opacity]?.endValue, 0.8)
+            XCTAssertEqual(newNode?.animationStates[.opacity]?.duration, 0.3)
+            XCTAssertEqual(newNode?.animationStates[.opacity]?.easing, .easeIn)
+            XCTAssertEqual(newNode?.opacity, 0)
+
+            let startTime = newNode?.animationStates[.opacity]?.startTime ?? 0
+            _ = runtime.tickAnimations(at: startTime + 0.15)
+
+            // easeIn at t=0.5 (0.15s into 0.3s duration) gives 0.25 progress.
+            XCTAssertEqual(newNode?.opacity ?? 0, 0.2, accuracy: 0.01)
+        }
+    }
+
+    func testReloadAppliesInsertionScaleTransitionToNewNode() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = false
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.transition = RetainedTransition(kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
+                        node.transform = Transform2D.identity
+                        return node
+                    }
+                }
+            }
+
+            showNode = true
+            host.reload()
+
+            let newNode = runtime.root.children.first
+            XCTAssertNotNil(newNode)
+            XCTAssertEqual(newNode?.animationStates[.transformScaleX]?.startValue, 0)
+            XCTAssertEqual(newNode?.animationStates[.transformScaleX]?.endValue, 1)
+            XCTAssertEqual(newNode?.transform.scaleX, 0)
+        }
+    }
+
+    func testReloadDefersRemovalWithOpacityTransition() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = true
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.transition = RetainedTransition(kind: .asymmetric(
+                            insertion: .identity,
+                            removal: RetainedTransition(kind: .opacity)
+                        ))
+                        node.opacity = 0.8
+                        return node
+                    }
+                }
+            }
+
+            let initialNode = runtime.root.children.first!
+            XCTAssertEqual(initialNode.opacity, 0.8)
+
+            showNode = false
+            host.reload()
+
+            // Node is removed from the tree but kept as an overlay.
+            XCTAssertEqual(runtime.root.children.count, 0)
+            XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            let overlay = runtime.transitionOverlays.first!
+            XCTAssertTrue(overlay.isRemovalOverlay)
+            XCTAssertEqual(overlay.animationStates[.opacity]?.startValue, 0.8)
+            XCTAssertEqual(overlay.animationStates[.opacity]?.endValue, 0)
+            XCTAssertEqual(overlay.animationStates[.opacity]?.duration, 0.3)
+
+            // Tick to midpoint of removal animation.
+            let startTime = overlay.animationStates[.opacity]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.15)
+            XCTAssertEqual(overlay.opacity, 0.4, accuracy: 0.01)
+
+            // Tick to completion — overlay should be cleaned up.
+            _ = runtime.tickAnimations(at: startTime + 0.35)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+            XCTAssertFalse(overlay.isRemovalOverlay)
+        }
+    }
+
+    func testReloadDefersRemovalWithScaleTransition() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = true
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.transition = RetainedTransition(kind: .asymmetric(
+                            insertion: .identity,
+                            removal: RetainedTransition(kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
+                        ))
+                        node.transform = Transform2D.identity
+                        return node
+                    }
+                }
+            }
+
+            let initialNode = runtime.root.children.first!
+            XCTAssertEqual(initialNode.transform.scaleX, 1)
+
+            showNode = false
+            host.reload()
+
+            XCTAssertEqual(runtime.root.children.count, 0)
+            XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            let overlay = runtime.transitionOverlays.first!
+            XCTAssertEqual(overlay.animationStates[.transformScaleX]?.startValue, 1)
+            XCTAssertEqual(overlay.animationStates[.transformScaleX]?.endValue, 0)
+            XCTAssertEqual(overlay.transform.scaleX, 1)
+
+            let startTime = overlay.animationStates[.transformScaleX]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.175)
+            XCTAssertEqual(overlay.transform.scaleX, 0.5, accuracy: 0.01)
+
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+        }
+    }
+
+    func testReloadDefersRemovalWithMoveTransition() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = true
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(x: 0, y: 0, width: 100, height: 50)
+                        node.resolvedFrame = node.frame
+                        node.transition = RetainedTransition(kind: .asymmetric(
+                            insertion: .identity,
+                            removal: RetainedTransition(kind: .move(edge: .trailing))
+                        ))
+                        return node
+                    }
+                }
+            }
+
+            let initialNode = runtime.root.children.first!
+            XCTAssertEqual(initialNode.transform.translationX, 0)
+
+            showNode = false
+            host.reload()
+
+            XCTAssertEqual(runtime.root.children.count, 0)
+            XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            let overlay = runtime.transitionOverlays.first!
+            XCTAssertEqual(overlay.animationStates[.transformTranslationX]?.startValue, 0)
+            XCTAssertEqual(overlay.animationStates[.transformTranslationX]?.endValue, 100)
+
+            let startTime = overlay.animationStates[.transformTranslationX]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.175)
+            XCTAssertEqual(overlay.transform.translationX, 50, accuracy: 0.01)
+
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+        }
+    }
+
+    func testReplacementDefersRemovalTransitionAndInsertsNewNode() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var useFirst = true
+
+            host.setContent {
+                if useFirst {
+                    Component(key: "first") { _ in
+                        let node = ViewNode()
+                        node.transition = RetainedTransition(kind: .asymmetric(
+                            insertion: .identity,
+                            removal: RetainedTransition(kind: .opacity)
+                        ))
+                        node.opacity = 1.0
+                        return node
+                    }
+                } else {
+                    Component(key: "second") { _ in
+                        let node = ViewNode()
+                        node.opacity = 0.5
+                        return node
+                    }
+                }
+            }
+
+            let firstNode = runtime.root.children.first!
+            XCTAssertEqual(firstNode.opacity, 1.0)
+
+            useFirst = false
+            host.reload()
+
+            // Old node is in overlays, new node is in tree.
+            XCTAssertEqual(runtime.root.children.count, 1)
+            XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            let overlay = runtime.transitionOverlays.first!
+            XCTAssertEqual(overlay.opacity, 1.0)
+            XCTAssertEqual(overlay.animationStates[.opacity]?.endValue, 0)
+
+            let newNode = runtime.root.children.first!
+            XCTAssertEqual(newNode.opacity, 0.5)
+
+            // Complete removal animation.
+            let startTime = overlay.animationStates[.opacity]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+        }
+    }
+
+    func testRemovalOverlayRendersInFrameOutput() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showNode = true
+
+            host.setContent {
+                if showNode {
+                    Component { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(origin: .zero, size: Size(width: 100, height: 50))
+                        node.backgroundColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+                        node.transition = RetainedTransition(kind: .asymmetric(
+                            insertion: .identity,
+                            removal: RetainedTransition(kind: .opacity)
+                        ))
+                        node.opacity = 1.0
+                        return node
+                    }
+                }
+            }
+
+            // Set root size and render initial frame.
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            let frame1 = runtime.renderFrame()
+            let redColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+            let redCommands1 = frame1.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands1.count, 1)
+
+            showNode = false
+            host.reload()
+
+            // Overlay should still be rendered after removal.
+            let frame2 = runtime.renderFrame()
+            let redCommands2 = frame2.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands2.count, 1)
+
+            // Tick to completion — overlay disappears from rendering.
+            let overlay = runtime.transitionOverlays.first!
+            let startTime = overlay.animationStates[.opacity]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+
+            let frame3 = runtime.renderFrame()
+            let redCommands3 = frame3.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands3.count, 0)
+        }
+    }
+
+    func testMatchedGeometryEffectAnimatesOverlayBetweenPositions() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showFirst = true
+
+            host.setContent {
+                if showFirst {
+                    Component(key: "first") { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(origin: Point(x: 0, y: 0), size: Size(width: 100, height: 50))
+                        node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                            namespaceID: "test-ns",
+                            elementID: "card",
+                            properties: 0,
+                            anchor: .zero,
+                            isSource: false
+                        )
+                        return node
+                    }
+                } else {
+                    Component(key: "second") { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(origin: Point(x: 50, y: 50), size: Size(width: 100, height: 50))
+                        node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                            namespaceID: "test-ns",
+                            elementID: "card",
+                            properties: 0,
+                            anchor: .zero,
+                            isSource: false
+                        )
+                        return node
+                    }
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            _ = runtime.renderFrame()
+
+            let oldNode = runtime.root.children.first!
+            XCTAssertEqual(oldNode.resolvedFrame.origin, Point(x: 0, y: 0))
+
+            showFirst = false
+            host.reload()
+
+            // Render triggers matched-geometry animation creation.
+            _ = runtime.renderFrame()
+
+            XCTAssertEqual(runtime.root.children.count, 1)
+            let newNode = runtime.root.children.first!
+            XCTAssertEqual(newNode.resolvedFrame.origin, Point(x: 50, y: 50))
+
+            XCTAssertEqual(runtime.transitionOverlays.count, 1)
+            let overlay = runtime.transitionOverlays.first!
+            XCTAssertTrue(overlay === oldNode)
+            XCTAssertTrue(overlay.isRemovalOverlay)
+
+            // Verify frame animation states from old position to new position.
+            XCTAssertEqual(overlay.animationStates[.frameOriginX]?.startValue, 0)
+            XCTAssertEqual(overlay.animationStates[.frameOriginX]?.endValue, 50)
+            XCTAssertEqual(overlay.animationStates[.frameOriginY]?.startValue, 0)
+            XCTAssertEqual(overlay.animationStates[.frameOriginY]?.endValue, 50)
+
+            // Tick to completion — overlay should be cleaned up.
+            let startTime = overlay.animationStates[.frameOriginX]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+            XCTAssertFalse(overlay.isRemovalOverlay)
+        }
+    }
+
+    func testMatchedGeometryEffectSkipsWhenNodeRemainsInTree() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var xPosition = 0.0
+
+            host.setContent {
+                Component { _ in
+                    let node = ViewNode()
+                    node.frame = Rect(origin: Point(x: xPosition, y: 0), size: Size(width: 100, height: 50))
+                    node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                        namespaceID: "test-ns",
+                        elementID: "card",
+                        properties: 0,
+                        anchor: .zero,
+                        isSource: false
+                    )
+                    return node
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            _ = runtime.renderFrame()
+
+            let originalNode = runtime.root.children.first!
+            XCTAssertEqual(originalNode.resolvedFrame.origin.x, 0)
+
+            xPosition = 50
+            host.reload()
+            _ = runtime.renderFrame()
+
+            // Same node was updated in-place; it never left the tree.
+            XCTAssertTrue(runtime.root.children.first === originalNode)
+            XCTAssertEqual(runtime.transitionOverlays.count, 0)
+        }
+    }
+
+    func testMatchedGeometryEffectOverlayRendersAndCleansUp() async {
+        await MainActor.run {
+            let previous = currentAnimationTransaction
+            defer { currentAnimationTransaction = previous }
+            currentAnimationTransaction = (duration: 0.3, easing: .easeInOut)
+
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            var showFirst = true
+            let redColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+
+            host.setContent {
+                if showFirst {
+                    Component(key: "first") { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(origin: Point(x: 0, y: 0), size: Size(width: 100, height: 50))
+                        node.backgroundColor = redColor
+                        node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                            namespaceID: "visual-ns",
+                            elementID: "box",
+                            properties: 0,
+                            anchor: .zero,
+                            isSource: false
+                        )
+                        return node
+                    }
+                } else {
+                    Component(key: "second") { _ in
+                        let node = ViewNode()
+                        node.frame = Rect(origin: Point(x: 50, y: 50), size: Size(width: 100, height: 50))
+                        node.backgroundColor = redColor
+                        node.matchedGeometryEffect = RetainedMatchedGeometryEffect(
+                            namespaceID: "visual-ns",
+                            elementID: "box",
+                            properties: 0,
+                            anchor: .zero,
+                            isSource: false
+                        )
+                        return node
+                    }
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            let frame1 = runtime.renderFrame()
+            let redCommands1 = frame1.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands1.count, 1)
+
+            showFirst = false
+            host.reload()
+
+            // Overlay should be rendered alongside the new node.
+            let frame2 = runtime.renderFrame()
+            let redCommands2 = frame2.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            // Two red rects: the overlay (old position) + the new node (new position).
+            XCTAssertEqual(redCommands2.count, 2)
+
+            // Tick to completion — overlay disappears.
+            let overlay = runtime.transitionOverlays.first!
+            let startTime = overlay.animationStates[.frameOriginX]!.startTime
+            _ = runtime.tickAnimations(at: startTime + 0.4)
+
+            let frame3 = runtime.renderFrame()
+            let redCommands3 = frame3.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            // Only the new node remains.
+            XCTAssertEqual(redCommands3.count, 1)
+        }
+    }
+
+    // MARK: - Canvas
+
+    func testCanvasEmitsFillRectCommand() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let redColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+
+            host.setContent {
+                UI.canvas(frame: Rect(origin: .zero, size: Size(width: 100, height: 50))) { context, size in
+                    context.fill(Rect(origin: .zero, size: size), with: .color(redColor))
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            let frame = runtime.renderFrame()
+            let redCommands = frame.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color == redColor { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands.count, 1)
+        }
+    }
+
+    func testCanvasEmitsFillPathCommand() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let blueColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
+
+            host.setContent {
+                UI.canvas(frame: Rect(origin: .zero, size: Size(width: 100, height: 100))) { context, size in
+                    var path = Path()
+                    path.moveTo(x: 0, y: 0)
+                    path.lineTo(x: size.width, y: 0)
+                    path.lineTo(x: size.width, y: size.height)
+                    path.close()
+                    context.fill(path, with: .color(blueColor))
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            let frame = runtime.renderFrame()
+            let blueFillCommands = frame.commands.filter {
+                if case .fillPath(let cmd) = $0, cmd.color == blueColor { return true }
+                return false
+            }
+            XCTAssertEqual(blueFillCommands.count, 1)
+        }
+    }
+
+    func testCanvasRespectsNodeOpacity() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+            let redColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
+
+            host.setContent {
+                UI.canvas(frame: Rect(origin: .zero, size: Size(width: 100, height: 50))) { context, size in
+                    context.fill(Rect(origin: .zero, size: size), with: .color(redColor))
+                }
+            }
+
+            runtime.root.children.first!.opacity = 0.5
+            runtime.setRootSize(IntSize(width: 200, height: 200))
+            let frame = runtime.renderFrame()
+            let redCommands = frame.commands.filter {
+                if case .fillRect(let cmd) = $0, cmd.color.alpha == 0.5 { return true }
+                return false
+            }
+            XCTAssertEqual(redCommands.count, 1)
+        }
+    }
+
+    // MARK: - Table
+
+    func testTableBuildsHeaderAndRows() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+
+            struct Person: Identifiable {
+                let id: String
+                let name: String
+                let age: Int
+            }
+
+            let people = [
+                Person(id: "1", name: "Alice", age: 30),
+                Person(id: "2", name: "Bob", age: 25)
+            ]
+
+            host.setContent {
+                Component { _ in
+                    let table = Table(people, selection: nil as Binding<String?>?) {
+                        TableColumn<Person>("Name", value: \.name)
+                        TableColumn<Person>("Age", value: \.age)
+                    }
+                    let context = ViewBuildContext(
+                        canvasSizeProvider: { Size(width: 400, height: 300) },
+                        invalidateHandler: {}
+                    )
+                    let node = table.makeComponent(context: context).makeNode(runtime: runtime)
+                    return node
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 400, height: 300))
+            let frame = runtime.renderFrame()
+
+            // On Windows text is rendered via drawBitmap; other platforms use drawText.
+            let textCommands = frame.commands.filter {
+                if case .drawText = $0 { return true }
+                if case .drawBitmap = $0 { return true }
+                return false
+            }
+            // Name, Age (header) + Alice, 30, Bob, 25 (rows) = 6 text items
+            XCTAssertGreaterThanOrEqual(textCommands.count, 4)
+        }
+    }
+
+    func testTableRowSelectionUpdatesSelectionBinding() async {
+        await MainActor.run {
+            let runtime = RetainedViewRuntime(root: ViewNode())
+            let host = ComponentHost(runtime: runtime)
+
+            struct Item: Identifiable, Hashable {
+                let id: String
+                let value: Int
+            }
+
+            let items = [Item(id: "a", value: 1), Item(id: "b", value: 2)]
+            var selectedID: String? = nil
+
+            host.setContent {
+                Component { _ in
+                    let table = Table(
+                        items,
+                        selection: Binding(
+                            get: { selectedID },
+                            set: { selectedID = $0 }
+                        )
+                    ) {
+                        TableColumn<Item>("Value", value: \.value)
+                    }
+                    let context = ViewBuildContext(
+                        canvasSizeProvider: { Size(width: 400, height: 300) },
+                        invalidateHandler: {}
+                    )
+                    return table.makeComponent(context: context).makeNode(runtime: runtime)
+                }
+            }
+
+            runtime.setRootSize(IntSize(width: 400, height: 300))
+            _ = runtime.renderFrame()
+
+            // Find the first selectable row and activate it
+            let firstRow = runtime.root.children.first!.children.first { $0.nodeTag?.hasPrefix("table-selection:") == true }!
+            XCTAssertNotNil(firstRow.onActivate)
+            firstRow.onActivate?()
+
+            XCTAssertEqual(selectedID, "a")
         }
     }
 }

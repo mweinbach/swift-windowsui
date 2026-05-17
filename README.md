@@ -12,7 +12,7 @@ The repo now also includes `WinSwiftUI`, a SwiftUI-shaped compatibility layer fo
 - A frame fallback renderer that consumes the `fillRect` and `drawBitmap` subset of the shared frame contract
 - An active demo path that now defaults to `GPUIScene` -> `D3D11BatchRenderer`, with the `RenderFrame` -> `D3D11Renderer` path kept as an automatic same-session fallback and explicit debug override
 - A `WinSwiftUI` host loop that coalesces rebuilds, avoids duplicate invalidates, and only sustains high-rate frame pumping when input actually dirties presentation state
-- An experimental batch scene path that scales primitives into device pixels, keeps replayable scene paint records plus per-layer family operations as metadata, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, sorts typed primitive families into ordered batches before upload, uses a runtime-owned logical text layout cache plus a native glyph atlas, and now routes deferred-subtree prepaint plus deferred paint records through runtime-owned prepaint dispatch state while it is still being brought up toward Zed-style sprite batching
+- A GPUI-inspired batch scene path in native Swift that scales primitives into device pixels, keeps replayable scene paint records plus a per-layer `paintOperations` presentation stream, carries semantic content masks on typed primitives, assigns bounds-based draw orders from masked bounds inside `GPUIScene`, keeps family batches as an optimization surface, uses a runtime-owned logical text layout cache plus a native glyph atlas, and routes deferred-subtree prepaint plus deferred paint records through runtime-owned prepaint dispatch state while it is still being brought up toward Zed-style sprite batching
 - A Windows-only implementation for the runtime/host/renderer layers today
 
 ## Same-Source Goal
@@ -70,23 +70,7 @@ swift run swift-windowsui
 
 `FoundationApp` still exists, but it is no longer the primary demo bootstrap path.
 
-`GPUIScene` -> `D3D11BatchRenderer` is the default demo presentation path. It now keeps replayable scene paint records plus per-layer family paint
-operations, carries semantic content masks on typed primitives, assigns
-Zed-style bounds-based draw orders from masked bounds inside each scene layer,
-finishes scenes into ordered family batches before upload, caches logical
-native text layout per runtime, reuses cached subtree layout/measurement state
-plus frame/scene ranges when bounds and inherited paint context stay stable,
-collects deferred subtree prepaint work and deferred paint records into
-runtime-owned queues shared by the frame and scene paths, stores rerunnable
-deferred payloads plus cached output ranges, reuses runtime-owned prepaint
-dispatch metadata for hit testing, focus traversal, scroll targeting, and
-draggable ancestor lookup, remaps deferred priorities when clean subtrees are
-reused, and replays cached deferred frame and scene ranges after the deferred
-prepaint phase has rebuilt its dispatch metadata,
-only attaches atlas snapshots to freshly-built scenes, and uploads typed
-primitive ranges without materializing per-operation slice arrays. It now
-follows GPUI-style inherited opacity propagation instead of inventing a
-save-layer opacity model.
+`GPUIScene` -> `D3D11BatchRenderer` is the default demo presentation path. It keeps replayable scene paint records plus a per-layer `paintOperations` stream that is the source of truth for visible presentation order. Typed primitive families and ordered batches remain optimization surfaces, but CPU screenshots and D3D11 presentation consume the paint stream so mixed primitive families preserve retained-runtime order. The scene path also carries semantic content masks on typed primitives, assigns Zed-style bounds-based draw orders from masked bounds inside each scene layer, caches logical native text layout per runtime, reuses cached subtree layout/measurement state plus frame/scene ranges when bounds and inherited paint context stay stable, collects deferred subtree prepaint work and deferred paint records into runtime-owned queues shared by the frame and scene paths, stores rerunnable deferred payloads plus cached output ranges, reuses runtime-owned prepaint dispatch metadata for hit testing, focus traversal, scroll targeting, and draggable ancestor lookup, remaps deferred priorities when clean subtrees are reused, replays cached deferred frame and scene ranges after the deferred prepaint phase has rebuilt its dispatch metadata, only attaches atlas snapshots to freshly-built scenes, and uploads typed primitive ranges without materializing per-operation slice arrays. It follows GPUI-style inherited opacity propagation instead of inventing a save-layer opacity model.
 
 ## WinSwiftUI Coverage
 
@@ -132,11 +116,16 @@ Run from the repository root in PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/with-swift.ps1 -CheckOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -ContractsOnly
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/lint.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/agent-check.ps1 -Quick
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-probe.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/demo-screenshot.ps1
 ```
+
+`scripts/check-contracts.ps1` encodes project-specific invariants that generic Swift lint cannot see: the SwiftUI-on-Windows goal, the GPUI-inspired retained scene pipeline, raw screenshot validation, `paintOperations` presentation order, offscreen compositing cache safety, and shared-demo source compatibility. `scripts/agent-check.ps1` runs those checks plus the focused validation ladder serially so agents do not collide on SwiftPM's `.build/build.db`.
 
 Useful focused command:
 
@@ -182,3 +171,4 @@ The GUI demo was also launched with a short `swift run swift-windowsui` startup 
 
 Additional framework notes live in [`docs/WinSwiftUI.md`](/D:/Projects/swift-windowsui/docs/WinSwiftUI.md).
 Testing and visual-check commands live in [`docs/Testing.md`](/D:/Projects/swift-windowsui/docs/Testing.md).
+Agent handoff and architecture guardrails live in [`CLAUDE.md`](/D:/Projects/swift-windowsui/CLAUDE.md).

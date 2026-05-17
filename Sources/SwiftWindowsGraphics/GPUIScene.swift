@@ -9,6 +9,7 @@ public enum GPUIPaintPrimitiveKind: Equatable, Sendable {
     case glyph
     case pixelGlyph
     case image
+    case path
 }
 
 public struct GPUIPaintOperation: Equatable, Sendable {
@@ -29,6 +30,7 @@ public enum GPUIScenePrimitive: Equatable, Sendable {
     case glyph(GlyphPrimitive)
     case pixelGlyph(GlyphPrimitive)
     case image(ImagePrimitive)
+    case path(PathPrimitive)
 }
 
 public enum GPUIScenePaintRecord: Equatable, Sendable {
@@ -84,6 +86,7 @@ public struct GPUILayer: Equatable, Sendable {
     public var glyphs: [GlyphPrimitive]
     public var pixelGlyphs: [GlyphPrimitive]
     public var images: [ImagePrimitive]
+    public var paths: [PathPrimitive]
     public var paintOperations: [GPUIPaintOperation]
 
     private var shadowOrderings: [GPUIPrimitiveOrdering]
@@ -91,6 +94,7 @@ public struct GPUILayer: Equatable, Sendable {
     private var glyphOrderings: [GPUIPrimitiveOrdering]
     private var pixelGlyphOrderings: [GPUIPrimitiveOrdering]
     private var imageOrderings: [GPUIPrimitiveOrdering]
+    private var pathOrderings: [GPUIPrimitiveOrdering]
     private var primitiveBounds = GPUIBoundsTree()
     private var layerStack: [GPUIDrawOrder] = []
     private var nextPaintIndex: UInt32 = 0
@@ -102,6 +106,7 @@ public struct GPUILayer: Equatable, Sendable {
         glyphs: [GlyphPrimitive] = [],
         pixelGlyphs: [GlyphPrimitive] = [],
         images: [ImagePrimitive] = [],
+        paths: [PathPrimitive] = [],
         paintOperations: [GPUIPaintOperation] = []
     ) {
         self.shadows = shadows
@@ -109,17 +114,19 @@ public struct GPUILayer: Equatable, Sendable {
         self.glyphs = glyphs
         self.pixelGlyphs = pixelGlyphs
         self.images = images
+        self.paths = paths
         self.paintOperations = paintOperations
         self.shadowOrderings = shadows.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
         self.quadOrderings = quads.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
         self.glyphOrderings = glyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
         self.pixelGlyphOrderings = pixelGlyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
         self.imageOrderings = images.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.nextPaintIndex = UInt32(shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count)
+        self.pathOrderings = paths.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
+        self.nextPaintIndex = UInt32(shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count + paths.count)
     }
 
     public var primitiveCount: Int {
-        shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count
+        shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count + paths.count
     }
 
     public var isEmpty: Bool {
@@ -205,12 +212,34 @@ public struct GPUILayer: Equatable, Sendable {
         return true
     }
 
+    mutating func addPath(_ path: PathPrimitive) -> Bool {
+        guard let maskedBounds = path.contentMaskedBounds else {
+            return false
+        }
+
+        let startIndex = paths.count
+        paths.append(path)
+        pathOrderings.append(reserveOrdering(for: maskedBounds, primitiveIndex: startIndex))
+        appendPaintOperation(kind: .path, startIndex: startIndex)
+        return true
+    }
+
     public mutating func finish() {
-        Self.sortFamily(&shadows, orderings: &shadowOrderings)
-        Self.sortFamily(&quads, orderings: &quadOrderings)
-        Self.sortFamily(&glyphs, orderings: &glyphOrderings)
-        Self.sortFamily(&pixelGlyphs, orderings: &pixelGlyphOrderings)
-        Self.sortFamily(&images, orderings: &imageOrderings)
+        let shadowIndexMap = Self.sortFamily(&shadows, orderings: &shadowOrderings)
+        let quadIndexMap = Self.sortFamily(&quads, orderings: &quadOrderings)
+        let glyphIndexMap = Self.sortFamily(&glyphs, orderings: &glyphOrderings)
+        let pixelGlyphIndexMap = Self.sortFamily(&pixelGlyphs, orderings: &pixelGlyphOrderings)
+        let imageIndexMap = Self.sortFamily(&images, orderings: &imageOrderings)
+        let pathIndexMap = Self.sortFamily(&paths, orderings: &pathOrderings)
+
+        remapPaintOperations(
+            shadowIndexMap: shadowIndexMap,
+            quadIndexMap: quadIndexMap,
+            glyphIndexMap: glyphIndexMap,
+            pixelGlyphIndexMap: pixelGlyphIndexMap,
+            imageIndexMap: imageIndexMap,
+            pathIndexMap: pathIndexMap
+        )
     }
 
     public func orderedBatches() -> GPUILayerBatchIterator {
@@ -219,24 +248,13 @@ public struct GPUILayer: Equatable, Sendable {
             quadOrderings: quadOrderings,
             glyphOrderings: glyphOrderings,
             pixelGlyphOrderings: pixelGlyphOrderings,
-            imageOrderings: imageOrderings
+            imageOrderings: imageOrderings,
+            pathOrderings: pathOrderings
         )
     }
 
     private mutating func appendPaintOperation(kind: GPUIPaintPrimitiveKind, startIndex: Int) {
-        guard var lastOperation = paintOperations.last else {
-            paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
-            return
-        }
-
-        let expectedNextIndex = lastOperation.startIndex + lastOperation.count
-        if lastOperation.kind == kind, expectedNextIndex == startIndex {
-            lastOperation.count += 1
-            paintOperations[paintOperations.count - 1] = lastOperation
-            return
-        }
-
-        paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
+        Self.appendPaintOperation(kind: kind, startIndex: startIndex, to: &paintOperations)
     }
 
     private mutating func reserveOrdering(for bounds: Rect?, primitiveIndex: Int) -> GPUIPrimitiveOrdering {
@@ -259,12 +277,13 @@ public struct GPUILayer: Equatable, Sendable {
         return ordering
     }
 
-    private static func sortFamily<T>(_ primitives: inout [T], orderings: inout [GPUIPrimitiveOrdering]) {
+    private static func sortFamily<T>(_ primitives: inout [T], orderings: inout [GPUIPrimitiveOrdering]) -> [Int] {
+        var oldIndexToNewIndex = Array(primitives.indices)
         guard primitives.count == orderings.count, primitives.count > 1 else {
             for index in orderings.indices {
                 orderings[index].primitiveIndex = index
             }
-            return
+            return oldIndexToNewIndex
         }
 
         let sortedEntries = orderings.enumerated().sorted { lhs, rhs in
@@ -289,10 +308,77 @@ public struct GPUILayer: Equatable, Sendable {
             var ordering = entry.element
             ordering.primitiveIndex = newIndex
             sortedOrderings.append(ordering)
+            oldIndexToNewIndex[entry.offset] = newIndex
         }
 
         primitives = sortedPrimitives
         orderings = sortedOrderings
+        return oldIndexToNewIndex
+    }
+
+    private mutating func remapPaintOperations(
+        shadowIndexMap: [Int],
+        quadIndexMap: [Int],
+        glyphIndexMap: [Int],
+        pixelGlyphIndexMap: [Int],
+        imageIndexMap: [Int],
+        pathIndexMap: [Int]
+    ) {
+        var remappedOperations: [GPUIPaintOperation] = []
+        remappedOperations.reserveCapacity(paintOperations.count)
+
+        for operation in paintOperations {
+            let indexMap: [Int]
+            switch operation.kind {
+            case .shadow:
+                indexMap = shadowIndexMap
+            case .quad:
+                indexMap = quadIndexMap
+            case .glyph:
+                indexMap = glyphIndexMap
+            case .pixelGlyph:
+                indexMap = pixelGlyphIndexMap
+            case .image:
+                indexMap = imageIndexMap
+            case .path:
+                indexMap = pathIndexMap
+            }
+
+            let upperBound = operation.startIndex + operation.count
+            guard operation.startIndex >= 0, upperBound <= indexMap.count else {
+                continue
+            }
+
+            for oldIndex in operation.startIndex..<upperBound {
+                Self.appendPaintOperation(
+                    kind: operation.kind,
+                    startIndex: indexMap[oldIndex],
+                    to: &remappedOperations
+                )
+            }
+        }
+
+        paintOperations = remappedOperations
+    }
+
+    private static func appendPaintOperation(
+        kind: GPUIPaintPrimitiveKind,
+        startIndex: Int,
+        to paintOperations: inout [GPUIPaintOperation]
+    ) {
+        guard var lastOperation = paintOperations.last else {
+            paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
+            return
+        }
+
+        let expectedNextIndex = lastOperation.startIndex + lastOperation.count
+        if lastOperation.kind == kind, expectedNextIndex == startIndex {
+            lastOperation.count += 1
+            paintOperations[paintOperations.count - 1] = lastOperation
+            return
+        }
+
+        paintOperations.append(GPUIPaintOperation(kind: kind, startIndex: startIndex))
     }
 
     public static func == (lhs: GPUILayer, rhs: GPUILayer) -> Bool {
@@ -301,6 +387,7 @@ public struct GPUILayer: Equatable, Sendable {
         lhs.glyphs == rhs.glyphs &&
         lhs.pixelGlyphs == rhs.pixelGlyphs &&
         lhs.images == rhs.images &&
+        lhs.paths == rhs.paths &&
         lhs.paintOperations == rhs.paintOperations
     }
 }
@@ -457,6 +544,14 @@ public struct GPUIScene: Equatable, Sendable {
         }
     }
 
+    public mutating func addPath(_ path: PathPrimitive, toLayer layerIndex: Int) {
+        ensureLayer(layerIndex)
+        if layers[layerIndex].addPath(path) {
+            paintRecords.append(.primitive(layerIndex: layerIndex, primitive: .path(path)))
+            isFinished = false
+        }
+    }
+
 /// Represents the result of a replay operation.
 public enum GPUISceneReplayResult: Equatable, Sendable {
     /// Replay succeeded and reconstructed equivalent scene content.
@@ -505,6 +600,8 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                     addPixelGlyph(glyph, toLayer: layerIndex)
                 case .image(let image):
                     addImage(image, toLayer: layerIndex)
+                case .path(let path):
+                    addPath(path, toLayer: layerIndex)
                 }
             case .startLayer(let layerIndex, let bounds):
                 pushScopedLayer(bounds, toLayer: layerIndex)

@@ -2,6 +2,7 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+import SwiftWindowsPlatform
 import SwiftWindowsUI
 
 private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
@@ -33,14 +34,18 @@ private func stackCrossAlignment(from value: Double) -> StackCrossAlignment {
 public struct GeometryProxy {
     public let size: Size
     public let safeAreaInsets: EdgeInsets
+    public var frameResolver: ((CoordinateSpace) -> Rect)?
 
-    public init(size: Size, safeAreaInsets: EdgeInsets = .zero) {
+    public init(size: Size, safeAreaInsets: EdgeInsets = .zero, frameResolver: ((CoordinateSpace) -> Rect)? = nil) {
         self.size = size
         self.safeAreaInsets = safeAreaInsets
+        self.frameResolver = frameResolver
     }
 
     public func frame(in coordinateSpace: CoordinateSpace) -> Rect {
-        let _ = coordinateSpace
+        if let frameResolver {
+            return frameResolver(coordinateSpace)
+        }
         return Rect(x: 0, y: 0, width: size.width, height: size.height)
     }
 
@@ -86,26 +91,197 @@ public struct GeometryProxy3D {
 }
 
 @MainActor
+public final class PhaseAnimatorTaskManager: @unchecked Sendable {
+    public static let shared = PhaseAnimatorTaskManager()
+    private var tasks: [String: Task<Void, Never>] = [:]
+
+    private init() {}
+
+    public func start<Phase: Equatable>(
+        key: String,
+        runtime: RetainedViewRuntime,
+        signature: String,
+        phases: [Phase],
+        animation: @escaping (Phase) -> Animation?,
+        invalidate: @escaping () -> Void
+    ) {
+        tasks[key]?.cancel()
+        tasks[key] = Task { @MainActor [weak self, weak runtime] in
+            guard let self = self else { return }
+            guard let runtime = runtime else {
+                self.tasks.removeValue(forKey: key)
+                return
+            }
+            for i in 1..<phases.count {
+                let animationForPhase = animation(phases[i - 1])
+                let duration = animationForPhase?.duration ?? 0.0
+                do {
+                    if duration > 0 {
+                        try await Task.sleep(nanoseconds: UInt64(duration * 1_000_000_000))
+                    } else {
+                        try await Task.yield()
+                    }
+                } catch {
+                    self.tasks.removeValue(forKey: key)
+                    return
+                }
+
+                guard let node = self.findNode(in: runtime.root, signature: signature) else {
+                    self.tasks.removeValue(forKey: key)
+                    return
+                }
+                if let state = node.phaseAnimatorState,
+                   state.phasesSignature == signature,
+                   state.currentPhaseIndex == i - 1 {
+                    node.phaseAnimatorState?.currentPhaseIndex = i
+                    node.phaseAnimatorState?.phaseStartTime = Win32Window.currentTimestampSeconds()
+                    invalidate()
+                }
+            }
+            self.tasks.removeValue(forKey: key)
+        }
+    }
+
+    public func hasActiveTask(key: String) -> Bool {
+        tasks[key] != nil
+    }
+
+    public func cancel(key: String) {
+        tasks[key]?.cancel()
+        tasks.removeValue(forKey: key)
+    }
+
+    private func findNode(in root: ViewNode, signature: String) -> ViewNode? {
+        if root.phaseAnimatorState?.phasesSignature == signature {
+            return root
+        }
+        for child in root.children {
+            if let found = findNode(in: child, signature: signature) {
+                return found
+            }
+        }
+        return nil
+    }
+}
+
+public protocol Keyframe {}
+
+public protocol Keyframes {}
+
+public struct KeyframeTrack<Value>: Keyframes where Value: Animatable {
+    public init() {}
+}
+
+public struct LinearKeyframe<Value>: Keyframe where Value: Animatable {
+    public let value: Value
+    public let duration: Double
+
+    public init(_ value: Value, duration: Double) {
+        self.value = value
+        self.duration = duration
+    }
+}
+
+public struct CubicKeyframe<Value>: Keyframe where Value: Animatable {
+    public let value: Value
+    public let duration: Double
+
+    public init(_ value: Value, duration: Double) {
+        self.value = value
+        self.duration = duration
+    }
+}
+
+public struct SpringKeyframe<Value>: Keyframe where Value: Animatable {
+    public let value: Value
+    public let duration: Double
+    public let spring: Animation
+
+    public init(_ value: Value, duration: Double, spring: Animation = .default) {
+        self.value = value
+        self.duration = duration
+        self.spring = spring
+    }
+}
+
+public struct MoveKeyframe<Value>: Keyframe where Value: Animatable {
+    public let value: Value
+
+    public init(_ value: Value) {
+        self.value = value
+    }
+}
+
+@MainActor
+public struct KeyframeAnimator<Value>: View where Value: Animatable {
+    public typealias Body = Never
+
+    private let initialValue: Value
+    private let triggerDescription: String?
+    private let content: (Value) -> [AnyView]
+    private let keyframes: (KeyframeTrack<Value>) -> Keyframes
+
+    public init(
+        initialValue: Value,
+        repeating: Bool = true,
+        @ViewBuilder content: @escaping (Value) -> [AnyView],
+        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
+    ) {
+        self.initialValue = initialValue
+        self.triggerDescription = nil
+        self.content = content
+        self.keyframes = keyframes
+    }
+
+    public init<Trigger: Equatable>(
+        initialValue: Value,
+        trigger: Trigger,
+        @ViewBuilder content: @escaping (Value) -> [AnyView],
+        keyframes: @escaping (KeyframeTrack<Value>) -> Keyframes
+    ) {
+        self.initialValue = initialValue
+        self.triggerDescription = "\(Trigger.self):\(String(describing: trigger))"
+        self.content = content
+        self.keyframes = keyframes
+    }
+
+    public var body: Never {
+        fatalError("KeyframeAnimator has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = keyframes(KeyframeTrack<Value>())
+        let views = content(initialValue)
+        return Component { runtime in
+            let node = ViewNode(
+                layoutMode: .absolute,
+                children: views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            )
+            return node
+        }
+    }
+}
+
+@MainActor
 public struct PhaseAnimator<Phase: Equatable>: View {
     public typealias Body = Never
 
-    private let initialPhase: Phase?
-    private let hasAdditionalPhases: Bool
-    private let triggerDescription: String?
-    private let content: (Phase) -> [AnyView]
-    private let animation: (Phase) -> Animation?
+    let phases: [Phase]
+    let triggerDescription: String?
+    let content: (Phase) -> [AnyView]
+    let animation: (Phase) -> Animation?
+    let fallbackContent: [AnyView]?
 
     public init<Phases: Sequence>(
         _ phases: Phases,
         @ViewBuilder content: @escaping (Phase) -> [AnyView],
         animation: @escaping (Phase) -> Animation? = { _ in .default }
     ) where Phases.Element == Phase {
-        let resolved = resolvedInitialPhase(from: phases)
-        self.initialPhase = resolved.initialPhase
-        self.hasAdditionalPhases = resolved.hasAdditionalPhases
+        self.phases = Array(phases)
         self.triggerDescription = nil
         self.content = content
         self.animation = animation
+        self.fallbackContent = nil
     }
 
     public init<Phases: Sequence, Trigger: Equatable>(
@@ -114,12 +290,38 @@ public struct PhaseAnimator<Phase: Equatable>: View {
         @ViewBuilder content: @escaping (Phase) -> [AnyView],
         animation: @escaping (Phase) -> Animation? = { _ in .default }
     ) where Phases.Element == Phase {
-        let resolved = resolvedInitialPhase(from: phases)
-        self.initialPhase = resolved.initialPhase
-        self.hasAdditionalPhases = resolved.hasAdditionalPhases
+        self.phases = Array(phases)
         self.triggerDescription = "\(Trigger.self):\(String(describing: trigger))"
         self.content = content
         self.animation = animation
+        self.fallbackContent = nil
+    }
+
+    init<Phases: Sequence>(
+        _ phases: Phases,
+        content: @escaping (Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation?,
+        fallbackContent: [AnyView]?
+    ) where Phases.Element == Phase {
+        self.phases = Array(phases)
+        self.triggerDescription = nil
+        self.content = content
+        self.animation = animation
+        self.fallbackContent = fallbackContent
+    }
+
+    init<Phases: Sequence, Trigger: Equatable>(
+        _ phases: Phases,
+        trigger: Trigger,
+        content: @escaping (Phase) -> [AnyView],
+        animation: @escaping (Phase) -> Animation?,
+        fallbackContent: [AnyView]?
+    ) where Phases.Element == Phase {
+        self.phases = Array(phases)
+        self.triggerDescription = "\(Trigger.self):\(String(describing: trigger))"
+        self.content = content
+        self.animation = animation
+        self.fallbackContent = fallbackContent
     }
 
     public var body: Never {
@@ -127,47 +329,171 @@ public struct PhaseAnimator<Phase: Equatable>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let triggerDescription = triggerDescription
-        let hasAdditionalPhases = hasAdditionalPhases
-        guard let initialPhase else {
-            return Component { _ in
-                let node = Controls.panel(preferredSize: .zero, isHitTestVisible: false)
-                node.visualEffects.append(
-                    retainedPhaseAnimatorDescription(
-                        phase: nil as Phase?,
-                        triggerDescription: triggerDescription,
-                        hasAdditionalPhases: false,
-                        animation: nil
-                    )
-                )
-                return node
-            }
-        }
+        let invalidate = context.invalidate
+        let signature = phases.map { "\($0)" }.joined(separator: "\n")
+        let phases = self.phases
+        let animation = self.animation
+        let content = self.content
+        let fallbackContent = self.fallbackContent
+        let triggerDescription = self.triggerDescription
 
-        let component = composeComponent(from: content(initialPhase), context: context)
-        let initialAnimation = animation(initialPhase)
         return Component { runtime in
-            let node = component.makeNode(runtime: runtime)
-            node.visualEffects.append(
-                retainedPhaseAnimatorDescription(
-                    phase: initialPhase,
-                    triggerDescription: triggerDescription,
-                    hasAdditionalPhases: hasAdditionalPhases,
-                    animation: initialAnimation
-                )
+            let now = Win32Window.currentTimestampSeconds()
+
+            // Search the old runtime tree for an existing PhaseAnimator state.
+            let oldState = Self.findState(in: runtime.root, signature: signature)
+
+            var phaseIndex = 0
+            var phaseStartTime = now
+            var triggerChanged = false
+
+            if let oldState = oldState {
+                if triggerDescription != oldState.previousTrigger {
+                    phaseIndex = 0
+                    phaseStartTime = now
+                    triggerChanged = true
+                } else if oldState.currentPhaseIndex < phases.count - 1 {
+                    let duration = animation(phases[oldState.currentPhaseIndex])?.duration ?? 0.35
+                    if now - oldState.phaseStartTime >= duration {
+                        phaseIndex = oldState.currentPhaseIndex + 1
+                        phaseStartTime = now
+                    } else {
+                        phaseIndex = oldState.currentPhaseIndex
+                        phaseStartTime = oldState.phaseStartTime
+                    }
+                } else {
+                    phaseIndex = oldState.currentPhaseIndex
+                    phaseStartTime = oldState.phaseStartTime
+                }
+            }
+
+            let views: [AnyView]
+            if let phase = phases.isEmpty ? nil : phases[phaseIndex] {
+                let currentAnimation = animation(phase)
+                views = content(phase).map { AnyView($0.animation(currentAnimation)) }
+            } else if let fallback = fallbackContent {
+                views = fallback
+            } else {
+                views = []
+            }
+
+            let childNodes = views.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
+            let node: ViewNode
+            if childNodes.count == 1 {
+                node = childNodes[0]
+            } else if childNodes.isEmpty {
+                node = ViewNode(layoutMode: .absolute)
+            } else {
+                node = ViewNode(layoutMode: .absolute, children: childNodes)
+            }
+
+            let newState = PhaseAnimatorState(
+                phasesSignature: signature,
+                triggerDescription: triggerDescription,
+                currentPhaseIndex: phaseIndex,
+                previousTrigger: triggerDescription,
+                phaseStartTime: phaseStartTime
             )
+            node.phaseAnimatorState = newState
+
+            let phaseString = phases.isEmpty ? "nil" : "\(phases[phaseIndex])"
+            let hasAdditionalPhases = !phases.isEmpty && phases.count > 1
+            let animationDesc: String
+            if let anim = phases.isEmpty ? nil : animation(phases[phaseIndex]) {
+                let easingName: String
+                switch anim.easing {
+                case .linear: easingName = "linear"
+                case .easeIn: easingName = "easeIn"
+                case .easeOut: easingName = "easeOut"
+                case .easeInOut: easingName = "easeInOut"
+                default: easingName = "custom"
+                }
+                animationDesc = "\(easingName):\(anim.duration)"
+            } else {
+                animationDesc = "nil"
+            }
+            var effectParts = ["phase:\(phaseString)", "hasAdditionalPhases:\(hasAdditionalPhases)", "animation:\(animationDesc)"]
+            if let trigger = triggerDescription {
+                effectParts.insert("trigger:\(trigger)", at: 2)
+            }
+            node.visualEffects.append("phaseAnimator(\(effectParts.joined(separator: ",")))")
+
+            let taskKey = "phaseAnimator:\(signature)"
+            let shouldStartTask: Bool
+            if phases.count > 1 && phaseIndex < phases.count - 1 {
+                if oldState == nil || triggerChanged {
+                    shouldStartTask = true
+                } else if phaseIndex == oldState?.currentPhaseIndex {
+                    shouldStartTask = !PhaseAnimatorTaskManager.shared.hasActiveTask(key: taskKey)
+                } else {
+                    shouldStartTask = true
+                }
+            } else {
+                shouldStartTask = false
+            }
+
+            if shouldStartTask {
+                PhaseAnimatorTaskManager.shared.start(
+                    key: taskKey,
+                    runtime: runtime,
+                    signature: signature,
+                    phases: phases,
+                    animation: animation,
+                    invalidate: invalidate
+                )
+            }
+
             return node
         }
     }
+
+    private static func findState(in root: ViewNode, signature: String) -> PhaseAnimatorState? {
+        if let state = root.phaseAnimatorState, state.phasesSignature == signature {
+            return state
+        }
+        for child in root.children {
+            if let found = findState(in: child, signature: signature) {
+                return found
+            }
+        }
+        return nil
+    }
 }
 
-private func resolvedInitialPhase<Phases: Sequence>(
-    from phases: Phases
-) -> (initialPhase: Phases.Element?, hasAdditionalPhases: Bool) {
-    var iterator = phases.makeIterator()
-    let initialPhase = iterator.next()
-    let hasAdditionalPhases = iterator.next() != nil
-    return (initialPhase, hasAdditionalPhases)
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct TransitionProxy: Sendable, Equatable {
+    public var isActive: Bool
+    public var value: Double
+
+    public init(isActive: Bool = false, value: Double = 0) {
+        self.isActive = isActive
+        self.value = value
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct TransitionReader: View {
+    public typealias Body = Never
+
+    private let content: (TransitionProxy) -> [AnyView]
+
+    public init(@ViewBuilder content: @escaping (TransitionProxy) -> [AnyView]) {
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("TransitionReader has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(
+            from: content(TransitionProxy(isActive: false, value: 0)),
+            context: context,
+            fallbackLayout: .absolute
+        )
+    }
 }
 
 @MainActor
@@ -221,6 +547,109 @@ public struct ViewThatFits: View {
     }
 }
 
+@MainActor
+public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {
+    public typealias Body = Never
+
+    private let schedule: Schedule
+    private let content: (TimelineViewContext) -> Content
+
+    public init(
+        _ schedule: Schedule,
+        @ViewBuilder content: @escaping (TimelineViewContext) -> Content
+    ) {
+        self.schedule = schedule
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("TimelineView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let schedule = schedule
+        let content = content
+        let entries = Array(schedule.entries(from: Date(), mode: .normal))
+        let currentDate = entries.first ?? Date()
+        let cadence: TimelineViewCadence = {
+            if schedule is EverySecondTimelineSchedule { return .live }
+            if schedule is EveryMinuteTimelineSchedule { return .seconds }
+            if schedule is EveryHourTimelineSchedule { return .minutes }
+            return .live
+        }()
+        let timelineContext = TimelineViewContext(date: currentDate, cadence: cadence)
+        let childComponent = content(timelineContext).makeComponent(context: context)
+        let invalidate = context.invalidate
+        return Component { runtime in
+            let childNode = childComponent.makeNode(runtime: runtime)
+            if let nextDate = entries.dropFirst().first {
+                let sleepInterval = nextDate.timeIntervalSince(Date())
+                if sleepInterval > 0 {
+                    childNode.pendingLifecycleTaskLaunches.append(
+                        ViewLifecycleTaskLaunch(
+                            key: "timeline-view-update",
+                            priority: .background,
+                            action: {
+                                try? await Task.sleep(nanoseconds: UInt64(sleepInterval * 1_000_000_000))
+                                await MainActor.run { invalidate() }
+                            }
+                        )
+                    )
+                }
+            }
+            return childNode
+        }
+    }
+}
+
+public struct AnimationTimelineView<Schedule: TimelineSchedule, Content: View>: View {
+    public typealias Body = Never
+
+    private let schedule: Schedule
+    private let content: (TimelineViewContext) -> Content
+
+    public init(
+        _ schedule: Schedule,
+        @ViewBuilder content: @escaping (TimelineViewContext) -> Content
+    ) {
+        self.schedule = schedule
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("AnimationTimelineView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let schedule = schedule
+        let content = content
+        let entries = Array(schedule.entries(from: Date(), mode: .normal))
+        let currentDate = entries.first ?? Date()
+        let timelineContext = TimelineViewContext(date: currentDate, cadence: .live)
+        let childComponent = content(timelineContext).makeComponent(context: context)
+        let invalidate = context.invalidate
+        return Component { runtime in
+            let childNode = childComponent.makeNode(runtime: runtime)
+            if let nextDate = entries.dropFirst().first {
+                let sleepInterval = nextDate.timeIntervalSince(Date())
+                if sleepInterval > 0 {
+                    childNode.pendingLifecycleTaskLaunches.append(
+                        ViewLifecycleTaskLaunch(
+                            key: "animation-timeline-view-update",
+                            priority: .background,
+                            action: {
+                                try? await Task.sleep(nanoseconds: UInt64(sleepInterval * 1_000_000_000))
+                                await MainActor.run { invalidate() }
+                            }
+                        )
+                    )
+                }
+            }
+            return childNode
+        }
+    }
+}
+
 extension SwiftWindowsCore.Color: View {
     public typealias Body = Never
 
@@ -271,6 +700,12 @@ public struct Rectangle: View {
             strokeLineStyle: strokeLineStyle,
             cornerRadius: 0
         )
+    }
+
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addRect(rect)
+        return path
     }
 
     public func fill(_ color: Color) -> Rectangle {
@@ -474,6 +909,12 @@ public struct RoundedRectangle: View {
             strokeLineStyle: strokeLineStyle,
             cornerRadius: retainedUniformFallbackRadius
         )
+    }
+
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addRoundedRect(rect, cornerRadius: retainedUniformFallbackRadius)
+        return path
     }
 
     public func fill(_ color: Color) -> RoundedRectangle {
@@ -723,6 +1164,12 @@ public struct UnevenRoundedRectangle: View {
         )
     }
 
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addRoundedRect(rect, cornerRadius: cornerRadii.retainedUniformFallbackRadius)
+        return path
+    }
+
     public func fill(_ color: Color) -> UnevenRoundedRectangle {
         var copy = self
         copy.fillStyle = .color(color)
@@ -918,6 +1365,13 @@ public struct Capsule: View {
         )
     }
 
+    public func path(in rect: Rect) -> Path {
+        let radius = min(rect.size.width, rect.size.height) / 2
+        var path = Path()
+        path.addRoundedRect(rect, cornerRadius: radius)
+        return path
+    }
+
     public func fill(_ color: Color) -> Capsule {
         var copy = self
         copy.fillStyle = .color(color)
@@ -1109,6 +1563,12 @@ public struct Circle: View {
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
         )
+    }
+
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addEllipse(in: rect)
+        return path
     }
 
     public func fill(_ color: Color) -> Circle {
@@ -1304,6 +1764,12 @@ public struct Ellipse: View {
         )
     }
 
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addEllipse(in: rect)
+        return path
+    }
+
     public func fill(_ color: Color) -> Ellipse {
         var copy = self
         copy.fillStyle = .color(color)
@@ -1466,6 +1932,247 @@ public struct Ellipse: View {
 }
 
 @MainActor
+public struct Arc: View {
+    public typealias Body = Never
+
+    public var startAngle: Angle
+    public var endAngle: Angle
+    public var clockwise: Bool
+
+    private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init(startAngle: Angle, endAngle: Angle, clockwise: Bool) {
+        self.startAngle = startAngle
+        self.endAngle = endAngle
+        self.clockwise = clockwise
+        self.fillStyle = nil
+        self.fillRuleStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public var body: Never {
+        fatalError("Arc has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let fill = fillStyle ?? context.foregroundStyle
+        let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : ForegroundStyle.color(.clear)
+        let lineWidth = lineWidth
+        let strokeLineStyle = strokeLineStyle
+        let fillRuleStyle = fillRuleStyle
+        let startAngle = startAngle
+        let endAngle = endAngle
+        let clockwise = clockwise
+        return Component { _ in
+            let node = Controls.panel(
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                isHitTestVisible: false
+            )
+            node.onLayout = { [weak node] bounds in
+                guard let node else { return }
+                var path = Path()
+                let center = Point(x: bounds.midX, y: bounds.midY)
+                let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
+                path.moveTo(Point(x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
+                path.arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians, clockwise: clockwise)
+                node.backgroundPath = RenderPath(path: path)
+                let fillResolved = resolvedFill(from: fill)
+                node.backgroundColor = fillResolved.color
+                node.backgroundGradient = fillResolved.gradient
+                let strokeResolved = resolvedFill(from: stroke)
+                node.borderColor = strokeResolved.color
+                node.borderGradient = strokeResolved.gradient
+                node.borderWidth = lineWidth
+                node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+                node.clipFillStyle = fillRuleStyle
+            }
+            return node
+        }
+    }
+
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        let center = Point(x: rect.midX, y: rect.midY)
+        let radius = max(0, min(rect.size.width, rect.size.height) * 0.5)
+        path.moveTo(Point(x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
+        path.arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians, clockwise: clockwise)
+        return path
+    }
+
+    public func fill(_ color: Color) -> Arc {
+        var copy = self
+        copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> Arc {
+        var copy = self
+        copy.fillStyle = style
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill<S: ShapeStyle>(_ style: S) -> Arc {
+        fill(style.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient) -> Arc {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill(style: FillStyle) -> Arc {
+        var copy = self
+        copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> Arc {
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> Arc {
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> Arc {
+        var copy = fill(foregroundStyle.retainedForegroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> Arc {
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> Arc {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> Arc {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Arc {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> Arc {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(lineWidth: Double = 1) -> Arc {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
+    public func stroke(style: StrokeStyle) -> Arc {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> Arc {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Arc {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Arc {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> Arc {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> Arc {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> Arc {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> Arc {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> Arc {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> Arc {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> Arc {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> Arc {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> Arc {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> Arc {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> Arc {
+        stroke(gradient, style: style)
+    }
+}
+
+extension Arc: Shape {}
+
+extension Arc: InsettableShape {}
+
+@MainActor
 public struct ContainerRelativeShape: View {
     public typealias Body = Never
 
@@ -1495,6 +2202,12 @@ public struct ContainerRelativeShape: View {
             lineWidth: lineWidth,
             strokeLineStyle: strokeLineStyle
         )
+    }
+
+    public func path(in rect: Rect) -> Path {
+        var path = Path()
+        path.addRoundedRect(rect, cornerRadius: min(rect.size.width, rect.size.height) * 0.1)
+        return path
     }
 
     public func fill(_ color: Color) -> ContainerRelativeShape {
@@ -1663,6 +2376,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public typealias Body = Never
 
     private let buildComponent: (ViewBuildContext) -> Component
+    private let buildPath: (Rect) -> Path
     private let clipShapeStyle: RetainedClipShapeStyle
     private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
     private var fillStyle: ForegroundStyle?
@@ -1677,6 +2391,7 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
                 shape.makeComponent(context: context)
             }
         }
+        self.buildPath = { rect in shape.path(in: rect) }
         self.clipShapeStyle = (shape as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
         self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: shape)
         self.fillStyle = nil
@@ -1684,6 +2399,10 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         self.strokeStyle = nil
         self.lineWidth = 0
         self.strokeLineStyle = nil
+    }
+
+    public func path(in rect: Rect) -> Path {
+        buildPath(rect)
     }
 
     public var body: Never {
@@ -1705,33 +2424,19 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
 
         let fill = fillStyle ?? context.foregroundStyle
         let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
-        switch clipShapeStyle {
-        case .capsule:
-            return capsuleComponent(
-                fillStyle: fill,
-                fillRuleStyle: fillRuleStyle,
-                strokeStyle: stroke,
-                lineWidth: lineWidth,
-                strokeLineStyle: strokeLineStyle
-            )
-        case .rectangle:
-            return shapeComponent(
-                fillStyle: fill,
-                fillRuleStyle: fillRuleStyle,
-                strokeStyle: stroke,
-                lineWidth: lineWidth,
-                strokeLineStyle: strokeLineStyle,
-                cornerRadius: 0
-            )
-        case .roundedRectangle(let radius):
-            return shapeComponent(
-                fillStyle: fill,
-                fillRuleStyle: fillRuleStyle,
-                strokeStyle: stroke,
-                lineWidth: lineWidth,
-                strokeLineStyle: strokeLineStyle,
-                cornerRadius: radius
-            )
+        let fillResult = resolvedFill(from: fill)
+        let strokeResult = resolvedFill(from: stroke)
+        let inner = buildComponent(context)
+        return Component(key: inner.key) { runtime in
+            let node = inner.makeNode(runtime: runtime)
+            node.backgroundColor = fillResult.color
+            node.backgroundGradient = fillResult.gradient
+            node.borderColor = strokeResult.color
+            node.borderGradient = strokeResult.gradient
+            node.borderWidth = lineWidth
+            node.clipFillStyle = fillRuleStyle
+            node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+            return node
         }
     }
 
@@ -1965,33 +2670,25 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         } else {
             let fill = fillStyle ?? context.foregroundStyle
             let stroke = lineWidth > 0 ? (strokeStyle ?? context.foregroundStyle) : .color(.clear)
-            switch adjustedClipShapeStyle {
-            case .capsule:
-                renderedComponent = capsuleComponent(
-                    fillStyle: fill,
-                    fillRuleStyle: fillRuleStyle,
-                    strokeStyle: stroke,
-                    lineWidth: lineWidth,
-                    strokeLineStyle: strokeLineStyle
-                )
-            case .rectangle:
-                renderedComponent = shapeComponent(
-                    fillStyle: fill,
-                    fillRuleStyle: fillRuleStyle,
-                    strokeStyle: stroke,
-                    lineWidth: lineWidth,
-                    strokeLineStyle: strokeLineStyle,
-                    cornerRadius: 0
-                )
-            case .roundedRectangle(let radius):
-                renderedComponent = shapeComponent(
-                    fillStyle: fill,
-                    fillRuleStyle: fillRuleStyle,
-                    strokeStyle: stroke,
-                    lineWidth: lineWidth,
-                    strokeLineStyle: strokeLineStyle,
-                    cornerRadius: radius
-                )
+            let fillResult = resolvedFill(from: fill)
+            let strokeResult = resolvedFill(from: stroke)
+            let inner = buildComponent(context)
+            renderedComponent = Component(key: inner.key) { runtime in
+                let node = inner.makeNode(runtime: runtime)
+                node.backgroundColor = fillResult.color
+                node.backgroundGradient = fillResult.gradient
+                node.borderColor = strokeResult.color
+                node.borderGradient = strokeResult.gradient
+                node.borderWidth = lineWidth
+                node.clipFillStyle = fillRuleStyle
+                node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+                switch adjustedClipShapeStyle {
+                case .roundedRectangle(let radius):
+                    node.cornerRadius = radius
+                case .rectangle, .capsule:
+                    break
+                }
+                return node
             }
         }
 
@@ -2007,6 +2704,14 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
                 children: [childNode]
             )
         }
+    }
+
+    public func path(in rect: Rect) -> Path {
+        let insetRect = Rect(
+            origin: Point(x: rect.minX + amount, y: rect.minY + amount),
+            size: Size(width: rect.size.width - amount * 2, height: rect.size.height - amount * 2)
+        )
+        return content.path(in: insetRect)
     }
 
     public func inset(by amount: CGFloat) -> InsetShape<Content> {
@@ -2174,9 +2879,435 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
     }
 }
 
-public extension InsettableShape {
-    func inset(by amount: CGFloat) -> InsetShape<Self> {
-        InsetShape(self, amount: amount)
+@MainActor
+public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedContentShapeProvider {
+    public typealias Body = Never
+
+    private let content: Content
+    private let startFraction: CGFloat
+    private let endFraction: CGFloat
+    private let clipShapeStyle: RetainedClipShapeStyle
+    private let contentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle
+    private var fillStyle: ForegroundStyle?
+    private var fillRuleStyle: RetainedClipFillStyle?
+    private var strokeStyle: ForegroundStyle?
+    private var lineWidth: Double
+    private var strokeLineStyle: StrokeStyle?
+
+    public init(content: Content, startFraction: CGFloat = 0, endFraction: CGFloat = 1) {
+        self.content = content
+        self.startFraction = startFraction
+        self.endFraction = endFraction
+        self.clipShapeStyle = (content as? any RetainedClipShape)?.retainedClipShapeStyle ?? .rectangle
+        self.contentShapeStyle = resolvedRetainedContentShapeStyle(for: content)
+        self.fillStyle = nil
+        self.fillRuleStyle = nil
+        self.strokeStyle = nil
+        self.lineWidth = 0
+        self.strokeLineStyle = nil
+    }
+
+    public var body: Never {
+        fatalError("TrimmedShape has no body")
+    }
+
+    var retainedClipShapeStyle: RetainedClipShapeStyle {
+        clipShapeStyle
+    }
+
+    var retainedContentShapeStyle: SwiftWindowsUI.RetainedContentShapeStyle {
+        contentShapeStyle
+    }
+
+    public func path(in rect: Rect) -> Path {
+        content.path(in: rect)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let fill = context.foregroundStyle
+        let fillColor: Color
+        switch fill {
+        case .color(let c): fillColor = c
+        case .linearGradient(let g): fillColor = g.startColor
+        case .radialGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        case .conicGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        }
+        let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
+        return Component { _ in
+            let node = Controls.panel(
+                backgroundColor: fillColor,
+                isHitTestVisible: false
+            )
+            var segments: [RenderPath.Segment] = []
+            for element in unitPath.elements {
+                switch element {
+                case .moveTo(let p): segments.append(.moveTo(p))
+                case .lineTo(let p): segments.append(.lineTo(p))
+                case .quadraticCurveTo(let c, let e): segments.append(.quadCurveTo(control: c, end: e))
+                case .cubicCurveTo(let c1, let c2, let e): segments.append(.cubicCurveTo(control1: c1, control2: c2, end: e))
+                case .arc(let center, let radius, let startAngle, let endAngle, _):
+                    let steps = max(4, Int(ceil(abs(endAngle - startAngle) * radius * 0.5)))
+                    let step = (endAngle - startAngle) / Double(steps)
+                    for i in 1...steps {
+                        let a = startAngle + step * Double(i)
+                        let p = Point(x: center.x + radius * cos(a), y: center.y + radius * sin(a))
+                        segments.append(.lineTo(p))
+                    }
+                case .close: segments.append(.close)
+                }
+            }
+            node.backgroundPath = RenderPath(segments: segments)
+            return node
+        }
+    }
+
+    public func fill(_ color: Color) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(color)
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill(_ style: ForegroundStyle) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = style
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill<S: ShapeStyle>(_ style: S) -> TrimmedShape<Content> {
+        fill(style.retainedForegroundStyle)
+    }
+
+    public func fill(_ gradient: LinearGradient) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = .linearGradient(gradient)
+        copy.fillRuleStyle = nil
+        return copy
+    }
+
+    public func fill(style: FillStyle) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = nil
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill(_ color: Color, style: FillStyle) -> TrimmedShape<Content> {
+        var copy = fill(color)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill(_ foregroundStyle: ForegroundStyle, style: FillStyle) -> TrimmedShape<Content> {
+        var copy = fill(foregroundStyle)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func fill<S: ShapeStyle>(_ foregroundStyle: S, style: FillStyle) -> TrimmedShape<Content> {
+        fill(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
+    public func fill(_ gradient: LinearGradient, style: FillStyle) -> TrimmedShape<Content> {
+        var copy = fill(gradient)
+        copy.fillRuleStyle = style.retainedClipFillStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = .color(color)
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke(_ style: ForegroundStyle, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = style
+        copy.lineWidth = max(0, lineWidth)
+        copy.strokeLineStyle = StrokeStyle(lineWidth: copy.lineWidth, dashPattern: [])
+        return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(style.retainedForegroundStyle, lineWidth: lineWidth)
+    }
+
+    public func stroke(_ gradient: LinearGradient, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(.linearGradient(gradient), lineWidth: lineWidth)
+    }
+
+    public func stroke(lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
+    public func stroke(style: StrokeStyle) -> TrimmedShape<Content> {
+        var copy = self
+        copy.fillStyle = .color(.clear)
+        copy.fillRuleStyle = nil
+        copy.strokeStyle = nil
+        copy.lineWidth = max(0, style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ color: Color, style: StrokeStyle) -> TrimmedShape<Content> {
+        var copy = stroke(color, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> TrimmedShape<Content> {
+        var copy = stroke(foregroundStyle, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func stroke<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> TrimmedShape<Content> {
+        stroke(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
+    public func stroke(_ gradient: LinearGradient, style: StrokeStyle) -> TrimmedShape<Content> {
+        var copy = stroke(gradient, lineWidth: style.lineWidth)
+        copy.strokeLineStyle = style.retainedShapeStrokeStyle
+        return copy
+    }
+
+    public func strokeBorder(_ color: Color, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(color, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ style: ForegroundStyle, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(style, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ style: S, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        strokeBorder(style.retainedForegroundStyle, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, lineWidth: Double = 1) -> TrimmedShape<Content> {
+        stroke(gradient, lineWidth: lineWidth)
+    }
+
+    public func strokeBorder(lineWidth: Double = 1) -> TrimmedShape<Content> {
+        strokeBorder(style: StrokeStyle(lineWidth: lineWidth))
+    }
+
+    public func strokeBorder(style: StrokeStyle) -> TrimmedShape<Content> {
+        stroke(style: style)
+    }
+
+    public func strokeBorder(_ color: Color, style: StrokeStyle) -> TrimmedShape<Content> {
+        stroke(color, style: style)
+    }
+
+    public func strokeBorder(_ foregroundStyle: ForegroundStyle, style: StrokeStyle) -> TrimmedShape<Content> {
+        stroke(foregroundStyle, style: style)
+    }
+
+    public func strokeBorder<S: ShapeStyle>(_ foregroundStyle: S, style: StrokeStyle) -> TrimmedShape<Content> {
+        strokeBorder(foregroundStyle.retainedForegroundStyle, style: style)
+    }
+
+    public func strokeBorder(_ gradient: LinearGradient, style: StrokeStyle) -> TrimmedShape<Content> {
+        stroke(gradient, style: style)
+    }
+}
+
+public extension TrimmedShape where Content: InsettableShape {
+    func inset(by amount: CGFloat) -> TrimmedShape<Content> {
+        var copy = self
+        return copy
+    }
+}
+
+@MainActor
+public struct RotatedShape<Content: Shape>: Shape {
+    public typealias Body = Never
+
+    private let shape: Content
+    private let angle: Angle
+    private let anchor: UnitPoint
+
+    public init(shape: Content, angle: Angle, anchor: UnitPoint = .center) {
+        self.shape = shape
+        self.angle = angle
+        self.anchor = anchor
+    }
+
+    public var body: Never {
+        fatalError("RotatedShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        shape.path(in: rect)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let child = shape.makeComponent(context: context)
+        return Component { runtime in
+            let childNode = child.makeNode(runtime: runtime)
+            childNode.transform = childNode.transform.concatenating(Transform2D(rotation: angle.radians))
+            return childNode
+        }
+    }
+}
+
+@MainActor
+public struct ScaledShape<Content: Shape>: Shape {
+    public typealias Body = Never
+
+    private let shape: Content
+    private let scale: CGSize
+    private let anchor: UnitPoint
+
+    public init(shape: Content, scale: CGSize, anchor: UnitPoint = .center) {
+        self.shape = shape
+        self.scale = scale
+        self.anchor = anchor
+    }
+
+    public var body: Never {
+        fatalError("ScaledShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        shape.path(in: rect)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let child = shape.makeComponent(context: context)
+        return Component { runtime in
+            let childNode = child.makeNode(runtime: runtime)
+            childNode.transform = childNode.transform.concatenating(.scale(x: scale.width, y: scale.height))
+            return childNode
+        }
+    }
+}
+
+@MainActor
+public struct OffsetShape<Content: Shape>: Shape {
+    public typealias Body = Never
+
+    private let shape: Content
+    private let offset: CGSize
+
+    public init(shape: Content, offset: CGSize) {
+        self.shape = shape
+        self.offset = offset
+    }
+
+    public var body: Never {
+        fatalError("OffsetShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        shape.path(in: rect)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let child = shape.makeComponent(context: context)
+        return Component { runtime in
+            let childNode = child.makeNode(runtime: runtime)
+            childNode.transform = childNode.transform.concatenating(.translation(x: offset.width, y: offset.height))
+            return childNode
+        }
+    }
+}
+
+@MainActor
+public struct TransformedShape<Content: Shape>: Shape {
+    public typealias Body = Never
+
+    private let shape: Content
+    private let transform: Transform2D
+
+    public init(shape: Content, transform: Transform2D) {
+        self.shape = shape
+        self.transform = transform
+    }
+
+    public var body: Never {
+        fatalError("TransformedShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        shape.path(in: rect)
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let child = shape.makeComponent(context: context)
+        return Component { runtime in
+            let childNode = child.makeNode(runtime: runtime)
+            childNode.transform = childNode.transform.concatenating(transform)
+            return childNode
+        }
+    }
+}
+
+public struct StrokeBorder<Content: Shape>: View {
+    public typealias Body = Never
+
+    private let shape: Content
+    private let style: StrokeStyle
+
+    public init(shape: Content, style: StrokeStyle) {
+        self.shape = shape
+        self.style = style
+    }
+
+    public var body: Never {
+        fatalError("StrokeBorder has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        shape.makeComponent(context: context)
+    }
+}
+
+public struct UnionShape<Content: Shape, Other: Shape>: Shape {
+    public typealias Body = Never
+
+    private let first: Content
+    private let second: Other
+
+    public init(first: Content, second: Other) {
+        self.first = first
+        self.second = second
+    }
+
+    public var body: Never {
+        fatalError("UnionShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        first.path(in: rect)
+    }
+}
+
+public struct IntersectionShape<Content: Shape, Other: Shape>: Shape {
+    public typealias Body = Never
+
+    private let first: Content
+    private let second: Other
+
+    public init(first: Content, second: Other) {
+        self.first = first
+        self.second = second
+    }
+
+    public var body: Never {
+        fatalError("IntersectionShape has no body")
+    }
+
+    public func path(in rect: Rect) -> Path {
+        first.path(in: rect)
     }
 }
 
@@ -2291,6 +3422,12 @@ extension Ellipse: InsettableShape, RetainedClipShape {
     }
 }
 
+extension Path: Shape {
+    public func path(in rect: Rect) -> Path {
+        self
+    }
+}
+
 extension ContainerRelativeShape: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
@@ -2369,12 +3506,16 @@ private extension FillStyle {
     }
 }
 
-private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradient: LinearGradient?) {
+private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradient: GradientType?) {
     switch style {
     case .color(let color):
         return (color, nil)
     case .linearGradient(let gradient):
-        return (gradient.startColor, gradient)
+        return (gradient.startColor, .linear(.init(gradient)))
+    case .radialGradient(let gradient):
+        return (gradient.stops.first?.color ?? .clear, .radial(.init(gradient)))
+    case .conicGradient(let gradient):
+        return (gradient.stops.first?.color ?? .clear, .conic(.init(gradient)))
     }
 }
 
@@ -2746,6 +3887,16 @@ private func navigationContainerComponent(
         let subtitleNode = subtitleComponent?.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
         var headerChildren: [ViewNode] = []
+
+        // Extract toolbar items from the body and hoist them into the header.
+        let effectiveBodyNode: ViewNode
+        if let toolbarInfo = extractToolbarContent(from: bodyNode) {
+            headerChildren.append(contentsOf: toolbarInfo.toolbarContent)
+            effectiveBodyNode = toolbarInfo.remainingBody
+        } else {
+            effectiveBodyNode = bodyNode
+        }
+
         if !combinedDestinationStack.isEmpty && !hidesBackButton {
             let backLabel = Controls.label(
                 "<",
@@ -2811,9 +3962,26 @@ private func navigationContainerComponent(
             cornerRadius: chrome.containerCornerRadius,
             stackLayout: .vertical(spacing: chrome.spacing, alignment: .stretch),
             isHitTestVisible: false,
-            children: [headerNode, bodyNode]
+            children: [headerNode, effectiveBodyNode]
         )
     }
+}
+
+@MainActor
+private func extractToolbarContent(from node: ViewNode) -> (toolbarContent: [ViewNode], remainingBody: ViewNode)? {
+    // The .toolbar() modifier wraps content as:
+    // stackPanel(vertical, children: [toolbarNode, baseNode])
+    // where toolbarNode is a stackPanel(horizontal, children: [toolbarContentNode])
+    guard case .stack(let layout) = node.layoutMode, layout.axis == .vertical else {
+        return nil
+    }
+    guard let toolbarIndex = node.children.firstIndex(where: { $0.isToolbarContainer }) else {
+        return nil
+    }
+    let toolbarNode = node.children[toolbarIndex]
+    let toolbarContent = toolbarNode.children
+    node.removeChild(at: toolbarIndex)
+    return (toolbarContent, node)
 }
 
 @MainActor
@@ -2905,6 +4073,7 @@ public struct NavigationSplitView: View {
 
     private let columns: [[AnyView]]
     private let columnVisibility: Binding<NavigationSplitViewVisibility>?
+    private let preferredCompactColumn: Binding<NavigationSplitViewColumn?>?
 
     public init(
         @ViewBuilder sidebar: () -> [AnyView],
@@ -2912,6 +4081,7 @@ public struct NavigationSplitView: View {
     ) {
         self.columns = [sidebar(), detail()]
         self.columnVisibility = nil
+        self.preferredCompactColumn = nil
     }
 
     public init(
@@ -2921,6 +4091,18 @@ public struct NavigationSplitView: View {
     ) {
         self.columns = [sidebar(), detail()]
         self.columnVisibility = columnVisibility
+        self.preferredCompactColumn = nil
+    }
+
+    public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
+        preferredCompactColumn: Binding<NavigationSplitViewColumn?>,
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), detail()]
+        self.columnVisibility = columnVisibility
+        self.preferredCompactColumn = preferredCompactColumn
     }
 
     public init(
@@ -2930,6 +4112,7 @@ public struct NavigationSplitView: View {
     ) {
         self.columns = [sidebar(), content(), detail()]
         self.columnVisibility = nil
+        self.preferredCompactColumn = nil
     }
 
     public init(
@@ -2940,6 +4123,19 @@ public struct NavigationSplitView: View {
     ) {
         self.columns = [sidebar(), content(), detail()]
         self.columnVisibility = columnVisibility
+        self.preferredCompactColumn = nil
+    }
+
+    public init(
+        columnVisibility: Binding<NavigationSplitViewVisibility>,
+        preferredCompactColumn: Binding<NavigationSplitViewColumn?>,
+        @ViewBuilder sidebar: () -> [AnyView],
+        @ViewBuilder content: () -> [AnyView],
+        @ViewBuilder detail: () -> [AnyView]
+    ) {
+        self.columns = [sidebar(), content(), detail()]
+        self.columnVisibility = columnVisibility
+        self.preferredCompactColumn = preferredCompactColumn
     }
 
     public var body: Never {
@@ -2957,6 +4153,7 @@ public struct NavigationSplitView: View {
             )
         }
 
+        let compactColumn = preferredCompactColumn
         return Component { runtime in
             Controls.stackPanel(
                 stackLayout: .horizontal(spacing: 0, alignment: .stretch),
@@ -2969,6 +4166,7 @@ public struct NavigationSplitView: View {
                         count: columnComponents.count,
                         style: style
                     )
+                    node.preferredCompactColumn = compactColumn?.wrappedValue
                     return node
                 }
             )
@@ -2992,6 +4190,14 @@ public struct NavigationSplitView: View {
             node.borderColor = index == count - 1 ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.10)
             node.borderWidth = index == count - 1 ? 0 : 1
         case .prominentDetail:
+            let isDetail = index == count - 1
+            node.layoutPriority = isDetail ? 2 : 0.75
+            node.backgroundColor = isDetail
+                ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
+                : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
+            node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
+            node.borderWidth = isDetail ? 0 : 1
+        case .prominentDetailAndSidebar:
             let isDetail = index == count - 1
             node.layoutPriority = isDetail ? 2 : 0.75
             node.backgroundColor = isDetail
@@ -3667,6 +4873,51 @@ public struct TabView: View {
 }
 
 @MainActor
+public struct TabSection<Content: View>: View {
+    public typealias Body = Never
+
+    private let title: String?
+    private let content: [AnyView]
+
+    public init(_ title: String, @ViewBuilder content: () -> [AnyView]) {
+        self.title = title
+        self.content = content()
+    }
+
+    public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> [AnyView]) {
+        self.title = String(describing: titleKey)
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("TabSection has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.vertical(alignment: .stretch))
+        )
+    }
+}
+
+@MainActor
+public struct TableOfContents: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("TableOfContents has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(from: [], context: context)
+    }
+}
+
+@MainActor
 public protocol DynamicViewContent<Data>: View {
     associatedtype Data: Collection
 
@@ -4070,6 +5321,48 @@ public struct Text: View {
         public static let timer = DateStyle(kind: .timer)
     }
 
+    public struct TimerStyle: Sendable, Equatable, Hashable {
+        fileprivate enum Kind: String, Sendable, Equatable, Hashable {
+            case minutes
+            case hoursMinutes
+            case hoursMinutesSeconds
+            case countdown
+            case countdownShort
+            case countdownAbbreviated
+        }
+
+        fileprivate let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let minutes = TimerStyle(kind: .minutes)
+        public static let hoursMinutes = TimerStyle(kind: .hoursMinutes)
+        public static let hoursMinutesSeconds = TimerStyle(kind: .hoursMinutesSeconds)
+        public static let countdown = TimerStyle(kind: .countdown)
+        public static let countdownShort = TimerStyle(kind: .countdownShort)
+        public static let countdownAbbreviated = TimerStyle(kind: .countdownAbbreviated)
+    }
+
+    public struct ReferenceType: Sendable, Equatable, Hashable {
+        fileprivate enum Kind: String, Sendable, Equatable, Hashable {
+            case normal
+            case destination
+            case source
+        }
+
+        fileprivate let kind: Kind
+
+        private init(kind: Kind) {
+            self.kind = kind
+        }
+
+        public static let normal = ReferenceType(kind: .normal)
+        public static let destination = ReferenceType(kind: .destination)
+        public static let source = ReferenceType(kind: .source)
+    }
+
     public struct LineStyle: Sendable, Equatable {
         public enum Pattern: Sendable, Equatable, Hashable {
             case solid
@@ -4113,6 +5406,13 @@ public struct Text: View {
     private var strikethrough: Bool?
     private var strikethroughPattern: LineStyle.Pattern
     private var strikethroughColor: Color?
+    private var timerStyle: TimerStyle?
+    private var lineBreakMode: LineBreakMode?
+    private var hyphenationFrequency: HyphenationFrequency?
+    private var allowsDefaultTighteningForTruncation: Bool?
+    private var typesettingLanguage: String?
+
+    public var retainedTextDescription: String { content }
 
     public init(_ content: String) {
         self.content = content
@@ -4140,6 +5440,19 @@ public struct Text: View {
         self.strikethrough = nil
         self.strikethroughPattern = .solid
         self.strikethroughColor = nil
+        self.timerStyle = nil
+        self.lineBreakMode = nil
+        self.hyphenationFrequency = nil
+        self.allowsDefaultTighteningForTruncation = nil
+        self.typesettingLanguage = nil
+    }
+
+    public init(_ titleKey: LocalizedStringKey) {
+        self.init(titleKey.resolvedString)
+    }
+
+    public init(_ key: LocalizedStringKey, tableName: String?) {
+        self.init(key.resolvedString)
     }
 
     private init(
@@ -4167,7 +5480,12 @@ public struct Text: View {
         underlineColor: Color?,
         strikethrough: Bool?,
         strikethroughPattern: LineStyle.Pattern,
-        strikethroughColor: Color?
+        strikethroughColor: Color?,
+        timerStyle: TimerStyle? = nil,
+        lineBreakMode: LineBreakMode? = nil,
+        hyphenationFrequency: HyphenationFrequency? = nil,
+        allowsDefaultTighteningForTruncation: Bool? = nil,
+        typesettingLanguage: String? = nil
     ) {
         self.content = content
         self.color = color
@@ -4194,6 +5512,11 @@ public struct Text: View {
         self.strikethrough = strikethrough
         self.strikethroughPattern = strikethrough == true ? strikethroughPattern : .solid
         self.strikethroughColor = strikethrough == true ? strikethroughColor : nil
+        self.timerStyle = timerStyle
+        self.lineBreakMode = lineBreakMode
+        self.hyphenationFrequency = hyphenationFrequency
+        self.allowsDefaultTighteningForTruncation = allowsDefaultTighteningForTruncation
+        self.typesettingLanguage = typesettingLanguage
     }
 
     public init(
@@ -4260,6 +5583,10 @@ public struct Text: View {
 
     public init(verbatim content: String) {
         self.init(content)
+    }
+
+    public init(_ image: Image) {
+        self.init(image.imageAccessibilityLabel ?? "Image")
     }
 
     public var body: Never {
@@ -4368,7 +5695,12 @@ public struct Text: View {
             underlineColor: lhs.underline != nil ? lhs.underlineColor : rhs.underlineColor,
             strikethrough: lhs.strikethrough != nil ? lhs.strikethrough : rhs.strikethrough,
             strikethroughPattern: lhs.strikethrough != nil ? lhs.strikethroughPattern : rhs.strikethroughPattern,
-            strikethroughColor: lhs.strikethrough != nil ? lhs.strikethroughColor : rhs.strikethroughColor
+            strikethroughColor: lhs.strikethrough != nil ? lhs.strikethroughColor : rhs.strikethroughColor,
+            timerStyle: lhs.timerStyle ?? rhs.timerStyle,
+            lineBreakMode: lhs.lineBreakMode ?? rhs.lineBreakMode,
+            hyphenationFrequency: lhs.hyphenationFrequency ?? rhs.hyphenationFrequency,
+            allowsDefaultTighteningForTruncation: lhs.allowsDefaultTighteningForTruncation ?? rhs.allowsDefaultTighteningForTruncation,
+            typesettingLanguage: lhs.typesettingLanguage ?? rhs.typesettingLanguage
         )
     }
 
@@ -4437,7 +5769,7 @@ public struct Text: View {
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? context.letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
-                lineBreakMode: resolvedLineBreakMode(
+                lineBreakMode: self.lineBreakMode?.retainedTextLineBreakMode ?? resolvedLineBreakMode(
                     lineLimit: resolvedLineLimit,
                     truncationMode: truncationMode ?? context.truncationMode
                 ),
@@ -4756,6 +6088,42 @@ public struct Text: View {
         strikethrough(true, pattern: style.pattern, color: style.color)
     }
 
+    public func timerStyle(_ style: Text.TimerStyle) -> Text {
+        var copy = self
+        copy.timerStyle = style
+        return copy
+    }
+
+    public func lineBreakMode(_ lineBreakMode: LineBreakMode?) -> Text {
+        var copy = self
+        copy.lineBreakMode = lineBreakMode
+        return copy
+    }
+
+    public func hyphenationFrequency(_ frequency: HyphenationFrequency?) -> Text {
+        var copy = self
+        copy.hyphenationFrequency = frequency
+        return copy
+    }
+
+    public func allowsDefaultTighteningForTruncation(_ allows: Bool?) -> Text {
+        var copy = self
+        copy.allowsDefaultTighteningForTruncation = allows
+        return copy
+    }
+
+    public func typesettingLanguage(_ language: Locale.Language?) -> Text {
+        var copy = self
+        copy.typesettingLanguage = language?.minimalIdentifier
+        return copy
+    }
+
+    public func typesettingLanguage(_ language: String?) -> Text {
+        var copy = self
+        copy.typesettingLanguage = language
+        return copy
+    }
+
     private func resolvedLineBreakMode(lineLimit: Int?, truncationMode: TruncationMode?) -> TextLineBreakMode {
         guard let lineLimit else {
             return .wrap
@@ -4825,6 +6193,11 @@ public struct Image: View {
         case original
     }
 
+    public enum RenderingMode: Sendable, Equatable {
+        case template
+        case original
+    }
+
     public enum Interpolation: Sendable, Equatable {
         case none
         case low
@@ -4852,6 +6225,10 @@ public struct Image: View {
     private var accessibilityLabel: String?
     private var isAccessibilityHidden: Bool
     private var symbolVariableValue: Double?
+
+    var imageAccessibilityLabel: String? {
+        accessibilityLabel
+    }
 
     public init(systemName: String) {
         self.init(storage: .systemName(systemName))
@@ -4903,6 +6280,22 @@ public struct Image: View {
     public init(decorative name: String, variableValue: Double?, bundle: Bundle? = nil) {
         self.init(name, variableValue: variableValue, bundle: bundle)
         self.isAccessibilityHidden = true
+    }
+
+    public init(bitmap: BitmapSurface) {
+        self.init(storage: .bitmap(bitmap))
+    }
+
+    public init(uiImage: BitmapSurface) {
+        self.init(bitmap: uiImage)
+    }
+
+    public init(nsImage: BitmapSurface) {
+        self.init(bitmap: nsImage)
+    }
+
+    public init(cgImage: BitmapSurface) {
+        self.init(bitmap: cgImage)
     }
 
     private init(storage: Storage) {
@@ -5254,7 +6647,7 @@ public struct Image: View {
 
     private func applyImageMetadata(to node: ViewNode, context: ViewBuildContext) {
         applyAccessibility(to: node)
-        node.symbolVariableValue = symbolVariableValue
+        node.symbolVariableValue = symbolVariableValue ?? context.symbolVariableValue
         node.symbolRenderingMode = context.symbolRenderingMode?.retainedSymbolRenderingMode
         node.symbolVariants = context.symbolVariants.retainedSymbolVariants
         node.imageResizingMode = isResizable ? resizingMode.retainedImageResizingMode : nil
@@ -5305,6 +6698,166 @@ extension Image.Interpolation {
 private extension BitmapSurface {
     var logicalSize: Size {
         Size(width: Double(width), height: Double(height))
+    }
+}
+
+// MARK: - AsyncImage
+
+public enum AsyncImagePhase {
+    case empty
+    case success(Image)
+    case failure(Error)
+
+    public var image: Image? {
+        switch self {
+        case .success(let image):
+            return image
+        default:
+            return nil
+        }
+    }
+
+    public var error: Error? {
+        switch self {
+        case .failure(let error):
+            return error
+        default:
+            return nil
+        }
+    }
+}
+
+public struct AsyncImageError: Error {
+    public static let decodingFailed = AsyncImageError()
+    private init() {}
+}
+
+@MainActor
+public final class AsyncImageLoader: ObservableObject {
+    @Published public var phase: AsyncImagePhase = .empty
+    private var isLoading = false
+
+    public func load(url: URL?, scale: Double = 1) {
+        guard let url = url else {
+            phase = .empty
+            isLoading = false
+            return
+        }
+        guard !isLoading else { return }
+        isLoading = true
+        phase = .empty
+        Task.detached { [weak self] in
+            do {
+                let data = try Data(contentsOf: url)
+                await MainActor.run { [weak self] in
+                    guard let self else { return }
+                    defer { self.isLoading = false }
+                    do {
+                        let tempDir = FileManager.default.temporaryDirectory
+                        let tempFile = tempDir.appendingPathComponent(UUID().uuidString + ".tmp")
+                        try data.write(to: tempFile)
+                        if let bitmap = ImageLoader.load(contentsOfFile: tempFile.path) {
+                            let image = Image(bitmap: bitmap)
+                            self.phase = .success(image)
+                        } else {
+                            self.phase = .failure(AsyncImageError.decodingFailed)
+                        }
+                        try? FileManager.default.removeItem(at: tempFile)
+                    } catch {
+                        self.phase = .failure(error)
+                    }
+                }
+            } catch {
+                await MainActor.run { [weak self] in
+                    self?.phase = .failure(error)
+                    self?.isLoading = false
+                }
+            }
+        }
+    }
+}
+
+@MainActor
+private final class AsyncImageLoaderCache {
+    static let shared = AsyncImageLoaderCache()
+    private var loaders: [URL: AsyncImageLoader] = [:]
+
+    func loader(for url: URL) -> AsyncImageLoader {
+        if let loader = loaders[url] {
+            return loader
+        }
+        let loader = AsyncImageLoader()
+        loaders[url] = loader
+        return loader
+    }
+}
+
+@MainActor
+public struct AsyncImage: View {
+    public typealias Body = Never
+
+    private let url: URL?
+    private let scale: Double
+    private let content: (AsyncImagePhase) -> AnyView
+
+    public init(url: URL?, scale: Double = 1) {
+        self.url = url
+        self.scale = scale
+        self.content = { phase in
+            switch phase {
+            case .empty:
+                return AnyView(EmptyView())
+            case .success(let image):
+                return AnyView(image)
+            case .failure:
+                return AnyView(EmptyView())
+            }
+        }
+    }
+
+    public init<Content: View, Placeholder: View>(
+        url: URL?,
+        scale: Double = 1,
+        @ViewBuilder content: @escaping (Image) -> Content,
+        @ViewBuilder placeholder: @escaping () -> Placeholder
+    ) {
+        self.url = url
+        self.scale = scale
+        self.content = { phase in
+            switch phase {
+            case .empty, .failure:
+                return AnyView(Group { placeholder() })
+            case .success(let image):
+                return AnyView(Group { content(image) })
+            }
+        }
+    }
+
+    public init<Content: View>(
+        url: URL?,
+        scale: Double = 1,
+        transaction: Transaction = Transaction(),
+        @ViewBuilder content: @escaping (AsyncImagePhase) -> Content
+    ) {
+        self.url = url
+        self.scale = scale
+        self.content = { phase in AnyView(Group { content(phase) }) }
+    }
+
+    public var body: Never {
+        fatalError("AsyncImage has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let loader: AsyncImageLoader
+        if let url = url {
+            loader = AsyncImageLoaderCache.shared.loader(for: url)
+            loader.load(url: url, scale: scale)
+        } else {
+            loader = AsyncImageLoader()
+        }
+        context.observe(loader)
+        return content(loader.phase).makeComponent(context: context)
     }
 }
 
@@ -5532,6 +7085,100 @@ public struct ToolbarItemGroup: View, TaggedViewMetadata {
             node.nodeTag = id
             return node
         }
+    }
+}
+
+@MainActor
+public struct ToolbarTitleMenu: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+    private let label: [AnyView]?
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+        self.label = nil
+    }
+
+    public init(@ViewBuilder content: () -> [AnyView], @ViewBuilder label: () -> [AnyView]) {
+        self.content = content()
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError("ToolbarTitleMenu has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = label
+        return composeComponent(
+            from: content,
+            context: context,
+            fallbackLayout: .stack(.vertical(spacing: 8, alignment: .leading)),
+            isHitTestVisible: false
+        )
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+@preconcurrency public protocol ToolbarContent {
+    associatedtype Body: ToolbarContent
+    var body: Self.Body { get }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+extension Never: @preconcurrency ToolbarContent {}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public protocol CustomToolbarContent: ToolbarContent {
+    associatedtype Content: ToolbarContent
+    func makeContent(in context: ToolbarContentContext) -> Content
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct ToolbarContentContext: Sendable {
+    public init() {}
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+@resultBuilder
+public struct ToolbarContentBuilder {
+    public static func buildBlock(_ content: any ToolbarContent) -> any ToolbarContent {
+        content
+    }
+
+    public static func buildOptional(_ content: (any ToolbarContent)?) -> any ToolbarContent {
+        content ?? EmptyToolbarContent()
+    }
+
+    public static func buildEither(first content: any ToolbarContent) -> any ToolbarContent {
+        content
+    }
+
+    public static func buildEither(second content: any ToolbarContent) -> any ToolbarContent {
+        content
+    }
+
+    public static func buildArray(_ components: [any ToolbarContent]) -> any ToolbarContent {
+        EmptyToolbarContent()
+    }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct EmptyToolbarContent: ToolbarContent {
+    public typealias Body = Never
+    public var body: Never { fatalError("EmptyToolbarContent has no body") }
+}
+
+@available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
+public struct AnyToolbarContent: ToolbarContent {
+    public typealias Body = Never
+    public var body: Never { fatalError("AnyToolbarContent has no body") }
+
+    private let content: any ToolbarContent
+
+    public init(_ content: any ToolbarContent) {
+        self.content = content
     }
 }
 
@@ -5871,6 +7518,119 @@ public struct ContentUnavailableView: View {
     }
 }
 
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableConfiguration: Sendable {
+    public var title: String?
+    public var image: Image?
+    public var description: String?
+    public var actions: ContentUnavailableActions?
+
+    public init(
+        title: String? = nil,
+        image: Image? = nil,
+        description: String? = nil,
+        actions: ContentUnavailableActions? = nil
+    ) {
+        self.title = title
+        self.image = image
+        self.description = description
+        self.actions = actions
+    }
+
+    public static let empty = ContentUnavailableConfiguration()
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableActions: Sendable {
+    public var primary: ContentUnavailableButton?
+    public var secondary: [ContentUnavailableButton]
+
+    public init(
+        primary: ContentUnavailableButton? = nil,
+        secondary: [ContentUnavailableButton] = []
+    ) {
+        self.primary = primary
+        self.secondary = secondary
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableButton: Sendable {
+    public var label: String
+    public var action: (@MainActor () -> Void)?
+
+    public init(
+        _ label: String,
+        action: (@MainActor () -> Void)? = nil
+    ) {
+        self.label = label
+        self.action = action
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableDescription: View {
+    public typealias Body = Never
+
+    private let text: String
+
+    public init(_ text: String) {
+        self.text = text
+    }
+
+    public var body: Never {
+        fatalError("ContentUnavailableDescription has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Text(text).makeComponent(context: context)
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableImage: View {
+    public typealias Body = Never
+
+    private let name: String
+
+    public init(_ name: String) {
+        self.name = name
+    }
+
+    public var body: Never {
+        fatalError("ContentUnavailableImage has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Image(name).makeComponent(context: context)
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+@MainActor
+public struct ContentUnavailableTitle: View {
+    public typealias Body = Never
+
+    private let text: String
+
+    public init(_ text: String) {
+        self.text = text
+    }
+
+    public var body: Never {
+        fatalError("ContentUnavailableTitle has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Text(text).font(.headline).makeComponent(context: context)
+    }
+}
+
 @MainActor
 public struct Spacer: View {
     public typealias Body = Never
@@ -6050,6 +7810,36 @@ public struct ZStackLayout {
 
     public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
         ZStack(alignment: alignment, content: content)
+    }
+}
+
+@MainActor
+public struct GridLayout {
+    public var alignment: Alignment
+    public var horizontalSpacing: Double?
+    public var verticalSpacing: Double?
+
+    public init(alignment: Alignment = .center, horizontalSpacing: Double? = nil, verticalSpacing: Double? = nil) {
+        self.alignment = alignment
+        self.horizontalSpacing = horizontalSpacing
+        self.verticalSpacing = verticalSpacing
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        Grid(alignment: alignment, horizontalSpacing: horizontalSpacing, verticalSpacing: verticalSpacing, content: content)
+    }
+}
+
+@MainActor
+public struct GridRowLayout {
+    public var alignment: VerticalAlignment
+
+    public init(alignment: VerticalAlignment = .center) {
+        self.alignment = alignment
+    }
+
+    public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
+        GridRow(alignment: alignment, content: content)
     }
 }
 
@@ -6305,6 +8095,407 @@ public struct GridRow: View {
                 children: content.map { $0.makeComponent(context: childContext).makeNode(runtime: runtime) }
             )
         }
+    }
+}
+
+public struct GridCell<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("GridCell has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
+    }
+}
+
+public struct GridCellAnchor: Sendable, Equatable {
+    public let unitPoint: UnitPoint
+
+    public init(_ unitPoint: UnitPoint) {
+        self.unitPoint = unitPoint
+    }
+}
+
+extension GridCellAnchor: Hashable {
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(unitPoint.x)
+        hasher.combine(unitPoint.y)
+    }
+}
+
+public struct GridColumn: Equatable, Hashable {
+    public let id: AnyHashable
+
+    public init<ID: Hashable>(_ id: ID) {
+        self.id = AnyHashable(id)
+    }
+}
+
+public enum GridRowAlignment: Sendable, Equatable, Hashable {
+    case firstTextBaseline
+    case lastTextBaseline
+    case center
+    case top
+    case bottom
+}
+
+public enum GridColumnAlignment: Sendable, Equatable, Hashable {
+    case leading
+    case trailing
+    case center
+}
+
+// MARK: - GridItem
+
+public struct GridItem: Sendable {
+    public var size: Size
+    public var spacing: Double?
+    public var alignment: Alignment?
+
+    public init(_ size: Size = .flexible(), spacing: Double? = nil, alignment: Alignment? = nil) {
+        self.size = size
+        self.spacing = spacing
+        self.alignment = alignment
+    }
+
+    public enum Size: Sendable, Equatable {
+        case fixed(Double)
+        case flexible(minimum: Double = 10, maximum: Double = .infinity)
+        case adaptive(minimum: Double, maximum: Double = .infinity)
+    }
+}
+
+// MARK: - LazyVGrid
+
+@MainActor
+public struct LazyVGrid: View {
+    public typealias Body = Never
+
+    private let columns: [GridItem]
+    private let alignment: HorizontalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        columns: [GridItem],
+        alignment: HorizontalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.columns = columns
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyVGrid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        return Component { runtime in
+            let resolvedSpecs = resolveVGridSpecs(self.columns, availableWidth: context.canvasSize.width)
+            let columnCount = resolvedSpecs.count
+            let content = self.content
+
+            guard columnCount > 0, !content.isEmpty else {
+                return Controls.panel(
+                    frame: .zero,
+                    layoutMode: .stack(.vertical(spacing: 0, padding: .zero, alignment: .stretch)),
+                    children: []
+                )
+            }
+
+            let horizontalSpacing = self.columns.first?.spacing ?? 0
+            let childContext = context.withStackAxis(.vertical)
+
+            var rowNodes: [ViewNode] = []
+            var index = 0
+            while index < content.count {
+                var cellNodes: [ViewNode] = []
+                for columnIndex in 0..<columnCount {
+                    guard index < content.count else { break }
+                    let cell = content[index].makeComponent(context: childContext).makeNode(runtime: runtime)
+                    applyGridSpec(resolvedSpecs[columnIndex], to: cell, axis: .horizontal)
+                    cellNodes.append(cell)
+                    index += 1
+                }
+                let row = Controls.stackPanel(
+                    stackLayout: .horizontal(
+                        spacing: horizontalSpacing,
+                        alignment: alignment.stackAlignment(layoutDirection: context.layoutDirection),
+                        distribution: .fill
+                    ),
+                    isHitTestVisible: false,
+                    children: cellNodes
+                )
+                rowNodes.append(row)
+            }
+
+            for row in rowNodes {
+                applyRetainedPinnedSectionHints(to: row, pinnedViews: pinnedViews)
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .vertical(
+                    spacing: spacing,
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: rowNodes
+            )
+        }
+    }
+}
+
+// MARK: - LazyHGrid
+
+@MainActor
+public struct LazyHGrid: View {
+    public typealias Body = Never
+
+    private let rows: [GridItem]
+    private let alignment: VerticalAlignment
+    private let spacing: Double
+    private let pinnedViews: PinnedScrollableViews
+    private let content: [AnyView]
+
+    public init(
+        rows: [GridItem],
+        alignment: VerticalAlignment = .center,
+        spacing: Double? = nil,
+        pinnedViews: PinnedScrollableViews = [],
+        @ViewBuilder content: () -> [AnyView]
+    ) {
+        self.rows = rows
+        self.alignment = alignment
+        self.spacing = spacing ?? 0
+        self.pinnedViews = pinnedViews
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("LazyHGrid has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        return Component { runtime in
+            let resolvedSpecs = resolveHGridSpecs(self.rows, availableHeight: context.canvasSize.height)
+            let rowCount = resolvedSpecs.count
+            let content = self.content
+
+            guard rowCount > 0, !content.isEmpty else {
+                return Controls.panel(
+                    frame: .zero,
+                    layoutMode: .stack(.horizontal(spacing: 0, padding: .zero, alignment: .stretch)),
+                    children: []
+                )
+            }
+
+            let verticalSpacing = self.rows.first?.spacing ?? 0
+            let childContext = context.withStackAxis(.horizontal)
+
+            var columnNodes: [ViewNode] = []
+            var index = 0
+            while index < content.count {
+                var cellNodes: [ViewNode] = []
+                for rowIndex in 0..<rowCount {
+                    guard index < content.count else { break }
+                    let cell = content[index].makeComponent(context: childContext).makeNode(runtime: runtime)
+                    applyGridSpec(resolvedSpecs[rowIndex], to: cell, axis: .vertical)
+                    cellNodes.append(cell)
+                    index += 1
+                }
+                let column = Controls.stackPanel(
+                    stackLayout: .vertical(
+                        spacing: verticalSpacing,
+                        alignment: alignment.stackAlignment,
+                        distribution: .fill
+                    ),
+                    isHitTestVisible: false,
+                    children: cellNodes
+                )
+                columnNodes.append(column)
+            }
+
+            for column in columnNodes {
+                applyRetainedPinnedSectionHints(to: column, pinnedViews: pinnedViews)
+            }
+
+            return Controls.stackPanel(
+                stackLayout: .horizontal(
+                    spacing: spacing,
+                    alignment: .stretch
+                ),
+                isHitTestVisible: false,
+                children: columnNodes
+            )
+        }
+    }
+}
+
+// MARK: - Grid Resolution Helpers
+
+private struct ResolvedGridSpec {
+    var size: GridItem.Size
+    var spacing: Double?
+    var alignment: Alignment?
+
+    init(size: GridItem.Size, spacing: Double?, alignment: Alignment?) {
+        self.size = size
+        self.spacing = spacing
+        self.alignment = alignment
+    }
+}
+
+private func resolveVGridSpecs(_ columns: [GridItem], availableWidth: Double) -> [ResolvedGridSpec] {
+    let nonAdaptive = columns.filter {
+        if case .adaptive = $0.size { return false }
+        return true
+    }
+    let adaptive = columns.filter {
+        if case .adaptive = $0.size { return true }
+        return false
+    }
+
+    if adaptive.isEmpty {
+        return columns.map { ResolvedGridSpec(size: $0.size, spacing: $0.spacing, alignment: $0.alignment) }
+    }
+
+    if nonAdaptive.isEmpty {
+        guard let first = adaptive.first else { return [] }
+        if case .adaptive(let min, _) = first.size {
+            let count = max(1, Int(availableWidth / min))
+            let width = availableWidth / Double(count)
+            return (0..<count).map { _ in
+                ResolvedGridSpec(size: .fixed(width), spacing: first.spacing, alignment: first.alignment)
+            }
+        }
+        return []
+    }
+
+    // Mixed: reserve space for non-adaptive columns, then fit adaptive columns in remainder.
+    let reservedWidth = nonAdaptive.reduce(0) { sum, item in
+        if case .fixed(let w) = item.size { return sum + w }
+        if case .flexible(let min, _) = item.size { return sum + max(0, min) }
+        return sum
+    }
+    let remainingWidth = max(0, availableWidth - reservedWidth)
+    guard let firstAdaptive = adaptive.first else { return [] }
+    if case .adaptive(let min, _) = firstAdaptive.size {
+        let adaptiveCount = max(1, Int(remainingWidth / min))
+        var result: [ResolvedGridSpec] = []
+        for item in columns {
+            if case .adaptive = item.size {
+                let width = remainingWidth / Double(adaptiveCount)
+                for _ in 0..<adaptiveCount {
+                    result.append(ResolvedGridSpec(size: .fixed(width), spacing: item.spacing, alignment: item.alignment))
+                }
+            } else {
+                result.append(ResolvedGridSpec(size: item.size, spacing: item.spacing, alignment: item.alignment))
+            }
+        }
+        return result
+    }
+    return []
+}
+
+private func resolveHGridSpecs(_ rows: [GridItem], availableHeight: Double) -> [ResolvedGridSpec] {
+    let nonAdaptive = rows.filter {
+        if case .adaptive = $0.size { return false }
+        return true
+    }
+    let adaptive = rows.filter {
+        if case .adaptive = $0.size { return true }
+        return false
+    }
+
+    if adaptive.isEmpty {
+        return rows.map { ResolvedGridSpec(size: $0.size, spacing: $0.spacing, alignment: $0.alignment) }
+    }
+
+    if nonAdaptive.isEmpty {
+        guard let first = adaptive.first else { return [] }
+        if case .adaptive(let min, _) = first.size {
+            let count = max(1, Int(availableHeight / min))
+            let height = availableHeight / Double(count)
+            return (0..<count).map { _ in
+                ResolvedGridSpec(size: .fixed(height), spacing: first.spacing, alignment: first.alignment)
+            }
+        }
+        return []
+    }
+
+    let reservedHeight = nonAdaptive.reduce(0) { sum, item in
+        if case .fixed(let h) = item.size { return sum + h }
+        if case .flexible(let min, _) = item.size { return sum + max(0, min) }
+        return sum
+    }
+    let remainingHeight = max(0, availableHeight - reservedHeight)
+    guard let firstAdaptive = adaptive.first else { return [] }
+    if case .adaptive(let min, _) = firstAdaptive.size {
+        let adaptiveCount = max(1, Int(remainingHeight / min))
+        var result: [ResolvedGridSpec] = []
+        for item in rows {
+            if case .adaptive = item.size {
+                let height = remainingHeight / Double(adaptiveCount)
+                for _ in 0..<adaptiveCount {
+                    result.append(ResolvedGridSpec(size: .fixed(height), spacing: item.spacing, alignment: item.alignment))
+                }
+            } else {
+                result.append(ResolvedGridSpec(size: item.size, spacing: item.spacing, alignment: item.alignment))
+            }
+        }
+        return result
+    }
+    return []
+}
+
+@MainActor
+private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: StackAxis) {
+    switch spec.size {
+    case .fixed(let value):
+        if axis == .horizontal {
+            node.preferredSize = Size(width: value, height: node.preferredSize?.height ?? 0)
+        } else {
+            node.preferredSize = Size(width: node.preferredSize?.width ?? 0, height: value)
+        }
+        node.flexItem = FlexProperties(grow: 0, shrink: 0)
+    case .flexible(let min, let max):
+        node.flexItem = FlexProperties(flex: 1)
+        var constraints = node.layoutConstraints ?? .unconstrained
+        if axis == .horizontal {
+            constraints = LayoutConstraints(
+                minWidth: min > 0 ? min : constraints.minWidth,
+                maxWidth: max.isFinite ? max : constraints.maxWidth,
+                minHeight: constraints.minHeight,
+                maxHeight: constraints.maxHeight
+            )
+        } else {
+            constraints = LayoutConstraints(
+                minWidth: constraints.minWidth,
+                maxWidth: constraints.maxWidth,
+                minHeight: min > 0 ? min : constraints.minHeight,
+                maxHeight: max.isFinite ? max : constraints.maxHeight
+            )
+        }
+        if constraints != .unconstrained {
+            node.layoutConstraints = constraints
+        }
+    case .adaptive:
+        // Adaptive sizes should have been resolved to fixed before application.
+        break
     }
 }
 
@@ -6645,6 +8836,117 @@ public struct List: View {
         self.selectionMode = .requiredSingle(selection)
     }
 
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = ForEach(data, content: rowContent).contentViews
+        self.selectionMode = nil
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        selection: Binding<Data.Element.ID?>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = Self.taggedRows(data, id: \.id, rowContent: rowContent)
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        selection: Binding<Set<Data.Element.ID>>?,
+        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = Self.taggedRows(data, id: \.id, rowContent: rowContent)
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Binding<Data>,
+        id: KeyPath<Data.Element, ID>,
+        selection: Binding<Set<ID>>?,
+        @ViewBuilder rowContent: @escaping (Binding<Data.Element>) -> [AnyView]
+    ) {
+        self.content = data.wrappedValue.enumerated().map { index, element in
+            rowContent(Binding(get: { element }, set: { _ in }))
+        }.flatMap { $0 }
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = [AnyView(OutlineGroup(data, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = nil
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) {
+        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = nil
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        selection: Binding<Data.Element.ID?>?,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = [AnyView(OutlineGroup(data, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        selection: Binding<ID?>?,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) {
+        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = selection.map { .single($0) }
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        selection: Binding<Set<Data.Element.ID>>?,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) where Data.Element: Identifiable {
+        self.content = [AnyView(OutlineGroup(data, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
+    public init<Data: RandomAccessCollection, ID: Hashable>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        selection: Binding<Set<ID>>?,
+        @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
+    ) {
+        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
+            Group { rowContent(item) }
+        })]
+        self.selectionMode = selection.map { .multiple($0) }
+    }
+
     public var body: Never {
         fatalError("List has no body")
     }
@@ -6850,10 +9152,8 @@ public struct List: View {
         indicator.nodeTag = isSelected ? "list-edit-selection-selected" : "list-edit-selection-unselected"
         return indicator
     }
-}
 
-public extension List {
-    init<Collection>(
+    public init<Collection>(
         _ data: Binding<Collection>,
         @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
     ) where
@@ -6865,7 +9165,7 @@ public extension List {
         self.selectionMode = nil
     }
 
-    init<Collection, ID: Hashable>(
+    public init<Collection, ID: Hashable>(
         _ data: Binding<Collection>,
         id: KeyPath<Collection.Element, ID>,
         @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
@@ -6876,28 +9176,528 @@ public extension List {
         self.content = ForEach(data, id: id, content: rowContent).contentViews
         self.selectionMode = nil
     }
+}
 
-    init<Data: RandomAccessCollection>(
-        _ data: Data,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
-    ) where Data.Element: Identifiable {
-        self.init(data, id: \.id, rowContent: rowContent)
+// MARK: - Table
+
+@resultBuilder
+public enum TableColumnBuilder {
+    public static func buildBlock<RowValue>(_ columns: [AnyTableColumn<RowValue>]...) -> [AnyTableColumn<RowValue>] {
+        columns.flatMap { $0 }
     }
 
-    init<Data: RandomAccessCollection>(
-        _ data: Data,
-        selection: Binding<Data.Element.ID?>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
-    ) where Data.Element: Identifiable {
-        self.init(data, id: \.id, selection: selection, rowContent: rowContent)
+    public static func buildOptional<RowValue>(_ component: [AnyTableColumn<RowValue>]?) -> [AnyTableColumn<RowValue>] {
+        component ?? []
     }
 
-    init<Data: RandomAccessCollection>(
+    public static func buildEither<RowValue>(first component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+        component
+    }
+
+    public static func buildEither<RowValue>(second component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+        component
+    }
+
+    public static func buildArray<RowValue>(_ components: [[AnyTableColumn<RowValue>]]) -> [AnyTableColumn<RowValue>] {
+        components.flatMap { $0 }
+    }
+
+    @MainActor
+    public static func buildExpression<RowValue>(_ expression: AnyTableColumn<RowValue>) -> [AnyTableColumn<RowValue>] {
+        [expression]
+    }
+
+    @MainActor
+    public static func buildExpression<RowValue>(_ expression: TableColumn<RowValue>) -> [AnyTableColumn<RowValue>] {
+        [expression.eraseToAnyTableColumn()]
+    }
+
+    public static func buildLimitedAvailability<RowValue>(_ component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+        component
+    }
+}
+
+@MainActor
+public struct AnyTableColumn<RowValue> {
+    public let title: String
+    public let width: TableColumnWidth
+    public let sortKey: AnyHashable?
+    public let isSortable: Bool
+    public let cellBuilder: (RowValue) -> [AnyView]
+    public let headerBuilder: () -> [AnyView]
+
+    public init(
+        title: String,
+        width: TableColumnWidth = .default,
+        sortKey: AnyHashable? = nil,
+        isSortable: Bool = false,
+        cellBuilder: @escaping (RowValue) -> [AnyView],
+        headerBuilder: @escaping () -> [AnyView]
+    ) {
+        self.title = title
+        self.width = width
+        self.sortKey = sortKey
+        self.isSortable = isSortable
+        self.cellBuilder = cellBuilder
+        self.headerBuilder = headerBuilder
+    }
+}
+
+public enum TableColumnWidth: Sendable, Equatable {
+    case `default`
+    case fixed(Double)
+    case flexible(flex: Double = 1)
+    case minMax(min: Double?, max: Double?)
+
+    public static func width(_ value: Double) -> TableColumnWidth {
+        .fixed(value)
+    }
+
+    public static func min(_ min: Double) -> TableColumnWidth {
+        .minMax(min: min, max: nil)
+    }
+
+    public static func max(_ max: Double) -> TableColumnWidth {
+        .minMax(min: nil, max: max)
+    }
+
+    public static func min(_ min: Double, max: Double) -> TableColumnWidth {
+        .minMax(min: min, max: max)
+    }
+}
+
+public enum TableColumnAlignment: Sendable, Equatable, Hashable {
+    case leading
+    case trailing
+    case center
+}
+
+public struct TableColumnSort: Equatable, Hashable {
+    public let key: AnyHashable
+    public let isAscending: Bool
+
+    public init<ID: Hashable>(_ key: ID, isAscending: Bool = true) {
+        self.key = AnyHashable(key)
+        self.isAscending = isAscending
+    }
+}
+
+@MainActor
+public struct TableColumn<RowValue> {
+    public let title: String
+    public let width: TableColumnWidth
+    public let sortKey: AnyHashable?
+    public let isSortable: Bool
+    public let cellBuilder: (RowValue) -> [AnyView]
+    public let headerBuilder: () -> [AnyView]
+
+    public init(
+        _ title: String,
+        width: TableColumnWidth = .default,
+        sort: AnyHashable? = nil,
+        @ViewBuilder cellBuilder: @escaping (RowValue) -> [AnyView]
+    ) {
+        self.title = title
+        self.width = width
+        self.sortKey = sort
+        self.isSortable = sort != nil
+        self.cellBuilder = cellBuilder
+        self.headerBuilder = { [AnyView(Text(title))] }
+    }
+
+    public init<Content: Hashable>(
+        _ title: String,
+        value: KeyPath<RowValue, Content>,
+        width: TableColumnWidth = .default,
+        sort: AnyHashable? = nil
+    ) {
+        self.title = title
+        self.width = width
+        self.sortKey = sort
+        self.isSortable = sort != nil
+        self.cellBuilder = { row in
+            let content = row[keyPath: value]
+            return [AnyView(Text(String(describing: content)))]
+        }
+        self.headerBuilder = { [AnyView(Text(title))] }
+    }
+
+    public func eraseToAnyTableColumn() -> AnyTableColumn<RowValue> {
+        AnyTableColumn(
+            title: title,
+            width: width,
+            sortKey: sortKey,
+            isSortable: isSortable,
+            cellBuilder: cellBuilder,
+            headerBuilder: headerBuilder
+        )
+    }
+}
+
+extension TableColumn {
+    public func makeTableColumn() -> AnyTableColumn<RowValue> {
+        eraseToAnyTableColumn()
+    }
+}
+
+@MainActor
+public struct Table<Data: RandomAccessCollection>: View where Data.Element: Identifiable {
+    public typealias Body = Never
+
+    private let data: Data
+    private let columns: [AnyTableColumn<Data.Element>]
+    private let selectionMode: ListSelectionMode?
+    private let onSort: ((AnyHashable?, SortOrder) -> Void)?
+    private let currentSort: (key: AnyHashable, order: SortOrder)?
+
+    public init(
         _ data: Data,
-        selection: Binding<Set<Data.Element.ID>>?,
-        @ViewBuilder rowContent: (Data.Element) -> [AnyView]
-    ) where Data.Element: Identifiable {
-        self.init(data, id: \.id, selection: selection, rowContent: rowContent)
+        selection: Binding<Data.Element.ID?>? = nil,
+        sort: (key: AnyHashable, order: SortOrder)? = nil,
+        onSort: ((AnyHashable?, SortOrder) -> Void)? = nil,
+        @TableColumnBuilder columns: () -> [AnyTableColumn<Data.Element>]
+    ) {
+        self.data = data
+        self.columns = columns()
+        self.selectionMode = selection.map { .single($0) }
+        self.onSort = onSort
+        self.currentSort = sort
+    }
+
+    public init(
+        _ data: Data,
+        selection: Binding<Set<Data.Element.ID>>? = nil,
+        sort: (key: AnyHashable, order: SortOrder)? = nil,
+        onSort: ((AnyHashable?, SortOrder) -> Void)? = nil,
+        @TableColumnBuilder columns: () -> [AnyTableColumn<Data.Element>]
+    ) {
+        self.data = data
+        self.columns = columns()
+        self.selectionMode = selection.map { .multiple($0) }
+        self.onSort = onSort
+        self.currentSort = sort
+    }
+
+    public var body: Never {
+        fatalError("Table has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let columnCount = columns.count
+            guard columnCount > 0 else {
+                return Controls.panel(
+                    frame: .zero,
+                    layoutMode: .stack(.vertical(spacing: 0, padding: .zero, alignment: .stretch)),
+                    children: []
+                )
+            }
+
+            let style = context.tableStyle
+            let isDark = context.backgroundProminence == .increased
+
+            // Resolve style-driven chrome
+            let headerBackground: Color
+            let rowAltBackground: Color
+            let borderColor: Color
+            let borderWidth: Double
+            let cornerRadius: Double
+            let rowSpacing: Double
+            let headerPadding: EdgeInsets
+            let rowPadding: EdgeInsets
+
+            switch style.kind {
+            case .inset:
+                headerBackground = isDark
+                    ? Color(red: 0.10, green: 0.12, blue: 0.14, alpha: 1)
+                    : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
+                rowAltBackground = isDark
+                    ? Color(red: 0.09, green: 0.11, blue: 0.13, alpha: 1)
+                    : Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 1)
+                borderColor = isDark
+                    ? Color(red: 0.24, green: 0.28, blue: 0.32, alpha: 1)
+                    : Color(red: 0.78, green: 0.82, blue: 0.86, alpha: 1)
+                borderWidth = 1
+                cornerRadius = 10
+                rowSpacing = 0
+                headerPadding = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
+                rowPadding = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+            case .bordered:
+                headerBackground = isDark
+                    ? Color(red: 0.14, green: 0.16, blue: 0.18, alpha: 1)
+                    : Color(red: 0.92, green: 0.94, blue: 0.96, alpha: 1)
+                rowAltBackground = isDark
+                    ? Color(red: 0.11, green: 0.13, blue: 0.15, alpha: 1)
+                    : Color(red: 0.96, green: 0.97, blue: 0.98, alpha: 1)
+                borderColor = isDark
+                    ? Color(red: 0.35, green: 0.40, blue: 0.45, alpha: 1)
+                    : Color(red: 0.65, green: 0.70, blue: 0.75, alpha: 1)
+                borderWidth = 2
+                cornerRadius = 6
+                rowSpacing = 0
+                headerPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+                rowPadding = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+            case .automatic:
+                headerBackground = isDark
+                    ? Color(red: 0.12, green: 0.14, blue: 0.16, alpha: 1)
+                    : Color(red: 0.95, green: 0.96, blue: 0.97, alpha: 1)
+                rowAltBackground = isDark
+                    ? Color(red: 0.10, green: 0.11, blue: 0.12, alpha: 1)
+                    : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
+                borderColor = Color(red: 0.85, green: 0.87, blue: 0.89, alpha: 1)
+                borderWidth = 1
+                cornerRadius = 4
+                rowSpacing = 0
+                headerPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+                rowPadding = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+            }
+
+            // Build header row
+            let headerCells = columns.enumerated().map { pair in
+                let column = pair.element
+                let headerNode = self.buildHeaderCell(
+                    column: column,
+                    columnIndex: pair.offset,
+                    context: context,
+                    runtime: runtime
+                )
+                return headerNode
+            }
+
+            let headerRow = Controls.stackPanel(
+                stackLayout: .horizontal(
+                    spacing: 0,
+                    padding: headerPadding,
+                    alignment: .center,
+                    distribution: .fill
+                ),
+                children: headerCells
+            )
+            headerRow.backgroundColor = headerBackground
+
+            // Build data rows
+            let dataRows = data.enumerated().map { pair in
+                let element = pair.element
+                let elementID = AnyHashable(element.id)
+                let isSelected = self.selectionMode?.contains(elementID) == true
+
+                let cells = columns.enumerated().map { cellPair in
+                    let column = cellPair.element
+                    let cellNode = self.buildDataCell(
+                        column: column,
+                        element: element,
+                        columnIndex: cellPair.offset,
+                        context: context,
+                        runtime: runtime
+                    )
+                    return cellNode
+                }
+
+                var row = Controls.stackPanel(
+                    stackLayout: .horizontal(
+                        spacing: 0,
+                        padding: rowPadding,
+                        alignment: .center,
+                        distribution: .fill
+                    ),
+                    children: cells
+                )
+
+                // Alternating row background
+                if pair.offset % 2 == 1, !isSelected {
+                    row.backgroundColor = rowAltBackground
+                }
+
+                if let selectionMode = self.selectionMode {
+                    row = self.selectableTableRow(
+                        wrapping: row,
+                        tag: elementID,
+                        selectionMode: selectionMode,
+                        isSelected: isSelected,
+                        context: context,
+                        runtime: runtime
+                    )
+                }
+
+                return row
+            }
+
+            let tableContent = Controls.scrollPanel(
+                axis: .vertical,
+                stackLayout: .vertical(
+                    spacing: rowSpacing,
+                    padding: .zero,
+                    alignment: .stretch
+                ),
+                children: [headerRow] + dataRows
+            )
+            tableContent.borderColor = borderColor
+            tableContent.borderWidth = borderWidth
+            tableContent.cornerRadius = cornerRadius
+
+            return tableContent
+        }
+    }
+
+    private func buildHeaderCell(
+        column: AnyTableColumn<Data.Element>,
+        columnIndex: Int,
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime
+    ) -> ViewNode {
+        var headerViews = column.headerBuilder()
+        let headerNode = headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
+            ?? Controls.panel(frame: .zero, text: column.title)
+
+        // Apply column width constraints
+        applyColumnWidth(column.width, to: headerNode)
+
+        // Sort indicator
+        if column.isSortable {
+            let isSorted = currentSort?.key == column.sortKey
+            let sortOrder = currentSort?.order ?? .forward
+            let indicatorText = isSorted ? (sortOrder == .forward ? " ▲" : " ▼") : ""
+            let sortIndicator = Controls.label(
+                indicatorText,
+                color: isSorted ? context.tint : Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1),
+                scale: 1.4,
+                alignment: .trailing
+            )
+            let sortNode = sortIndicator
+            let combined = Controls.stackPanel(
+                stackLayout: .horizontal(spacing: 4, padding: .zero, alignment: .center, distribution: .fill),
+                children: [headerNode, sortNode]
+            )
+            if isSorted {
+                combined.backgroundColor = context.tint.opacity(0.08)
+            }
+            return combined
+        }
+
+        return headerNode
+    }
+
+    private func buildDataCell(
+        column: AnyTableColumn<Data.Element>,
+        element: Data.Element,
+        columnIndex: Int,
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime
+    ) -> ViewNode {
+        let cellViews = column.cellBuilder(element)
+        let cellNode = cellViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
+            ?? Controls.panel(frame: .zero)
+        applyColumnWidth(column.width, to: cellNode)
+        return cellNode
+    }
+
+    private func applyColumnWidth(_ width: TableColumnWidth, to node: ViewNode) {
+        switch width {
+        case .default:
+            node.flexItem = FlexProperties(flex: 1)
+        case .fixed(let value):
+            node.preferredSize = Size(width: value, height: 0)
+            node.flexItem = FlexProperties(grow: 0, shrink: 0)
+        case .flexible(let flex):
+            node.flexItem = FlexProperties(flex: flex)
+        case .minMax(let min, let max):
+            var constraints = node.layoutConstraints ?? .unconstrained
+            constraints = LayoutConstraints(
+                minWidth: min ?? constraints.minWidth,
+                maxWidth: max ?? constraints.maxWidth,
+                minHeight: constraints.minHeight,
+                maxHeight: constraints.maxHeight
+            )
+            node.layoutConstraints = constraints
+            node.flexItem = FlexProperties(flex: 1)
+        }
+    }
+
+    private func selectableTableRow(
+        wrapping row: ViewNode,
+        tag: AnyHashable,
+        selectionMode: ListSelectionMode,
+        isSelected: Bool,
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime
+    ) -> ViewNode {
+        let tint = context.tint
+        let rowNode = Controls.stackPanel(
+            backgroundColor: isSelected ? tint.opacity(0.12) : nil,
+            borderColor: isSelected ? tint.opacity(0.5) : .clear,
+            borderWidth: isSelected ? 1 : 0,
+            cornerRadius: 6,
+            stackLayout: .vertical(spacing: 0, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .stretch),
+            children: [row]
+        )
+        rowNode.nodeTag = "table-selection:\(String(describing: tag.base))"
+
+        guard context.isEnabled else {
+            return rowNode
+        }
+
+        rowNode.isFocusable = true
+        rowNode.onActivate = {
+            if selectionMode.activate(tag) {
+                context.invalidate()
+            }
+        }
+        return rowNode
+    }
+}
+
+public enum SortOrder: Sendable, Equatable {
+    case forward
+    case reverse
+}
+
+@MainActor
+public struct TableRow<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: Content
+
+    public init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("TableRow has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+@MainActor
+public enum TableRowBuilder {
+    public static func buildBlock(_ rows: [AnyView]...) -> [AnyView] {
+        rows.flatMap { $0 }
+    }
+
+    public static func buildOptional(_ component: [AnyView]?) -> [AnyView] {
+        component ?? []
+    }
+
+    public static func buildEither(first component: [AnyView]) -> [AnyView] {
+        component
+    }
+
+    public static func buildEither(second component: [AnyView]) -> [AnyView] {
+        component
+    }
+
+    public static func buildArray(_ components: [[AnyView]]) -> [AnyView] {
+        components.flatMap { $0 }
+    }
+
+    public static func buildExpression(_ expression: AnyView) -> [AnyView] {
+        [expression]
+    }
+
+    public static func buildLimitedAvailability(_ component: [AnyView]) -> [AnyView] {
+        component
     }
 }
 
@@ -7247,6 +10047,42 @@ public struct Section: View {
     }
 }
 
+public struct Header<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Header has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
+    }
+}
+
+public struct Footer<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: [AnyView]
+
+    public init(@ViewBuilder content: () -> [AnyView]) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Footer has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
+    }
+}
+
 private extension Font {
     func resolvedHeaderFont(for prominence: Prominence) -> Font {
         switch prominence {
@@ -7449,6 +10285,163 @@ public struct DisclosureGroup: View {
                 stackLayout: .vertical(spacing: 4, alignment: .stretch),
                 isHitTestVisible: false,
                 children: children
+            )
+        }
+    }
+}
+
+private final class OutlineExpansionState {
+    var isExpanded = false
+}
+
+@MainActor
+public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
+    public typealias Body = Never
+
+    private let items: [Element]
+    private let childrenKeyPath: KeyPath<Element, [Element]?>
+    private let content: (Element) -> Content
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        @ViewBuilder content: @escaping (Data.Element) -> Content
+    ) where Data.Element == Element, Element: Identifiable, Element.ID == ID {
+        self.items = Array(data)
+        self.childrenKeyPath = children
+        self.content = content
+    }
+
+    public init(
+        _ root: Element,
+        children: KeyPath<Element, [Element]?>,
+        @ViewBuilder content: @escaping (Element) -> Content
+    ) where Element: Identifiable, Element.ID == ID {
+        self.items = [root]
+        self.childrenKeyPath = children
+        self.content = content
+    }
+
+    public init<Data: RandomAccessCollection>(
+        _ data: Data,
+        id: KeyPath<Data.Element, ID>,
+        children: KeyPath<Data.Element, [Data.Element]?>,
+        @ViewBuilder content: @escaping (Data.Element) -> Content
+    ) where Data.Element == Element {
+        self.items = Array(data)
+        self.childrenKeyPath = children
+        self.content = content
+    }
+
+    public init(
+        _ root: Element,
+        id: KeyPath<Element, ID>,
+        children: KeyPath<Element, [Element]?>,
+        @ViewBuilder content: @escaping (Element) -> Content
+    ) {
+        self.items = [root]
+        self.childrenKeyPath = children
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("OutlineGroup has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Self.makeOutlineComponent(
+            items: items,
+            childrenKeyPath: childrenKeyPath,
+            content: content,
+            context: context,
+            indentLevel: 0
+        )
+    }
+
+    private static func makeOutlineComponent(
+        items: [Element],
+        childrenKeyPath: KeyPath<Element, [Element]?>,
+        content: @escaping (Element) -> Content,
+        context: ViewBuildContext,
+        indentLevel: Int
+    ) -> Component {
+        let childComponents: [Component] = items.map { item in
+            let itemContent = content(item).makeComponent(context: context)
+            let childData = item[keyPath: childrenKeyPath]
+
+            if let childData = childData, !childData.isEmpty {
+                let expansionState = OutlineExpansionState()
+                let labelComponent = itemContent
+                let nestedComponent = Self.makeOutlineComponent(
+                    items: childData,
+                    childrenKeyPath: childrenKeyPath,
+                    content: content,
+                    context: context,
+                    indentLevel: indentLevel + 1
+                )
+
+                return Component { runtime in
+                    let isExpanded = expansionState.isExpanded
+                    let chevronNode = Controls.label(
+                        isExpanded ? "V" : ">",
+                        preferredSize: Size(width: 18, height: 24),
+                        color: context.foregroundColor,
+                        scale: 1.3,
+                        weight: .semibold,
+                        lineBreakMode: .truncateTail,
+                        maximumNumberOfLines: 1
+                    )
+                    let labelNode = labelComponent.makeNode(runtime: runtime)
+                    let headerContent = Controls.stackPanel(
+                        layoutPriority: 1,
+                        stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center),
+                        isHitTestVisible: false,
+                        children: [chevronNode, labelNode]
+                    )
+                    let headerButton = Controls.button(
+                        runtime: runtime,
+                        cornerRadius: 8,
+                        palette: ButtonSurfaceStyle.plain.palette,
+                        chrome: ButtonSurfaceStyle.plain.chrome,
+                        clipsToBounds: false,
+                        layoutMode: .stack(.vertical(alignment: .stretch, mainAlignment: .center)),
+                        isEnabled: context.isEnabled,
+                        action: {
+                            expansionState.isExpanded.toggle()
+                            context.invalidate()
+                        },
+                        children: [headerContent]
+                    )
+
+                    var childrenNodes: [ViewNode] = [headerButton]
+                    if isExpanded {
+                        let contentNode = nestedComponent.makeNode(runtime: runtime)
+                        let leadingPadding = Double(indentLevel + 1) * 24.0
+                        let insetContent = Controls.stackPanel(
+                            stackLayout: .vertical(padding: EdgeInsets(top: 2, leading: leadingPadding, bottom: 2, trailing: 0), alignment: .stretch),
+                            isHitTestVisible: false,
+                            children: [contentNode]
+                        )
+                        childrenNodes.append(insetContent)
+                    }
+
+                    return Controls.stackPanel(
+                        stackLayout: .vertical(spacing: 4, alignment: .stretch),
+                        isHitTestVisible: false,
+                        children: childrenNodes
+                    )
+                }
+            } else {
+                return itemContent
+            }
+        }
+
+        return Component { runtime in
+            let nodes = childComponents.map { $0.makeNode(runtime: runtime) }
+            return Controls.stackPanel(
+                stackLayout: .vertical(spacing: 4, alignment: .stretch),
+                isHitTestVisible: false,
+                children: nodes
             )
         }
     }
@@ -7796,6 +10789,45 @@ public struct Menu: View {
             }
 
             return root
+        }
+    }
+}
+
+@MainActor
+public struct MenuButton<Label: View>: View {
+    public typealias Body = Never
+
+    private let label: [AnyView]
+    private let action: (@MainActor () -> Void)?
+
+    public init(action: (@MainActor () -> Void)?, @ViewBuilder label: () -> [AnyView]) {
+        self.action = action
+        self.label = label()
+    }
+
+    public var body: Never {
+        fatalError("MenuButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { runtime in
+            let labelNode = composeComponent(
+                from: label,
+                context: context,
+                fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
+                isHitTestVisible: false
+            ).makeNode(runtime: runtime)
+            return Controls.button(
+                runtime: runtime,
+                cornerRadius: 8,
+                palette: .default,
+                chrome: .default,
+                clipsToBounds: true,
+                layoutMode: .stack(.horizontal(spacing: 0, alignment: .center)),
+                isEnabled: context.isEnabled,
+                action: { action?() },
+                children: [labelNode]
+            )
         }
     }
 }
@@ -8776,6 +11808,195 @@ public extension View {
         prompt: Text
     ) -> some View {
         searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt.plainContent)
+    }
+
+    func searchable<T>(
+        text: Binding<String>,
+        tokens: Binding<[T]>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder token: @escaping (T) -> [AnyView]
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: prompt)
+    }
+
+    func searchable<T>(
+        text: Binding<String>,
+        tokens: Binding<[T]>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder token: @escaping (T) -> [AnyView]
+    ) -> some View {
+        searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt)
+    }
+
+    func searchable<T>(
+        text: Binding<String>,
+        tokens: Binding<[T]>,
+        suggestedTokens: Binding<[T]>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder token: @escaping (T) -> [AnyView]
+    ) -> some View {
+        let _ = suggestedTokens
+        return searchable(text: text, placement: placement, prompt: prompt)
+    }
+
+    func searchable<T>(
+        text: Binding<String>,
+        tokens: Binding<[T]>,
+        suggestedTokens: Binding<[T]>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder token: @escaping (T) -> [AnyView]
+    ) -> some View {
+        let _ = suggestedTokens
+        return searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder suggestions: @escaping () -> [AnyView]
+    ) -> some View {
+        searchable(text: text, placement: placement, prompt: prompt)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: Text,
+        @ViewBuilder suggestions: @escaping () -> [AnyView]
+    ) -> some View {
+        return searchable(text: text, placement: placement, prompt: prompt)
+    }
+
+    func searchable(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        prompt: String = "Search",
+        @ViewBuilder suggestions: @escaping () -> [AnyView]
+    ) -> some View {
+        let _ = suggestions
+        return ModifiedView(content: self) { content, context in
+            searchableComponent(
+                content: content,
+                context: context,
+                text: text,
+                isPresented: isPresented,
+                prompt: prompt,
+                placement: placement
+            )
+        }
+    }
+
+    func searchable(
+        text: Binding<String>,
+        placement: SearchFieldPlacement = .automatic,
+        suggestionsPlacement: SearchSuggestionsPlacement = .automatic,
+        prompt: String = "Search"
+    ) -> some View {
+        let _ = suggestionsPlacement
+        return ModifiedView(content: self) { content, context in
+            searchableComponent(
+                content: content,
+                context: context,
+                text: text,
+                isPresented: nil,
+                prompt: prompt,
+                placement: placement
+            )
+        }
+    }
+
+    func searchable(
+        text: Binding<String>,
+        isPresented: Binding<Bool>,
+        placement: SearchFieldPlacement = .automatic,
+        suggestionsPlacement: SearchSuggestionsPlacement = .automatic,
+        prompt: String = "Search"
+    ) -> some View {
+        let _ = suggestionsPlacement
+        return ModifiedView(content: self) { content, context in
+            searchableComponent(
+                content: content,
+                context: context,
+                text: text,
+                isPresented: isPresented,
+                prompt: prompt,
+                placement: placement
+            )
+        }
+    }
+
+    func searchSuggestions(@ViewBuilder _ suggestions: @escaping () -> [AnyView]) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.searchSuggestions, suggestions()))
+        }
+    }
+
+    func searchSuggestions<Data: RandomAccessCollection>(
+        _ data: Data,
+        @ViewBuilder content: @escaping (Data.Element) -> [AnyView]
+    ) -> some View where Data.Element: Identifiable {
+        searchSuggestions {
+            ForEach(data, content: content)
+        }
+    }
+
+    func searchPresentationBehavior(_ behavior: SearchPresentationBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
+    }
+
+    func searchCompletion(_ completion: String) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context.withEnvironmentValue(\.searchCompletion, completion))
+        }
+    }
+
+    func searchScopes<V: Hashable>(
+        _ scope: Binding<V>,
+        activation: SearchScopeActivation = .automatic,
+        @ViewBuilder scopes: @escaping () -> [AnyView]
+    ) -> some View {
+        ModifiedView(content: self) { content, context in
+            let scopeViews = scopes()
+            let child = content.makeComponent(context: context.withEnvironmentValue(\.searchSuggestions, scopeViews))
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return childNode
+            }
+        }
+    }
+
+    func searchFocused(_ isFocused: FocusState<Bool>.Binding) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                childNode.isFocusable = true
+                return childNode
+            }
+        }
+    }
+
+    func searchPresentationDestination<Destination: View>(@ViewBuilder destination: @escaping () -> Destination) -> some View {
+        ModifiedView(content: self) { content, context in
+            let _ = destination()
+            return content.makeComponent(context: context)
+        }
+    }
+
+    func searchPresentationToolbarBehavior(_ behavior: SearchPresentationToolbarBehavior) -> some View {
+        ModifiedView(content: self) { content, context in
+            content.makeComponent(context: context)
+        }
     }
 }
 
@@ -9944,6 +13165,104 @@ public struct DatePicker: View {
         }
 
         return formatter.string(from: date)
+    }
+}
+
+@MainActor
+public struct MultiDatePicker: View {
+    public typealias Body = Never
+
+    private let selection: Binding<Set<DateComponents>>
+    private let label: [AnyView]
+
+    public init(
+        selection: Binding<Set<DateComponents>>,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.selection = selection
+        self.label = label()
+    }
+
+    public init(_ title: String, selection: Binding<Set<DateComponents>>) {
+        self.init(selection: selection) {
+            Text(title)
+        }
+    }
+
+    public init(_ titleKey: LocalizedStringKey, selection: Binding<Set<DateComponents>>) {
+        self.init(titleKey.resolvedString, selection: selection)
+    }
+
+    public var body: Never {
+        fatalError("MultiDatePicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let selection = selection
+        let isEnabled = context.isEnabled
+        let invalidate = context.invalidate
+        let calendar = context.environmentValues.calendar
+
+        let daySymbols = calendar.shortWeekdaySymbols
+        let today = Date()
+        let todayComponents = calendar.dateComponents([.year, .month, .day], from: today)
+        let currentMonth = todayComponents.month ?? 1
+        let currentYear = todayComponents.year ?? 2026
+        var dateComponents = DateComponents(year: currentYear, month: currentMonth, day: 1)
+        let firstOfMonth = calendar.date(from: dateComponents)!
+        let daysInMonth = calendar.range(of: .day, in: .month, for: firstOfMonth)!.count
+        let firstWeekday = calendar.component(.weekday, from: firstOfMonth) - 1
+
+        return VStack(alignment: .leading, spacing: 8) {
+            label
+            VStack(spacing: 4) {
+                HStack(spacing: 0) {
+                    ForEach(daySymbols, id: \.self) { symbol in
+                        Text(symbol)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .frame(width: 32, height: 24)
+                    }
+                }
+                let totalCells = ((firstWeekday + daysInMonth + 6) / 7) * 7
+                let rows = totalCells / 7
+                ForEach(0 ..< rows, id: \.self) { row in
+                    HStack(spacing: 0) {
+                        ForEach(0 ..< 7, id: \.self) { col in
+                            let index = row * 7 + col
+                            let day = index - firstWeekday + 1
+                            if day >= 1 && day <= daysInMonth {
+                                let dc = DateComponents(year: currentYear, month: currentMonth, day: day)
+                                let isSelected = selection.wrappedValue.contains(dc)
+                                Text("\(day)")
+                                    .font(.body)
+                                    .foregroundColor(isSelected ? .white : .primary)
+                                    .frame(width: 32, height: 32)
+                                    .background(
+                                        Circle()
+                                            .fill(isSelected ? Color.accentColor : Color.clear)
+                                    )
+                                    .onTapGesture {
+                                        guard isEnabled else { return }
+                                        var newSelection = selection.wrappedValue
+                                        if newSelection.contains(dc) {
+                                            newSelection.remove(dc)
+                                        } else {
+                                            newSelection.insert(dc)
+                                        }
+                                        selection.wrappedValue = newSelection
+                                        invalidate()
+                                    }
+                            } else {
+                                Spacer().frame(width: 32, height: 32)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .makeComponent(context: context)
     }
 }
 
@@ -11419,6 +14738,63 @@ public struct Stepper: View {
         }
     }
 
+    public init<Value>(
+        _ title: String,
+        value: Binding<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(
+            value: value,
+            step: step,
+            onEditingChanged: onEditingChanged
+        ) {
+            Text(title)
+                .font(.system(size: 1.6, weight: .semibold))
+                .multilineTextAlignment(.leading)
+                .lineLimit(1)
+        }
+    }
+
+    public init<S: StringProtocol, Value>(
+        _ title: S,
+        value: Binding<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(String(title), value: value, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init<Value>(
+        _ titleKey: LocalizedStringKey,
+        value: Binding<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in }
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.init(titleKey.resolvedString, value: value, step: step, onEditingChanged: onEditingChanged)
+    }
+
+    public init<Value>(
+        value: Binding<Value>,
+        step: Value.Stride = 1,
+        onEditingChanged: @escaping @MainActor (Bool) -> Void = { _ in },
+        @ViewBuilder label: () -> [AnyView]
+    ) where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        self.label = label()
+        self.canDecrement = { true }
+        self.canIncrement = { true }
+        self.decrement = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: -step, in: nil)
+            onEditingChanged(false)
+        }
+        self.increment = {
+            onEditingChanged(true)
+            value.wrappedValue = Self.steppedStrideable(value.wrappedValue, by: step, in: nil)
+            onEditingChanged(false)
+        }
+    }
+
     public init(
         _ title: String,
         value: Binding<Double>,
@@ -11676,6 +15052,19 @@ public struct Stepper: View {
     ) -> Value where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
         let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
         let candidate = clampedValue.advanced(by: delta)
+        return min(max(candidate, bounds.lowerBound), bounds.upperBound)
+    }
+
+    private static func steppedStrideable<Value>(
+        _ value: Value,
+        by delta: Value.Stride,
+        in bounds: ClosedRange<Value>?
+    ) -> Value where Value: Strideable & Comparable, Value.Stride: SignedNumeric {
+        let candidate = value.advanced(by: delta)
+        guard let bounds else {
+            return candidate
+        }
+        let clampedValue = min(max(value, bounds.lowerBound), bounds.upperBound)
         return min(max(candidate, bounds.lowerBound), bounds.upperBound)
     }
 }
@@ -12179,7 +15568,7 @@ public struct ProgressView: View {
         return Component { runtime in
             let progressNode: ViewNode
             switch context.progressViewStyle.kind {
-            case .circular:
+            case .circular, .timer:
                 progressNode = Controls.circularProgress(
                     value: value,
                     total: total,
@@ -12618,18 +16007,76 @@ public struct Link: View {
 public struct RenameButton: View {
     public typealias Body = Never
 
-    public init() {}
+    private let customAction: (@MainActor () -> Void)?
+
+    public init() {
+        self.customAction = nil
+    }
+
+    public init(action: @escaping @MainActor () -> Void) {
+        self.customAction = action
+    }
 
     public var body: Never {
         fatalError("RenameButton has no body")
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        let rename = context.environmentValues.rename
+        let rename: (@MainActor () -> Void)?
+        if let customAction {
+            rename = customAction
+        } else {
+            if let renameAction = context.environmentValues.rename {
+                rename = { renameAction() }
+            } else {
+                rename = nil
+            }
+        }
         return Button("Rename") {
             rename?()
         }
         .disabled(rename == nil)
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct NewDocumentButton: View {
+    public typealias Body = Never
+
+    private let title: String
+    private let customAction: (@MainActor () -> Void)?
+
+    public init(_ title: String = "New Document") {
+        self.title = title
+        self.customAction = nil
+    }
+
+    public init(_ titleKey: LocalizedStringKey) {
+        self.title = titleKey.resolvedString
+        self.customAction = nil
+    }
+
+    public init(action: @escaping @MainActor () -> Void) {
+        self.title = "New Document"
+        self.customAction = action
+    }
+
+    public var body: Never {
+        fatalError("NewDocumentButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let action: @MainActor () -> Void
+        if let customAction {
+            action = customAction
+        } else {
+            let newDocument = context.environmentValues.newDocument
+            action = { newDocument() }
+        }
+        return Button(title) {
+            action()
+        }
         .makeComponent(context: context)
     }
 }
@@ -12674,15 +16121,586 @@ public struct SettingsLink: View {
 }
 
 @MainActor
-public struct Button: View {
+public struct HelpLink: View {
+    public typealias Body = Never
+
+    private let destination: URL
+
+    public init(destination: URL) {
+        self.destination = destination
+    }
+
+    public var body: Never {
+        fatalError("HelpLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let openURL = context.environmentValues.openURL
+        return Button {
+            openURL(destination)
+        } label: {
+            [AnyView(Text("Help"))]
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct SharePreview {
+    public let title: String
+    public let image: Image?
+
+    public init(_ title: String, image: Image) {
+        self.title = title
+        self.image = image
+    }
+
+    public init(_ title: String, icon: Image) {
+        self.title = title
+        self.image = icon
+    }
+}
+
+@MainActor
+public struct ShareLink: View {
+    public typealias Body = Never
+
+    private let items: [Any]
+    private let subject: String?
+    private let message: String?
+    private let preview: SharePreview?
+    private let label: [AnyView]
+
+    public init(
+        item: some Transferable,
+        preview: SharePreview? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.items = [item]
+        self.subject = nil
+        self.message = nil
+        self.preview = preview
+        self.label = label()
+    }
+
+    public init(
+        items: [some Transferable],
+        preview: SharePreview? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.items = items
+        self.subject = nil
+        self.message = nil
+        self.preview = preview
+        self.label = label()
+    }
+
+    public init(
+        item: some Transferable,
+        subject: String?,
+        message: String?,
+        preview: SharePreview? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.items = [item]
+        self.subject = subject
+        self.message = message
+        self.preview = preview
+        self.label = label()
+    }
+
+    public init(
+        items: [some Transferable],
+        subject: String?,
+        message: String?,
+        preview: SharePreview? = nil,
+        @ViewBuilder label: () -> [AnyView]
+    ) {
+        self.items = items
+        self.subject = subject
+        self.message = message
+        self.preview = preview
+        self.label = label()
+    }
+
+    public init(
+        item: some Transferable,
+        preview: SharePreview? = nil
+    ) {
+        self.init(item: item, preview: preview, label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init(
+        items: [some Transferable],
+        preview: SharePreview? = nil
+    ) {
+        self.init(items: items, preview: preview, label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init(
+        item: some Transferable,
+        subject: String?,
+        message: String?,
+        preview: SharePreview? = nil
+    ) {
+        self.init(item: item, subject: subject, message: message, preview: preview, label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init(
+        items: [some Transferable],
+        subject: String?,
+        message: String?,
+        preview: SharePreview? = nil
+    ) {
+        self.init(items: items, subject: subject, message: message, preview: preview, label: {
+            Label("Share", systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init(_ title: String, item: some Transferable) {
+        self.init(item: item, label: {
+            Label(title, systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init<S: StringProtocol>(_ title: S, item: some Transferable) {
+        self.init(String(title), item: item)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, item: some Transferable) {
+        self.init(titleKey.resolvedString, item: item)
+    }
+
+    public init(_ title: String, items: [some Transferable]) {
+        self.init(items: items, label: {
+            Label(title, systemImage: "square.and.arrow.up")
+        })
+    }
+
+    public init<S: StringProtocol>(_ title: S, items: [some Transferable]) {
+        self.init(String(title), items: items)
+    }
+
+    public init(_ titleKey: LocalizedStringKey, items: [some Transferable]) {
+        self.init(titleKey.resolvedString, items: items)
+    }
+
+    public var body: Never {
+        fatalError("ShareLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let items = items
+        let _ = subject
+        let _ = message
+        let _ = preview
+        return Button {
+            ClipboardManager.copyItems(items)
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@available(macOS 16.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+@MainActor
+public struct ShortcutsLink: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ShortcutsLink has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 120, height: 32), isHitTestVisible: true)
+        }
+    }
+}
+
+@available(macOS 16.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+@MainActor
+public struct ShortcutsButton: View {
     public typealias Body = Never
 
     private let action: @MainActor () -> Void
+
+    public init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("ShortcutsButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        return Button {
+            action()
+        } label: {
+            Text("Shortcuts")
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct LocationButton: View {
+    public typealias Body = Never
+
+    private let action: @MainActor () -> Void
+
+    public init(action: @escaping @MainActor () -> Void) {
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("LocationButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        return Button {
+            action()
+        } label: {
+            Text("Location")
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct PasteButton: View {
+    public typealias Body = Never
+
+    private let supportedContentTypes: [UTType]
+    private let onPaste: @MainActor ([Any]) -> Void
     private let label: [AnyView]
-    private let role: ButtonRole?
+
+    public init(
+        supportedContentTypes: [UTType],
+        @ViewBuilder label: () -> [AnyView],
+        onPaste: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.supportedContentTypes = supportedContentTypes
+        self.label = label()
+        self.onPaste = onPaste
+    }
+
+    public init(
+        supportedContentTypes: [UTType],
+        onPaste: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.init(
+            supportedContentTypes: supportedContentTypes,
+            label: {
+                Label("Paste", systemImage: "doc.on.clipboard")
+            },
+            onPaste: onPaste
+        )
+    }
+
+    public init(
+        payloadType: UTType,
+        @ViewBuilder label: () -> [AnyView],
+        onPaste: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.init(supportedContentTypes: [payloadType], label: label, onPaste: onPaste)
+    }
+
+    public init(
+        payloadType: UTType,
+        onPaste: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.init(supportedContentTypes: [payloadType], onPaste: onPaste)
+    }
+
+    public var body: Never {
+        fatalError("PasteButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let types = supportedContentTypes
+        let onPaste = onPaste
+        return Button {
+            let items = ClipboardManager.pasteItems(for: types)
+            onPaste(items)
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct CopyButton: View {
+    public typealias Body = Never
+
+    private let items: [Any]
+    private let label: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        items: [Any]
+    ) {
+        self.label = label()
+        self.items = items
+    }
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        item: Any
+    ) {
+        self.init(label: label, items: [item])
+    }
+
+    public init(items: [Any]) {
+        self.init(label: {
+            Label("Copy", systemImage: "doc.on.doc")
+        }, items: items)
+    }
+
+    public init(item: Any) {
+        self.init(items: [item])
+    }
+
+    public var body: Never {
+        fatalError("CopyButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let items = items
+        return Button {
+            ClipboardManager.copyItems(items)
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct CutButton: View {
+    public typealias Body = Never
+
+    private let items: [Any]
+    private let label: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        items: [Any]
+    ) {
+        self.label = label()
+        self.items = items
+    }
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        item: Any
+    ) {
+        self.init(label: label, items: [item])
+    }
+
+    public init(items: [Any]) {
+        self.init(label: {
+            Label("Cut", systemImage: "scissors")
+        }, items: items)
+    }
+
+    public init(item: Any) {
+        self.init(items: [item])
+    }
+
+    public var body: Never {
+        fatalError("CutButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let items = items
+        return Button {
+            ClipboardManager.copyItems(items)
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct DeleteButton: View {
+    public typealias Body = Never
+
+    private let items: [Any]
+    private let label: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        items: [Any]
+    ) {
+        self.label = label()
+        self.items = items
+    }
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        item: Any
+    ) {
+        self.init(label: label, items: [item])
+    }
+
+    public init(items: [Any]) {
+        self.init(label: {
+            Label("Delete", systemImage: "trash")
+        }, items: items)
+    }
+
+    public init(item: Any) {
+        self.init(items: [item])
+    }
+
+    public var body: Never {
+        fatalError("DeleteButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let items = items
+        return Button {
+            let fileURLs = items.compactMap { $0 as? URL }
+            if !fileURLs.isEmpty {
+                FileDialogManager.moveToRecycleBin(fileURLs: fileURLs)
+            }
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct ExportButton: View {
+    public typealias Body = Never
+
+    private let items: [Any]
+    private let label: [AnyView]
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        items: [Any]
+    ) {
+        self.label = label()
+        self.items = items
+    }
+
+    public init(
+        @ViewBuilder label: () -> [AnyView],
+        item: Any
+    ) {
+        self.init(label: label, items: [item])
+    }
+
+    public init(items: [Any]) {
+        self.init(label: {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }, items: items)
+    }
+
+    public init(item: Any) {
+        self.init(items: [item])
+    }
+
+    public var body: Never {
+        fatalError("ExportButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let items = items
+        return Button {
+            ClipboardManager.copyItems(items)
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
+@MainActor
+public struct ImportButton: View {
+    public typealias Body = Never
+
+    private let supportedContentTypes: [UTType]
+    private let onImport: @MainActor ([Any]) -> Void
+    private let label: [AnyView]
+
+    public init(
+        supportedContentTypes: [UTType],
+        @ViewBuilder label: () -> [AnyView],
+        onImport: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.supportedContentTypes = supportedContentTypes
+        self.label = label()
+        self.onImport = onImport
+    }
+
+    public init(
+        supportedContentTypes: [UTType],
+        onImport: @escaping @MainActor ([Any]) -> Void
+    ) {
+        self.init(
+            supportedContentTypes: supportedContentTypes,
+            label: {
+                Label("Import", systemImage: "square.and.arrow.down")
+            },
+            onImport: onImport
+        )
+    }
+
+    public var body: Never {
+        fatalError("ImportButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let label = label
+        let onImport = onImport
+        return Button {
+            let urls = FileDialogManager.showOpenFileDialog(
+                allowsMultipleSelection: true
+            )
+            if !urls.isEmpty {
+                onImport(urls)
+            }
+        } label: {
+            label
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@MainActor
+public struct Button: View {
+    public typealias Body = Never
+
+    let action: @MainActor () -> Void
+    private let label: [AnyView]
+    let role: ButtonRole?
     private var style: ButtonSurfaceStyle
     private var resolvedButtonStyle: ButtonStyle
     private var hasCustomSurfaceStyle: Bool
+    var _storedTitle: String?
 
     public init(action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
         self.action = action
@@ -12691,6 +16709,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = nil
     }
 
     public init(role: ButtonRole?, action: @escaping @MainActor () -> Void, @ViewBuilder label: () -> [AnyView]) {
@@ -12700,6 +16719,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = nil
     }
 
     public init(_ title: String, action: @escaping @MainActor () -> Void) {
@@ -12716,6 +16736,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, action: @escaping @MainActor () -> Void) {
@@ -12731,6 +16752,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, image name: String, action: @escaping @MainActor () -> Void) {
@@ -12750,6 +16772,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = String(title)
     }
 
     public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, action: @escaping @MainActor () -> Void) {
@@ -12765,6 +16788,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, systemImage: String, action: @escaping @MainActor () -> Void) {
@@ -12793,6 +16817,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
@@ -12808,6 +16833,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
@@ -12827,6 +16853,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = String(title)
     }
 
     public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
@@ -12842,6 +16869,7 @@ public struct Button: View {
         self.style = .default
         self.resolvedButtonStyle = .automatic
         self.hasCustomSurfaceStyle = false
+        self._storedTitle = title
     }
 
     public init<S: StringProtocol>(_ title: S, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
@@ -12983,6 +17011,66 @@ public struct EditButton: View {
         }
         .disabled(editMode == nil)
         .makeComponent(context: context)
+    }
+}
+
+public struct HelpButton: View {
+    public typealias Body = Never
+
+    public let action: (@MainActor () -> Void)?
+
+    public init(action: (@MainActor () -> Void)? = nil) {
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("HelpButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Button("?") {
+            action?()
+        }.makeComponent(context: context)
+    }
+}
+
+public struct CloseButton: View {
+    public typealias Body = Never
+
+    public let action: (@MainActor () -> Void)?
+
+    public init(action: (@MainActor () -> Void)? = nil) {
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("CloseButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Button("X") {
+            action?()
+        }.makeComponent(context: context)
+    }
+}
+
+public struct BackButton: View {
+    public typealias Body = Never
+
+    public let action: (@MainActor () -> Void)?
+
+    public init(action: (@MainActor () -> Void)? = nil) {
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("BackButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Button("<") {
+            action?()
+        }.makeComponent(context: context)
     }
 }
 
@@ -13368,4 +17456,1472 @@ private func shouldCapitalizeSentenceInsertion(after text: String) -> Bool {
         return true
     }
     return lastMeaningfulCharacter == "." || lastMeaningfulCharacter == "!" || lastMeaningfulCharacter == "?"
+}
+
+// MARK: - Canvas
+
+@MainActor
+public struct Canvas: View {
+    public typealias Body = Never
+
+    /// Drawing context for Canvas operations.
+    @MainActor
+    public struct GraphicsContext {
+        internal var context: SwiftWindowsUI.CanvasGraphicsContext
+
+        internal init() {
+            self.context = SwiftWindowsUI.CanvasGraphicsContext()
+        }
+
+        public mutating func fill(_ path: Path, with color: Color) {
+            context.fill(path, with: .color(color))
+        }
+
+        public mutating func stroke(_ path: Path, with color: Color, style: StrokeStyle = StrokeStyle(lineWidth: 1)) {
+            context.stroke(path, with: .color(color), style: style)
+        }
+
+        public mutating func fill(_ rect: Rect, with color: Color) {
+            context.fill(rect, with: .color(color))
+        }
+
+        public mutating func stroke(_ rect: Rect, with color: Color, lineWidth: Double = 1) {
+            context.stroke(rect, with: .color(color), lineWidth: lineWidth)
+        }
+
+        public mutating func draw(_ text: String, at point: Point, style: PixelTextStyle) {
+            context.draw(text, at: point, style: style)
+        }
+
+        public mutating func draw(_ text: String, in rect: Rect, style: PixelTextStyle) {
+            context.draw(text, in: rect, style: style)
+        }
+
+        public mutating func draw(_ image: BitmapSurface, in rect: Rect, opacity: Float = 1) {
+            context.draw(image, in: rect, opacity: opacity)
+        }
+
+        public mutating func clip(to rect: Rect) {
+            context.clip(to: rect)
+        }
+
+        public mutating func popClip() {
+            context.popClip()
+        }
+    }
+
+    private let renderer: @MainActor (inout GraphicsContext, Size) -> Void
+
+    public init(renderer: @escaping @MainActor (inout GraphicsContext, Size) -> Void) {
+        self.renderer = renderer
+    }
+
+    public init<F: View>(
+        renderer: @escaping @MainActor (inout GraphicsContext, Size) -> Void,
+        symbols: @escaping () -> F
+    ) {
+        self.renderer = renderer
+    }
+
+    public var body: Never {
+        fatalError("Canvas has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        SwiftWindowsUI.UI.canvas { runtimeContext, size in
+            var graphicsContext = GraphicsContext()
+            graphicsContext.context = runtimeContext
+            self.renderer(&graphicsContext, size)
+            runtimeContext = graphicsContext.context
+        }
+    }
+}
+
+public struct Map: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("Map has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Map", systemImage: "map", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MapStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case standard
+        case imagery
+        case hybrid
+    }
+    public let kind: Kind
+
+    public static let standard = MapStyle(kind: .standard)
+    public static let imagery = MapStyle(kind: .imagery)
+    public static let hybrid = MapStyle(kind: .hybrid)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MapCameraPosition: Sendable, Equatable {
+    public indirect enum Kind: Sendable, Equatable {
+        case automatic
+        case region(latitude: Double, longitude: Double, latitudeDelta: Double, longitudeDelta: Double)
+        case item(latitude: Double, longitude: Double)
+        case rect(minLatitude: Double, minLongitude: Double, maxLatitude: Double, maxLongitude: Double)
+        case userLocation(fallback: MapCameraPosition)
+        case camera(latitude: Double, longitude: Double, distance: Double)
+    }
+    public let kind: Kind
+
+    public static let automatic = MapCameraPosition(kind: .automatic)
+
+    public static func region(
+        centerLatitude: Double,
+        centerLongitude: Double,
+        latitudeDelta: Double,
+        longitudeDelta: Double
+    ) -> MapCameraPosition {
+        MapCameraPosition(kind: .region(
+            latitude: centerLatitude,
+            longitude: centerLongitude,
+            latitudeDelta: latitudeDelta,
+            longitudeDelta: longitudeDelta
+        ))
+    }
+
+    public static func item(latitude: Double, longitude: Double) -> MapCameraPosition {
+        MapCameraPosition(kind: .item(latitude: latitude, longitude: longitude))
+    }
+
+    public static func rect(
+        minLatitude: Double,
+        minLongitude: Double,
+        maxLatitude: Double,
+        maxLongitude: Double
+    ) -> MapCameraPosition {
+        MapCameraPosition(kind: .rect(
+            minLatitude: minLatitude,
+            minLongitude: minLongitude,
+            maxLatitude: maxLatitude,
+            maxLongitude: maxLongitude
+        ))
+    }
+
+    public static func userLocation(fallback: MapCameraPosition = .automatic) -> MapCameraPosition {
+        MapCameraPosition(kind: .userLocation(fallback: fallback))
+    }
+
+    public static func camera(
+        latitude: Double,
+        longitude: Double,
+        distance: Double
+    ) -> MapCameraPosition {
+        MapCameraPosition(kind: .camera(latitude: latitude, longitude: longitude, distance: distance))
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MapCameraBounds: Sendable, Equatable {
+    public var centerLatitude: Double
+    public var centerLongitude: Double
+    public var latitudeDelta: Double
+    public var longitudeDelta: Double
+
+    public init(
+        centerLatitude: Double = 0,
+        centerLongitude: Double = 0,
+        latitudeDelta: Double = 180,
+        longitudeDelta: Double = 360
+    ) {
+        self.centerLatitude = centerLatitude
+        self.centerLongitude = centerLongitude
+        self.latitudeDelta = latitudeDelta
+        self.longitudeDelta = longitudeDelta
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public enum MapProjection: Sendable, Equatable {
+    case mercator
+    case equalArea
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MapReader<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: (MapProxy) -> Content
+
+    public init(@ViewBuilder content: @escaping (MapProxy) -> Content) {
+        self.content = content
+    }
+
+    public var body: Never {
+        fatalError("MapReader has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let proxy = MapProxy()
+        return content(proxy).makeComponent(context: context)
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct MapProxy {
+    public init() {}
+    public func convert(_ coordinate: (latitude: Double, longitude: Double), to: CoordinateSpace) -> Point? { nil }
+    public func convert(_ point: Point, from: CoordinateSpace) -> (latitude: Double, longitude: Double)? { nil }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct LookAroundViewer: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("LookAroundViewer has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 300, height: 200), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct Marker: View {
+    public typealias Body = Never
+
+    private let title: String
+    private let latitude: Double
+    private let longitude: Double
+
+    public init(_ title: String, coordinate: (latitude: Double, longitude: Double)) {
+        self.title = title
+        self.latitude = coordinate.latitude
+        self.longitude = coordinate.longitude
+    }
+
+    public var body: Never {
+        fatalError("Marker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 20, height: 20), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct Annotation<Content: View>: View {
+    public typealias Body = Never
+
+    private let title: String
+    private let latitude: Double
+    private let longitude: Double
+    private let content: Content
+
+    public init(
+        _ title: String,
+        coordinate: (latitude: Double, longitude: Double),
+        @ViewBuilder content: () -> Content
+    ) {
+        self.title = title
+        self.latitude = coordinate.latitude
+        self.longitude = coordinate.longitude
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Annotation has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        content.makeComponent(context: context)
+    }
+}
+
+public struct PhotosPicker: View {
+    public typealias Body = Never
+
+    private let selection: Binding<PhotosPickerItem?>?
+    private let selections: Binding<[PhotosPickerItem]>?
+
+    public init() {
+        self.selection = nil
+        self.selections = nil
+    }
+
+    public init(selection: Binding<PhotosPickerItem?>) {
+        self.selection = selection
+        self.selections = nil
+    }
+
+    public init(selections: Binding<[PhotosPickerItem]>) {
+        self.selection = nil
+        self.selections = selections
+    }
+
+    public var body: Never {
+        fatalError("PhotosPicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let single = selection
+        let multiple = selections
+        return Button {
+            let urls = FileDialogManager.showOpenFileDialog(allowsMultipleSelection: multiple != nil)
+            let items = urls.map { PhotosPickerItem(fileURL: $0) }
+            if let multiple {
+                multiple.wrappedValue = items
+            } else if let first = items.first, let single {
+                single.wrappedValue = first
+            }
+        } label: {
+            Label("Photos", systemImage: "photo")
+        }
+        .makeComponent(context: context)
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct PhotosPickerItem: Sendable, Equatable {
+    public let itemIdentifier: String
+    public var fileURL: URL?
+
+    public init(itemIdentifier: String = UUID().uuidString, fileURL: URL? = nil) {
+        self.itemIdentifier = itemIdentifier
+        self.fileURL = fileURL
+    }
+}
+
+public struct VideoPlayer<VideoOverlay: View>: View {
+    public typealias Body = Never
+
+    private let videoOverlay: [AnyView]
+
+    public init() {
+        self.videoOverlay = []
+    }
+
+    public init(@ViewBuilder videoOverlay: () -> VideoOverlay) {
+        self.videoOverlay = [AnyView(videoOverlay())]
+    }
+
+    public var body: Never {
+        fatalError("VideoPlayer has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Video Player", systemImage: "play.rectangle", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+public struct MapKitMap: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("MapKitMap has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Map", systemImage: "map", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+public struct AVPlayerView: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AVPlayerView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "AVPlayer", systemImage: "play.circle", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+public struct LivePhotoView: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("LivePhotoView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Live Photo", systemImage: "livephoto", preferredSize: Size(width: 200, height: 200))
+    }
+}
+
+public struct Camera: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("Camera has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Camera", systemImage: "camera", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+public struct ImagePicker: View {
+    public typealias Body = Never
+
+    private let selection: Binding<URL?>?
+
+    public init() {
+        self.selection = nil
+    }
+
+    public init(selection: Binding<URL?>) {
+        self.selection = selection
+    }
+
+    public var body: Never {
+        fatalError("ImagePicker has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let binding = selection
+        return Button {
+            let urls = FileDialogManager.showOpenFileDialog(allowsMultipleSelection: false)
+            if let url = urls.first, let binding {
+                binding.wrappedValue = url
+            }
+        } label: {
+            Label("Choose Photo", systemImage: "photo")
+        }
+        .makeComponent(context: context)
+    }
+}
+
+public struct QuickLookPreview: View {
+    public typealias Body = Never
+
+    private let url: URL?
+    private let item: Any?
+
+    public init(url: URL) {
+        self.url = url
+        self.item = nil
+    }
+
+    public init(item: some Sendable) {
+        self.url = nil
+        self.item = item
+    }
+
+    public var body: Never {
+        fatalError("QuickLookPreview has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = url
+        let _ = item
+        return placeholderPanel(label: "Quick Look", systemImage: "eye", preferredSize: Size(width: 300, height: 400))
+    }
+}
+
+public struct PDFView: View {
+    public typealias Body = Never
+
+    private let url: URL?
+    private let data: Data?
+
+    public init(url: URL) {
+        self.url = url
+        self.data = nil
+    }
+
+    public init(data: Data) {
+        self.url = nil
+        self.data = data
+    }
+
+    public var body: Never {
+        fatalError("PDFView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = url
+        let _ = data
+        return placeholderPanel(label: "PDF", systemImage: "doc.text", preferredSize: Size(width: 300, height: 400))
+    }
+}
+
+public struct WebView: View {
+    public typealias Body = Never
+
+    private let url: URL?
+    private let html: String?
+
+    public init(url: URL) {
+        self.url = url
+        self.html = nil
+    }
+
+    public init(html: String) {
+        self.url = nil
+        self.html = html
+    }
+
+    public var body: Never {
+        fatalError("WebView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = url
+        let _ = html
+        return placeholderPanel(label: "WebView", systemImage: "globe", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
+public struct SpriteView: View {
+    public typealias Body = Never
+
+    private let scene: Any
+    private let isPaused: Bool
+
+    public init(scene: Any, isPaused: Bool = false) {
+        self.scene = scene
+        self.isPaused = isPaused
+    }
+
+    public var body: Never {
+        fatalError("SpriteView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = scene
+        let _ = isPaused
+        return placeholderPanel(label: "SpriteKit", systemImage: "sparkles", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
+public struct SceneView: View {
+    public typealias Body = Never
+
+    private let scene: Any
+    private let options: [String]
+
+    public init(scene: Any, options: [String] = []) {
+        self.scene = scene
+        self.options = options
+    }
+
+    public var body: Never {
+        fatalError("SceneView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = scene
+        let _ = options
+        return placeholderPanel(label: "SceneKit", systemImage: "cube", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
+public struct RealityView: View {
+    public typealias Body = Never
+
+    private let update: (@MainActor (inout Any) -> Void)?
+
+    public init(update: (@MainActor (inout Any) -> Void)? = nil) {
+        self.update = update
+    }
+
+    public var body: Never {
+        fatalError("RealityView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = update
+        return placeholderPanel(label: "RealityKit", systemImage: "visionpro", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+@available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
+public struct Model3D: View {
+    public typealias Body = Never
+
+    private let url: URL?
+    private let name: String?
+
+    public init(url: URL) {
+        self.url = url
+        self.name = nil
+    }
+
+    public init(named name: String) {
+        self.url = nil
+        self.name = name
+    }
+
+    public var body: Never {
+        fatalError("Model3D has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = url
+        let _ = name
+        return placeholderPanel(label: "3D Model", systemImage: "cube", preferredSize: Size(width: 200, height: 200))
+    }
+}
+
+public enum Model3DPhase: Sendable {
+    case loading
+    case ready
+    case error(Error)
+}
+
+public struct Model3DPlaceholderStyle: Sendable, Equatable, Hashable {
+    public init() {}
+}
+
+public struct SceneRealityView: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("SceneRealityView has no body")
+    }
+}
+
+public struct RealityViewCameraContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RealityViewAttachmentContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct RealityViewEntityContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SceneRealityViewCameraContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SceneRealityViewAttachmentContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct SceneRealityViewEntityContent: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ImmersiveSpaceContent: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ImmersiveSpaceContent has no body")
+    }
+}
+
+public struct ImmersiveSpaceRoot: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ImmersiveSpaceRoot has no body")
+    }
+}
+
+public struct ImmersiveScene: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ImmersiveScene has no body")
+    }
+}
+
+public struct Volumetric: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("Volumetric has no body")
+    }
+}
+
+public struct Ornament<Content: View>: View {
+    public typealias Body = Never
+
+    private let content: Content
+    private let attachmentAnchor: UnitPoint
+    private let contentAnchor: UnitPoint
+
+    public init(
+        attachmentAnchor: UnitPoint = .bottom,
+        contentAnchor: UnitPoint = .top,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.content = content()
+        self.attachmentAnchor = attachmentAnchor
+        self.contentAnchor = contentAnchor
+    }
+
+    public var body: Never {
+        fatalError("Ornament has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = attachmentAnchor
+        let _ = contentAnchor
+        return content.makeComponent(context: context)
+    }
+}
+
+public struct AppStoreOverlay: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AppStoreOverlay has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+public struct SubscriptionStoreView: View {
+    public typealias Body = Never
+
+    private let productIDs: [String]
+
+    public init(productIDs: [String]) {
+        self.productIDs = productIDs
+    }
+
+    public var body: Never {
+        fatalError("SubscriptionStoreView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = productIDs
+        return Component { _ in
+            Controls.panel(preferredSize: Size(width: 300, height: 200), isHitTestVisible: false)
+        }
+    }
+}
+
+public struct SubscriptionView: View {
+    public typealias Body = Never
+
+    private let productID: String
+
+    public init(productID: String) {
+        self.productID = productID
+    }
+
+    public var body: Never {
+        fatalError("SubscriptionView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = productID
+        return Component { _ in
+            Controls.panel(preferredSize: Size(width: 300, height: 120), isHitTestVisible: false)
+        }
+    }
+}
+
+public protocol ChartContent: View {}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AnyChart: ChartContent {
+    public typealias Body = Never
+
+    private let buildComponent: (ViewBuildContext) -> Component
+
+    public init<C: ChartContent>(_ chart: C) {
+        self.buildComponent = { context in
+            chart.makeComponent(context: context)
+        }
+    }
+
+    public var body: Never {
+        fatalError("AnyChart has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        buildComponent(context)
+    }
+}
+
+public struct Chart<Content: ChartContent>: View {
+    public typealias Body = Never
+
+    private let content: Content
+
+    public init(@ChartContentBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    public var body: Never {
+        fatalError("Chart has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Chart", systemImage: "chart.bar", preferredSize: Size(width: 300, height: 200))
+    }
+}
+
+public protocol Mark: ChartContent {}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct BarMark: Mark {
+    public typealias Body = Never
+
+    public var x: PlottableValue
+    public var y: PlottableValue
+    public var height: Double?
+    public var width: Double?
+
+    public init(
+        x: PlottableValue,
+        y: PlottableValue,
+        height: Double? = nil,
+        width: Double? = nil
+    ) {
+        self.x = x
+        self.y = y
+        self.height = height
+        self.width = width
+    }
+
+    public var body: Never {
+        fatalError("BarMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 40, height: 40), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct LineMark: Mark {
+    public typealias Body = Never
+
+    public var x: PlottableValue
+    public var y: PlottableValue
+    public var series: PlottableValue?
+
+    public init(
+        x: PlottableValue,
+        y: PlottableValue,
+        series: PlottableValue? = nil
+    ) {
+        self.x = x
+        self.y = y
+        self.series = series
+    }
+
+    public var body: Never {
+        fatalError("LineMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AreaMark: Mark {
+    public typealias Body = Never
+
+    public var x: PlottableValue
+    public var y: PlottableValue
+    public var series: PlottableValue?
+
+    public init(
+        x: PlottableValue,
+        y: PlottableValue,
+        series: PlottableValue? = nil
+    ) {
+        self.x = x
+        self.y = y
+        self.series = series
+    }
+
+    public var body: Never {
+        fatalError("AreaMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct RuleMark: Mark {
+    public typealias Body = Never
+
+    public var x: PlottableValue?
+    public var y: PlottableValue?
+
+    public init(
+        x: PlottableValue? = nil,
+        y: PlottableValue? = nil
+    ) {
+        self.x = x
+        self.y = y
+    }
+
+    public var body: Never {
+        fatalError("RuleMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct PointMark: Mark {
+    public typealias Body = Never
+
+    public var x: PlottableValue
+    public var y: PlottableValue
+    public var series: PlottableValue?
+
+    public init(
+        x: PlottableValue,
+        y: PlottableValue,
+        series: PlottableValue? = nil
+    ) {
+        self.x = x
+        self.y = y
+        self.series = series
+    }
+
+    public var body: Never {
+        fatalError("PointMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 8, height: 8), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct RectangleMark: Mark {
+    public typealias Body = Never
+
+    public var xStart: PlottableValue?
+    public var xEnd: PlottableValue?
+    public var yStart: PlottableValue?
+    public var yEnd: PlottableValue?
+
+    public init(
+        xStart: PlottableValue? = nil,
+        xEnd: PlottableValue? = nil,
+        yStart: PlottableValue? = nil,
+        yEnd: PlottableValue? = nil
+    ) {
+        self.xStart = xStart
+        self.xEnd = xEnd
+        self.yStart = yStart
+        self.yEnd = yEnd
+    }
+
+    public var body: Never {
+        fatalError("RectangleMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 40, height: 40), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct SectorMark: Mark {
+    public typealias Body = Never
+
+    public var angle: PlottableValue
+    public var innerRadius: Double?
+    public var outerRadius: Double?
+    public var angularInset: Double?
+
+    public init(
+        angle: PlottableValue,
+        innerRadius: Double? = nil,
+        outerRadius: Double? = nil,
+        angularInset: Double? = nil
+    ) {
+        self.angle = angle
+        self.innerRadius = innerRadius
+        self.outerRadius = outerRadius
+        self.angularInset = angularInset
+    }
+
+    public var body: Never {
+        fatalError("SectorMark has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: Size(width: 40, height: 40), isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AxisMarks: ChartContent {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AxisMarks has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AxisValueLabel: ChartContent {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AxisValueLabel has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AxisGridLine: ChartContent {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AxisGridLine has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct AxisTick: ChartContent {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("AxisTick has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        Component { _ in
+            Controls.panel(preferredSize: .zero, isHitTestVisible: false)
+        }
+    }
+}
+
+@available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
+public struct ChartProxy {
+    public init() {}
+}
+
+public protocol ChartSymbolShape: Shape {
+    init()
+}
+
+public struct AxisValue: Sendable, Equatable {
+    public let value: Double
+
+    public init(_ value: Double) {
+        self.value = value
+    }
+}
+
+public struct Plot: Sendable, Equatable {
+    public init() {}
+}
+
+public struct PlottableDomain: Sendable, Equatable {
+    public var min: Double
+    public var max: Double
+
+    public init(min: Double, max: Double) {
+        self.min = min
+        self.max = max
+    }
+}
+
+public struct ChartBackground: View, ChartContent {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ChartBackground has no body")
+    }
+}
+
+public struct ChartForegroundStyleScale: Sendable, Equatable {
+    public init() {}
+}
+
+public struct ChartXAxis: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ChartXAxis has no body")
+    }
+}
+
+public struct ChartYAxis: View {
+    public typealias Body = Never
+
+    public init() {}
+
+    public var body: Never {
+        fatalError("ChartYAxis has no body")
+    }
+}
+
+public struct ChartScrollTargetBehavior: Sendable, Equatable {
+    public init() {}
+}
+
+@MainActor
+public protocol Tip {
+    associatedtype Title: View
+    associatedtype Message: View
+    associatedtype Image: View
+
+    var title: Title { get }
+    var message: Message? { get }
+    var image: Image? { get }
+
+    static var options: [TipOption] { get }
+}
+
+public extension Tip {
+    var message: Message? { nil }
+    var image: Image? { nil }
+    static var options: [TipOption] { [] }
+}
+
+public struct TipOption: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case maxDisplayCount(Int)
+    }
+    public let kind: Kind
+
+    public static func maxDisplayCount(_ count: Int) -> TipOption {
+        TipOption(kind: .maxDisplayCount(count))
+    }
+}
+
+public struct TipView<TipType: Tip>: View {
+    public typealias Body = Never
+
+    private let tip: TipType
+    private let arrowEdge: Edge?
+    private let action: (TipType) -> Void
+
+    public init(
+        _ tip: TipType,
+        arrowEdge: Edge? = nil,
+        action: @escaping (TipType) -> Void = { _ in }
+    ) {
+        self.tip = tip
+        self.arrowEdge = arrowEdge
+        self.action = action
+    }
+
+    public var body: Never {
+        fatalError("TipView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = arrowEdge
+        let _ = tip
+        return placeholderPanel(label: "Tip", systemImage: "lightbulb", preferredSize: Size(width: 200, height: 80))
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct TipViewStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case inline
+        case floating
+    }
+    public let kind: Kind
+
+    public static let automatic = TipViewStyle(kind: .automatic)
+    public static let inline = TipViewStyle(kind: .inline)
+    public static let floating = TipViewStyle(kind: .floating)
+}
+
+public struct TipAction: Sendable, Equatable {
+    public let id: String
+    public let title: String
+
+    public init(id: String, title: String) {
+        self.id = id
+        self.title = title
+    }
+}
+
+public struct TipDismissal: Sendable, Equatable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
+    }
+}
+
+public struct StoreView: View {
+    public typealias Body = Never
+
+    private let productIDs: [String]
+
+    public init(ids: [String]) {
+        self.productIDs = ids
+    }
+
+    public var body: Never {
+        fatalError("StoreView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = productIDs
+        return placeholderPanel(label: "App Store", systemImage: "bag", preferredSize: Size(width: 300, height: 400))
+    }
+}
+
+public struct ProductView: View {
+    public typealias Body = Never
+
+    private let productID: String
+
+    public init(id: String) {
+        self.productID = id
+    }
+
+    public var body: Never {
+        fatalError("ProductView has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        let _ = productID
+        return placeholderPanel(label: "Product", systemImage: "tag", preferredSize: Size(width: 280, height: 120))
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct ProductViewStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case large
+    }
+    public let kind: Kind
+
+    public static let automatic = ProductViewStyle(kind: .automatic)
+    public static let compact = ProductViewStyle(kind: .compact)
+    public static let large = ProductViewStyle(kind: .large)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct SubscriptionStoreViewStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case large
+        case fullHeight
+    }
+    public let kind: Kind
+
+    public static let automatic = SubscriptionStoreViewStyle(kind: .automatic)
+    public static let compact = SubscriptionStoreViewStyle(kind: .compact)
+    public static let large = SubscriptionStoreViewStyle(kind: .large)
+    public static let fullHeight = SubscriptionStoreViewStyle(kind: .fullHeight)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct SubscriptionStoreControlStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case pageSheet
+    }
+    public let kind: Kind
+
+    public static let automatic = SubscriptionStoreControlStyle(kind: .automatic)
+    public static let compact = SubscriptionStoreControlStyle(kind: .compact)
+    public static let pageSheet = SubscriptionStoreControlStyle(kind: .pageSheet)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public enum SubscriptionStoreButtonLabel: Sendable, Equatable, Hashable {
+    case singleLine
+    case multiline
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct StoreButton: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case cancel
+        case restore
+        case actions
+        case complete
+    }
+    public let kind: Kind
+
+    public static let cancel = StoreButton(kind: .cancel)
+    public static let restore = StoreButton(kind: .restore)
+    public static let actions = StoreButton(kind: .actions)
+    public static let complete = StoreButton(kind: .complete)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct SubscriptionStorePickerItemBackground: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case hidden
+    }
+    public let kind: Kind
+
+    public static let automatic = SubscriptionStorePickerItemBackground(kind: .automatic)
+    public static let hidden = SubscriptionStorePickerItemBackground(kind: .hidden)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct StoreViewStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case compact
+        case large
+    }
+    public let kind: Kind
+
+    public static let automatic = StoreViewStyle(kind: .automatic)
+    public static let compact = StoreViewStyle(kind: .compact)
+    public static let large = StoreViewStyle(kind: .large)
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct InAppPurchaseButton: View {
+    public typealias Body = Never
+
+    public init(productID: String) {}
+
+    public var body: Never {
+        fatalError("InAppPurchaseButton has no body")
+    }
+
+    public func makeComponent(context: ViewBuildContext) -> Component {
+        placeholderPanel(label: "Purchase", systemImage: "cart", preferredSize: Size(width: 120, height: 44))
+    }
+}
+
+@available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
+public struct StoreButtonStyle: Sendable, Equatable {
+    public enum Kind: Sendable, Equatable {
+        case automatic
+        case prominent
+    }
+
+    public let kind: Kind
+
+    private init(kind: Kind) {
+        self.kind = kind
+    }
+
+    public static let automatic = StoreButtonStyle(kind: .automatic)
+    public static let prominent = StoreButtonStyle(kind: .prominent)
+}
+
+// MARK: - Placeholder Panels for Platform-Specific Views
+
+@MainActor
+private func placeholderPanel(
+    label: String,
+    systemImage: String? = nil,
+    preferredSize: Size = Size(width: 300, height: 200)
+) -> Component {
+    let text = systemImage.map { "\($0)\n\(label)" } ?? label
+    return Component { _ in
+        Controls.panel(
+            preferredSize: preferredSize,
+            backgroundColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+            text: text,
+            textStyle: PixelTextStyle(
+                color: Color(red: 0.56, green: 0.60, blue: 0.68, alpha: 0.80),
+                scale: 1.4,
+                alignment: .center,
+                verticalAlignment: .center,
+                weight: .semibold
+            ),
+            borderColor: Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+            borderWidth: 1,
+            cornerRadius: 12,
+            isHitTestVisible: false
+        )
+    }
 }

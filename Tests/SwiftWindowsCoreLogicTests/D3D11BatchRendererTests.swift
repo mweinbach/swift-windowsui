@@ -113,8 +113,8 @@ final class D3D11BatchRendererTests: XCTestCase {
     }
 
     func testQuadPrimitiveStride() {
-        // QuadPrimitive should be 80 bytes (20 floats * 4 bytes)
-        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 80)
+        // QuadPrimitive should be 112 bytes (28 floats * 4 bytes)
+        XCTAssertEqual(MemoryLayout<QuadPrimitive>.stride, 112)
     }
 
     func testGlyphPrimitiveStride() {
@@ -219,6 +219,31 @@ final class D3D11BatchRendererTests: XCTestCase {
         }
     }
 
+    func testRenderPlanPreservesPaintOperationOrderAcrossPrimitiveFamilies() async throws {
+        try await MainActor.run {
+            var scene = GPUIScene()
+            scene.addQuad(QuadPrimitive(x: 0, y: 0, width: 24, height: 24))
+            scene.addGlyph(
+                GlyphPrimitive(
+                    screenX: 4, screenY: 4, screenW: 8, screenH: 8,
+                    atlasU0: 0, atlasV0: 0, atlasU1: 1, atlasV1: 1,
+                    colorR: 1, colorG: 1, colorB: 1, colorA: 1
+                )
+            )
+            scene.addQuad(QuadPrimitive(x: 48, y: 0, width: 24, height: 24))
+            scene.glyphAtlas = Self.makeGlyphAtlasSnapshot()
+            scene.finish()
+
+            let plan = try D3D11BatchRenderer.makeRenderPlan(for: scene)
+
+            XCTAssertEqual(plan.steps, [
+                .quads(layerIndex: 0, range: 0..<1),
+                .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .snapshot),
+                .quads(layerIndex: 0, range: 1..<2),
+            ])
+        }
+    }
+
     func testImageRenderPlanUsesBoundTextureRunsAndPreservesClipOpacity() async throws {
         try await MainActor.run {
             let renderer = D3D11BatchRenderer()
@@ -312,5 +337,105 @@ final class D3D11BatchRendererTests: XCTestCase {
             XCTAssertEqual(scene.layers[0].images[1].opacity, 0.9, accuracy: 0.001)
             XCTAssertEqual(scene.layers[0].images[1].clipWidth, 8, accuracy: 0.001)
         }
+    }
+
+    func testGPUISceneWithPaths() {
+        var scene = GPUIScene()
+        scene.addPath(
+            PathPrimitive(
+                elements: [
+                    .moveTo(Point(x: 10, y: 10)),
+                    .lineTo(Point(x: 30, y: 10)),
+                    .lineTo(Point(x: 20, y: 30)),
+                    .close,
+                ],
+                bounds: Rect(x: 10, y: 10, width: 20, height: 20),
+                fillColor: .red,
+                clipBounds: nil
+            ),
+            toLayer: 0
+        )
+
+        XCTAssertEqual(scene.layers[0].paths.count, 1)
+        XCTAssertEqual(scene.layers[0].paths[0].fillColor, .red)
+    }
+
+    func testRenderPlanIncludesPaths() async throws {
+        try await MainActor.run {
+            var scene = GPUIScene()
+            scene.addPath(
+                PathPrimitive(
+                    elements: [
+                        .moveTo(Point(x: 10, y: 10)),
+                        .lineTo(Point(x: 30, y: 10)),
+                        .lineTo(Point(x: 20, y: 30)),
+                        .close,
+                    ],
+                    bounds: Rect(x: 10, y: 10, width: 20, height: 20),
+                    fillColor: .red,
+                    clipBounds: nil
+                ),
+                toLayer: 0
+            )
+
+            let plan = try D3D11BatchRenderer.makeRenderPlan(for: scene)
+            XCTAssertEqual(plan.steps, [
+                .paths(layerIndex: 0, range: 0..<1)
+            ])
+        }
+    }
+
+    func testRasterizePathProducesNonEmptyBitmap() {
+        let path = PathPrimitive(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 30, y: 10)),
+                .lineTo(Point(x: 20, y: 30)),
+                .close,
+            ],
+            bounds: Rect(x: 10, y: 10, width: 20, height: 20),
+            fillColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
+            clipBounds: nil
+        )
+
+        guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(path) else {
+            XCTFail("Expected non-nil bitmap")
+            return
+        }
+
+        XCTAssertEqual(bitmap.width, 20)
+        XCTAssertEqual(bitmap.height, 20)
+
+        // Center pixel inside the triangle should be green (BGRA: 0, 255, 0, 255)
+        let centerOffset = (10 * 20 + 10) * 4
+        XCTAssertEqual(bitmap.pixels[centerOffset], 0)     // B
+        XCTAssertEqual(bitmap.pixels[centerOffset + 1], 255) // G
+        XCTAssertEqual(bitmap.pixels[centerOffset + 2], 0)     // R
+        XCTAssertEqual(bitmap.pixels[centerOffset + 3], 255)   // A
+    }
+
+    func testRasterizePathWithStrokeProducesBitmap() {
+        let path = PathPrimitive(
+            elements: [
+                .moveTo(Point(x: 10, y: 20)),
+                .lineTo(Point(x: 30, y: 20)),
+            ],
+            bounds: Rect(x: 10, y: 19, width: 20, height: 2),
+            strokeColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+            lineWidth: 2,
+            clipBounds: nil
+        )
+
+        guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(path) else {
+            XCTFail("Expected non-nil bitmap")
+            return
+        }
+
+        // Midpoint should be red
+        let midOffset = (1 * 20 + 10) * 4
+        XCTAssertEqual(bitmap.pixels[midOffset], 0)     // B
+        XCTAssertEqual(bitmap.pixels[midOffset + 1], 0)   // G
+        XCTAssertEqual(bitmap.pixels[midOffset + 2], 255) // R
+        XCTAssertEqual(bitmap.pixels[midOffset + 3], 255) // A
     }
 }

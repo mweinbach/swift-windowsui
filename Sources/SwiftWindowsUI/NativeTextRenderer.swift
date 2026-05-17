@@ -216,7 +216,7 @@ enum GDIRasterTextRenderer {
         }
 
         let contentWidth = Double(measureRect.right - measureRect.left) / scaleFactor
-        let measuredHeight = Double(measureRect.bottom - measureRect.top) / scaleFactor
+        let measuredHeight = Double(measured) / scaleFactor
         let reservedHeight: Double
         if let reservedLineCount = reservedTextLineCount(for: style) {
             let lineHeight = style.nativeFontPixelSize

@@ -328,7 +328,7 @@ struct ScenePainterTests {
             frame: Rect(x: 0, y: 0, width: 40, height: 20),
             backgroundColor: .white,
             borderColor: gradient.startColor,
-            borderGradient: gradient,
+            borderGradient: .linear(gradient),
             borderWidth: 4
         )
 
@@ -341,6 +341,109 @@ struct ScenePainterTests {
         #expect(borderQuad.endB == 1)
         #expect(borderQuad.endA == 0.5)
         #expect(borderQuad.gradientAxis == 1)
+    }
+
+    @Test("Dashed rounded rect border emits segmented quads instead of single solid quad")
+    func dashedRoundedRectBorderEmitsSegmentedQuads() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 30),
+            backgroundColor: .white,
+            borderColor: .black,
+            borderWidth: 2,
+            borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [6, 3]),
+            cornerRadius: 8
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let quads = scene.layers[0].quads
+
+        // Should emit multiple border segments plus one fill quad
+        #expect(quads.count > 2)
+
+        // No single solid border quad should exist
+        var hasFullFrameBorder = false
+        for quad in quads {
+            if quad.x == 0 && quad.y == 0 && quad.width == 40 && quad.height == 30 {
+                hasFullFrameBorder = true
+            }
+        }
+        #expect(!hasFullFrameBorder)
+
+        // Fill quad should be inset by border width
+        var hasInsetFill = false
+        for quad in quads {
+            if quad.x == 2 && quad.y == 2 && quad.width == 36 && quad.height == 26 {
+                hasInsetFill = true
+            }
+        }
+        #expect(hasInsetFill)
+    }
+
+    @Test("Dashed rounded rect border includes corner arc segments")
+    func dashedRoundedRectBorderIncludesArcSegments() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 30),
+            backgroundColor: .white,
+            borderColor: .black,
+            borderWidth: 2,
+            borderStrokeStyle: StrokeStyle(lineWidth: 2, dashPattern: [6, 3]),
+            cornerRadius: 8
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let quads = scene.layers[0].quads
+
+        // The border segments should include small quads near the corners.
+        // At least one quad should be positioned in the top-right corner area.
+        var cornerCount = 0
+        for quad in quads {
+            if quad.x > 20 && quad.y < 10 && quad.width < 12 && quad.height < 12 {
+                cornerCount += 1
+            }
+        }
+        #expect(cornerCount > 0)
+    }
+
+    @Test("Solid rounded rect border still produces single quad")
+    func solidRoundedRectBorderProducesSingleQuad() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 40, height: 30),
+            backgroundColor: .white,
+            borderColor: .black,
+            borderWidth: 2,
+            cornerRadius: 8
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let quads = scene.layers[0].quads
+
+        // border quad + fill quad
+        #expect(quads.count == 2)
+        #expect(quads[0].width == 40)
+        #expect(quads[0].height == 30)
+        #expect(quads[0].cornerRadius == 8)
+    }
+
+    @Test("Outline produces quad outside the frame")
+    func outlineProducesQuadOutsideFrame() {
+        let node = ViewNode(
+            frame: Rect(x: 10, y: 10, width: 40, height: 30),
+            backgroundColor: .white,
+            outlineColor: .black,
+            outlineWidth: 3
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+        let quads = scene.layers[0].quads
+
+        // outline quad + fill quad
+        #expect(quads.count == 2)
+
+        let outlineQuad = quads[0]
+        #expect(outlineQuad.x == 7)
+        #expect(outlineQuad.y == 7)
+        #expect(outlineQuad.width == 46)
+        #expect(outlineQuad.height == 36)
     }
 
     // MARK: - Opacity multiplied into alpha

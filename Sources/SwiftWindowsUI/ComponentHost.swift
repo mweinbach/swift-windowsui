@@ -1,3 +1,7 @@
+import Foundation
+import SwiftWindowsCore
+import SwiftWindowsPlatform
+
 @MainActor
 public final class ComponentHost {
     public let runtime: RetainedViewRuntime
@@ -40,10 +44,128 @@ public final class ComponentHost {
             return
         }
 
+        runtime.recordMatchedGeometryFrames()
+
         let oldChildren = runtime.root.children
         let newNodes = buildComponents().map { $0.makeNode(runtime: runtime) }
 
         reconcileChildren(of: runtime.root, oldChildren: oldChildren, newNodes: newNodes)
+        applyNewNodeTransitionsRecursively(in: runtime.root)
+        runtime.pendingMatchedGeometryCheck = true
+    }
+
+    /// Scans the view tree for active file-dialog configurations and presents
+    /// the corresponding Win32 modal dialog.  Only one dialog is shown per
+    /// call; the presentation flag is reset when the dialog completes.
+    public func processPendingFileDialogs() {
+        if let (config, node) = findActiveFileDialogConfiguration(in: runtime.root) {
+            presentFileDialog(config, node: node)
+        }
+    }
+
+    private func findActiveFileDialogConfiguration(in node: ViewNode) -> (FileDialogConfig, ViewNode)? {
+        if let exporter = node.fileExporterConfiguration, exporter.isPresented.wrappedValue {
+            return (.exporter(exporter), node)
+        }
+        if let importer = node.fileImporterConfiguration, importer.isPresented.wrappedValue {
+            return (.importer(importer), node)
+        }
+        if let importerMulti = node.fileImporterMultiConfiguration, importerMulti.isPresented.wrappedValue {
+            return (.importerMulti(importerMulti), node)
+        }
+        if let mover = node.fileMoverConfiguration, mover.isPresented.wrappedValue {
+            return (.mover(mover), node)
+        }
+        for child in node.children {
+            if let result = findActiveFileDialogConfiguration(in: child) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    private enum FileDialogConfig {
+        case exporter(RetainedFileExporterConfiguration)
+        case importer(RetainedFileImporterConfiguration)
+        case importerMulti(RetainedFileImporterMultiConfiguration)
+        case mover(RetainedFileMoverConfiguration)
+    }
+
+    private func presentFileDialog(_ config: FileDialogConfig, node: ViewNode) {
+        let title = node.fileDialogMessage
+        let defaultDirectory = node.fileDialogDefaultDirectory
+        switch config {
+        case .exporter(let exporter):
+            let url = FileDialogManager.showSaveFileDialog(
+                defaultFilename: exporter.defaultFilename,
+                defaultDirectory: defaultDirectory,
+                title: title
+            )
+            exporter.isPresented.wrappedValue = false
+            if let url {
+                exporter.onCompletion(.success(url))
+            } else {
+                exporter.onCompletion(.failure(fileDialogCancellationError()))
+            }
+
+        case .importer(let importer):
+            let urls = FileDialogManager.showOpenFileDialog(
+                allowsMultipleSelection: false,
+                defaultDirectory: defaultDirectory,
+                title: title
+            )
+            importer.isPresented.wrappedValue = false
+            if let url = urls.first {
+                importer.onCompletion(.success(url))
+            } else {
+                importer.onCompletion(.failure(fileDialogCancellationError()))
+            }
+
+        case .importerMulti(let importerMulti):
+            let urls = FileDialogManager.showOpenFileDialog(
+                allowsMultipleSelection: importerMulti.allowsMultipleSelection,
+                defaultDirectory: defaultDirectory,
+                title: title
+            )
+            importerMulti.isPresented.wrappedValue = false
+            if !urls.isEmpty {
+                importerMulti.onCompletion(.success(urls))
+            } else {
+                importerMulti.onCompletion(.failure(fileDialogCancellationError()))
+            }
+
+        case .mover(let mover):
+            let url = FileDialogManager.showSaveFileDialog(
+                defaultFilename: mover.file.lastPathComponent,
+                defaultDirectory: defaultDirectory,
+                title: title
+            )
+            mover.isPresented.wrappedValue = false
+            if let destination = url {
+                do {
+                    try FileManager.default.moveItem(at: mover.file, to: destination)
+                    mover.onCompletion(.success(destination))
+                } catch {
+                    mover.onCompletion(.failure(error))
+                }
+            } else {
+                mover.onCompletion(.failure(fileDialogCancellationError()))
+            }
+        }
+    }
+
+    private func fileDialogCancellationError() -> Error {
+        struct FileDialogCancellationError: Error {}
+        return FileDialogCancellationError()
+    }
+
+    private func applyNewNodeTransitionsRecursively(in node: ViewNode) {
+        if !node.hasAppeared, node.transition.kind != .identity {
+            node.applyInsertionTransition()
+        }
+        for child in node.children {
+            applyNewNodeTransitionsRecursively(in: child)
+        }
     }
 
     /// Basic view-diffing reconciliation.  Walk old and new child lists in
@@ -117,10 +239,98 @@ public final class ComponentHost {
     /// Copy visual / layout properties from `source` onto `target`, keeping
     /// `target`'s identity (parent, runtime, callbacks) intact.
     private func updateNodeProperties(target: ViewNode, source: ViewNode) {
-        if target.frame != source.frame { target.frame = source.frame }
+        let oldFrame = target.frame
+        let oldOpacity = target.opacity
+        target.animationStates = source.animationStates
+
+        if oldFrame != source.frame {
+            let now = Win32Window.currentTimestampSeconds()
+            var newOrigin = oldFrame.origin
+            var newSize = oldFrame.size
+            var hasFrameAnimation = false
+
+            if oldFrame.origin.x != source.frame.origin.x {
+                if var state = target.animationStates[.frameOriginX] {
+                    state.startValue = oldFrame.origin.x
+                    state.endValue = source.frame.origin.x
+                    state.startTime = now
+                    target.animationStates[.frameOriginX] = state
+                    hasFrameAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.frameOriginX] = AnimationState(
+                        startValue: oldFrame.origin.x, endValue: source.frame.origin.x,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasFrameAnimation = true
+                } else {
+                    newOrigin.x = source.frame.origin.x
+                }
+            }
+
+            if oldFrame.origin.y != source.frame.origin.y {
+                if var state = target.animationStates[.frameOriginY] {
+                    state.startValue = oldFrame.origin.y
+                    state.endValue = source.frame.origin.y
+                    state.startTime = now
+                    target.animationStates[.frameOriginY] = state
+                    hasFrameAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.frameOriginY] = AnimationState(
+                        startValue: oldFrame.origin.y, endValue: source.frame.origin.y,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasFrameAnimation = true
+                } else {
+                    newOrigin.y = source.frame.origin.y
+                }
+            }
+
+            if oldFrame.size.width != source.frame.size.width {
+                if var state = target.animationStates[.frameWidth] {
+                    state.startValue = oldFrame.size.width
+                    state.endValue = source.frame.size.width
+                    state.startTime = now
+                    target.animationStates[.frameWidth] = state
+                    hasFrameAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.frameWidth] = AnimationState(
+                        startValue: oldFrame.size.width, endValue: source.frame.size.width,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasFrameAnimation = true
+                } else {
+                    newSize.width = source.frame.size.width
+                }
+            }
+
+            if oldFrame.size.height != source.frame.size.height {
+                if var state = target.animationStates[.frameHeight] {
+                    state.startValue = oldFrame.size.height
+                    state.endValue = source.frame.size.height
+                    state.startTime = now
+                    target.animationStates[.frameHeight] = state
+                    hasFrameAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.frameHeight] = AnimationState(
+                        startValue: oldFrame.size.height, endValue: source.frame.size.height,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasFrameAnimation = true
+                } else {
+                    newSize.height = source.frame.size.height
+                }
+            }
+
+            if hasFrameAnimation {
+                target.frame = Rect(origin: newOrigin, size: newSize)
+            } else {
+                target.frame = source.frame
+            }
+        }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
         if target.backgroundGradient != source.backgroundGradient { target.backgroundGradient = source.backgroundGradient }
         if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
+        target.canvasDraw = source.canvasDraw
         if target.text != source.text { target.text = source.text }
         if target.textStyle != source.textStyle { target.textStyle = source.textStyle }
         if target.borderColor != source.borderColor { target.borderColor = source.borderColor }
@@ -135,17 +345,37 @@ public final class ComponentHost {
         if target.cornerRadius != source.cornerRadius { target.cornerRadius = source.cornerRadius }
         if target.clipsToBounds != source.clipsToBounds { target.clipsToBounds = source.clipsToBounds }
         if target.clipFillStyle != source.clipFillStyle { target.clipFillStyle = source.clipFillStyle }
+        if target.backgroundPath != source.backgroundPath { target.backgroundPath = source.backgroundPath }
         if target.preferredSize != source.preferredSize { target.preferredSize = source.preferredSize }
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
+        if target.spatialCompressionResistance != source.spatialCompressionResistance { target.spatialCompressionResistance = source.spatialCompressionResistance }
+        if target.spatialExpansionResistance != source.spatialExpansionResistance { target.spatialExpansionResistance = source.spatialExpansionResistance }
         if target.alignmentGuides != source.alignmentGuides { target.alignmentGuides = source.alignmentGuides }
         if target.gridCellAnchor != source.gridCellAnchor { target.gridCellAnchor = source.gridCellAnchor }
         if target.gridCellUnsizedAxes != source.gridCellUnsizedAxes { target.gridCellUnsizedAxes = source.gridCellUnsizedAxes }
+        if target.gridCellColumns != source.gridCellColumns { target.gridCellColumns = source.gridCellColumns }
         if target.gridColumnAlignment != source.gridColumnAlignment { target.gridColumnAlignment = source.gridColumnAlignment }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.blurOpaque != source.blurOpaque { target.blurOpaque = source.blurOpaque }
-        if target.opacity != source.opacity { target.opacity = source.opacity }
+        if target.geometryEffect != source.geometryEffect { target.geometryEffect = source.geometryEffect }
+        if oldOpacity != source.opacity {
+            if var state = target.animationStates[.opacity] {
+                state.startValue = oldOpacity
+                state.endValue = source.opacity
+                state.startTime = Win32Window.currentTimestampSeconds()
+                target.animationStates[.opacity] = state
+            } else if let tx = currentAnimationTransaction {
+                target.animationStates[.opacity] = AnimationState(
+                    startValue: oldOpacity, endValue: source.opacity,
+                    startTime: Win32Window.currentTimestampSeconds(),
+                    duration: tx.duration, easing: tx.easing
+                )
+            } else {
+                target.opacity = source.opacity
+            }
+        }
         if target.blendMode != source.blendMode { target.blendMode = source.blendMode }
         if target.isCompositingGroup != source.isCompositingGroup { target.isCompositingGroup = source.isCompositingGroup }
         if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
@@ -156,13 +386,37 @@ public final class ComponentHost {
         if target.listRowSeparatorTint != source.listRowSeparatorTint { target.listRowSeparatorTint = source.listRowSeparatorTint }
         if target.listSectionSeparator != source.listSectionSeparator { target.listSectionSeparator = source.listSectionSeparator }
         if target.listSectionSeparatorTint != source.listSectionSeparatorTint { target.listSectionSeparatorTint = source.listSectionSeparatorTint }
+        if target.alternatingRowBackgrounds != source.alternatingRowBackgrounds { target.alternatingRowBackgrounds = source.alternatingRowBackgrounds }
+        if target.listRowHoverStyle != source.listRowHoverStyle { target.listRowHoverStyle = source.listRowHoverStyle }
         if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
+        if target.listRowPlatterColor != source.listRowPlatterColor { target.listRowPlatterColor = source.listRowPlatterColor }
+        if target.navigationSplitViewColumnWidth != source.navigationSplitViewColumnWidth { target.navigationSplitViewColumnWidth = source.navigationSplitViewColumnWidth }
+        if target.preferredCompactColumn != source.preferredCompactColumn { target.preferredCompactColumn = source.preferredCompactColumn }
         if target.selectionDisabled != source.selectionDisabled { target.selectionDisabled = source.selectionDisabled }
         if target.selectionDisabledOverride != source.selectionDisabledOverride { target.selectionDisabledOverride = source.selectionDisabledOverride }
         if target.deleteDisabled != source.deleteDisabled { target.deleteDisabled = source.deleteDisabled }
         if target.deleteDisabledOverride != source.deleteDisabledOverride { target.deleteDisabledOverride = source.deleteDisabledOverride }
         if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
         if target.moveDisabledOverride != source.moveDisabledOverride { target.moveDisabledOverride = source.moveDisabledOverride }
+        target.onDeleteAction = source.onDeleteAction
+        target.onMoveAction = source.onMoveAction
+        if target.editActions != source.editActions { target.editActions = source.editActions }
+        target.swipeActionsLeading = source.swipeActionsLeading
+        target.swipeActionsTrailing = source.swipeActionsTrailing
+        target.swipeActionsAllowsFullSwipe = source.swipeActionsAllowsFullSwipe
+        target.commandHandlers = source.commandHandlers
+        target.fileExporterConfiguration = source.fileExporterConfiguration
+        target.fileImporterConfiguration = source.fileImporterConfiguration
+        target.fileImporterMultiConfiguration = source.fileImporterMultiConfiguration
+        target.fileMoverConfiguration = source.fileMoverConfiguration
+        if target.inspectorColumnWidth != source.inspectorColumnWidth { target.inspectorColumnWidth = source.inspectorColumnWidth }
+        if target.inspectorColumnWidthFraction != source.inspectorColumnWidthFraction { target.inspectorColumnWidthFraction = source.inspectorColumnWidthFraction }
+        if target.inspectorColumnWidthMin != source.inspectorColumnWidthMin { target.inspectorColumnWidthMin = source.inspectorColumnWidthMin }
+        if target.inspectorPresentationStyle != source.inspectorPresentationStyle { target.inspectorPresentationStyle = source.inspectorPresentationStyle }
+        if target.fileDialogCustomizationID != source.fileDialogCustomizationID { target.fileDialogCustomizationID = source.fileDialogCustomizationID }
+        if target.fileDialogConfirmationLabel != source.fileDialogConfirmationLabel { target.fileDialogConfirmationLabel = source.fileDialogConfirmationLabel }
+        if target.fileDialogDefaultDirectory != source.fileDialogDefaultDirectory { target.fileDialogDefaultDirectory = source.fileDialogDefaultDirectory }
+        if target.fileDialogMessage != source.fileDialogMessage { target.fileDialogMessage = source.fileDialogMessage }
         if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
         if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes { target.dynamicInsertContentTypes = source.dynamicInsertContentTypes }
         if target.dynamicDropPayloadType != source.dynamicDropPayloadType { target.dynamicDropPayloadType = source.dynamicDropPayloadType }
@@ -190,7 +444,112 @@ public final class ComponentHost {
         if target.scrollReaderID != source.scrollReaderID { target.scrollReaderID = source.scrollReaderID }
         if target.scrollProxyRequests != source.scrollProxyRequests { target.scrollProxyRequests = source.scrollProxyRequests }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
-        if target.transform != source.transform { target.transform = source.transform }
+        if target.position != source.position { target.position = source.position }
+        if target.transform != source.transform {
+            let oldTransform = target.transform
+            var newTransform = oldTransform
+            var hasTransformAnimation = false
+            let now = Win32Window.currentTimestampSeconds()
+
+            if oldTransform.scaleX != source.transform.scaleX {
+                if var state = target.animationStates[.transformScaleX] {
+                    state.startValue = oldTransform.scaleX
+                    state.endValue = source.transform.scaleX
+                    state.startTime = now
+                    target.animationStates[.transformScaleX] = state
+                    hasTransformAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.transformScaleX] = AnimationState(
+                        startValue: oldTransform.scaleX, endValue: source.transform.scaleX,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasTransformAnimation = true
+                } else {
+                    newTransform.scaleX = source.transform.scaleX
+                }
+            }
+
+            if oldTransform.scaleY != source.transform.scaleY {
+                if var state = target.animationStates[.transformScaleY] {
+                    state.startValue = oldTransform.scaleY
+                    state.endValue = source.transform.scaleY
+                    state.startTime = now
+                    target.animationStates[.transformScaleY] = state
+                    hasTransformAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.transformScaleY] = AnimationState(
+                        startValue: oldTransform.scaleY, endValue: source.transform.scaleY,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasTransformAnimation = true
+                } else {
+                    newTransform.scaleY = source.transform.scaleY
+                }
+            }
+
+            if oldTransform.translationX != source.transform.translationX {
+                if var state = target.animationStates[.transformTranslationX] {
+                    state.startValue = oldTransform.translationX
+                    state.endValue = source.transform.translationX
+                    state.startTime = now
+                    target.animationStates[.transformTranslationX] = state
+                    hasTransformAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.transformTranslationX] = AnimationState(
+                        startValue: oldTransform.translationX, endValue: source.transform.translationX,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasTransformAnimation = true
+                } else {
+                    newTransform.translationX = source.transform.translationX
+                }
+            }
+
+            if oldTransform.translationY != source.transform.translationY {
+                if var state = target.animationStates[.transformTranslationY] {
+                    state.startValue = oldTransform.translationY
+                    state.endValue = source.transform.translationY
+                    state.startTime = now
+                    target.animationStates[.transformTranslationY] = state
+                    hasTransformAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.transformTranslationY] = AnimationState(
+                        startValue: oldTransform.translationY, endValue: source.transform.translationY,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasTransformAnimation = true
+                } else {
+                    newTransform.translationY = source.transform.translationY
+                }
+            }
+
+            if oldTransform.rotation != source.transform.rotation {
+                if var state = target.animationStates[.transformRotation] {
+                    state.startValue = oldTransform.rotation
+                    state.endValue = source.transform.rotation
+                    state.startTime = now
+                    target.animationStates[.transformRotation] = state
+                    hasTransformAnimation = true
+                } else if let tx = currentAnimationTransaction {
+                    target.animationStates[.transformRotation] = AnimationState(
+                        startValue: oldTransform.rotation, endValue: source.transform.rotation,
+                        startTime: now, duration: tx.duration, easing: tx.easing
+                    )
+                    hasTransformAnimation = true
+                } else {
+                    newTransform.rotation = source.transform.rotation
+                }
+            }
+
+            if hasTransformAnimation {
+                target.transform = newTransform
+            } else {
+                target.transform = source.transform
+            }
+        }
+        if target.transition != source.transition { target.transition = source.transition }
+        if target.contentTransition != source.contentTransition { target.contentTransition = source.contentTransition }
+        if target.sensoryFeedback != source.sensoryFeedback { target.sensoryFeedback = source.sensoryFeedback }
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
         if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
         if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
@@ -207,16 +566,30 @@ public final class ComponentHost {
         if target.scrollSizeChangeAnchor != source.scrollSizeChangeAnchor { target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
+        if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations { target.allowsAutomaticWindowDecorations = source.allowsAutomaticWindowDecorations }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
         if target.accessibilityLabel != source.accessibilityLabel { target.accessibilityLabel = source.accessibilityLabel }
+        if target.accessibilityDescription != source.accessibilityDescription { target.accessibilityDescription = source.accessibilityDescription }
         if target.accessibilityValue != source.accessibilityValue { target.accessibilityValue = source.accessibilityValue }
         if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
         if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
+        if target.accessibilityLanguage != source.accessibilityLanguage { target.accessibilityLanguage = source.accessibilityLanguage }
+        if target.accessibilityTextualContext != source.accessibilityTextualContext { target.accessibilityTextualContext = source.accessibilityTextualContext }
+        if target.accessibilityHeadingLevel != source.accessibilityHeadingLevel { target.accessibilityHeadingLevel = source.accessibilityHeadingLevel }
+        if target.tooltip != source.tooltip { target.tooltip = source.tooltip }
         if target.accessibilityTraits != source.accessibilityTraits { target.accessibilityTraits = source.accessibilityTraits }
         if target.accessibilityChildBehavior != source.accessibilityChildBehavior { target.accessibilityChildBehavior = source.accessibilityChildBehavior }
         if target.accessibilitySortPriority != source.accessibilitySortPriority { target.accessibilitySortPriority = source.accessibilitySortPriority }
         target.accessibilityActions = source.accessibilityActions
+        if target.accessibilityInputLabels != source.accessibilityInputLabels { target.accessibilityInputLabels = source.accessibilityInputLabels }
         if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
+        if target.accessibilityIgnoresInvertColors != source.accessibilityIgnoresInvertColors { target.accessibilityIgnoresInvertColors = source.accessibilityIgnoresInvertColors }
+        if target.accessibilityRespondsToUserInteraction != source.accessibilityRespondsToUserInteraction { target.accessibilityRespondsToUserInteraction = source.accessibilityRespondsToUserInteraction }
+        if target.accessibilityPrefersSliderBehavior != source.accessibilityPrefersSliderBehavior { target.accessibilityPrefersSliderBehavior = source.accessibilityPrefersSliderBehavior }
+        if target.accessibilityRequiresActivationPoint != source.accessibilityRequiresActivationPoint { target.accessibilityRequiresActivationPoint = source.accessibilityRequiresActivationPoint }
+        if target.accessibilityDirectTouchOptions != source.accessibilityDirectTouchOptions { target.accessibilityDirectTouchOptions = source.accessibilityDirectTouchOptions }
+        if target.accessibilityPrefersCrossFadeTransitions != source.accessibilityPrefersCrossFadeTransitions { target.accessibilityPrefersCrossFadeTransitions = source.accessibilityPrefersCrossFadeTransitions }
+        if target.accessibilityShowLargeContentViewer != source.accessibilityShowLargeContentViewer { target.accessibilityShowLargeContentViewer = source.accessibilityShowLargeContentViewer }
         if target.symbolVariableValue != source.symbolVariableValue { target.symbolVariableValue = source.symbolVariableValue }
         if target.symbolRenderingMode != source.symbolRenderingMode { target.symbolRenderingMode = source.symbolRenderingMode }
         if target.symbolVariants != source.symbolVariants { target.symbolVariants = source.symbolVariants }
@@ -242,16 +615,94 @@ public final class ComponentHost {
         if target.isReplaceDisabled != source.isReplaceDisabled { target.isReplaceDisabled = source.isReplaceDisabled }
         if target.isFindNavigatorPresented != source.isFindNavigatorPresented { target.isFindNavigatorPresented = source.isFindNavigatorPresented }
         if target.isSubmitScopeBoundary != source.isSubmitScopeBoundary { target.isSubmitScopeBoundary = source.isSubmitScopeBoundary }
+        if target.submitScopeTriggersRawValue != source.submitScopeTriggersRawValue { target.submitScopeTriggersRawValue = source.submitScopeTriggersRawValue }
+        if target.isFocusSection != source.isFocusSection { target.isFocusSection = source.isFocusSection }
+        if target.prefersDefaultFocus != source.prefersDefaultFocus { target.prefersDefaultFocus = source.prefersDefaultFocus }
+        if target.focusNamespace != source.focusNamespace { target.focusNamespace = source.focusNamespace }
+        if target.isGeometryGroup != source.isGeometryGroup { target.isGeometryGroup = source.isGeometryGroup }
         if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
         if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }
         if target.isFocusEffectDisabled != source.isFocusEffectDisabled { target.isFocusEffectDisabled = source.isFocusEffectDisabled }
+        if target.isFocusDestination != source.isFocusDestination { target.isFocusDestination = source.isFocusDestination }
+        if target.isFocusActive != source.isFocusActive { target.isFocusActive = source.isFocusActive }
+        if target.isFocusEnabled != source.isFocusEnabled { target.isFocusEnabled = source.isFocusEnabled }
+        if target.pointerStyle != source.pointerStyle { target.pointerStyle = source.pointerStyle }
+        if target.pointerVisibility != source.pointerVisibility { target.pointerVisibility = source.pointerVisibility }
+        if target.digitalCrownRotation != source.digitalCrownRotation { target.digitalCrownRotation = source.digitalCrownRotation }
+        if target.windowDragInteraction != source.windowDragInteraction { target.windowDragInteraction = source.windowDragInteraction }
+        if target.windowResizeInteraction != source.windowResizeInteraction { target.windowResizeInteraction = source.windowResizeInteraction }
+        if target.windowDismissBehavior != source.windowDismissBehavior { target.windowDismissBehavior = source.windowDismissBehavior }
+        if target.windowFullScreenBehavior != source.windowFullScreenBehavior { target.windowFullScreenBehavior = source.windowFullScreenBehavior }
+        if target.windowMinimizeBehavior != source.windowMinimizeBehavior { target.windowMinimizeBehavior = source.windowMinimizeBehavior }
+        if target.windowResizeBehavior != source.windowResizeBehavior { target.windowResizeBehavior = source.windowResizeBehavior }
+        if target.windowCornerRadius != source.windowCornerRadius { target.windowCornerRadius = source.windowCornerRadius }
         if target.contentShapes != source.contentShapes { target.contentShapes = source.contentShapes }
+        if target.buttonRepeatBehavior != source.buttonRepeatBehavior { target.buttonRepeatBehavior = source.buttonRepeatBehavior }
         if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
         if target.isPrivacySensitive != source.isPrivacySensitive { target.isPrivacySensitive = source.isPrivacySensitive }
+        if target.isAccessibilityShowsLargeContentViewer != source.isAccessibilityShowsLargeContentViewer { target.isAccessibilityShowsLargeContentViewer = source.isAccessibilityShowsLargeContentViewer }
+        if target.isAccessibilityQuickActionEnabled != source.isAccessibilityQuickActionEnabled { target.isAccessibilityQuickActionEnabled = source.isAccessibilityQuickActionEnabled }
+        if target.accessibilityQuickActionStyle != source.accessibilityQuickActionStyle { target.accessibilityQuickActionStyle = source.accessibilityQuickActionStyle }
+        if target.isAccessibilityZoomActionEnabled != source.isAccessibilityZoomActionEnabled { target.isAccessibilityZoomActionEnabled = source.isAccessibilityZoomActionEnabled }
+        if target.isAccessibilityScrollActionEnabled != source.isAccessibilityScrollActionEnabled { target.isAccessibilityScrollActionEnabled = source.isAccessibilityScrollActionEnabled }
+        if target.isAccessibilityFocusSection != source.isAccessibilityFocusSection { target.isAccessibilityFocusSection = source.isAccessibilityFocusSection }
+        if target.isAccessibilityImage != source.isAccessibilityImage { target.isAccessibilityImage = source.isAccessibilityImage }
+        if target.accessibilityLinkDestination != source.accessibilityLinkDestination { target.accessibilityLinkDestination = source.accessibilityLinkDestination }
+        if target.accessibilityLinkedGroup != source.accessibilityLinkedGroup { target.accessibilityLinkedGroup = source.accessibilityLinkedGroup }
+        if target.accessibilityPage != source.accessibilityPage { target.accessibilityPage = source.accessibilityPage }
+        if target.contextMenuForSelectionType != source.contextMenuForSelectionType { target.contextMenuForSelectionType = source.contextMenuForSelectionType }
+        if target.widgetURL != source.widgetURL { target.widgetURL = source.widgetURL }
+        if target.isWidgetAccentable != source.isWidgetAccentable { target.isWidgetAccentable = source.isWidgetAccentable }
+        if target.widgetAccentedRenderingMode != source.widgetAccentedRenderingMode { target.widgetAccentedRenderingMode = source.widgetAccentedRenderingMode }
+        if target.widgetBackgroundStyle != source.widgetBackgroundStyle { target.widgetBackgroundStyle = source.widgetBackgroundStyle }
+        if target.widgetBackgroundPlacement != source.widgetBackgroundPlacement { target.widgetBackgroundPlacement = source.widgetBackgroundPlacement }
+        if target.widgetRelevancy != source.widgetRelevancy { target.widgetRelevancy = source.widgetRelevancy }
+        if target.paletteSelectionEffect != source.paletteSelectionEffect { target.paletteSelectionEffect = source.paletteSelectionEffect }
+        if target.paintsInDeferredPhase != source.paintsInDeferredPhase { target.paintsInDeferredPhase = source.paintsInDeferredPhase }
         if target.matchedGeometryEffect != source.matchedGeometryEffect { target.matchedGeometryEffect = source.matchedGeometryEffect }
+        if target.matchedTransitionSource != source.matchedTransitionSource { target.matchedTransitionSource = source.matchedTransitionSource }
+        if target.navigationTransition != source.navigationTransition { target.navigationTransition = source.navigationTransition }
+        if target.chartXAxis != source.chartXAxis { target.chartXAxis = source.chartXAxis }
+        if target.chartXScale != source.chartXScale { target.chartXScale = source.chartXScale }
+        if target.chartYScale != source.chartYScale { target.chartYScale = source.chartYScale }
+        if target.meshGradient != source.meshGradient { target.meshGradient = source.meshGradient }
+        if target.chartYAxis != source.chartYAxis { target.chartYAxis = source.chartYAxis }
+        if target.chartLegend != source.chartLegend { target.chartLegend = source.chartLegend }
+        if target.chartBackground != source.chartBackground { target.chartBackground = source.chartBackground }
+        if target.chartPlotStyle != source.chartPlotStyle { target.chartPlotStyle = source.chartPlotStyle }
+        if target.chartOverlay != source.chartOverlay { target.chartOverlay = source.chartOverlay }
+        if target.chartSelection != source.chartSelection { target.chartSelection = source.chartSelection }
+        if target.chartScrollableAxes != source.chartScrollableAxes { target.chartScrollableAxes = source.chartScrollableAxes }
+        if target.chartForegroundStyleScale != source.chartForegroundStyleScale { target.chartForegroundStyleScale = source.chartForegroundStyleScale }
+        if target.chartSymbolSize != source.chartSymbolSize { target.chartSymbolSize = source.chartSymbolSize }
+        if target.chartSymbol != source.chartSymbol { target.chartSymbol = source.chartSymbol }
+        if target.chartAngleScale != source.chartAngleScale { target.chartAngleScale = source.chartAngleScale }
+        if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale { target.chartBackgroundStyleScale = source.chartBackgroundStyleScale }
+        if target.chartSymbolScale != source.chartSymbolScale { target.chartSymbolScale = source.chartSymbolScale }
+        if target.chartXVisibleDomain != source.chartXVisibleDomain { target.chartXVisibleDomain = source.chartXVisibleDomain }
+        if target.chartYVisibleDomain != source.chartYVisibleDomain { target.chartYVisibleDomain = source.chartYVisibleDomain }
+        if target.chartXSelection != source.chartXSelection { target.chartXSelection = source.chartXSelection }
+        if target.chartYSelection != source.chartYSelection { target.chartYSelection = source.chartYSelection }
+        if target.chartAngleSelection != source.chartAngleSelection { target.chartAngleSelection = source.chartAngleSelection }
+        if target.chartScrollPositionX != source.chartScrollPositionX { target.chartScrollPositionX = source.chartScrollPositionX }
+        if target.chartScrollPositionY != source.chartScrollPositionY { target.chartScrollPositionY = source.chartScrollPositionY }
+        if target.tableColumnHeadersVisible != source.tableColumnHeadersVisible { target.tableColumnHeadersVisible = source.tableColumnHeadersVisible }
+        if target.isContentInvalidatable != source.isContentInvalidatable { target.isContentInvalidatable = source.isContentInvalidatable }
+        if target.isLineSelectable != source.isLineSelectable { target.isLineSelectable = source.isLineSelectable }
+        if target.accessibilityActivationPoint != source.accessibilityActivationPoint { target.accessibilityActivationPoint = source.accessibilityActivationPoint }
+        if target.accessibilityTextContentType != source.accessibilityTextContentType { target.accessibilityTextContentType = source.accessibilityTextContentType }
+        target.accessibilityMagicTapAction = source.accessibilityMagicTapAction
         if target.presentationChrome != source.presentationChrome { target.presentationChrome = source.presentationChrome }
         if target.isToolbarContainer != source.isToolbarContainer { target.isToolbarContainer = source.isToolbarContainer }
         if target.toolbarPlacementTags != source.toolbarPlacementTags { target.toolbarPlacementTags = source.toolbarPlacementTags }
+        if target.menuOrder != source.menuOrder { target.menuOrder = source.menuOrder }
+        target.toolbarTitleMenuChildren = source.toolbarTitleMenuChildren
+        target.toolbarTitleActionsChildren = source.toolbarTitleActionsChildren
+        target.accessibilityRepresentationChildren = source.accessibilityRepresentationChildren
+        if target.gestureName != source.gestureName { target.gestureName = source.gestureName }
+        target.textRenderer = source.textRenderer
+        if target.scenePaddingEdges != source.scenePaddingEdges { target.scenePaddingEdges = source.scenePaddingEdges }
+        if target.coordinateSpaceName != source.coordinateSpaceName { target.coordinateSpaceName = source.coordinateSpaceName }
         if target.sectionHeaderChildCount != source.sectionHeaderChildCount { target.sectionHeaderChildCount = source.sectionHeaderChildCount }
         if target.sectionFooterChildCount != source.sectionFooterChildCount { target.sectionFooterChildCount = source.sectionFooterChildCount }
         target.retainedPreferenceValues = source.retainedPreferenceValues
@@ -265,7 +716,6 @@ public final class ComponentHost {
             target.layoutMode = source.layoutMode
         }
         target.previousPropertyValues = source.previousPropertyValues
-        target.animationStates = source.animationStates
 
         target.onPointerEnter = source.onPointerEnter
         target.onPointerExit = source.onPointerExit
@@ -278,6 +728,7 @@ public final class ComponentHost {
         target.onFocusEnter = source.onFocusEnter
         target.onFocusExit = source.onFocusExit
         target.onKeyDown = source.onKeyDown
+        target.onKeyUp = source.onKeyUp
         target.onActivate = source.onActivate
         target.onRepeatActivate = source.onRepeatActivate
         target.onDeleteRows = source.onDeleteRows
@@ -302,11 +753,16 @@ public final class ComponentHost {
         target.onAppearWithNode = source.onAppearWithNode
         target.onDisappearWithNode = source.onDisappearWithNode
         target.onSizeChange = source.onSizeChange
+        target.onUpdatePlatformView = source.onUpdatePlatformView
+        target.onDismantlePlatformView = source.onDismantlePlatformView
+        target.phaseAnimatorState = source.phaseAnimatorState
 
         if target.hasAppeared {
             for launch in source.pendingLifecycleTaskLaunches {
                 target.launchLifecycleTask(launch)
             }
         }
+
+        target.onUpdatePlatformView?(target)
     }
 }

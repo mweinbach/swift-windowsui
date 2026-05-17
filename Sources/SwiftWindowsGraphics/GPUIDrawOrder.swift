@@ -24,6 +24,7 @@ public enum GPUILayerBatch: Equatable, Sendable {
     case glyphs(Range<Int>)
     case pixelGlyphs(Range<Int>)
     case images(Range<Int>)
+    case paths(Range<Int>)
 }
 
 public struct GPUILayerBatchIterator: IteratorProtocol, Sendable {
@@ -32,25 +33,29 @@ public struct GPUILayerBatchIterator: IteratorProtocol, Sendable {
     private let glyphOrderings: [GPUIPrimitiveOrdering]
     private let pixelGlyphOrderings: [GPUIPrimitiveOrdering]
     private let imageOrderings: [GPUIPrimitiveOrdering]
+    private let pathOrderings: [GPUIPrimitiveOrdering]
 
     private var shadowsStart = 0
     private var quadsStart = 0
     private var glyphsStart = 0
     private var pixelGlyphsStart = 0
     private var imagesStart = 0
+    private var pathsStart = 0
 
     init(
         shadowOrderings: [GPUIPrimitiveOrdering],
         quadOrderings: [GPUIPrimitiveOrdering],
         glyphOrderings: [GPUIPrimitiveOrdering],
         pixelGlyphOrderings: [GPUIPrimitiveOrdering],
-        imageOrderings: [GPUIPrimitiveOrdering]
+        imageOrderings: [GPUIPrimitiveOrdering],
+        pathOrderings: [GPUIPrimitiveOrdering] = []
     ) {
         self.shadowOrderings = shadowOrderings
         self.quadOrderings = quadOrderings
         self.glyphOrderings = glyphOrderings
         self.pixelGlyphOrderings = pixelGlyphOrderings
         self.imageOrderings = imageOrderings
+        self.pathOrderings = pathOrderings
     }
 
     public mutating func next() -> GPUILayerBatch? {
@@ -69,6 +74,9 @@ public struct GPUILayerBatchIterator: IteratorProtocol, Sendable {
         }
         if imagesStart < imageOrderings.count {
             heads.append((imageOrderings[imagesStart].order, .image))
+        }
+        if pathsStart < pathOrderings.count {
+            heads.append((pathOrderings[pathsStart].order, .path))
         }
 
         guard let current = heads.min(by: {
@@ -116,6 +124,13 @@ public struct GPUILayerBatchIterator: IteratorProtocol, Sendable {
                 imagesStart += 1
             }
             return .images(start..<imagesStart)
+        case .path:
+            let start = pathsStart
+            let order = pathOrderings[start].order
+            while pathsStart < pathOrderings.count, pathOrderings[pathsStart].order == order {
+                pathsStart += 1
+            }
+            return .paths(start..<pathsStart)
         }
     }
 }
@@ -368,6 +383,7 @@ extension GPUIPaintPrimitiveKind {
         case .glyph: return 2
         case .pixelGlyph: return 3
         case .image: return 4
+        case .path: return 5
         }
     }
 }

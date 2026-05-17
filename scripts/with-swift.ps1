@@ -9,11 +9,6 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $swiftRoot = Join-Path $env:LOCALAPPDATA "Programs\Swift"
 
-$vsCandidates = @(
-    "C:\Program Files\Microsoft Visual Studio\18\Community\Common7\Tools\VsDevCmd.bat",
-    "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\VsDevCmd.bat"
-)
-
 function Get-LatestExistingPath([string]$Pattern) {
     $matches = Get-ChildItem -Path $Pattern -ErrorAction SilentlyContinue |
         Sort-Object FullName -Descending
@@ -23,7 +18,41 @@ function Get-LatestExistingPath([string]$Pattern) {
     return $null
 }
 
-$vsDevCmd = $vsCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+function Get-VisualStudioDevCmd {
+    $candidates = @()
+
+    if ($env:VSINSTALLDIR) {
+        $candidates += Join-Path $env:VSINSTALLDIR "Common7\Tools\VsDevCmd.bat"
+    }
+
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $installationPaths = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        foreach ($installationPath in $installationPaths) {
+            if (-not [string]::IsNullOrWhiteSpace($installationPath)) {
+                $candidates += Join-Path $installationPath "Common7\Tools\VsDevCmd.bat"
+            }
+        }
+    }
+
+    $candidates += @(
+        "C:\Program Files\Microsoft Visual Studio\18\*\Common7\Tools\VsDevCmd.bat",
+        "C:\Program Files\Microsoft Visual Studio\2022\*\Common7\Tools\VsDevCmd.bat",
+        "C:\Program Files (x86)\Microsoft Visual Studio\18\*\Common7\Tools\VsDevCmd.bat",
+        "C:\Program Files (x86)\Microsoft Visual Studio\2022\*\Common7\Tools\VsDevCmd.bat"
+    )
+
+    foreach ($candidate in $candidates) {
+        $resolved = Get-LatestExistingPath $candidate
+        if ($resolved) {
+            return $resolved
+        }
+    }
+
+    return $null
+}
+
+$vsDevCmd = Get-VisualStudioDevCmd
 $swiftBin = Get-LatestExistingPath (Join-Path $swiftRoot "Toolchains\*\usr\bin")
 $swiftRuntime = Get-LatestExistingPath (Join-Path $swiftRoot "Runtimes\*\usr\bin")
 $sdkRoot = Get-LatestExistingPath (Join-Path $swiftRoot "Platforms\*\Windows.platform\Developer\SDKs\Windows.sdk")

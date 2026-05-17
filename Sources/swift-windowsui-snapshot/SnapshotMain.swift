@@ -18,21 +18,62 @@ struct SwiftWindowsUISnapshotTool {
         )
 
         let bitmap: BitmapSurface
-        switch options.mode {
-        case .scene:
+        let backendName: String
+
+        switch options.backend {
+        case .rawScene:
             bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.scene, size: snapshot.size)
-        case .frame:
+            backendName = "raw-scene"
+        case .rawFrame:
             bitmap = GPUIRawSceneRasterizer.rasterize(snapshot.frame, size: snapshot.size)
+            backendName = "raw-frame"
+        case .cpuBatch:
+            let renderer = CPUBatchRenderer()
+            try renderer.attach(to: SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
+                pixelSize: snapshot.size,
+                scaleFactor: options.displayScale
+            ))
+            try renderer.render(scene: snapshot.scene)
+            bitmap = try renderer.lastRenderedBitmap.unwrapOrThrow(SnapshotError.missingBitmap)
+            backendName = "cpu-batch"
         }
 
-        try writeBGRA32BMP(bitmap, to: options.outputURL)
-        print("Snapshot=\(options.outputURL.path)")
+        let outputURL = options.outputURL
+        let format = options.format
+
+        switch format {
+        case .png:
+            try bitmap.writePNG(to: outputURL)
+        case .bmp:
+            try writeBGRA32BMP(bitmap, to: outputURL)
+        }
+
+        print("Snapshot=\(outputURL.path)")
+        print("Backend=\(backendName)")
         print("Mode=\(options.mode.rawValue)")
+        print("Format=\(format.rawValue)")
         print("Size=\(bitmap.width)x\(bitmap.height)")
         print("ScenePrimitives=\(snapshot.scene.primitiveCount)")
         print("FrameCommands=\(snapshot.frame.commands.count)")
+        print("SceneLayers=\(snapshot.scene.layers.count)")
+
+        if options.generateHTMLReport {
+            let reportURL = outputURL.deletingPathExtension().appendingPathExtension("html")
+            let report = SnapshotHTMLReport(
+                snapshot: snapshot,
+                bitmapURL: outputURL,
+                backendName: backendName,
+                width: Int(bitmap.width),
+                height: Int(bitmap.height)
+            )
+            try report.write(to: reportURL)
+            print("Report=\(reportURL.path)")
+        }
     }
 }
+
+// MARK: - Options
 
 private struct SnapshotOptions {
     var outputURL: URL
@@ -40,6 +81,9 @@ private struct SnapshotOptions {
     var height: Int
     var displayScale: Double
     var mode: SnapshotMode
+    var backend: SnapshotBackend
+    var format: SnapshotFormat
+    var generateHTMLReport: Bool
 
     static func parse<S: Sequence>(_ arguments: S) throws -> SnapshotOptions where S.Element == String {
         var output = URL(fileURLWithPath: "artifacts/demo-screenshot.bmp")
@@ -47,8 +91,16 @@ private struct SnapshotOptions {
         var height = 720
         var displayScale = 1.0
         var mode = SnapshotMode.scene
+        var backend: SnapshotBackend? = nil
+        var format: SnapshotFormat? = nil
+        var generateHTMLReport = false
 
-        var iterator = Array(arguments).makeIterator()
+        var normalizedArguments = Array(arguments)
+        if normalizedArguments.first == "--" {
+            normalizedArguments.removeFirst()
+        }
+
+        var iterator = normalizedArguments.makeIterator()
         while let argument = iterator.next() {
             switch argument {
             case "--output", "-o":
@@ -65,6 +117,20 @@ private struct SnapshotOptions {
                     throw SnapshotError.invalidArgument("--mode must be scene or frame.")
                 }
                 mode = parsed
+            case "--backend":
+                let value = try requireValue(after: argument, from: &iterator)
+                guard let parsed = SnapshotBackend(rawValue: value) else {
+                    throw SnapshotError.invalidArgument("--backend must be raw-scene, raw-frame, or cpu-batch.")
+                }
+                backend = parsed
+            case "--format":
+                let value = try requireValue(after: argument, from: &iterator)
+                guard let parsed = SnapshotFormat(rawValue: value) else {
+                    throw SnapshotError.invalidArgument("--format must be bmp or png.")
+                }
+                format = parsed
+            case "--html-report":
+                generateHTMLReport = true
             case "--help", "-h":
                 throw SnapshotError.help
             default:
@@ -72,12 +138,34 @@ private struct SnapshotOptions {
             }
         }
 
-        if output.pathExtension.lowercased() != "bmp" {
-            output.deletePathExtension()
-            output.appendPathExtension("bmp")
+        let resolvedBackend = backend ?? mode.defaultBackend
+
+        let resolvedFormat: SnapshotFormat
+        if let explicit = format {
+            resolvedFormat = explicit
+        } else {
+            let ext = output.pathExtension.lowercased()
+            if ext == "png" {
+                resolvedFormat = .png
+            } else if ext == "bmp" {
+                resolvedFormat = .bmp
+            } else {
+                output.deletePathExtension()
+                output.appendPathExtension("bmp")
+                resolvedFormat = .bmp
+            }
         }
 
-        return SnapshotOptions(outputURL: output, width: width, height: height, displayScale: displayScale, mode: mode)
+        return SnapshotOptions(
+            outputURL: output,
+            width: width,
+            height: height,
+            displayScale: displayScale,
+            mode: mode,
+            backend: resolvedBackend,
+            format: resolvedFormat,
+            generateHTMLReport: generateHTMLReport
+        )
     }
 
     private static func requireValue(after argument: String, from iterator: inout IndexingIterator<[String]>) throws -> String {
@@ -105,23 +193,131 @@ private struct SnapshotOptions {
 private enum SnapshotMode: String {
     case scene
     case frame
+
+    var defaultBackend: SnapshotBackend {
+        switch self {
+        case .scene:
+            return .rawScene
+        case .frame:
+            return .rawFrame
+        }
+    }
+}
+
+private enum SnapshotBackend: String {
+    case rawScene = "raw-scene"
+    case rawFrame = "raw-frame"
+    case cpuBatch = "cpu-batch"
+}
+
+private enum SnapshotFormat: String {
+    case bmp
+    case png
 }
 
 private enum SnapshotError: Error, CustomStringConvertible {
     case help
     case invalidArgument(String)
+    case missingBitmap
 
     var description: String {
         switch self {
         case .help:
             return """
-            Usage: swift-windowsui-snapshot [--output path.bmp] [--width px] [--height px] [--scale factor] [--mode scene|frame]
+            Usage: swift-windowsui-snapshot [options]
+
+            Options:
+              -o, --output <path>     Output image path (default: artifacts/demo-screenshot.bmp)
+              --width <px>            Width in pixels (default: 1280)
+              --height <px>           Height in pixels (default: 720)
+              --scale <factor>        Display scale (default: 1.0)
+              --mode <scene|frame>    Snapshot mode (default: scene)
+              --backend <raw-scene|raw-frame|cpu-batch>
+                                      Rendering backend (default: raw-scene)
+              --format <bmp|png>      Output format (default: inferred from output extension, else bmp)
+              --html-report           Generate an HTML inspection report
+              -h, --help              Show this help message
             """
         case .invalidArgument(let message):
             return message
+        case .missingBitmap:
+            return "Renderer did not produce a bitmap."
         }
     }
 }
+
+// MARK: - HTML Report
+
+private struct SnapshotHTMLReport {
+    let snapshot: WinSwiftUIRenderSnapshot
+    let bitmapURL: URL
+    let backendName: String
+    let width: Int
+    let height: Int
+
+    @MainActor
+    func write(to url: URL) throws {
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let bmpName = bitmapURL.lastPathComponent
+        let html = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>SwiftWindowsUI Snapshot Report</title>
+            <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 24px; background: #0f1419; color: #e6edf3; }
+                h1 { font-size: 20px; margin-bottom: 8px; }
+                .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+                .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+                .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+                .card h2 { font-size: 14px; margin: 0 0 12px; color: #58a6ff; }
+                .metric { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
+                .metric:last-child { border-bottom: none; }
+                .metric-key { color: #8b949e; }
+                .metric-val { font-family: ui-monospace, SFMono-Regular, monospace; }
+                img { max-width: 100%; border-radius: 4px; border: 1px solid #30363d; background: #000; image-rendering: pixelated; }
+                .image-card { grid-column: 1 / -1; }
+                .image-card h2 { margin-bottom: 12px; }
+            </style>
+        </head>
+        <body>
+            <h1>SwiftWindowsUI Snapshot Report</h1>
+            <div class="subtitle">\(backendName) &middot; \(width)&times;\(height) &middot; \(snapshot.scene.primitiveCount) primitives</div>
+            <div class="grid">
+                <div class="card">
+                    <h2>Scene Metadata</h2>
+                    <div class="metric"><span class="metric-key">Layers</span><span class="metric-val">\(snapshot.scene.layers.count)</span></div>
+                    <div class="metric"><span class="metric-key">Primitives</span><span class="metric-val">\(snapshot.scene.primitiveCount)</span></div>
+                    <div class="metric"><span class="metric-key">Paint Records</span><span class="metric-val">\(snapshot.scene.paintRecords.count)</span></div>
+                    <div class="metric"><span class="metric-key">Glyph Atlas</span><span class="metric-val">\(snapshot.scene.glyphAtlas == nil ? "none" : "present")</span></div>
+                    <div class="metric"><span class="metric-key">Pixel Glyph Atlas</span><span class="metric-val">\(snapshot.scene.pixelGlyphAtlas == nil ? "none" : "present")</span></div>
+                    <div class="metric"><span class="metric-key">Image Resources</span><span class="metric-val">\(snapshot.scene.imageResources.count)</span></div>
+                </div>
+                <div class="card">
+                    <h2>Frame Metadata</h2>
+                    <div class="metric"><span class="metric-key">Commands</span><span class="metric-val">\(snapshot.frame.commands.count)</span></div>
+                    <div class="metric"><span class="metric-key">Clear Color</span><span class="metric-val">rgba(\(Int(snapshot.frame.clearColor.red*255)), \(Int(snapshot.frame.clearColor.green*255)), \(Int(snapshot.frame.clearColor.blue*255)), \(Int(snapshot.frame.clearColor.alpha*255)))</span></div>
+                    <div class="metric"><span class="metric-key">Display Scale</span><span class="metric-val">\(snapshot.displayScale)</span></div>
+                    <div class="metric"><span class="metric-key">Logical Size</span><span class="metric-val">\(snapshot.size.width)&times;\(snapshot.size.height)</span></div>
+                </div>
+                <div class="card image-card">
+                    <h2>Rendered Output</h2>
+                    <img src="\(bmpName)" alt="Snapshot" width="\(width)" height="\(height)">
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        try html.write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+// MARK: - BMP Writer
 
 private func writeBGRA32BMP(_ bitmap: BitmapSurface, to url: URL) throws {
     let width = max(1, Int(bitmap.width))
@@ -188,5 +384,12 @@ private extension Data {
 
     mutating func appendInt32LE(_ value: Int32) {
         appendUInt32LE(UInt32(bitPattern: value))
+    }
+}
+
+private extension Optional {
+    func unwrapOrThrow(_ error: Error) throws -> Wrapped {
+        guard let value = self else { throw error }
+        return value
     }
 }

@@ -1,3 +1,7 @@
+// swift-format-ignore-file
+// Embeds raw HLSL/D2D shader source whose indentation cannot survive
+// swift-format, so the whole file opts out of lint/format.
+
 import CDirect2DInterop
 import Foundation
 import SwiftWindowsCore

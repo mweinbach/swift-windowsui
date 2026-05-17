@@ -1,9 +1,21 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsPlatform
+
 import SwiftWindowsRendererD3D11
+
 import SwiftWindowsUI
+
+// MARK: - Timer State Observability
+
+/// Immutable snapshot of animation timer state for observability.
+/// Captures the configuration determined by `syncAnimationDriver`.
+
+// MARK: - WidgetKit shims
 
 @MainActor
 public protocol Scene {
@@ -13,19 +25,16 @@ public protocol Scene {
 
     func makeWindowConfiguration() -> WindowGroupConfiguration
 }
-
-public extension Scene {
-    func makeWindowConfiguration() -> WindowGroupConfiguration {
+extension Scene {
+    public func makeWindowConfiguration() -> WindowGroupConfiguration {
         body.makeWindowConfiguration()
     }
 }
-
 extension Never: Scene {
     public func makeWindowConfiguration() -> WindowGroupConfiguration {
         fatalError("Never cannot build a window configuration")
     }
 }
-
 @MainActor
 public protocol App {
     associatedtype Body: Scene
@@ -38,13 +47,12 @@ public protocol App {
     /// Default is ``D3D11RenderBackendFactory`` on Windows.
     static func renderBackendFactory() -> RenderBackendFactory
 }
-
-public extension App {
-    static func renderBackendFactory() -> RenderBackendFactory {
+extension App {
+    public static func renderBackendFactory() -> RenderBackendFactory {
         D3D11RenderBackendFactory()
     }
 
-    static func main() {
+    public static func main() {
         let app = Self.init()
         let factory = Self.renderBackendFactory()
 
@@ -60,7 +68,6 @@ public extension App {
         }
     }
 }
-
 @MainActor
 public struct WindowGroup: Scene {
     public typealias Body = Never
@@ -149,7 +156,6 @@ public struct WindowGroup: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct Window<Content: View>: Scene {
     public typealias Body = Never
@@ -221,7 +227,6 @@ public struct Window<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct WindowScene<Content: View>: Scene {
     public typealias Body = Never
@@ -271,7 +276,6 @@ public struct WindowScene<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct ImmersiveSpace<Content: View>: Scene {
     public typealias Body = Never
@@ -307,7 +311,6 @@ public struct ImmersiveSpace<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct Volume<Content: View>: Scene {
     public typealias Body = Never
@@ -343,7 +346,6 @@ public struct Volume<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct Settings<Content: View>: Scene {
     public typealias Body = Never
@@ -370,7 +372,6 @@ public struct Settings<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct DocumentGroup<Content: View>: Scene {
     public typealias Body = Never
@@ -399,7 +400,9 @@ public struct DocumentGroup<Content: View>: Scene {
     ) {
         let document: Document
         do {
-            let readConfig = FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data) as! Document.ReadConfiguration
+            let readConfig =
+                FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data)
+                as! Document.ReadConfiguration
             document = try documentType.init(configuration: readConfig)
         } catch {
             fatalError("DocumentGroup(viewing:) requires a document type with a default-readable init: \(error)")
@@ -421,7 +424,9 @@ public struct DocumentGroup<Content: View>: Scene {
     ) {
         let document: Document
         do {
-            let readConfig = FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data) as! Document.ReadConfiguration
+            let readConfig =
+                FileDocumentReadConfiguration(file: FileWrapper(), contentType: UTType.data)
+                as! Document.ReadConfiguration
             document = try documentType.init(configuration: readConfig)
         } catch {
             fatalError("DocumentGroup(editing:) requires a document type with a default-readable init: \(error)")
@@ -461,38 +466,30 @@ public struct DocumentGroup<Content: View>: Scene {
         configuration
     }
 }
-
 public struct DocumentConfiguration: Sendable, Equatable {
     public init() {}
 }
-
 public struct DocumentTypes: Sendable, Equatable {
     public init() {}
 }
-
 public struct DocumentTypesConfiguration: Sendable, Equatable {
     public init() {}
 }
-
 public struct FileImporterConfiguration: Sendable, Equatable {
     public init() {}
 }
-
 public struct FileExporterConfiguration: Sendable, Equatable {
     public init() {}
 }
-
 public struct ContentTypes: Sendable, Equatable {
     public init() {}
 }
-
 public enum DropInteractionPhase: Sendable, Equatable {
     case entered
     case updated
     case exited
     case cancelled
 }
-
 @MainActor
 public struct MenuBarExtra<Content: View>: Scene {
     public typealias Body = Never
@@ -567,7 +564,6 @@ public struct MenuBarExtra<Content: View>: Scene {
         configuration
     }
 }
-
 @MainActor
 public struct HandlesExternalEventsScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -590,13 +586,11 @@ public struct HandlesExternalEventsScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
-public extension Scene {
-    func handlesExternalEvents(matching conditions: Set<String>) -> some Scene {
+extension Scene {
+    public func handlesExternalEvents(matching conditions: Set<String>) -> some Scene {
         HandlesExternalEventsScene(content: self, matching: conditions)
     }
 }
-
 @MainActor
 public struct ImmersionStyleScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -611,7 +605,6 @@ public struct ImmersionStyleScene<Content: Scene>: Scene {
         content.makeWindowConfiguration()
     }
 }
-
 @MainActor
 public struct VolumeBaseplateVisibilityScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -626,7 +619,6 @@ public struct VolumeBaseplateVisibilityScene<Content: Scene>: Scene {
         content.makeWindowConfiguration()
     }
 }
-
 @MainActor
 public struct PreferredSurroundingsEffectScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -641,25 +633,23 @@ public struct PreferredSurroundingsEffectScene<Content: Scene>: Scene {
         content.makeWindowConfiguration()
     }
 }
-
-public extension Scene {
-    func immersionStyle(selection: Binding<ImmersionStyle>, in allowedStyles: [ImmersionStyle]) -> some Scene {
+extension Scene {
+    public func immersionStyle(selection: Binding<ImmersionStyle>, in allowedStyles: [ImmersionStyle]) -> some Scene {
         _ = selection
         _ = allowedStyles
         return ImmersionStyleScene(content: self)
     }
 
-    func volumeBaseplateVisibility(_ visibility: Visibility) -> some Scene {
+    public func volumeBaseplateVisibility(_ visibility: Visibility) -> some Scene {
         _ = visibility
         return VolumeBaseplateVisibilityScene(content: self)
     }
 
-    func preferredSurroundingsEffect(_ effect: SurroundingsEffect?) -> some Scene {
+    public func preferredSurroundingsEffect(_ effect: SurroundingsEffect?) -> some Scene {
         _ = effect
         return PreferredSurroundingsEffectScene(content: self)
     }
 }
-
 public enum CommandGroupPlacement: Sendable {
     case appSettings
     case appTermination
@@ -679,7 +669,6 @@ public enum CommandGroupPlacement: Sendable {
     case windowArrangement
     case windowList
 }
-
 public struct CommandMenuDescriptor: Sendable {
     public var name: String
     public var content: [AnyView]
@@ -689,7 +678,6 @@ public struct CommandMenuDescriptor: Sendable {
         self.content = content
     }
 }
-
 public struct CommandGroupDescriptor: Sendable {
     public var placement: CommandGroupPlacement
     public var content: [AnyView]
@@ -701,7 +689,6 @@ public struct CommandGroupDescriptor: Sendable {
         self.replaces = replaces
     }
 }
-
 public struct CommandsConfiguration: Sendable {
     public var menus: [CommandMenuDescriptor]
     public var groups: [CommandGroupDescriptor]
@@ -713,7 +700,6 @@ public struct CommandsConfiguration: Sendable {
 
     public static let empty = CommandsConfiguration()
 }
-
 @MainActor
 public protocol Commands {
     associatedtype Body: Commands
@@ -722,25 +708,21 @@ public protocol Commands {
 
     func makeCommandsConfiguration() -> CommandsConfiguration
 }
-
-public extension Commands {
-    func makeCommandsConfiguration() -> CommandsConfiguration {
+extension Commands {
+    public func makeCommandsConfiguration() -> CommandsConfiguration {
         body.makeCommandsConfiguration()
     }
 }
-
-public extension Commands where Body == Never {
-    var body: Never {
+extension Commands where Body == Never {
+    public var body: Never {
         fatalError()
     }
 }
-
 extension Never: Commands {
     public func makeCommandsConfiguration() -> CommandsConfiguration {
         fatalError()
     }
 }
-
 @MainActor
 public struct EmptyCommands: Commands {
     public typealias Body = Never
@@ -751,7 +733,6 @@ public struct EmptyCommands: Commands {
         .empty
     }
 }
-
 @MainActor
 public struct CommandMenu: Commands {
     public typealias Body = Never
@@ -768,7 +749,6 @@ public struct CommandMenu: Commands {
         CommandsConfiguration(menus: [CommandMenuDescriptor(name: name, content: content)])
     }
 }
-
 @MainActor
 public struct CommandGroup: Commands {
     public typealias Body = Never
@@ -796,10 +776,11 @@ public struct CommandGroup: Commands {
     }
 
     public func makeCommandsConfiguration() -> CommandsConfiguration {
-        CommandsConfiguration(groups: [CommandGroupDescriptor(placement: placement, content: content, replaces: replaces)])
+        CommandsConfiguration(groups: [
+            CommandGroupDescriptor(placement: placement, content: content, replaces: replaces)
+        ])
     }
 }
-
 @MainActor
 public struct ToolbarCommands: Commands {
     public typealias Body = Never
@@ -810,7 +791,6 @@ public struct ToolbarCommands: Commands {
         .empty
     }
 }
-
 @MainActor
 public struct SidebarCommands: Commands {
     public typealias Body = Never
@@ -821,7 +801,6 @@ public struct SidebarCommands: Commands {
         .empty
     }
 }
-
 @MainActor
 public struct TextEditingCommands: Commands {
     public typealias Body = Never
@@ -832,7 +811,6 @@ public struct TextEditingCommands: Commands {
         .empty
     }
 }
-
 @MainActor
 public struct InspectorCommands: Commands {
     public typealias Body = Never
@@ -843,7 +821,6 @@ public struct InspectorCommands: Commands {
         .empty
     }
 }
-
 @MainActor
 public struct HelpCommands: Commands {
     public typealias Body = Never
@@ -854,7 +831,6 @@ public struct HelpCommands: Commands {
         .empty
     }
 }
-
 @resultBuilder
 public enum CommandsBuilder {
     public static func buildExpression(_ expression: CommandsConfiguration) -> CommandsConfiguration {
@@ -885,7 +861,6 @@ public enum CommandsBuilder {
         configuration
     }
 }
-
 @MainActor
 public struct CommandsScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -908,21 +883,19 @@ public struct CommandsScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
-public extension Scene {
-    func commands(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
+extension Scene {
+    public func commands(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
         CommandsScene(content: self, commands: commands())
     }
 
-    func commandsRemoved() -> some Scene {
+    public func commandsRemoved() -> some Scene {
         CommandsScene(content: self, commands: .empty)
     }
 
-    func commandsReplaced(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
+    public func commandsReplaced(@CommandsBuilder _ commands: () -> CommandsConfiguration) -> some Scene {
         CommandsScene(content: self, commands: commands())
     }
 }
-
 @MainActor
 public struct DefaultSizeScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -945,7 +918,6 @@ public struct DefaultSizeScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct DefaultPositionScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -968,7 +940,6 @@ public struct DefaultPositionScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowResizabilityScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -991,7 +962,6 @@ public struct WindowResizabilityScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowToolbarStyleScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1014,124 +984,122 @@ public struct WindowToolbarStyleScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
-public extension Scene {
-    func defaultSize(_ size: IntSize) -> some Scene {
+extension Scene {
+    public func defaultSize(_ size: IntSize) -> some Scene {
         DefaultSizeScene(content: self, size: size)
     }
 
-    func defaultPosition(_ position: WindowPlacement) -> some Scene {
+    public func defaultPosition(_ position: WindowPlacement) -> some Scene {
         DefaultPositionScene(content: self, position: position)
     }
 
-    func defaultWindowPlacement(_ placement: WindowPlacement) -> some Scene {
+    public func defaultWindowPlacement(_ placement: WindowPlacement) -> some Scene {
         DefaultPositionScene(content: self, position: placement)
     }
 
-    func windowPlacement(_ placement: WindowPlacement) -> some Scene {
+    public func windowPlacement(_ placement: WindowPlacement) -> some Scene {
         DefaultPositionScene(content: self, position: placement)
     }
 
-    func windowResizability(_ resizability: WindowResizability) -> some Scene {
+    public func windowResizability(_ resizability: WindowResizability) -> some Scene {
         WindowResizabilityScene(content: self, resizability: resizability)
     }
 
-    func windowToolbarStyle(_ style: WindowToolbarStyle) -> some Scene {
+    public func windowToolbarStyle(_ style: WindowToolbarStyle) -> some Scene {
         WindowToolbarStyleScene(content: self, toolbarStyle: style)
     }
 
-    func menuBarExtraStyle(_ style: MenuBarExtraStyle) -> some Scene {
+    public func menuBarExtraStyle(_ style: MenuBarExtraStyle) -> some Scene {
         MenuBarExtraStyleScene(content: self, style: style)
     }
 
-    func windowStyle(_ style: WindowStyle) -> some Scene {
+    public func windowStyle(_ style: WindowStyle) -> some Scene {
         WindowStyleScene(content: self, style: style)
     }
 
-    func restorationBehavior(_ behavior: SceneRestorationBehavior) -> some Scene {
+    public func restorationBehavior(_ behavior: SceneRestorationBehavior) -> some Scene {
         RestorationBehaviorScene(content: self, behavior: behavior)
     }
 
-    func defaultLaunchBehavior(_ behavior: LaunchBehavior) -> some Scene {
+    public func defaultLaunchBehavior(_ behavior: LaunchBehavior) -> some Scene {
         LaunchBehaviorScene(content: self, behavior: behavior)
     }
 
-    func windowActivationMode(_ mode: WindowActivationMode) -> some Scene {
+    public func windowActivationMode(_ mode: WindowActivationMode) -> some Scene {
         WindowActivationModeScene(content: self, mode: mode)
     }
 
-    func windowBackgroundDragBehavior(_ behavior: WindowBackgroundDragBehavior) -> some Scene {
+    public func windowBackgroundDragBehavior(_ behavior: WindowBackgroundDragBehavior) -> some Scene {
         WindowBackgroundDragBehaviorScene(content: self, behavior: behavior)
     }
 
-    func windowSubtitle(_ subtitle: String?) -> some Scene {
+    public func windowSubtitle(_ subtitle: String?) -> some Scene {
         WindowSubtitleScene(content: self, subtitle: subtitle)
     }
 
-    func windowSubtitle<S: StringProtocol>(_ subtitle: S) -> some Scene {
+    public func windowSubtitle<S: StringProtocol>(_ subtitle: S) -> some Scene {
         WindowSubtitleScene(content: self, subtitle: String(subtitle))
     }
 
-    func windowSubtitle(_ subtitleKey: LocalizedStringKey) -> some Scene {
+    public func windowSubtitle(_ subtitleKey: LocalizedStringKey) -> some Scene {
         WindowSubtitleScene(content: self, subtitle: subtitleKey.resolvedString)
     }
 
-    func windowLevel(_ level: WindowLevel) -> some Scene {
+    public func windowLevel(_ level: WindowLevel) -> some Scene {
         WindowLevelScene(content: self, level: level)
     }
 
-    func windowTitleBar(_ visibility: WindowTitleBarVisibility) -> some Scene {
+    public func windowTitleBar(_ visibility: WindowTitleBarVisibility) -> some Scene {
         WindowTitleBarScene(content: self, titleBarVisibility: visibility)
     }
 
-    func windowMinSize(_ size: IntSize) -> some Scene {
+    public func windowMinSize(_ size: IntSize) -> some Scene {
         WindowMinSizeScene(content: self, size: size)
     }
 
-    func windowMaxSize(_ size: IntSize) -> some Scene {
+    public func windowMaxSize(_ size: IntSize) -> some Scene {
         WindowMaxSizeScene(content: self, size: size)
     }
 
-    func windowIdealSize(_ size: IntSize) -> some Scene {
+    public func windowIdealSize(_ size: IntSize) -> some Scene {
         WindowIdealSizeScene(content: self, size: size)
     }
 
-    func windowID(_ id: String) -> some Scene {
+    public func windowID(_ id: String) -> some Scene {
         WindowIDScene(content: self, id: id)
     }
 
-    func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some Scene {
+    public func environment<Value>(_ keyPath: WritableKeyPath<EnvironmentValues, Value>, _ value: Value) -> some Scene {
         EnvironmentScene(content: self, keyPath: keyPath, value: value)
     }
 
-    func defaultAppStorage(_ store: UserDefaults) -> some Scene {
+    public func defaultAppStorage(_ store: UserDefaults) -> some Scene {
         environment(\.defaultAppStorage, store)
     }
 
-    func defaultColorScheme(_ colorScheme: ColorScheme) -> some Scene {
+    public func defaultColorScheme(_ colorScheme: ColorScheme) -> some Scene {
         environment(\.colorScheme, colorScheme)
     }
 
-    func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some Scene {
+    public func environmentObject<ObjectType: ObservableObject>(_ object: ObjectType) -> some Scene {
         EnvironmentObjectScene(content: self, object: object)
     }
 
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
-    func persistenceBehavior(_ behavior: ScenePersistenceBehavior) -> some Scene {
+    public func persistenceBehavior(_ behavior: ScenePersistenceBehavior) -> some Scene {
         PersistenceBehaviorScene(content: self, behavior: behavior)
     }
 
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
-    func windowManagerRole(_ role: WindowManagerRole) -> some Scene {
+    public func windowManagerRole(_ role: WindowManagerRole) -> some Scene {
         WindowManagerRoleScene(content: self, role: role)
     }
 
     @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
-    func allowsWindowInlining(_ enabled: Bool = true) -> some Scene {
+    public func allowsWindowInlining(_ enabled: Bool = true) -> some Scene {
         AllowsWindowInliningScene(content: self, enabled: enabled)
     }
 }
-
 @MainActor
 public struct MenuBarExtraStyleScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1154,7 +1122,6 @@ public struct MenuBarExtraStyleScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowStyleScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1177,7 +1144,6 @@ public struct WindowStyleScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct RestorationBehaviorScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1200,7 +1166,6 @@ public struct RestorationBehaviorScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct LaunchBehaviorScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1223,7 +1188,6 @@ public struct LaunchBehaviorScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowActivationModeScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1246,7 +1210,6 @@ public struct WindowActivationModeScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowBackgroundDragBehaviorScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1269,7 +1232,6 @@ public struct WindowBackgroundDragBehaviorScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowSubtitleScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1292,7 +1254,6 @@ public struct WindowSubtitleScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowLevelScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1315,7 +1276,6 @@ public struct WindowLevelScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowTitleBarScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1338,7 +1298,6 @@ public struct WindowTitleBarScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowMinSizeScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1361,7 +1320,6 @@ public struct WindowMinSizeScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowMaxSizeScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1384,7 +1342,6 @@ public struct WindowMaxSizeScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowIdealSizeScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1407,7 +1364,6 @@ public struct WindowIdealSizeScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct WindowIDScene<Content: Scene>: Scene {
     public typealias Body = Never
@@ -1430,7 +1386,6 @@ public struct WindowIDScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct EnvironmentScene<Content: Scene, Value>: Scene {
     public typealias Body = Never
@@ -1455,7 +1410,6 @@ public struct EnvironmentScene<Content: Scene, Value>: Scene {
         return configuration
     }
 }
-
 @MainActor
 public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObject>: Scene {
     public typealias Body = Never
@@ -1478,7 +1432,6 @@ public struct EnvironmentObjectScene<Content: Scene, ObjectType: ObservableObjec
         return configuration
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct PersistenceBehaviorScene<Content: Scene>: Scene {
@@ -1502,7 +1455,6 @@ public struct PersistenceBehaviorScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct WindowManagerRoleScene<Content: Scene>: Scene {
@@ -1526,7 +1478,6 @@ public struct WindowManagerRoleScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct AllowsWindowInliningScene<Content: Scene>: Scene {
@@ -1550,7 +1501,6 @@ public struct AllowsWindowInliningScene<Content: Scene>: Scene {
         return configuration
     }
 }
-
 public struct WindowGroupConfiguration {
     public var title: String
     public var size: IntSize
@@ -1648,7 +1598,6 @@ public struct WindowGroupConfiguration {
         self.resizeToContents = resizeToContents
     }
 }
-
 enum WindowHostInputEvent {
     case pointerMoved(point: Point, scaleFactor: Double)
     case pointerExitedWindow
@@ -1659,7 +1608,6 @@ enum WindowHostInputEvent {
     case keyDown(KeyboardEvent)
     case keyboardFocusDidLeaveWindow
 }
-
 @MainActor
 final class WinSwiftUIWindowHost: WindowDelegate {
     private enum PresentationBackend {
@@ -1765,21 +1713,25 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         configuration: WindowGroupConfiguration,
         renderer: any RenderBackend = DefaultRenderBackendFactory.make(),
         batchRenderer: (any BatchRenderBackend)? = DefaultRenderBackendFactory.makeBatchBackend(),
-        surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost.defaultSurfaceDescriptor,
+        surfaceDescriptorProvider: @escaping @MainActor (Win32Window) -> SurfaceDescriptor? = WinSwiftUIWindowHost
+            .defaultSurfaceDescriptor,
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
         startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment()
     ) {
         self.configuration = configuration
-        self.window = Win32Window(title: configuration.title, clientSize: configuration.size, titleBarVisibility: configuration.titleBarVisibility ?? .automatic)
+        self.window = Win32Window(
+            title: configuration.title, clientSize: configuration.size,
+            titleBarVisibility: configuration.titleBarVisibility ?? .automatic)
         self.renderer = renderer
         self.batchRenderer = batchRenderer
         self.surfaceDescriptorProvider = surfaceDescriptorProvider
         self.runtime = RetainedViewRuntime(clearColor: configuration.clearColor, root: ViewNode())
         self.componentHost = ComponentHost(runtime: runtime)
-        self.sceneRenderer = sceneRenderer ?? { runtime, timestamp in
-            runtime.renderScene(at: timestamp)
-        }
+        self.sceneRenderer =
+            sceneRenderer ?? { runtime, timestamp in
+                runtime.renderScene(at: timestamp)
+            }
         self.startupPresentationMode = startupPresentationMode
         self.startupProbeConfiguration = startupProbeConfiguration
 
@@ -1953,10 +1905,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var buildContext: ViewBuildContext {
         ViewBuildContext(
             canvasSizeProvider: { [weak self] in
-                self?.runtime.root.frame.size ?? Size(
-                    width: Double(self?.configuration.size.width ?? 0),
-                    height: Double(self?.configuration.size.height ?? 0)
-                )
+                self?.runtime.root.frame.size
+                    ?? Size(
+                        width: Double(self?.configuration.size.width ?? 0),
+                        height: Double(self?.configuration.size.height ?? 0)
+                    )
             },
             invalidateHandler: { [weak self] in
                 self?.reloadContent()
@@ -2142,7 +2095,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             let relevantChanges = self.pendingChangedObjects
             self.pendingChangedObjects.removeAll()
 
-            let dependsOnChangedObject = self.componentHost.observedObjects.isEmpty
+            let dependsOnChangedObject =
+                self.componentHost.observedObjects.isEmpty
                 || !relevantChanges.isDisjoint(with: self.componentHost.observedObjects)
 
             guard dependsOnChangedObject else {
@@ -2193,7 +2147,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return false
         }
 
-        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate else {
+        guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
+        else {
             syncAnimationDriver(for: window)
             return false
         }
@@ -2234,7 +2189,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         runtime.minimumFrameInterval = 1.0 / Double(refreshRate)
         window.useHighResolutionTimer = true
         let intervalMilliseconds = UInt32(max(1, Int((1000.0 / Double(refreshRate)).rounded())))
-        let shouldDriveFrames = runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
+        let shouldDriveFrames =
+            runtime.hasActiveAnimations || runtime.isDirty || pendingPresentation || inputRateTracker.isHighRate
         window.setAnimationTimerEnabled(shouldDriveFrames, intervalMilliseconds: intervalMilliseconds)
 
         // Record timer state for observability (testing and debugging)
@@ -2406,7 +2362,6 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         print("[WinSwiftUI] \(message)")
     }
 }
-
 @MainActor
 private final class WindowInputRateTracker {
     private var timestamps: [TimeInterval] = []
@@ -2433,11 +2388,6 @@ private final class WindowInputRateTracker {
         timestamps.removeAll { $0 < threshold }
     }
 }
-
-// MARK: - Timer State Observability
-
-/// Immutable snapshot of animation timer state for observability.
-/// Captures the configuration determined by `syncAnimationDriver`.
 @MainActor
 public struct TimerState: Equatable, Sendable {
     /// Whether the animation timer is currently enabled.
@@ -2464,27 +2414,21 @@ public struct TimerState: Equatable, Sendable {
         self.refreshRate = refreshRate
     }
 }
-
-// MARK: - WidgetKit shims
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol Widget {
     associatedtype Body: WidgetConfiguration
     var body: Body { get }
     static var supportedFamilies: [WidgetFamily] { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
-public extension Widget {
-    static var supportedFamilies: [WidgetFamily] { [.systemSmall, .systemMedium, .systemLarge] }
+extension Widget {
+    public static var supportedFamilies: [WidgetFamily] { [.systemSmall, .systemMedium, .systemLarge] }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol WidgetBundle {
     associatedtype Body: Widget
     @WidgetBundleBuilder var body: Body { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 @resultBuilder
 public enum WidgetBundleBuilder {
@@ -2510,7 +2454,6 @@ public enum WidgetBundleBuilder {
         widget
     }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct WidgetGroup: Widget {
     public typealias Body = Never
@@ -2520,45 +2463,41 @@ public struct WidgetGroup: Widget {
         self.widgets = widgets
     }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 @preconcurrency public protocol WidgetConfiguration {
     associatedtype Body: WidgetConfiguration
     var body: Body { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 extension Never: @preconcurrency WidgetConfiguration {}
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct StaticConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
     public typealias Body = Never
     public var body: Never { fatalError("StaticConfiguration has no body") }
     public init(kind: String, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct IntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: Intent {
     public typealias Body = Never
     public var body: Never { fatalError("IntentConfiguration has no body") }
-    public init(kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+    public init(
+        kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content
+    ) {}
 }
-
 @available(macOS 17.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct AppIntentConfiguration<IntentType, Content: View>: WidgetConfiguration where IntentType: AppIntent {
     public typealias Body = Never
     public var body: Never { fatalError("AppIntentConfiguration has no body") }
-    public init(kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content) {}
+    public init(
+        kind: String, intent: IntentType.Type, provider: TimelineProvider, content: @escaping (TimelineEntry) -> Content
+    ) {}
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol AccessoryWidgetConfiguration: WidgetConfiguration {}
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol WidgetAccentable {
     var isWidgetAccentable: Bool { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public enum WidgetFamily: Sendable, Equatable, Hashable {
     case systemSmall
@@ -2569,7 +2508,6 @@ public enum WidgetFamily: Sendable, Equatable, Hashable {
     case accessoryCircular
     case accessoryRectangular
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol TimelineProvider {
     associatedtype Entry: TimelineEntry
@@ -2577,12 +2515,10 @@ public protocol TimelineProvider {
     func getSnapshot(in context: TimelineProviderContext, completion: @escaping (Entry) -> Void)
     func getTimeline(in context: TimelineProviderContext, completion: @escaping (Timeline<Entry>) -> Void)
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol TimelineEntry: Sendable, Equatable {
     var date: Date { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct Timeline<Entry: TimelineEntry>: Sendable, Equatable {
     public let entries: [Entry]
@@ -2592,14 +2528,12 @@ public struct Timeline<Entry: TimelineEntry>: Sendable, Equatable {
         self.policy = policy
     }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public enum TimelineReloadPolicy: Sendable, Equatable {
     case atEnd
     case after(Date)
     case never
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct TimelineProviderContext: Sendable, Equatable {
     public let family: WidgetFamily
@@ -2609,17 +2543,14 @@ public struct TimelineProviderContext: Sendable, Equatable {
         self.displaySize = displaySize
     }
 }
-
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public protocol Intent: Sendable, Equatable {}
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public protocol AppIntent: Sendable, Equatable {
     static var title: String { get }
     static var description: String? { get }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
-public extension AppIntent {
-    static var description: String? { nil }
+extension AppIntent {
+    public static var description: String? { nil }
 }

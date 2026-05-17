@@ -1,6 +1,7 @@
-import XCTest
 import Foundation
 import SwiftWindowsCore
+import XCTest
+
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
@@ -17,9 +18,10 @@ private func makeNode<V: View>(_ view: V) -> ViewNode {
 final class WinSwiftUIChartMapTipTests: XCTestCase {
     func testChartRendersPlaceholderPanel() async {
         await MainActor.run {
-            let node = makeNode(Chart {
-                BarMark(x: PlottableValue("X", 1), y: PlottableValue("Y", 2))
-            })
+            let node = makeNode(
+                Chart {
+                    BarMark(x: PlottableValue("X", 1), y: PlottableValue("Y", 2))
+                })
             XCTAssertEqual(node.preferredSize, Size(width: 300, height: 200))
             XCTAssertFalse(node.isHitTestVisible)
         }

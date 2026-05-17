@@ -1,10 +1,20 @@
-import XCTest
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
 import SwiftWindowsPlatform
+
+import XCTest
+
 @testable import SwiftWindowsUI
+
+// MARK: - VAL-PARITY-001: Normalized Output Comparison Helpers
+
+/// Helper struct for normalized output comparison (VAL-PARITY-001)
 
 final class RetainedViewRuntimeTests: XCTestCase {
     func testUnmountLifecycleFiresForRemovedAndReplacedSubtrees() async {
@@ -784,18 +794,22 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 70),
-                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
                 scrollAxis: .vertical,
                 scrollStep: 20,
                 showsScrollIndicator: true,
                 isHitTestVisible: false,
                 children: [itemA, itemB, itemC]
             )
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
             let runtime = RetainedViewRuntime(root: root)
 
             _ = runtime.renderFrame()
@@ -815,18 +829,22 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 90, height: 40),
-                layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5))),
+                layoutMode: .stack(
+                    .horizontal(spacing: 10, padding: EdgeInsets(top: 5, leading: 5, bottom: 5, trailing: 5))),
                 scrollAxis: .horizontal,
                 scrollStep: 20,
                 showsScrollIndicator: true,
                 isHitTestVisible: false,
                 children: [itemA, itemB, itemC]
             )
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 80), isHitTestVisible: false, children: [scrollPanel])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 80), isHitTestVisible: false, children: [scrollPanel])
             let runtime = RetainedViewRuntime(root: root)
 
             _ = runtime.renderFrame()
@@ -844,11 +862,14 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let indicatorColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 70),
-                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
                 scrollAxis: .vertical,
                 scrollOffset: 20,
                 showsScrollIndicator: true,
@@ -856,7 +877,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 isHitTestVisible: false,
                 children: [itemA, itemB, itemC]
             )
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
             let runtime = RetainedViewRuntime(root: root)
 
             let fills = fillRectCommands(in: runtime.renderFrame())
@@ -904,7 +926,9 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let idleColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
             let hoverColor = Color(red: 0.9, green: 0.95, blue: 1, alpha: 0.55)
@@ -912,7 +936,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 70),
-                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
                 scrollAxis: .vertical,
                 showsScrollIndicator: true,
                 scrollIndicatorColor: idleColor,
@@ -921,7 +946,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 isHitTestVisible: false,
                 children: [itemA, itemB, itemC]
             )
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
             let runtime = RetainedViewRuntime(root: root)
 
             _ = runtime.renderFrame()
@@ -952,7 +978,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let label = Controls.label("HELLO", color: .white, scale: 2, alignment: .leading)
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 120, height: 60),
-                layoutMode: .stack(.vertical(padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .leading)),
+                layoutMode: .stack(
+                    .vertical(padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .leading)),
                 isHitTestVisible: false,
                 children: [label]
             )
@@ -968,7 +995,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
     func testLabelProducesBitmapDrawCommandForNativeTextPath() async {
         await MainActor.run {
             let label = Controls.label("HELLO", color: .white, scale: 2, alignment: .leading)
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
             let runtime = RetainedViewRuntime(root: root)
 
             let hasBitmapCommand = runtime.renderFrame().commands.contains { command in
@@ -984,9 +1012,12 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     func testRedactedTextDrawsPlaceholderInsteadOfGlyphs() async {
         await MainActor.run {
-            let label = Controls.label("SECRET", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
+            let label = Controls.label(
+                "SECRET", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading
+            )
             label.redactionReasons = [.placeholder]
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
             let runtime = RetainedViewRuntime(root: root)
 
             let frame = runtime.renderFrame()
@@ -1014,8 +1045,10 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
     func testDisplayScaleIncreasesRenderedBitmapResolution() async {
         await MainActor.run {
-            let label = Controls.label("HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
-            let root = ViewNode(frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
+            let label = Controls.label(
+                "HELLO", frame: Rect(x: 10, y: 10, width: 80, height: 24), color: .white, scale: 2, alignment: .leading)
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 120, height: 60), isHitTestVisible: false, children: [label])
             let runtime = RetainedViewRuntime(root: root, displayScale: 2.0)
 
             let bitmapCommand = runtime.renderFrame().commands.first { command in
@@ -1082,7 +1115,9 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 endColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
                 axis: .horizontal
             )
-            let node = ViewNode(frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: gradient.startColor, backgroundGradient: .linear(gradient))
+            let node = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 80, height: 40), backgroundColor: gradient.startColor,
+                backgroundGradient: .linear(gradient))
             let runtime = RetainedViewRuntime(root: node)
 
             let fills = fillRectCommands(in: runtime.renderFrame())
@@ -1426,7 +1461,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             rightContent.backgroundColor = Color(red: 0.3, green: 0.4, blue: 0.7, alpha: 1)
             let frame = runtime.renderFrame()
-            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)) else {
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50))
+            else {
                 XCTFail("expected scroll indicator")
                 return
             }
@@ -1613,14 +1649,17 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let idleColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
             let hoverColor = Color(red: 0.9, green: 0.95, blue: 1, alpha: 0.55)
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 70),
-                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
                 scrollAxis: .vertical,
                 showsScrollIndicator: true,
                 scrollIndicatorColor: idleColor,
@@ -1931,16 +1970,16 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let runtime = RetainedViewRuntime(root: root)
 
             // Test frame path independently
-            let initialFrame = runtime.renderFrame() // Initial frame
+            let initialFrame = runtime.renderFrame()  // Initial frame
             let initialFrameRects = fillRectCommands(in: initialFrame).map(\.rect)
             let initialFrameColors = fillRectCommands(in: initialFrame).map(\.color)
-            
+
             right.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
             let mutatedFrame = runtime.renderFrame()
             let frameReplayCount = runtime.lastFrameReplayCount
             let finalFrameRects = fillRectCommands(in: mutatedFrame).map(\.rect)
             let finalFrameColors = fillRectCommands(in: mutatedFrame).map(\.color)
-            
+
             // Test scene path independently (on fresh runtime)
             let left2 = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 40, height: 40),
@@ -1955,11 +1994,11 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 children: [left2, right2]
             )
             let runtime2 = RetainedViewRuntime(root: root2)
-            
-            let initialScene = runtime2.renderScene() // Initial scene
+
+            let initialScene = runtime2.renderScene()  // Initial scene
             let initialSceneRects = sceneFillRects(in: initialScene)
             let initialSceneColors = sceneQuadColors(in: initialScene)
-            
+
             right2.backgroundColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
             let mutatedScene = runtime2.renderScene()
             let sceneReplayCount = runtime2.lastSceneReplayCount
@@ -1969,58 +2008,92 @@ final class RetainedViewRuntimeTests: XCTestCase {
             // Assert: Both paths show replay occurred for unchanged sibling
             XCTAssertEqual(frameReplayCount, 1, "Frame path should replay unchanged left sibling")
             XCTAssertEqual(sceneReplayCount, 1, "Scene path should replay unchanged left sibling")
-            
+
             // Assert: Unchanged sibling (left) geometry and color preserved BEFORE mutation
             XCTAssertEqual(initialFrameRects[0], left.frame, "Frame: initial left geometry preserved")
             XCTAssertEqual(initialSceneRects[0], left2.frame, "Scene: initial left geometry preserved")
-            XCTAssertEqual(initialFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Frame: initial left color is red")
-            XCTAssertEqual(initialSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Scene: initial left color is red")
-            
+            XCTAssertEqual(
+                initialFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Frame: initial left color is red")
+            XCTAssertEqual(
+                initialSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Scene: initial left color is red")
+
             // Assert: Unchanged sibling (left) geometry and color preserved AFTER mutation
             // The unchanged left sibling should have exactly the same rect and color as before
             XCTAssertEqual(finalFrameRects[0], left.frame, "Frame: final left geometry matches original")
             XCTAssertEqual(finalSceneRects[0], left2.frame, "Scene: final left geometry matches original")
-            XCTAssertEqual(finalFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Frame: final left color preserved as red")
-            XCTAssertEqual(finalSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1), "Scene: final left color preserved as red")
-            
+            XCTAssertEqual(
+                finalFrameColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1),
+                "Frame: final left color preserved as red")
+            XCTAssertEqual(
+                finalSceneColors[0], Color(red: 1, green: 0, blue: 0, alpha: 1),
+                "Scene: final left color preserved as red")
+
             // Assert: Pre- and post-mutation normalized output comparison for unchanged sibling
             // Geometry: unchanged sibling rect should be identical before and after mutation on both paths
-            XCTAssertEqual(initialFrameRects[0], finalFrameRects[0], "Frame: unchanged sibling geometry identical pre/post-mutation")
-            XCTAssertEqual(initialSceneRects[0], finalSceneRects[0], "Scene: unchanged sibling geometry identical pre/post-mutation")
-            XCTAssertEqual(initialFrameColors[0], finalFrameColors[0], "Frame: unchanged sibling color identical pre/post-mutation")
-            XCTAssertEqual(initialSceneColors[0], finalSceneColors[0], "Scene: unchanged sibling color identical pre/post-mutation")
-            
+            XCTAssertEqual(
+                initialFrameRects[0], finalFrameRects[0],
+                "Frame: unchanged sibling geometry identical pre/post-mutation")
+            XCTAssertEqual(
+                initialSceneRects[0], finalSceneRects[0],
+                "Scene: unchanged sibling geometry identical pre/post-mutation")
+            XCTAssertEqual(
+                initialFrameColors[0], finalFrameColors[0], "Frame: unchanged sibling color identical pre/post-mutation"
+            )
+            XCTAssertEqual(
+                initialSceneColors[0], finalSceneColors[0], "Scene: unchanged sibling color identical pre/post-mutation"
+            )
+
             // Assert: Mutated node (right) geometry unchanged, color changed on both paths
             XCTAssertEqual(finalFrameRects[1], right.frame, "Right node rect should match between paths")
             XCTAssertEqual(finalSceneRects[1], right2.frame, "Right node rect should match between paths")
-            XCTAssertEqual(finalFrameColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in frame")
-            XCTAssertEqual(finalSceneColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1), "Right node color should be blue in scene")
-            
+            XCTAssertEqual(
+                finalFrameColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1),
+                "Right node color should be blue in frame")
+            XCTAssertEqual(
+                finalSceneColors[1], Color(red: 0, green: 0, blue: 1, alpha: 1),
+                "Right node color should be blue in scene")
+
             // Assert: Only the right node was regenerated, not the left
             XCTAssertEqual(finalFrameRects.count, 2, "Frame should still have exactly 2 fill rects")
             XCTAssertEqual(finalSceneRects.count, 2, "Scene should still have exactly 2 quads")
-            
+
             // Assert: Both paths produce equivalent geometry for mutated region
             XCTAssertEqual(finalFrameRects[1], finalSceneRects[1], "Right node rect equivalent between frame and scene")
-            
+
             // VAL-PARITY-001 EVIDENCE: Normalized output comparison showing unchanged sibling equivalence
             // Create normalized output representations for comparison
             let normalizedInitialFrame = NormalizedOutput(rects: initialFrameRects, colors: initialFrameColors)
             let normalizedFinalFrame = NormalizedOutput(rects: finalFrameRects, colors: finalFrameColors)
             let normalizedInitialScene = NormalizedOutput(rects: initialSceneRects, colors: initialSceneColors)
             let normalizedFinalScene = NormalizedOutput(rects: finalSceneRects, colors: finalSceneColors)
-            
+
             // Unchanged sibling (index 0) should have identical normalized output before and after mutation
-            XCTAssertEqual(normalizedInitialFrame.normalizedRects[0], normalizedFinalFrame.normalizedRects[0], "VAL-PARITY-001: Frame unchanged sibling normalized geometry equivalent pre/post-mutation")
-            XCTAssertEqual(normalizedInitialFrame.normalizedColors[0], normalizedFinalFrame.normalizedColors[0], "VAL-PARITY-001: Frame unchanged sibling normalized color equivalent pre/post-mutation")
-            XCTAssertEqual(normalizedInitialScene.normalizedRects[0], normalizedFinalScene.normalizedRects[0], "VAL-PARITY-001: Scene unchanged sibling normalized geometry equivalent pre/post-mutation")
-            XCTAssertEqual(normalizedInitialScene.normalizedColors[0], normalizedFinalScene.normalizedColors[0], "VAL-PARITY-001: Scene unchanged sibling normalized color equivalent pre/post-mutation")
-            
+            XCTAssertEqual(
+                normalizedInitialFrame.normalizedRects[0], normalizedFinalFrame.normalizedRects[0],
+                "VAL-PARITY-001: Frame unchanged sibling normalized geometry equivalent pre/post-mutation")
+            XCTAssertEqual(
+                normalizedInitialFrame.normalizedColors[0], normalizedFinalFrame.normalizedColors[0],
+                "VAL-PARITY-001: Frame unchanged sibling normalized color equivalent pre/post-mutation")
+            XCTAssertEqual(
+                normalizedInitialScene.normalizedRects[0], normalizedFinalScene.normalizedRects[0],
+                "VAL-PARITY-001: Scene unchanged sibling normalized geometry equivalent pre/post-mutation")
+            XCTAssertEqual(
+                normalizedInitialScene.normalizedColors[0], normalizedFinalScene.normalizedColors[0],
+                "VAL-PARITY-001: Scene unchanged sibling normalized color equivalent pre/post-mutation")
+
             // Mutated sibling (index 1) should show color change but geometry preservation
-            XCTAssertEqual(normalizedInitialFrame.normalizedRects[1], normalizedFinalFrame.normalizedRects[1], "VAL-PARITY-001: Mutated node geometry preserved in frame")
-            XCTAssertEqual(normalizedInitialScene.normalizedRects[1], normalizedFinalScene.normalizedRects[1], "VAL-PARITY-001: Mutated node geometry preserved in scene")
-            XCTAssertNotEqual(normalizedInitialFrame.normalizedColors[1], normalizedFinalFrame.normalizedColors[1], "VAL-PARITY-001: Mutated node color changed in frame")
-            XCTAssertNotEqual(normalizedInitialScene.normalizedColors[1], normalizedFinalScene.normalizedColors[1], "VAL-PARITY-001: Mutated node color changed in scene")
+            XCTAssertEqual(
+                normalizedInitialFrame.normalizedRects[1], normalizedFinalFrame.normalizedRects[1],
+                "VAL-PARITY-001: Mutated node geometry preserved in frame")
+            XCTAssertEqual(
+                normalizedInitialScene.normalizedRects[1], normalizedFinalScene.normalizedRects[1],
+                "VAL-PARITY-001: Mutated node geometry preserved in scene")
+            XCTAssertNotEqual(
+                normalizedInitialFrame.normalizedColors[1], normalizedFinalFrame.normalizedColors[1],
+                "VAL-PARITY-001: Mutated node color changed in frame")
+            XCTAssertNotEqual(
+                normalizedInitialScene.normalizedColors[1], normalizedFinalScene.normalizedColors[1],
+                "VAL-PARITY-001: Mutated node color changed in scene")
         }
     }
 
@@ -2059,7 +2132,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
             let frameReplayCount = runtime.lastFrameReplayCount
             let frameRects = fillRectCommands(in: frameAfterMutation).map(\.rect)
             let frameColors = fillRectCommands(in: frameAfterMutation).map(\.color)
-            
+
             // Test scene path independently (on fresh runtime)
             let leftChild2 = ViewNode(
                 frame: Rect(x: 5, y: 5, width: 20, height: 20),
@@ -2084,7 +2157,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 children: [left2, right2]
             )
             let runtime2 = RetainedViewRuntime(root: root2)
-            
+
             _ = runtime2.renderScene()
             rightChild2.backgroundColor = Color(red: 1, green: 1, blue: 0, alpha: 1)
             let sceneAfterMutation = runtime2.renderScene()
@@ -2095,19 +2168,21 @@ final class RetainedViewRuntimeTests: XCTestCase {
             // Assert: Both paths replayed unchanged left subtree
             XCTAssertEqual(frameReplayCount, 1, "Frame path should replay unchanged left subtree")
             XCTAssertEqual(sceneReplayCount, 1, "Scene path should replay unchanged left subtree")
-            
+
             // Assert: Left subtree geometry preserved on both paths (may be in different order)
             // Both paths should contain the left parent frame (0,0,40,40)
             XCTAssertTrue(frameRects.contains(left.frame), "Left parent rect preserved in frame")
             XCTAssertTrue(sceneRects.contains(left2.frame), "Left parent rect preserved in scene")
-            
-            // Both paths should contain the left child frame (5,5,20,20) 
+
+            // Both paths should contain the left child frame (5,5,20,20)
             XCTAssertTrue(frameRects.contains(leftChild.frame), "Left child rect preserved in frame")
             XCTAssertTrue(sceneRects.contains(leftChild2.frame), "Left child rect preserved in scene")
-            
+
             // Assert: Mutated node has new color on both paths
-            XCTAssertEqual(frameColors[3], Color(red: 1, green: 1, blue: 0, alpha: 1), "Right child should have yellow in frame")
-            XCTAssertEqual(sceneColors[3], Color(red: 1, green: 1, blue: 0, alpha: 1), "Right child should have yellow in scene")
+            XCTAssertEqual(
+                frameColors[3], Color(red: 1, green: 1, blue: 0, alpha: 1), "Right child should have yellow in frame")
+            XCTAssertEqual(
+                sceneColors[3], Color(red: 1, green: 1, blue: 0, alpha: 1), "Right child should have yellow in scene")
         }
     }
 
@@ -2119,13 +2194,13 @@ final class RetainedViewRuntimeTests: XCTestCase {
             // so we can directly compare scroll deltas and indicator geometry
             var contentLayouts = 0
             var scrollLayouts = 0
-            
+
             let content = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 80, height: 120),
                 backgroundColor: Color(red: 1, green: 1, blue: 1, alpha: 1)
             )
             content.onLayout = { _ in contentLayouts += 1 }
-            
+
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 40),
                 layoutMode: .absolute,
@@ -2135,7 +2210,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
                 children: [content]
             )
             scrollPanel.onLayout = { _ in scrollLayouts += 1 }
-            
+
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 120, height: 80),
                 isHitTestVisible: false,
@@ -2146,95 +2221,105 @@ final class RetainedViewRuntimeTests: XCTestCase {
             // Initial render on both paths
             let initialFrame = runtime.renderFrame()
             let initialScene = runtime.renderScene()
-            
+
             XCTAssertEqual(contentLayouts, 1, "Content should layout only once (shared)")
             XCTAssertEqual(scrollLayouts, 1, "Scroll panel should layout only once (shared)")
-            
+
             // Capture initial content positions on BOTH paths
-            let initialFrameContentY = fillRectCommands(in: initialFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
+            let initialFrameContentY = fillRectCommands(in: initialFrame).first {
+                $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1)
+            }?.rect.origin.y
             let initialSceneRects = sceneFillRects(in: initialScene)
             let initialSceneContentRect = initialSceneRects.first { rect in
                 rect.size.height == 120  // content height
             }
             XCTAssertNotNil(initialFrameContentY, "Should find content in initial frame")
             XCTAssertNotNil(initialSceneContentRect, "Should find content in initial scene")
-            
+
             // Capture initial indicator positions on BOTH paths
             let initialFrameIndicator = fillRectCommands(in: initialFrame).last
             let initialSceneQuads = initialScene.layers.flatMap { $0.quads }
             let initialSceneIndicator = initialSceneQuads.last
-            
+
             // Apply paint-only scroll update
             scrollPanel.scrollOffset = 30
-            
+
             // Render both paths after scroll
             let scrolledFrame = runtime.renderFrame()
             let scrolledScene = runtime.renderScene()
-            
+
             // Assert: Layout reuse on both paths
             XCTAssertEqual(contentLayouts, 1, "Content should not relayout for paint-only scroll")
             XCTAssertEqual(scrollLayouts, 1, "Scroll panel should not relayout for paint-only scroll")
             XCTAssertGreaterThanOrEqual(runtime.lastLayoutReuseCount, 1, "Should show layout reuse")
-            
+
             // ============================================================
             // VAL-PARITY-003: Direct frame-vs-scene scroll delta comparison
             // ============================================================
-            
+
             // Frame path: Calculate scroll delta
-            let scrolledFrameContentY = fillRectCommands(in: scrolledFrame).first { $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1) }?.rect.origin.y
+            let scrolledFrameContentY = fillRectCommands(in: scrolledFrame).first {
+                $0.color == Color(red: 1, green: 1, blue: 1, alpha: 1)
+            }?.rect.origin.y
             XCTAssertNotNil(scrolledFrameContentY, "Should find content in scrolled frame")
-            
+
             let frameScrollDelta = initialFrameContentY! - scrolledFrameContentY!
             XCTAssertEqual(frameScrollDelta, 30.0, accuracy: 0.001, "Frame: content should move by exact scroll offset")
-            
+
             // Scene path: Calculate scroll delta
             let scrolledSceneRects = sceneFillRects(in: scrolledScene)
             let scrolledSceneContentRect = scrolledSceneRects.first { rect in
                 rect.size.height == 120  // content height
             }
             XCTAssertNotNil(scrolledSceneContentRect, "Should find content in scrolled scene")
-            
+
             let sceneScrollDeltaPixels = initialSceneContentRect!.origin.y - scrolledSceneContentRect!.origin.y
             let sceneScrollDelta = sceneScrollDeltaPixels / runtime.displayScale
-            
+
             // DIRECT COMPARISON: Frame scroll delta vs Scene scroll delta (normalized)
-            XCTAssertEqual(sceneScrollDelta, frameScrollDelta, accuracy: 0.001, 
-                "VAL-PARITY-003: Frame and scene scroll deltas must match directly - frame=\(frameScrollDelta), scene(normalized)=\(sceneScrollDelta)")
-            
+            XCTAssertEqual(
+                sceneScrollDelta, frameScrollDelta, accuracy: 0.001,
+                "VAL-PARITY-003: Frame and scene scroll deltas must match directly - frame=\(frameScrollDelta), scene(normalized)=\(sceneScrollDelta)"
+            )
+
             // ============================================================
             // VAL-PARITY-003: Direct frame-vs-scene indicator geometry comparison
             // ============================================================
-            
+
             // Frame path: Calculate indicator position delta
             let scrolledFrameIndicator = fillRectCommands(in: scrolledFrame).last
             XCTAssertNotNil(initialFrameIndicator, "Should have initial frame indicator")
             XCTAssertNotNil(scrolledFrameIndicator, "Should have scrolled frame indicator")
-            
+
             let frameIndicatorDeltaY = scrolledFrameIndicator!.rect.origin.y - initialFrameIndicator!.rect.origin.y
             let frameIndicatorHeight = initialFrameIndicator!.rect.size.height
-            
+
             // Scene path: Calculate indicator position delta (normalized from device pixels)
             let scrolledSceneQuads = scrolledScene.layers.flatMap { $0.quads }
             let scrolledSceneIndicator = scrolledSceneQuads.last
             XCTAssertNotNil(initialSceneIndicator, "Should have initial scene indicator")
             XCTAssertNotNil(scrolledSceneIndicator, "Should have scrolled scene indicator")
-            
+
             let initialSceneIndicatorY = Double(initialSceneIndicator!.y)
             let scrolledSceneIndicatorY = Double(scrolledSceneIndicator!.y)
             let sceneIndicatorDeltaYPixels = scrolledSceneIndicatorY - initialSceneIndicatorY
             let sceneIndicatorDeltaY = sceneIndicatorDeltaYPixels / runtime.displayScale
-            
+
             // DIRECT COMPARISON: Frame indicator delta vs Scene indicator delta
-            XCTAssertEqual(sceneIndicatorDeltaY, frameIndicatorDeltaY, accuracy: 0.001,
-                "VAL-PARITY-003: Frame and scene indicator position deltas must match directly - frame=\(frameIndicatorDeltaY), scene(normalized)=\(sceneIndicatorDeltaY)")
-            
+            XCTAssertEqual(
+                sceneIndicatorDeltaY, frameIndicatorDeltaY, accuracy: 0.001,
+                "VAL-PARITY-003: Frame and scene indicator position deltas must match directly - frame=\(frameIndicatorDeltaY), scene(normalized)=\(sceneIndicatorDeltaY)"
+            )
+
             // DIRECT COMPARISON: Indicator sizes (both should be same logical size)
             let initialSceneIndicatorHeightPixels = Double(initialSceneIndicator!.height)
             let sceneIndicatorHeight = initialSceneIndicatorHeightPixels / runtime.displayScale
-            
-            XCTAssertEqual(sceneIndicatorHeight, frameIndicatorHeight, accuracy: 0.001,
-                "VAL-PARITY-003: Frame and scene indicator heights must match directly - frame=\(frameIndicatorHeight), scene(normalized)=\(sceneIndicatorHeight)")
-            
+
+            XCTAssertEqual(
+                sceneIndicatorHeight, frameIndicatorHeight, accuracy: 0.001,
+                "VAL-PARITY-003: Frame and scene indicator heights must match directly - frame=\(frameIndicatorHeight), scene(normalized)=\(sceneIndicatorHeight)"
+            )
+
             // Both indicators should show movement in the same direction
             XCTAssertGreaterThan(frameIndicatorDeltaY, 0, "Frame indicator should move down after scroll")
             XCTAssertGreaterThan(sceneIndicatorDeltaY, 0, "Scene indicator should move down after scroll (normalized)")
@@ -2446,7 +2531,8 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Switch to frame path
             let frame = runtime.renderFrame()
-            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50)) else {
+            guard let expectedIndicatorRect = left.scrollIndicatorRect(in: Rect(x: 0, y: 0, width: 80, height: 50))
+            else {
                 XCTFail("expected scroll indicator")
                 return
             }
@@ -2584,13 +2670,13 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Mutate the back node to trigger replay
             back.backgroundColor = Color(red: 0.9, green: 0.9, blue: 0.9, alpha: 1)
-            
+
             // Re-render (should replay prepaint for unchanged front)
             _ = runtime.renderFrame()
-            
+
             // Hit test in overlapping area - front should win due to z-order
             runtime.pointerDown(at: Point(x: 30, y: 30))
 
@@ -2619,13 +2705,13 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Mutate something to trigger replay
             rotated.backgroundColor = Color(red: 0.8, green: 0.8, blue: 0.8, alpha: 1)
-            
+
             // Re-render
             _ = runtime.renderFrame()
-            
+
             // Hit test at a point that would be outside the axis-aligned bounds
             // but inside the rotated diamond
             runtime.pointerDown(at: Point(x: 15, y: 40))
@@ -2664,11 +2750,11 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the child to focus the ancestor
             runtime.pointerDown(at: Point(x: 35, y: 35))
             runtime.pointerUp(at: Point(x: 35, y: 35))
-            
+
             // Activate via keyboard
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
 
@@ -2706,16 +2792,20 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the child and drag - should route to draggable ancestor
             runtime.pointerDown(at: Point(x: 35, y: 35))
             runtime.pointerMoved(to: Point(x: 45, y: 55))
             runtime.pointerUp(at: Point(x: 45, y: 55))
 
             // VAL-PARITY-009: Draggable ancestor receives drag events from descendant hit
-            XCTAssertEqual(dragStarts, [Point(x: 35, y: 35)], "Draggable ancestor should receive drag start from descendant hit")
-            XCTAssertEqual(dragChanges.last, Point(x: 10, y: 20), "Draggable ancestor should receive drag change from descendant hit")
-            XCTAssertEqual(endDeltas, [Point(x: 10, y: 20)], "Draggable ancestor should receive drag end from descendant hit")
+            XCTAssertEqual(
+                dragStarts, [Point(x: 35, y: 35)], "Draggable ancestor should receive drag start from descendant hit")
+            XCTAssertEqual(
+                dragChanges.last, Point(x: 10, y: 20),
+                "Draggable ancestor should receive drag change from descendant hit")
+            XCTAssertEqual(
+                endDeltas, [Point(x: 10, y: 20)], "Draggable ancestor should receive drag end from descendant hit")
         }
     }
 
@@ -2743,7 +2833,7 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the content and wheel scroll - should route to scrollable ancestor
             runtime.mouseWheel(at: Point(x: 35, y: 35), delta: -1)
 
@@ -2780,11 +2870,11 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the deferred child to focus the parent
             runtime.pointerDown(at: Point(x: 20, y: 20))
             runtime.pointerUp(at: Point(x: 20, y: 20))
-            
+
             // Activate via keyboard
             runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.enter.rawValue))
 
@@ -2823,16 +2913,19 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the deferred child and drag - should route to draggable parent
             runtime.pointerDown(at: Point(x: 20, y: 20))
             runtime.pointerMoved(to: Point(x: 30, y: 40))
             runtime.pointerUp(at: Point(x: 30, y: 40))
 
             // VAL-PARITY-009: Draggable ancestor receives drag events from deferred-phase hit
-            XCTAssertEqual(dragStarts, [Point(x: 20, y: 20)], "Draggable parent should receive drag start from deferred hit")
-            XCTAssertEqual(dragChanges.last, Point(x: 10, y: 20), "Draggable parent should receive drag changes from deferred hit")
-            XCTAssertEqual(endDeltas, [Point(x: 10, y: 20)], "Draggable parent should receive drag end from deferred hit")
+            XCTAssertEqual(
+                dragStarts, [Point(x: 20, y: 20)], "Draggable parent should receive drag start from deferred hit")
+            XCTAssertEqual(
+                dragChanges.last, Point(x: 10, y: 20), "Draggable parent should receive drag changes from deferred hit")
+            XCTAssertEqual(
+                endDeltas, [Point(x: 10, y: 20)], "Draggable parent should receive drag end from deferred hit")
         }
     }
 
@@ -2861,11 +2954,12 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Hit the deferred content and wheel scroll - should route to scrollable parent
             runtime.mouseWheel(at: Point(x: 35, y: 35), delta: -1)
 
-            XCTAssertEqual(scrollableParent.scrollOffset, 25, "Scrollable parent should receive scroll wheel from deferred hit")
+            XCTAssertEqual(
+                scrollableParent.scrollOffset, 25, "Scrollable parent should receive scroll wheel from deferred hit")
         }
     }
 
@@ -2875,14 +2969,17 @@ final class RetainedViewRuntimeTests: XCTestCase {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))
             let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 30))
-            let itemC = ViewNode(backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), preferredSize: Size(width: 60, height: 30))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
+                preferredSize: Size(width: 60, height: 30))
 
             let idleColor = Color(red: 0.8, green: 0.9, blue: 1, alpha: 0.3)
             let hoverColor = Color(red: 0.9, green: 0.95, blue: 1, alpha: 0.55)
 
             let scrollPanel = ViewNode(
                 frame: Rect(x: 10, y: 10, width: 80, height: 70),
-                layoutMode: .stack(.vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
                 scrollAxis: .vertical,
                 showsScrollIndicator: true,
                 scrollIndicatorColor: idleColor,
@@ -2899,19 +2996,21 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Initial render
             _ = runtime.renderFrame()
-            
+
             // Update scroll offset (this updates overlay geometry)
             scrollPanel.scrollOffset = 40
-            
+
             // Without re-rendering, move pointer to where the updated indicator should be
             // The indicator should have moved down after scroll
             runtime.pointerMoved(to: Point(x: 83, y: 50))
-            
+
             // Tick animations to apply color change
             _ = runtime.tickAnimations(at: Win32Window.currentTimestampSeconds() + 1)
 
             // The indicator should be hovered (using updated geometry from prepaint)
-            XCTAssertEqual(scrollPanel.scrollIndicatorColor, hoverColor, "Updated overlay geometry should be interactive before render")
+            XCTAssertEqual(
+                scrollPanel.scrollIndicatorColor, hoverColor,
+                "Updated overlay geometry should be interactive before render")
         }
     }
 
@@ -2937,12 +3036,16 @@ final class RetainedViewRuntimeTests: XCTestCase {
 
             // Try to render too soon - should return cached frame
             let throttledFrame = runtime.renderFrame(at: 1.005)
-            XCTAssertEqual(fillRectCommands(in: throttledFrame).first?.color, Color(red: 1, green: 0, blue: 0, alpha: 1), "Should return cached (red) frame when throttled")
+            XCTAssertEqual(
+                fillRectCommands(in: throttledFrame).first?.color, Color(red: 1, green: 0, blue: 0, alpha: 1),
+                "Should return cached (red) frame when throttled")
             XCTAssertTrue(runtime.isDirty, "Should still be dirty after throttled render")
 
             // Render after enough time has passed
             let refreshedFrame = runtime.renderFrame(at: 1.020)
-            XCTAssertEqual(fillRectCommands(in: refreshedFrame).first?.color, Color(red: 0, green: 0, blue: 1, alpha: 1), "Should return updated (blue) frame after interval")
+            XCTAssertEqual(
+                fillRectCommands(in: refreshedFrame).first?.color, Color(red: 0, green: 0, blue: 1, alpha: 1),
+                "Should return updated (blue) frame after interval")
             XCTAssertFalse(runtime.isDirty, "Should not be dirty after successful render")
         }
     }
@@ -2979,29 +3082,24 @@ final class RetainedViewRuntimeTests: XCTestCase {
     }
 
 }
-
-// MARK: - VAL-PARITY-001: Normalized Output Comparison Helpers
-
-/// Helper struct for normalized output comparison (VAL-PARITY-001)
 private struct NormalizedOutput {
     let rects: [Rect]
     let colors: [Color]
-    
+
     var normalizedRects: [NormalizedRect] {
         rects.map { NormalizedRect(rect: $0) }
     }
-    
+
     var normalizedColors: [NormalizedColor] {
         colors.map { NormalizedColor(color: $0) }
     }
 }
-
 private struct NormalizedRect: Equatable {
     let x: Double
     let y: Double
     let width: Double
     let height: Double
-    
+
     init(rect: Rect) {
         self.x = rect.origin.x
         self.y = rect.origin.y
@@ -3009,13 +3107,12 @@ private struct NormalizedRect: Equatable {
         self.height = rect.size.height
     }
 }
-
 private struct NormalizedColor: Equatable {
     let r: Float
     let g: Float
     let b: Float
     let a: Float
-    
+
     init(color: Color) {
         self.r = color.red
         self.g = color.green
@@ -3023,7 +3120,6 @@ private struct NormalizedColor: Equatable {
         self.a = color.alpha
     }
 }
-
 private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
     frame.commands.compactMap { command in
         guard case .fillRect(let fillRect) = command else {
@@ -3033,7 +3129,6 @@ private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
         return fillRect
     }
 }
-
 private func sceneFillRects(in scene: GPUIScene) -> [Rect] {
     scene.layers.flatMap { layer in
         layer.quads.map { quad in
@@ -3041,7 +3136,6 @@ private func sceneFillRects(in scene: GPUIScene) -> [Rect] {
         }
     }
 }
-
 private func sceneQuadColors(in scene: GPUIScene) -> [Color] {
     scene.layers.flatMap { layer in
         layer.quads.map { quad in
@@ -3049,7 +3143,6 @@ private func sceneQuadColors(in scene: GPUIScene) -> [Color] {
         }
     }
 }
-
 private func drawCommandRects(in frame: RenderFrame) -> [Rect] {
     frame.commands.compactMap { command in
         switch command {

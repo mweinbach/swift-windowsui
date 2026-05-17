@@ -1,6 +1,9 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import WinSDK
 
 @MainActor
@@ -32,7 +35,9 @@ enum NativeTextRenderer {
             ?? GDIRasterTextRenderer.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: maxWidth)
     }
 
-    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
+    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil)
+        -> NativeTextLayoutResult?
+    {
         if let override = testingOverrides.layout {
             return override(text, style, scaleFactor, maxWidth)
         }
@@ -63,21 +68,23 @@ enum NativeTextRenderer {
             )
             return didAppend
         }
-        let didAppend = DirectWriteTextRenderer.appendCommands(
-            for: text,
-            in: rect,
-            style: textRenderStyle,
-            scaleFactor: scaleFactor,
-            clipRect: clipRect,
-            into: &commands
-        ) || GDIRasterTextRenderer.appendCommands(
-            for: text,
-            in: rect,
-            style: textRenderStyle,
-            scaleFactor: scaleFactor,
-            clipRect: clipRect,
-            into: &commands
-        )
+        let didAppend =
+            DirectWriteTextRenderer.appendCommands(
+                for: text,
+                in: rect,
+                style: textRenderStyle,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                into: &commands
+            )
+            || GDIRasterTextRenderer.appendCommands(
+                for: text,
+                in: rect,
+                style: textRenderStyle,
+                scaleFactor: scaleFactor,
+                clipRect: clipRect,
+                into: &commands
+            )
         appendExternalDecorationCommandsIfNeeded(
             didAppend: didAppend,
             text: text,
@@ -124,14 +131,17 @@ enum NativeTextRenderer {
             ?? GDIRasterTextRenderer.rasterize(text, style: style, scaleFactor: scaleFactor)
     }
 
-    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap?
+    {
         if let override = testingOverrides.rasterizeGlyphForCharacter {
             return override(character, style, scaleFactor)
         }
         return DirectWriteTextRenderer.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
     }
 
-    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double)
+        -> NativeGlyphBitmap?
+    {
         if let override = testingOverrides.rasterizeGlyphForLayout {
             return override(glyph, style, scaleFactor)
         }
@@ -139,7 +149,6 @@ enum NativeTextRenderer {
             ?? DirectWriteTextRenderer.rasterizeGlyph(glyph.character, style: style, scaleFactor: scaleFactor)
     }
 }
-
 @MainActor
 enum GDIRasterTextRenderer {
     static func measure(
@@ -150,7 +159,8 @@ enum GDIRasterTextRenderer {
         resolvesMinimumScaleFactor: Bool = true
     ) -> Size? {
         guard !text.isEmpty else {
-            return Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
+            return Size(
+                width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom)
         }
 
         guard let dc = CreateCompatibleDC(nil) else {
@@ -201,11 +211,12 @@ enum GDIRasterTextRenderer {
             right: LONG(measureRectWidth(maxWidth: maxWidth, style: style, scaleFactor: scaleFactor)),
             bottom: 4096
         )
-        let drawFlags = baseDrawTextFlags(
-            for: resolvedText,
-            alignment: style.alignment,
-            lineBreakMode: resolvedLayout.lines.count > 1 ? .wrap : style.lineBreakMode
-        ) | UINT(DT_CALCRECT)
+        let drawFlags =
+            baseDrawTextFlags(
+                for: resolvedText,
+                alignment: style.alignment,
+                lineBreakMode: resolvedLayout.lines.count > 1 ? .wrap : style.lineBreakMode
+            ) | UINT(DT_CALCRECT)
 
         let measured = withWideString(resolvedText) { wideText in
             DrawTextW(dc, wideText, -1, &measureRect, drawFlags)
@@ -221,8 +232,7 @@ enum GDIRasterTextRenderer {
         if let reservedLineCount = reservedTextLineCount(for: style) {
             let lineHeight = style.nativeFontPixelSize
             reservedHeight =
-                Double(reservedLineCount) * lineHeight +
-                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+                Double(reservedLineCount) * lineHeight + Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
         } else {
             reservedHeight = 0
         }
@@ -336,7 +346,8 @@ enum GDIRasterTextRenderer {
         SetBkMode(dc, TRANSPARENT)
         SetTextColor(dc, colorRef(red: 255, green: 255, blue: 255))
 
-        let contentRect = drawRectForInsets(style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
+        let contentRect = drawRectForInsets(
+            style.insets, width: pixelWidth, height: pixelHeight, scaleFactor: scaleFactor)
         let resolvedLayout = resolveTextLayout(
             for: text,
             style: style,
@@ -460,7 +471,9 @@ enum GDIRasterTextRenderer {
         return Double(measuredSize.cx) / max(scaleFactor, 1)
     }
 
-    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double) -> RECT {
+    private static func drawRectForInsets(_ insets: EdgeInsets, width: Int32, height: Int32, scaleFactor: Double)
+        -> RECT
+    {
         let scaledInsets = EdgeInsets(
             top: insets.top * scaleFactor,
             leading: insets.leading * scaleFactor,
@@ -480,7 +493,6 @@ enum GDIRasterTextRenderer {
         COLORREF(UInt32(red) | (UInt32(green) << 8) | (UInt32(blue) << 16))
     }
 }
-
 private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> Double? {
     guard let maxWidth, maxWidth.isFinite else {
         return nil
@@ -488,12 +500,10 @@ private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> 
 
     return max(0, maxWidth - style.insets.leading - style.insets.trailing)
 }
-
 private func measureRectWidth(maxWidth: Double?, style: PixelTextStyle, scaleFactor: Double) -> Int32 {
     let contentWidth = contentWidthLimit(for: maxWidth, style: style) ?? 4096
     return max(1, Int32((contentWidth * max(scaleFactor, 1)).rounded(.up)))
 }
-
 private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle, maxWidth: Double?) -> Double {
     if style.lineBreakMode == .clip, let contentLimit = contentWidthLimit(for: maxWidth, style: style) {
         return min(contentWidth, contentLimit)
@@ -501,13 +511,11 @@ private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle,
 
     return contentWidth
 }
-
 extension PixelTextStyle {
     var nativeFontPixelSize: Double {
         nativeFontSize ?? max(12, scale * 6 + 8)
     }
 }
-
 extension TextWeight {
     var gdiWeight: Int {
         switch self {
@@ -520,9 +528,8 @@ extension TextWeight {
         }
     }
 }
-
-private extension TextFontWidth {
-    func gdiAverageCharacterWidth(fontSize: Double, scaleFactor: Double) -> Int32 {
+extension TextFontWidth {
+    fileprivate func gdiAverageCharacterWidth(fontSize: Double, scaleFactor: Double) -> Int32 {
         let multiplier: Double
         switch self {
         case .compressed:
@@ -537,7 +544,6 @@ private extension TextFontWidth {
         return Int32(max(1, (fontSize * scaleFactor * multiplier).rounded()))
     }
 }
-
 private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCHAR>) -> Result) -> Result {
     var wide = Array(string.utf16)
     wide.append(0)

@@ -3,7 +3,6 @@ public enum MouseButton: UInt8, Sendable {
     case right
     case middle
 }
-
 public struct MouseEvent: Sendable {
     public var button: MouseButton
     public var position: Point
@@ -15,7 +14,6 @@ public struct MouseEvent: Sendable {
         self.clickCount = clickCount
     }
 }
-
 public struct KeyboardModifiers: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -27,7 +25,6 @@ public struct KeyboardModifiers: OptionSet, Sendable {
     public static let control = KeyboardModifiers(rawValue: 1 << 1)
     public static let alt = KeyboardModifiers(rawValue: 1 << 2)
 }
-
 public enum KeyboardKey: UInt32, Sendable {
     case backspace = 0x08
     case tab = 0x09
@@ -48,7 +45,6 @@ public enum KeyboardKey: UInt32, Sendable {
     case space = 0x20
     case mediaPlayPause = 0xB3
 }
-
 public struct KeyboardEvent: Sendable {
     public var keyCode: UInt32
     public var modifiers: KeyboardModifiers

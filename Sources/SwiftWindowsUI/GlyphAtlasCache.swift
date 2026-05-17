@@ -56,21 +56,24 @@ public final class GlyphAtlasCache {
         }
 
         guard width > 0,
-              height > 0,
-              width <= atlas.width,
-              height <= atlas.height else {
+            height > 0,
+            width <= atlas.width,
+            height <= atlas.height
+        else {
             return nil
         }
 
-        guard let entry = insertWithoutRecovery(
-            key: key,
-            pixels: pixels,
-            width: width,
-            height: height,
-            bearingX: bearingX,
-            bearingY: bearingY,
-            advance: advance
-        ) else {
+        guard
+            let entry = insertWithoutRecovery(
+                key: key,
+                pixels: pixels,
+                width: width,
+                height: height,
+                bearingX: bearingX,
+                bearingY: bearingY,
+                advance: advance
+            )
+        else {
             clear()
             didRecoverFromExhaustionOnLastInsert = true
             return insertWithoutRecovery(

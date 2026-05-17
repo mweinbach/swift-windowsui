@@ -1,5 +1,7 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
 
 public enum TextHorizontalAlignment: Sendable {
@@ -7,26 +9,22 @@ public enum TextHorizontalAlignment: Sendable {
     case center
     case trailing
 }
-
 public enum TextVerticalAlignment: Sendable {
     case top
     case center
     case bottom
 }
-
 public enum TextWeight: Sendable {
     case regular
     case semibold
     case bold
 }
-
 public enum TextFontWidth: Sendable, Equatable {
     case compressed
     case condensed
     case standard
     case expanded
 }
-
 public enum TextLineBreakMode: Sendable {
     case clip
     case truncateTail
@@ -34,7 +32,6 @@ public enum TextLineBreakMode: Sendable {
     case truncateMiddle
     case wrap
 }
-
 public enum TextDecorationPattern: Sendable, Equatable, Hashable {
     case solid
     case dot
@@ -42,7 +39,6 @@ public enum TextDecorationPattern: Sendable, Equatable, Hashable {
     case dashDot
     case dashDotDot
 }
-
 public struct TextSpan: Sendable, Equatable {
     public var text: String
     public var style: PixelTextStyle
@@ -54,7 +50,6 @@ public struct TextSpan: Sendable, Equatable {
         self.range = range
     }
 }
-
 public struct PixelTextStyle: Sendable, Equatable {
     public var color: Color
     public var scale: Double
@@ -145,7 +140,6 @@ public struct PixelTextStyle: Sendable, Equatable {
         self.spans = spans
     }
 }
-
 extension PixelTextStyle {
     var hasTextDecorations: Bool {
         underline || strikethrough
@@ -222,7 +216,6 @@ extension PixelTextStyle {
         return scaledForMinimumScaleFactor(factor)
     }
 }
-
 enum PixelFont {
     private static func textScale(for style: PixelTextStyle) -> Double {
         max(style.scale, 0.01)
@@ -252,11 +245,12 @@ enum PixelFont {
         let lineCount = max(layout.lines.count, 1)
         let reservedLineCount = reservedTextLineCount(for: effectiveStyle)
         let measuredLineCount = max(lineCount, reservedLineCount ?? 0)
-        let height = pixelTextContentHeight(
-            lineCount: measuredLineCount,
-            style: effectiveStyle,
-            scale: scale
-        ) + effectiveStyle.insets.top + effectiveStyle.insets.bottom
+        let height =
+            pixelTextContentHeight(
+                lineCount: measuredLineCount,
+                style: effectiveStyle,
+                scale: scale
+            ) + effectiveStyle.insets.top + effectiveStyle.insets.bottom
 
         return Size(width: width, height: height)
     }
@@ -429,12 +423,12 @@ enum PixelFont {
                 }
 
                 if let runStart {
-                        appendRun(
-                            startColumn: runStart,
-                            endColumn: PixelFontAtlas.glyphWidth,
-                            rowIndex: rowIndex,
-                            origin: Point(x: cursorX, y: origin.y),
-                            scale: scale,
+                    appendRun(
+                        startColumn: runStart,
+                        endColumn: PixelFontAtlas.glyphWidth,
+                        rowIndex: rowIndex,
+                        origin: Point(x: cursorX, y: origin.y),
+                        scale: scale,
                         color: color,
                         clipRect: clipRect,
                         into: &commands
@@ -548,7 +542,6 @@ enum PixelFont {
         PixelFontAtlas.pattern(for: character)
     }
 }
-
 enum TextDecorationCommandBuilder {
     static func appendCommands(
         for text: String,
@@ -644,7 +637,9 @@ enum TextDecorationCommandBuilder {
         let effectiveStyle = style.resolvingMinimumScaleFactor(
             for: text,
             maxContentWidth: maxContentWidth,
-            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01) }
+            measureLine: { line in
+                PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01)
+            }
         )
         let scale = max(effectiveStyle.scale, 0.01)
         let layout = resolveTextLayout(
@@ -788,7 +783,9 @@ enum TextDecorationCommandBuilder {
         return segments
     }
 
-    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(draw: Bool, length: Double)] {
+    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(
+        draw: Bool, length: Double
+    )] {
         switch pattern {
         case .solid:
             return [(true, Double.greatestFiniteMagnitude)]
@@ -805,15 +802,15 @@ enum TextDecorationCommandBuilder {
                 (true, unit),
                 (false, unit * 1.5),
                 (true, unit),
-                (false, unit * 1.5)
+                (false, unit * 1.5),
             ]
         }
     }
 }
-
 func reservedTextLineCount(for style: PixelTextStyle) -> Int? {
     let minimumNumberOfLines = style.minimumNumberOfLines.flatMap { $0 > 0 ? $0 : nil }
-    let reservedMaximumNumberOfLines = style.reservesLineLimitSpace
+    let reservedMaximumNumberOfLines =
+        style.reservesLineLimitSpace
         ? style.maximumNumberOfLines.flatMap { $0 > 0 ? $0 : nil }
         : nil
 
@@ -828,14 +825,9 @@ func reservedTextLineCount(for style: PixelTextStyle) -> Int? {
         return nil
     }
 }
-
 func pixelTextContentHeight(lineCount: Int, style: PixelTextStyle, scale: Double) -> Double {
-    (
-        Double(max(lineCount, 1) * PixelFontAtlas.glyphHeight) +
-        Double(max(lineCount - 1, 0)) * style.lineSpacing
-    ) * scale
+    (Double(max(lineCount, 1) * PixelFontAtlas.glyphHeight) + Double(max(lineCount - 1, 0)) * style.lineSpacing) * scale
 }
-
 func minimumTextScaleFactor(
     for text: String,
     style: PixelTextStyle,
@@ -851,7 +843,8 @@ func minimumTextScaleFactor(
         return 1
     }
 
-    let widestLine = normalizedTextLines(from: text)
+    let widestLine =
+        normalizedTextLines(from: text)
         .map(measureLine)
         .filter(\.isFinite)
         .max() ?? 0
@@ -861,7 +854,6 @@ func minimumTextScaleFactor(
 
     return min(1, max(style.minimumScaleFactor, maxContentWidth / widestLine))
 }
-
 struct ResolvedTextLayout: Equatable, Sendable {
     var lines: [String]
 
@@ -869,7 +861,6 @@ struct ResolvedTextLayout: Equatable, Sendable {
         lines.joined(separator: "\n")
     }
 }
-
 func resolveTextLayout(
     for text: String,
     style: PixelTextStyle,
@@ -917,12 +908,10 @@ func resolveTextLayout(
         )
     )
 }
-
 func normalizedTextLines(from text: String) -> [String] {
     let normalized = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
     return normalized.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 }
-
 private func applyLineLimit(
     to lines: [String],
     style: PixelTextStyle,
@@ -946,7 +935,6 @@ private func applyLineLimit(
     visibleLines.append(appendingEllipsis(to: lastLine, maxWidth: maxContentWidth, measureLine: measureLine))
     return visibleLines
 }
-
 private func wrapLine(_ line: String, maxWidth: Double, measureLine: (String) -> Double) -> [String] {
     guard !line.isEmpty else {
         return [""]
@@ -985,7 +973,6 @@ private func wrapLine(_ line: String, maxWidth: Double, measureLine: (String) ->
 
     return wrappedLines
 }
-
 private func splitLongToken(_ token: String, maxWidth: Double, measureLine: (String) -> Double) -> [String] {
     guard !token.isEmpty else {
         return [""]
@@ -1009,7 +996,6 @@ private func splitLongToken(_ token: String, maxWidth: Double, measureLine: (Str
 
     return slices
 }
-
 private func truncateLine(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
     guard measureLine(line) > maxWidth else {
         return line
@@ -1017,7 +1003,6 @@ private func truncateLine(_ line: String, toFit maxWidth: Double, measureLine: (
 
     return appendingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
 }
-
 private func truncateLineHead(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
     guard measureLine(line) > maxWidth else {
         return line
@@ -1025,7 +1010,6 @@ private func truncateLineHead(_ line: String, toFit maxWidth: Double, measureLin
 
     return prependingEllipsis(to: line, maxWidth: maxWidth, measureLine: measureLine)
 }
-
 private func truncateLineMiddle(_ line: String, toFit maxWidth: Double, measureLine: (String) -> Double) -> String {
     guard measureLine(line) > maxWidth else {
         return line
@@ -1042,7 +1026,9 @@ private func truncateLineMiddle(_ line: String, toFit maxWidth: Double, measureL
 
     let characters = Array(line)
     let headLength = longestFittingPrefixLength(for: line, maxWidth: halfWidth, measureLine: measureLine)
-    let tailLength = longestFittingSuffixLength(for: line, maxWidth: availableWidth - (headLength > 0 ? measureLine(String(characters.prefix(headLength))) : 0), measureLine: measureLine)
+    let tailLength = longestFittingSuffixLength(
+        for: line, maxWidth: availableWidth - (headLength > 0 ? measureLine(String(characters.prefix(headLength))) : 0),
+        measureLine: measureLine)
 
     if headLength <= 0 && tailLength <= 0 {
         return ellipsis
@@ -1052,7 +1038,6 @@ private func truncateLineMiddle(_ line: String, toFit maxWidth: Double, measureL
     let tail = String(characters.suffix(tailLength)).trimmingCharacters(in: .whitespaces)
     return head + ellipsis + tail
 }
-
 private func prependingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {
     let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
     guard !ellipsis.isEmpty else {
@@ -1083,7 +1068,6 @@ private func prependingEllipsis(to line: String, maxWidth: Double?, measureLine:
     let suffix = String(characters.suffix(suffixLength)).trimmingCharacters(in: .whitespaces)
     return suffix.isEmpty ? ellipsis : ellipsis + suffix
 }
-
 private func longestFittingSuffixLength(
     for text: String,
     maxWidth: Double,
@@ -1107,7 +1091,6 @@ private func longestFittingSuffixLength(
 
     return best
 }
-
 private func appendingEllipsis(to line: String, maxWidth: Double?, measureLine: (String) -> Double) -> String {
     let ellipsis = fittingEllipsis(maxWidth: maxWidth, measureLine: measureLine)
     guard !ellipsis.isEmpty else {
@@ -1139,7 +1122,6 @@ private func appendingEllipsis(to line: String, maxWidth: Double?, measureLine: 
     let prefix = String(characters.prefix(prefixLength)).trimmingCharacters(in: .whitespaces)
     return prefix.isEmpty ? ellipsis : prefix + ellipsis
 }
-
 private func fittingEllipsis(maxWidth: Double?, measureLine: (String) -> Double) -> String {
     let candidates = ["...", "..", "."]
 
@@ -1155,7 +1137,6 @@ private func fittingEllipsis(maxWidth: Double?, measureLine: (String) -> Double)
 
     return ""
 }
-
 private func longestFittingPrefixLength(
     for text: String,
     maxWidth: Double,
@@ -1181,7 +1162,6 @@ private func longestFittingPrefixLength(
 
     return best
 }
-
 private func resolvedContentWidth(for maxWidth: Double?, style: PixelTextStyle) -> Double? {
     guard let maxWidth, maxWidth.isFinite else {
         return nil
@@ -1189,7 +1169,6 @@ private func resolvedContentWidth(for maxWidth: Double?, style: PixelTextStyle) 
 
     return max(0, maxWidth - style.insets.leading - style.insets.trailing)
 }
-
 private func measuredContentWidth(
     for lines: [String],
     style: PixelTextStyle,

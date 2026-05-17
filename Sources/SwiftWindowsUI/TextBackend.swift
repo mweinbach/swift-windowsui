@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+
 import WinSDK
 
 public enum TextBackendKind: String, Equatable, Sendable {
@@ -14,7 +15,6 @@ public enum TextBackendKind: String, Equatable, Sendable {
         }
     }
 }
-
 public struct TextBackendCapabilities: Equatable, Sendable {
     public var backend: TextBackendKind
     public var dwriteLibraryLoaded: Bool
@@ -37,7 +37,6 @@ public struct TextBackendCapabilities: Equatable, Sendable {
         dwriteFactoryCreationSucceeded ? "DIRECTWRITE" : "GDI TEXT"
     }
 }
-
 protocol TextLibraryLoading {
     func loadLibrary(named name: String) -> HMODULE?
     func unloadLibrary(_ module: HMODULE)
@@ -45,7 +44,6 @@ protocol TextLibraryLoading {
     func createDWriteFactory(from module: HMODULE, iid: UnsafePointer<GUID>) -> (HRESULT, UnsafeMutableRawPointer?)?
     func releaseFactory(_ rawPointer: UnsafeMutableRawPointer)
 }
-
 struct Win32TextLibraryLoader: TextLibraryLoading {
     func loadLibrary(named name: String) -> HMODULE? {
         var wideName = Array(name.utf16)
@@ -78,7 +76,6 @@ struct Win32TextLibraryLoader: TextLibraryLoading {
         releaseIUnknown(rawPointer)
     }
 }
-
 @MainActor
 public enum TextSystem {
     public static func capabilities() -> TextBackendCapabilities {
@@ -123,11 +120,9 @@ public enum TextSystem {
         )
     }
 }
-
-private typealias DWriteCreateFactoryProc = @convention(c) (UINT32, UnsafePointer<GUID>, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
-
+private typealias DWriteCreateFactoryProc =
+    @convention(c) (UINT32, UnsafePointer<GUID>, UnsafeMutablePointer<UnsafeMutableRawPointer?>) -> HRESULT
 private let sOk: HRESULT = 0
-
 private func releaseIUnknown(_ rawPointer: UnsafeMutableRawPointer) {
     let unknown = rawPointer.assumingMemoryBound(to: IUnknown.self)
     _ = unknown.pointee.lpVtbl.pointee.Release(unknown)

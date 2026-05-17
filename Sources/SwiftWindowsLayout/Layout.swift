@@ -1,12 +1,26 @@
 import SwiftWindowsCore
 
+// MARK: - Flex Properties
+
+// MARK: - Stack Types
+
+// MARK: - Grid Layout
+
+// MARK: - Layout Node Protocol
+
+// MARK: - Aspect Ratio Constraint
+
+// MARK: - Fixed Layout Box
+
 public struct LayoutConstraints: Equatable, Sendable {
     public var minWidth: Double
     public var maxWidth: Double
     public var minHeight: Double
     public var maxHeight: Double
 
-    public init(minWidth: Double = 0, maxWidth: Double = .infinity, minHeight: Double = 0, maxHeight: Double = .infinity) {
+    public init(
+        minWidth: Double = 0, maxWidth: Double = .infinity, minHeight: Double = 0, maxHeight: Double = .infinity
+    ) {
         self.minWidth = minWidth
         self.maxWidth = maxWidth
         self.minHeight = minHeight
@@ -15,7 +29,6 @@ public struct LayoutConstraints: Equatable, Sendable {
 
     public static let unconstrained = LayoutConstraints()
 }
-
 public struct LayoutMeasurement: Equatable, Sendable {
     public var size: Size
 
@@ -23,9 +36,6 @@ public struct LayoutMeasurement: Equatable, Sendable {
         self.size = size
     }
 }
-
-// MARK: - Flex Properties
-
 public struct FlexProperties: Equatable, Sendable {
     /// Shorthand flex factor. When non-nil, sets both grow and shrink.
     public var flex: Double?
@@ -42,14 +52,10 @@ public struct FlexProperties: Equatable, Sendable {
 
     public static let `default` = FlexProperties()
 }
-
-// MARK: - Stack Types
-
 public enum StackAxis: Equatable, Sendable {
     case horizontal
     case vertical
 }
-
 public enum StackCrossAlignment: Equatable, Sendable {
     case leading
     case center
@@ -60,13 +66,11 @@ public enum StackCrossAlignment: Equatable, Sendable {
     case customVertical(String)
     case stretch
 }
-
 public enum StackMainAlignment: Equatable, Sendable {
     case start
     case center
     case end
 }
-
 public enum StackDistribution: Equatable, Sendable {
     /// Children fill available space according to their flex properties.
     case fill
@@ -77,7 +81,6 @@ public enum StackDistribution: Equatable, Sendable {
     /// Equal spacing between and around children (uniform gaps).
     case spaceEvenly
 }
-
 public struct StackLayout: Equatable, Sendable {
     public var axis: StackAxis
     public var spacing: Double
@@ -109,7 +112,9 @@ public struct StackLayout: Equatable, Sendable {
         mainAlignment: StackMainAlignment = .start,
         distribution: StackDistribution = .fill
     ) -> StackLayout {
-        StackLayout(axis: .horizontal, spacing: spacing, padding: padding, alignment: alignment, mainAlignment: mainAlignment, distribution: distribution)
+        StackLayout(
+            axis: .horizontal, spacing: spacing, padding: padding, alignment: alignment, mainAlignment: mainAlignment,
+            distribution: distribution)
     }
 
     public static func vertical(
@@ -119,12 +124,11 @@ public struct StackLayout: Equatable, Sendable {
         mainAlignment: StackMainAlignment = .start,
         distribution: StackDistribution = .fill
     ) -> StackLayout {
-        StackLayout(axis: .vertical, spacing: spacing, padding: padding, alignment: alignment, mainAlignment: mainAlignment, distribution: distribution)
+        StackLayout(
+            axis: .vertical, spacing: spacing, padding: padding, alignment: alignment, mainAlignment: mainAlignment,
+            distribution: distribution)
     }
 }
-
-// MARK: - Grid Layout
-
 public struct GridLayout: Equatable, Sendable {
     public var columns: Int
     public var rowSpacing: Double
@@ -152,22 +156,15 @@ public struct GridLayout: Equatable, Sendable {
         self.init(columns: columns, rowSpacing: spacing, columnSpacing: spacing, padding: padding)
     }
 }
-
-// MARK: - Layout Node Protocol
-
 public protocol LayoutNode {
     func measure(in constraints: LayoutConstraints) -> LayoutMeasurement
 }
-
-// MARK: - Aspect Ratio Constraint
-
 public enum AspectRatioMode: Equatable, Sendable {
     /// Fit within the constraints while preserving aspect ratio.
     case fit
     /// Fill the constraints while preserving aspect ratio.
     case fill
 }
-
 public struct AspectRatioConstraint: LayoutNode, Equatable, Sendable {
     public var ratio: Double
     public var mode: AspectRatioMode
@@ -218,9 +215,6 @@ public struct AspectRatioConstraint: LayoutNode, Equatable, Sendable {
         )
     }
 }
-
-// MARK: - Fixed Layout Box
-
 public struct FixedLayoutBox: LayoutNode, Equatable, Sendable {
     public var preferredSize: Size
     public var flex: FlexProperties

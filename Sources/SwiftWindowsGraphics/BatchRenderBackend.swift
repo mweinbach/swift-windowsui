@@ -25,6 +25,6 @@ public protocol BatchRenderBackend: AnyObject {
     func render(scene: GPUIScene) throws
 }
 
-public extension BatchRenderBackend {
-    func bindResources(for scene: GPUIScene) {}
+extension BatchRenderBackend {
+    public func bindResources(for scene: GPUIScene) {}
 }

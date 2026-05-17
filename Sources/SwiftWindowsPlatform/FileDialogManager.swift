@@ -9,7 +9,7 @@ public enum FileDialogManager {
         defaultDirectory: URL? = nil,
         title: String? = nil
     ) -> [URL] {
-        var buffer = Array<WCHAR>(repeating: 0, count: 4096)
+        var buffer = [WCHAR](repeating: 0, count: 4096)
         var ofn = OPENFILENAMEW()
         ofn.lStructSize = DWORD(MemoryLayout<OPENFILENAMEW>.size)
         ofn.hwndOwner = GetActiveWindow()
@@ -81,7 +81,7 @@ public enum FileDialogManager {
         defaultDirectory: URL? = nil,
         title: String? = nil
     ) -> URL? {
-        var buffer = Array<WCHAR>(repeating: 0, count: 4096)
+        var buffer = [WCHAR](repeating: 0, count: 4096)
 
         if let defaultFilename = defaultFilename {
             defaultFilename.withWideChars { wideName in
@@ -175,8 +175,8 @@ public enum FileDialogManager {
     }
 }
 
-private extension String {
-    func withWideChars(_ body: (UnsafePointer<WCHAR>) -> Void) {
+extension String {
+    fileprivate func withWideChars(_ body: (UnsafePointer<WCHAR>) -> Void) {
         self.withCString(encodedAs: UTF16.self) { body($0) }
     }
 }

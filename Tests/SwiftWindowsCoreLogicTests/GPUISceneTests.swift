@@ -1,5 +1,7 @@
 import XCTest
+
 @testable import SwiftWindowsCore
+
 @testable import SwiftWindowsGraphics
 
 final class GPUISceneTests: XCTestCase {
@@ -7,23 +9,27 @@ final class GPUISceneTests: XCTestCase {
     // MARK: - Primitive alignment tests
 
     func testQuadPrimitiveSizeIsDivisibleBy16() {
-        XCTAssertEqual(QuadPrimitive.byteSize % 16, 0,
-                       "QuadPrimitive size (\(QuadPrimitive.byteSize)) must be divisible by 16")
+        XCTAssertEqual(
+            QuadPrimitive.byteSize % 16, 0,
+            "QuadPrimitive size (\(QuadPrimitive.byteSize)) must be divisible by 16")
     }
 
     func testGlyphPrimitiveSizeIsDivisibleBy16() {
-        XCTAssertEqual(GlyphPrimitive.byteSize % 16, 0,
-                       "GlyphPrimitive size (\(GlyphPrimitive.byteSize)) must be divisible by 16")
+        XCTAssertEqual(
+            GlyphPrimitive.byteSize % 16, 0,
+            "GlyphPrimitive size (\(GlyphPrimitive.byteSize)) must be divisible by 16")
     }
 
     func testImagePrimitiveSizeIsDivisibleBy16() {
-        XCTAssertEqual(ImagePrimitive.byteSize % 16, 0,
-                       "ImagePrimitive size (\(ImagePrimitive.byteSize)) must be divisible by 16")
+        XCTAssertEqual(
+            ImagePrimitive.byteSize % 16, 0,
+            "ImagePrimitive size (\(ImagePrimitive.byteSize)) must be divisible by 16")
     }
 
     func testShadowPrimitiveSizeIsDivisibleBy16() {
-        XCTAssertEqual(ShadowPrimitive.byteSize % 16, 0,
-                       "ShadowPrimitive size (\(ShadowPrimitive.byteSize)) must be divisible by 16")
+        XCTAssertEqual(
+            ShadowPrimitive.byteSize % 16, 0,
+            "ShadowPrimitive size (\(ShadowPrimitive.byteSize)) must be divisible by 16")
     }
 
     // MARK: - GPUIScene initializer
@@ -75,9 +81,11 @@ final class GPUISceneTests: XCTestCase {
         XCTAssertEqual(scene.layers[0].quads.count, 2)
         XCTAssertEqual(scene.layers[0].quads[0].x, 10)
         XCTAssertEqual(scene.layers[0].quads[1].x, 30)
-        XCTAssertEqual(scene.layers[0].paintOperations, [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
-        ])
+        XCTAssertEqual(
+            scene.layers[0].paintOperations,
+            [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+            ])
     }
 
     func testAddGlyphAppendsToLastLayer() {
@@ -110,11 +118,13 @@ final class GPUISceneTests: XCTestCase {
         scene.addGlyph(GlyphPrimitive(screenX: 2, screenY: 2, screenW: 4, screenH: 8))
         scene.addQuad(QuadPrimitive(x: 12, y: 0, width: 10, height: 10))
 
-        XCTAssertEqual(scene.layers[0].paintOperations, [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        XCTAssertEqual(
+            scene.layers[0].paintOperations,
+            [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+            ])
     }
 
     // MARK: - Multi-layer scene
@@ -456,16 +466,17 @@ final class GPUISceneTests: XCTestCase {
 
     func testMaskedPrimitiveOutsideContentMaskIsDropped() {
         var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(
-            x: 0,
-            y: 0,
-            width: 40,
-            height: 40,
-            clipX: 100,
-            clipY: 100,
-            clipWidth: 20,
-            clipHeight: 20
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0,
+                y: 0,
+                width: 40,
+                height: 40,
+                clipX: 100,
+                clipY: 100,
+                clipWidth: 20,
+                clipHeight: 20
+            ))
 
         XCTAssertTrue(scene.layers[0].quads.isEmpty)
         XCTAssertEqual(scene.paintRecordCount, 0)
@@ -501,11 +512,13 @@ final class GPUISceneTests: XCTestCase {
 
         scene.finish()
 
-        XCTAssertEqual(scene.layers[0].paintOperations, [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        XCTAssertEqual(
+            scene.layers[0].paintOperations,
+            [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .glyph, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+            ])
     }
 
     func testAdjacentSameFamilyPrimitivesCoalesce() {
@@ -532,10 +545,11 @@ final class GPUISceneTests: XCTestCase {
         scene.addQuad(QuadPrimitive(x: 20, y: 0, width: 10, height: 10))
 
         // Add a fully clipped quad that should be rejected
-        scene.addQuad(QuadPrimitive(
-            x: 100, y: 100, width: 10, height: 10,
-            clipX: 0, clipY: 0, clipWidth: 5, clipHeight: 5  // clip outside the quad
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 100, y: 100, width: 10, height: 10,
+                clipX: 0, clipY: 0, clipWidth: 5, clipHeight: 5  // clip outside the quad
+            ))
 
         // Add another quad that should coalesce with the first two
         scene.addQuad(QuadPrimitive(x: 40, y: 0, width: 10, height: 10))
@@ -576,10 +590,11 @@ final class GPUISceneTests: XCTestCase {
         var scene = GPUIScene()
 
         // Add a fully masked quad that should be rejected
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 40, height: 40,
-            clipX: 100, clipY: 100, clipWidth: 20, clipHeight: 20
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 40, height: 40,
+                clipX: 100, clipY: 100, clipWidth: 20, clipHeight: 20
+            ))
 
         // No paint records should be created for rejected primitives
         XCTAssertEqual(scene.layers[0].paintOperations.count, 0)
@@ -590,10 +605,11 @@ final class GPUISceneTests: XCTestCase {
 
     func testZeroWidthClipOmitsPrimitive() {
         var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 100, height: 100,
-            clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 100  // zero width
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 100, height: 100,
+                clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 100  // zero width
+            ))
 
         XCTAssertTrue(scene.layers[0].quads.isEmpty)
         XCTAssertEqual(scene.layers[0].paintOperations.count, 0)
@@ -601,10 +617,11 @@ final class GPUISceneTests: XCTestCase {
 
     func testZeroHeightClipOmitsPrimitive() {
         var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 100, height: 100,
-            clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 0  // zero height
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 100, height: 100,
+                clipX: 0, clipY: 0, clipWidth: 100, clipHeight: 0  // zero height
+            ))
 
         XCTAssertTrue(scene.layers[0].quads.isEmpty)
         XCTAssertEqual(scene.layers[0].paintOperations.count, 0)
@@ -615,10 +632,11 @@ final class GPUISceneTests: XCTestCase {
 
         // Quad at (0,0) with size (100,100)
         // Clip at (200,200) with size (50,50) - no overlap
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 100, height: 100,
-            clipX: 200, clipY: 200, clipWidth: 50, clipHeight: 50
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 100, height: 100,
+                clipX: 200, clipY: 200, clipWidth: 50, clipHeight: 50
+            ))
 
         XCTAssertTrue(scene.layers[0].quads.isEmpty)
         XCTAssertEqual(scene.paintRecordCount, 0)
@@ -626,22 +644,24 @@ final class GPUISceneTests: XCTestCase {
 
     func testMaskedBoundsDriveDrawOrderAssignment() {
         var scene = GPUIScene()
-        scene.addQuad(QuadPrimitive(
-            x: 0,
-            y: 0,
-            width: 300,
-            height: 20,
-            clipX: 0,
-            clipY: 0,
-            clipWidth: 40,
-            clipHeight: 20
-        ))
-        scene.addQuad(QuadPrimitive(
-            x: 200,
-            y: 0,
-            width: 20,
-            height: 20
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0,
+                y: 0,
+                width: 300,
+                height: 20,
+                clipX: 0,
+                clipY: 0,
+                clipWidth: 40,
+                clipHeight: 20
+            ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 200,
+                y: 0,
+                width: 20,
+                height: 20
+            ))
 
         scene.finish()
 
@@ -779,20 +799,20 @@ final class GPUISceneTests: XCTestCase {
 
         // scene1: quad and glyph have different draw orders due to overlap
         // They should be in separate batches
-        let batch1_quad = iter1.next()
-        let batch1_glyph = iter1.next()
-        XCTAssertNotNil(batch1_quad)
-        XCTAssertNotNil(batch1_glyph)
-        XCTAssertNil(iter1.next()) // Iterator should be exhausted after 2 batches
+        let batch1Quad = iter1.next()
+        let batch1Glyph = iter1.next()
+        XCTAssertNotNil(batch1Quad)
+        XCTAssertNotNil(batch1Glyph)
+        XCTAssertNil(iter1.next())  // Iterator should be exhausted after 2 batches
 
         // scene2: quad and glyph share the same draw order from scoped layer
         // Family precedence (quad before glyph) applies, but within same order they coalesce by family
         // So we expect one quad batch and one glyph batch (both at same draw order value)
-        let batch2_quad = iter2.next()
-        let batch2_glyph = iter2.next()
-        XCTAssertNotNil(batch2_quad)
-        XCTAssertNotNil(batch2_glyph)
-        XCTAssertNil(iter2.next()) // Iterator should be exhausted after 2 batches
+        let batch2Quad = iter2.next()
+        let batch2Glyph = iter2.next()
+        XCTAssertNotNil(batch2Quad)
+        XCTAssertNotNil(batch2Glyph)
+        XCTAssertNil(iter2.next())  // Iterator should be exhausted after 2 batches
     }
 
     // MARK: - VAL-SCENE-006: Balanced replay ranges reconstruct equivalent scene
@@ -922,7 +942,7 @@ final class GPUISceneTests: XCTestCase {
 
         XCTAssertEqual(result, .success)
         XCTAssertEqual(replayed.layers[0].quads.count, 1)
-        
+
         // Verify scoped layer markers were replayed
         XCTAssertEqual(replayed.paintRecords.count, 3)
         if case .startLayer = replayed.paintRecords[0] {
@@ -943,10 +963,10 @@ final class GPUISceneTests: XCTestCase {
         // 3: startLayer(0), 4: quad2, 5: endLayer(0)
         var original = GPUIScene(clearColor: .white)
         original.pushScopedLayer(Rect(x: 0, y: 0, width: 100, height: 100), toLayer: 0)
-        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50)) // index 1
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))  // index 1
         original.popScopedLayer(fromLayer: 0)
         original.pushScopedLayer(Rect(x: 200, y: 200, width: 100, height: 100), toLayer: 0)
-        original.addQuad(QuadPrimitive(x: 210, y: 210, width: 40, height: 40)) // index 4
+        original.addQuad(QuadPrimitive(x: 210, y: 210, width: 40, height: 40))  // index 4
         original.popScopedLayer(fromLayer: 0)
 
         // Try to replay just the first quad (1..<2) - should fail with depth 1
@@ -975,7 +995,7 @@ final class GPUISceneTests: XCTestCase {
         // Should reject the unbalanced range - starts inside a scope at depth 1
         // (depth 1 represents the scoped layer that was opened at record 0)
         XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .startsInsideScope))
-        
+
         // Scene should remain empty since replay was rejected
         XCTAssertTrue(replayed.layers[0].quads.isEmpty)
     }
@@ -993,7 +1013,7 @@ final class GPUISceneTests: XCTestCase {
 
         // Should reject the unbalanced range - ends inside a scope
         XCTAssertEqual(result, .unbalanced(layerIndex: 0, depth: 1, reason: .endsInsideScope))
-        
+
         // Scene should remain empty since replay was rejected
         XCTAssertTrue(replayed.layers[0].quads.isEmpty)
     }
@@ -1038,12 +1058,12 @@ final class GPUISceneTests: XCTestCase {
     func testNestedScopedLayerReplayPartialUnbalanced() {
         // Test partial replay that starts inside a nested scope
         var original = GPUIScene(clearColor: .white)
-        original.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0) // record 0
-        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))                // record 1
-        original.pushScopedLayer(Rect(x: 50, y: 50, width: 100, height: 100), toLayer: 0) // record 2
-        original.addGlyph(GlyphPrimitive(screenX: 60, screenY: 60, screenW: 20, screenH: 20)) // record 3
-        original.popScopedLayer(fromLayer: 0)                                            // record 4
-        original.popScopedLayer(fromLayer: 0)                                            // record 5
+        original.pushScopedLayer(Rect(x: 0, y: 0, width: 200, height: 200), toLayer: 0)  // record 0
+        original.addQuad(QuadPrimitive(x: 0, y: 0, width: 50, height: 50))  // record 1
+        original.pushScopedLayer(Rect(x: 50, y: 50, width: 100, height: 100), toLayer: 0)  // record 2
+        original.addGlyph(GlyphPrimitive(screenX: 60, screenY: 60, screenW: 20, screenH: 20))  // record 3
+        original.popScopedLayer(fromLayer: 0)  // record 4
+        original.popScopedLayer(fromLayer: 0)  // record 5
 
         // Start replay from record 2 (inside both scopes) - should reject
         var replayed = GPUIScene(clearColor: .white)
@@ -1071,9 +1091,10 @@ final class GPUISceneTests: XCTestCase {
         let quad = QuadPrimitive(x: 10, y: 20, width: 100, height: 200, cornerRadius: 5)
         original.addQuad(quad)
 
-        let glyph = GlyphPrimitive(screenX: 5, screenY: 10, screenW: 8, screenH: 12,
-                                   atlasU0: 0.1, atlasV0: 0.2, atlasU1: 0.3, atlasV1: 0.4,
-                                   colorR: 0.5, colorG: 0.6, colorB: 0.7, colorA: 0.8)
+        let glyph = GlyphPrimitive(
+            screenX: 5, screenY: 10, screenW: 8, screenH: 12,
+            atlasU0: 0.1, atlasV0: 0.2, atlasU1: 0.3, atlasV1: 0.4,
+            colorR: 0.5, colorG: 0.6, colorB: 0.7, colorA: 0.8)
         original.addGlyph(glyph)
 
         var replayed = GPUIScene(clearColor: .white)

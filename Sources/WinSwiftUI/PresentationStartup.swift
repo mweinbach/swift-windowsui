@@ -1,4 +1,5 @@
 import Foundation
+
 import SwiftWindowsCore
 
 enum StartupPresentationMode: Equatable {
@@ -11,12 +12,10 @@ enum StartupPresentationMode: Equatable {
         environment["SWIFT_WINDOWSUI_FRAME_DEBUG"].isTruthyEnvironmentValue ? .frameDebug : .automatic
     }
 }
-
 enum PresentationBackendKind: String, Equatable {
     case frame
     case scene
 }
-
 enum PresentationSelectionReason: Equatable {
     case defaultScene
     case frameDebugOverride
@@ -45,17 +44,16 @@ enum PresentationSelectionReason: Equatable {
     var detail: String? {
         switch self {
         case .batchAttachFailure(let detail),
-             .batchResizeFailure(let detail),
-             .batchRenderFailure(let detail):
+            .batchResizeFailure(let detail),
+            .batchRenderFailure(let detail):
             return detail
         case .defaultScene,
-             .frameDebugOverride,
-             .batchRendererUnavailable:
+            .frameDebugOverride,
+            .batchRendererUnavailable:
             return nil
         }
     }
 }
-
 struct PresentationSelection: Equatable {
     var presenter: PresentationBackendKind
     var reason: PresentationSelectionReason
@@ -82,7 +80,6 @@ struct PresentationSelection: Equatable {
         return lines.joined(separator: "\n") + "\n"
     }
 }
-
 struct StartupProbeConfiguration: Equatable {
     var path: String
     var shouldExitAfterProbe: Bool
@@ -90,8 +87,11 @@ struct StartupProbeConfiguration: Equatable {
     static func fromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment
     ) -> StartupProbeConfiguration? {
-        guard let path = environment["SWIFT_WINDOWSUI_STARTUP_PROBE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !path.isEmpty else {
+        guard
+            let path = environment["SWIFT_WINDOWSUI_STARTUP_PROBE_PATH"]?.trimmingCharacters(
+                in: .whitespacesAndNewlines),
+            !path.isEmpty
+        else {
             return nil
         }
 
@@ -101,9 +101,8 @@ struct StartupProbeConfiguration: Equatable {
         )
     }
 }
-
-private extension Optional where Wrapped == String {
-    var isTruthyEnvironmentValue: Bool {
+extension Optional where Wrapped == String {
+    fileprivate var isTruthyEnvironmentValue: Bool {
         guard let value = self?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() else {
             return false
         }
@@ -111,9 +110,8 @@ private extension Optional where Wrapped == String {
         return value == "1" || value == "true" || value == "yes" || value == "on"
     }
 }
-
-private extension String {
-    var sanitizedProbeValue: String {
+extension String {
+    fileprivate var sanitizedProbeValue: String {
         replacingOccurrences(of: "\r", with: " ")
             .replacingOccurrences(of: "\n", with: " ")
             .replacingOccurrences(of: "=", with: ":")

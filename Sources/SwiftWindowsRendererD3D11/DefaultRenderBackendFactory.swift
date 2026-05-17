@@ -1,11 +1,14 @@
 import Foundation
-import SwiftWindowsGraphics
 
 // MARK: - D3D11 Render Backend Factory
 
 /// Factory that produces D3D11 GPU renderers.  This is the default Windows
 /// factory used by the demo app and by ``WinSwiftUI.App`` when no other
 /// factory is injected.
+import SwiftWindowsGraphics
+
+// MARK: - Legacy Default Factory (deprecated, use D3D11RenderBackendFactory)
+
 @MainActor
 public struct D3D11RenderBackendFactory: RenderBackendFactory {
     public init() {}
@@ -24,9 +27,6 @@ public struct D3D11RenderBackendFactory: RenderBackendFactory {
         D3D11BatchRenderer()
     }
 }
-
-// MARK: - Legacy Default Factory (deprecated, use D3D11RenderBackendFactory)
-
 @MainActor
 public enum DefaultRenderBackendFactory {
     public static func make() -> any RenderBackend {

@@ -1,6 +1,9 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
 import SwiftWindowsPlatform
 
 public struct ControlAnimationStyle: Sendable {
@@ -16,7 +19,6 @@ public struct ControlAnimationStyle: Sendable {
 
     public static let `default` = ControlAnimationStyle()
 }
-
 public struct SurfacePalette: Sendable {
     public var idle: Color
     public var hovered: Color
@@ -58,14 +60,13 @@ public struct SurfacePalette: Sendable {
         activated: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.92)
     )
 }
-
 public enum BorderStyle: Sendable, Equatable {
     case solid
     case dashed
     case dotted
-    case double_
+    // swift-format-ignore: AlwaysUseLowerCamelCase
+    case double_  // trailing underscore avoids the `Double` type name conflict
 }
-
 public struct CornerRadii: Sendable, Equatable {
     public var topLeft: Double
     public var topRight: Double
@@ -86,7 +87,6 @@ public struct CornerRadii: Sendable, Equatable {
         self.bottomRight = radius
     }
 }
-
 public struct SurfaceChrome: Sendable {
     public var borderColor: Color
     public var borderHoveredColor: Color
@@ -162,7 +162,9 @@ public struct SurfaceChrome: Sendable {
     }
 
     /// Resolved width for a given side, falling back to uniform `borderWidth`.
-    public func resolvedBorderWidth(top: Bool = false, right: Bool = false, bottom: Bool = false, left: Bool = false) -> Double {
+    public func resolvedBorderWidth(top: Bool = false, right: Bool = false, bottom: Bool = false, left: Bool = false)
+        -> Double
+    {
         if top, let w = borderTopWidth { return w }
         if right, let w = borderRightWidth { return w }
         if bottom, let w = borderBottomWidth { return w }
@@ -194,12 +196,10 @@ public struct SurfaceChrome: Sendable {
         focusRingWidth: 2
     )
 }
-
 public enum SplitAxis: Sendable {
     case horizontal
     case vertical
 }
-
 public enum SymbolIcon: String, Sendable {
     case search = "\u{E721}"
     case folder = "\u{E8B7}"
@@ -217,7 +217,6 @@ public enum SymbolIcon: String, Sendable {
     case radioSelected = "\u{E915}"
     case radioUnselected = "\u{E916}"
 }
-
 @MainActor
 public enum Controls {
     public static func panel(
@@ -378,8 +377,10 @@ public enum Controls {
         primary: [ViewNode],
         secondary: [ViewNode]
     ) -> ViewNode {
-        let primaryContainer = panel(clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: primary)
-        let secondaryContainer = panel(clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: secondary)
+        let primaryContainer = panel(
+            clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: primary)
+        let secondaryContainer = panel(
+            clipsToBounds: true, layoutMode: .absolute, isHitTestVisible: false, children: secondary)
         let dividerHandle = panel(
             backgroundColor: dividerIdleColor,
             cornerRadius: dividerThickness * 0.5,
@@ -401,7 +402,9 @@ public enum Controls {
 
             let totalExtent = axis == .horizontal ? bounds.size.width : bounds.size.height
             let availableExtent = max(0, totalExtent - dividerThickness)
-            let clampedPrimary = min(max(availableExtent * state.ratio, minPrimaryExtent), max(minPrimaryExtent, availableExtent - minSecondaryExtent))
+            let clampedPrimary = min(
+                max(availableExtent * state.ratio, minPrimaryExtent),
+                max(minPrimaryExtent, availableExtent - minSecondaryExtent))
             let resolvedPrimary = availableExtent <= 0 ? 0 : min(max(clampedPrimary, 0), availableExtent)
             let resolvedRatio = availableExtent <= 0 ? state.ratio : resolvedPrimary / availableExtent
             state.ratio = resolvedRatio
@@ -415,11 +418,15 @@ public enum Controls {
             case .horizontal:
                 primaryFrame = Rect(x: 0, y: 0, width: resolvedPrimary, height: bounds.size.height)
                 dividerFrame = Rect(x: resolvedPrimary, y: 0, width: dividerThickness, height: bounds.size.height)
-                secondaryFrame = Rect(x: resolvedPrimary + dividerThickness, y: 0, width: max(0, bounds.size.width - resolvedPrimary - dividerThickness), height: bounds.size.height)
+                secondaryFrame = Rect(
+                    x: resolvedPrimary + dividerThickness, y: 0,
+                    width: max(0, bounds.size.width - resolvedPrimary - dividerThickness), height: bounds.size.height)
             case .vertical:
                 primaryFrame = Rect(x: 0, y: 0, width: bounds.size.width, height: resolvedPrimary)
                 dividerFrame = Rect(x: 0, y: resolvedPrimary, width: bounds.size.width, height: dividerThickness)
-                secondaryFrame = Rect(x: 0, y: resolvedPrimary + dividerThickness, width: bounds.size.width, height: max(0, bounds.size.height - resolvedPrimary - dividerThickness))
+                secondaryFrame = Rect(
+                    x: 0, y: resolvedPrimary + dividerThickness, width: bounds.size.width,
+                    height: max(0, bounds.size.height - resolvedPrimary - dividerThickness))
             }
 
             if primaryContainer.frame != primaryFrame {
@@ -433,14 +440,16 @@ public enum Controls {
             }
 
             if primaryContainer.children.count == 1 {
-                let primaryChildFrame = Rect(x: 0, y: 0, width: primaryFrame.size.width, height: primaryFrame.size.height)
+                let primaryChildFrame = Rect(
+                    x: 0, y: 0, width: primaryFrame.size.width, height: primaryFrame.size.height)
                 if primaryContainer.children[0].frame != primaryChildFrame {
                     primaryContainer.children[0].frame = primaryChildFrame
                 }
             }
 
             if secondaryContainer.children.count == 1 {
-                let secondaryChildFrame = Rect(x: 0, y: 0, width: secondaryFrame.size.width, height: secondaryFrame.size.height)
+                let secondaryChildFrame = Rect(
+                    x: 0, y: 0, width: secondaryFrame.size.width, height: secondaryFrame.size.height)
                 if secondaryContainer.children[0].frame != secondaryChildFrame {
                     secondaryContainer.children[0].frame = secondaryChildFrame
                 }
@@ -539,7 +548,12 @@ public enum Controls {
         isHitTestVisible: Bool = false,
         children: [ViewNode] = []
     ) -> ViewNode {
-        let content = [label(title, color: headerColor, scale: headerScale, weight: .semibold, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1)] + children
+        let content =
+            [
+                label(
+                    title, color: headerColor, scale: headerScale, weight: .semibold, alignment: .leading,
+                    lineBreakMode: .truncateTail, maximumNumberOfLines: 1)
+            ] + children
         return stackPanel(
             frame: frame,
             preferredSize: preferredSize,
@@ -601,8 +615,12 @@ public enum Controls {
             stackLayout: .vertical(spacing: 6, alignment: .leading, mainAlignment: .center),
             isHitTestVisible: false,
             children: [
-                label(title, color: .white, scale: 1.8, weight: .semibold, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
-                label(detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2, alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
+                label(
+                    title, color: .white, scale: 1.8, weight: .semibold, alignment: .leading,
+                    lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
+                label(
+                    detail, color: Color(red: 0.76, green: 0.86, blue: 0.95, alpha: 0.86), scale: 1.2,
+                    alignment: .leading, lineBreakMode: .truncateTail, maximumNumberOfLines: 1),
             ]
         )
 
@@ -614,7 +632,9 @@ public enum Controls {
                     backgroundColor: nil,
                     layoutMode: .stack(.vertical(alignment: .center, mainAlignment: .center)),
                     isHitTestVisible: false,
-                    children: [Self.icon(symbol, preferredSize: Size(width: 24, height: 24), color: accentColor, scale: 1.5)]
+                    children: [
+                        Self.icon(symbol, preferredSize: Size(width: 24, height: 24), color: accentColor, scale: 1.5)
+                    ]
                 )
             )
         }
@@ -627,7 +647,10 @@ public enum Controls {
             cornerRadius: 18,
             palette: palette,
             chrome: chrome,
-            layoutMode: .stack(.horizontal(spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center)),
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: 14, padding: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14), alignment: .center
+                )),
             action: action,
             children: contentChildren
         )
@@ -918,12 +941,16 @@ public enum Controls {
         onToggle: ((Bool) -> Void)? = nil
     ) -> ViewNode {
         let boxSize: Double = 20
-        let resolvedBorderColor = isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
+        let resolvedBorderColor =
+            isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
         let resolvedBackgroundColor = isEnabled ? palette.idle : palette.disabledBackground
         let resolvedForeground = isEnabled ? Color.white : palette.disabledForeground
 
-        let checkIcon = isChecked
-            ? icon(.checkmark, preferredSize: Size(width: boxSize - 4, height: boxSize - 4), color: resolvedForeground, scale: 1.2)
+        let checkIcon =
+            isChecked
+            ? icon(
+                .checkmark, preferredSize: Size(width: boxSize - 4, height: boxSize - 4), color: resolvedForeground,
+                scale: 1.2)
             : panel(preferredSize: Size(width: boxSize - 4, height: boxSize - 4), isHitTestVisible: false)
 
         let box = panel(
@@ -958,7 +985,9 @@ public enum Controls {
             palette: palette,
             chrome: chrome,
             clipsToBounds: true,
-            layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
             action: action,
@@ -982,7 +1011,8 @@ public enum Controls {
             focused: Color(red: 0.26, green: 0.33, blue: 0.42, alpha: 1.0),
             pressed: Color(red: 0.72, green: 0.82, blue: 0.92, alpha: 1.0)
         ),
-        chrome: SurfaceChrome = SurfaceChrome(borderWidth: 0, focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
+        chrome: SurfaceChrome = SurfaceChrome(
+            borderWidth: 0, focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
         animation: ControlAnimationStyle = .default,
         onToggle: ((Bool) -> Void)? = nil
     ) -> ViewNode {
@@ -1030,7 +1060,10 @@ public enum Controls {
             palette: palette,
             chrome: chrome,
             clipsToBounds: false,
-            layoutMode: .stack(.horizontal(padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center, mainAlignment: .center)),
+            layoutMode: .stack(
+                .horizontal(
+                    padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center,
+                    mainAlignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
             action: action,
@@ -1056,7 +1089,8 @@ public enum Controls {
             focused: .clear,
             pressed: .clear
         ),
-        chrome: SurfaceChrome = SurfaceChrome(focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
+        chrome: SurfaceChrome = SurfaceChrome(
+            focusRingColor: Color(red: 0.82, green: 0.90, blue: 1.0, alpha: 0.28), focusRingWidth: 2),
         onValueChanged: ((Double) -> Void)? = nil,
         onEditingChanged: ((Bool) -> Void)? = nil
     ) -> ViewNode {
@@ -1066,7 +1100,8 @@ public enum Controls {
         let totalHeight: Double = max(thumbSize + 8, preferredSize?.height ?? 28)
 
         let clampedValue = min(max(value, range.lowerBound), range.upperBound)
-        let progress = range.upperBound > range.lowerBound
+        let progress =
+            range.upperBound > range.lowerBound
             ? (clampedValue - range.lowerBound) / (range.upperBound - range.lowerBound)
             : 0
 
@@ -1193,7 +1228,7 @@ public enum Controls {
         let segmentCenters: [(Double, Double)] = [
             (0.50, 0.00), (0.75, 0.07), (0.93, 0.25), (1.00, 0.50),
             (0.93, 0.75), (0.75, 0.93), (0.50, 1.00), (0.25, 0.93),
-            (0.07, 0.75), (0.00, 0.50), (0.07, 0.25), (0.25, 0.07)
+            (0.07, 0.75), (0.00, 0.50), (0.07, 0.25), (0.25, 0.07),
         ]
 
         let segmentCount = segmentCenters.count
@@ -1267,7 +1302,8 @@ public enum Controls {
         let outerSize: Double = 20
         let innerSize: Double = 10
 
-        let resolvedBorderColor = isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
+        let resolvedBorderColor =
+            isError ? palette.errorBorder : (isEnabled ? chrome.borderColor : palette.disabledBorder)
         let resolvedOuterBg = isEnabled ? palette.idle : palette.disabledBackground
         let resolvedForeground = isEnabled ? selectedColor : palette.disabledForeground
 
@@ -1316,7 +1352,9 @@ public enum Controls {
             palette: palette,
             chrome: chrome,
             clipsToBounds: true,
-            layoutMode: .stack(.horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
+            layoutMode: .stack(
+                .horizontal(
+                    spacing: 10, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center)),
             isEnabled: isEnabled,
             animation: animation,
             action: action,
@@ -1376,7 +1414,8 @@ public enum Controls {
 
         let optionNodes: [ViewNode] = options.enumerated().map { index, option in
             let isCurrentSelection = index == selectedIndex
-            let optionColor = isCurrentSelection
+            let optionColor =
+                isCurrentSelection
                 ? Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
                 : resolvedForeground
             return button(
@@ -1406,7 +1445,8 @@ public enum Controls {
             borderWidth: 1,
             cornerRadius: 8,
             clipsToBounds: true,
-            stackLayout: .vertical(spacing: 2, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .stretch),
+            stackLayout: .vertical(
+                spacing: 2, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .stretch),
             isHitTestVisible: false,
             children: optionNodes
         )
@@ -1432,13 +1472,16 @@ public enum Controls {
                 focusRingWidth: chrome.focusRingWidth
             ),
             clipsToBounds: false,
-            layoutMode: .stack(.vertical(spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
+            layoutMode: .stack(
+                .vertical(
+                    spacing: 4, padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12), alignment: .stretch)),
             isEnabled: isEnabled,
             animation: animation,
-            action: isEnabled ? {
-                dropdownState.isOpen = !dropdownState.isOpen
-                optionsList.isHidden = !dropdownState.isOpen
-            } : nil,
+            action: isEnabled
+                ? {
+                    dropdownState.isOpen = !dropdownState.isOpen
+                    optionsList.isHidden = !dropdownState.isOpen
+                } : nil,
             children: rootChildren
         )
 
@@ -1477,11 +1520,13 @@ public enum Controls {
                 title: title,
                 layoutPriority: 1,
                 cornerRadius: 8,
-                palette: isEnabled ? tabPalette : SurfacePalette(
-                    idle: tabPalette.disabledBackground,
-                    focused: tabPalette.disabledBackground,
-                    pressed: tabPalette.disabledBackground
-                ),
+                palette: isEnabled
+                    ? tabPalette
+                    : SurfacePalette(
+                        idle: tabPalette.disabledBackground,
+                        focused: tabPalette.disabledBackground,
+                        pressed: tabPalette.disabledBackground
+                    ),
                 chrome: chrome,
                 titleColor: titleColor,
                 titleScale: 1.5,
@@ -1501,7 +1546,8 @@ public enum Controls {
             borderWidth: 1,
             cornerRadius: 12,
             clipsToBounds: true,
-            stackLayout: .horizontal(spacing: 4, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .stretch),
+            stackLayout: .horizontal(
+                spacing: 4, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .stretch),
             isHitTestVisible: false,
             children: tabNodes
         )
@@ -1527,14 +1573,12 @@ public enum Controls {
         )
     }
 }
-
-private extension ViewNode {
-    func configured(_ update: (ViewNode) -> Void) -> ViewNode {
+extension ViewNode {
+    fileprivate func configured(_ update: (ViewNode) -> Void) -> ViewNode {
         update(self)
         return self
     }
 }
-
 private final class SplitViewState {
     var ratio: Double
     var dragStartRatio: Double
@@ -1546,18 +1590,15 @@ private final class SplitViewState {
         self.bounds = .zero
     }
 }
-
 private final class ButtonInteractionState {
     var isHovered = false
     var isFocused = false
     var isPressed = false
 }
-
 private final class SliderDragState {
     var startX: Double = 0
     var startValue: Double = 0
 }
-
 private final class DropdownState {
     var isOpen = false
 }

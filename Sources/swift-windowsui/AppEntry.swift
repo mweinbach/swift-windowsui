@@ -1,10 +1,10 @@
-#if canImport(SwiftUI)
-import SwiftUI
-#else
-import WinSwiftUI
-#endif
 import SwiftWindowsDemo
 
+#if canImport(SwiftUI)
+    import SwiftUI
+#else
+    import WinSwiftUI
+#endif
 @main
 struct SwiftWindowsUIDemoApp: App {
     private let model = DemoDashboardModel()

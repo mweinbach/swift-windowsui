@@ -1,5 +1,7 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsUI
 
 @MainActor
@@ -24,7 +26,6 @@ public struct WinSwiftUIRenderSnapshot {
         self.displayScale = displayScale
     }
 }
-
 @MainActor
 public enum WinSwiftUIRendererSnapshotter {
     public static func snapshot<V: View>(

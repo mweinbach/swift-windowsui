@@ -2,9 +2,10 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsLayout
+import Testing
+
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
-import Testing
 
 @MainActor
 @Suite("OutlineGroup Tests")
@@ -20,7 +21,7 @@ struct OutlineGroupTests {
     func outlineGroupRendersLeaves() async {
         let items = [
             TreeItem(id: "a", name: "Alpha", children: nil),
-            TreeItem(id: "b", name: "Beta", children: nil)
+            TreeItem(id: "b", name: "Beta", children: nil),
         ]
 
         let group = OutlineGroup(items, children: \.children) { item in
@@ -41,10 +42,12 @@ struct OutlineGroupTests {
     @Test("OutlineGroup renders parent items with expandable children")
     func outlineGroupRendersParents() async {
         let items = [
-            TreeItem(id: "root", name: "Root", children: [
-                TreeItem(id: "child1", name: "Child 1", children: nil),
-                TreeItem(id: "child2", name: "Child 2", children: nil)
-            ])
+            TreeItem(
+                id: "root", name: "Root",
+                children: [
+                    TreeItem(id: "child1", name: "Child 1", children: nil),
+                    TreeItem(id: "child2", name: "Child 2", children: nil),
+                ])
         ]
 
         let group = OutlineGroup(items, children: \.children) { item in
@@ -68,9 +71,11 @@ struct OutlineGroupTests {
 
     @Test("OutlineGroup single root init")
     func outlineGroupSingleRoot() async {
-        let root = TreeItem(id: "root", name: "Root", children: [
-            TreeItem(id: "c1", name: "Child 1", children: nil)
-        ])
+        let root = TreeItem(
+            id: "root", name: "Root",
+            children: [
+                TreeItem(id: "c1", name: "Child 1", children: nil)
+            ])
 
         let group = OutlineGroup(root, children: \.children) { item in
             Text(item.name)
@@ -97,9 +102,11 @@ struct OutlineGroupTests {
 
         let items = [
             NonIdentifiableItem(key: "a", name: "Alpha", children: nil),
-            NonIdentifiableItem(key: "b", name: "Beta", children: [
-                NonIdentifiableItem(key: "b1", name: "Beta 1", children: nil)
-            ])
+            NonIdentifiableItem(
+                key: "b", name: "Beta",
+                children: [
+                    NonIdentifiableItem(key: "b1", name: "Beta 1", children: nil)
+                ]),
         ]
 
         let group = OutlineGroup(items, id: \.key, children: \.children) { item in
@@ -120,9 +127,11 @@ struct OutlineGroupTests {
     @Test("List with children renders hierarchical OutlineGroup")
     func listWithChildrenRendersHierarchically() async {
         let items = [
-            TreeItem(id: "r", name: "Root", children: [
-                TreeItem(id: "c1", name: "Child 1", children: nil)
-            ])
+            TreeItem(
+                id: "r", name: "Root",
+                children: [
+                    TreeItem(id: "c1", name: "Child 1", children: nil)
+                ])
         ]
 
         let list = List(items, children: \.children) { item in
@@ -144,9 +153,11 @@ struct OutlineGroupTests {
     @Test("List with children and single selection renders")
     func listWithChildrenAndSelection() async {
         let items = [
-            TreeItem(id: "r", name: "Root", children: [
-                TreeItem(id: "c1", name: "Child 1", children: nil)
-            ])
+            TreeItem(
+                id: "r", name: "Root",
+                children: [
+                    TreeItem(id: "c1", name: "Child 1", children: nil)
+                ])
         ]
 
         var selection: String? = nil
@@ -171,9 +182,11 @@ struct OutlineGroupTests {
     @Test("List with children and multiple selection renders")
     func listWithChildrenAndMultipleSelection() async {
         let items = [
-            TreeItem(id: "r", name: "Root", children: [
-                TreeItem(id: "c1", name: "Child 1", children: nil)
-            ])
+            TreeItem(
+                id: "r", name: "Root",
+                children: [
+                    TreeItem(id: "c1", name: "Child 1", children: nil)
+                ])
         ]
 
         var selection = Set<String>()

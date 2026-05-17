@@ -1,3 +1,7 @@
+// swift-format-ignore-file
+// HLSL shader source lives in raw string literals; swift-format mangles their
+// required indentation, so this file opts out of lint/format entirely.
+
 // MARK: - Instanced Quad Shader (StructuredBuffer at t0, cbuffer at b0)
 
 let batchQuadShaderSource = #"""

@@ -1,11 +1,16 @@
-﻿import Foundation
+import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import WinSDK
 
 @MainActor
 enum DirectWriteTextRenderer {
-    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil) -> NativeTextLayoutResult? {
+    static func layout(_ text: String, style: PixelTextStyle, scaleFactor: Double, maxWidth: Double? = nil)
+        -> NativeTextLayoutResult?
+    {
         guard let system = DirectWriteSystem.shared else {
             return nil
         }
@@ -26,7 +31,7 @@ enum DirectWriteTextRenderer {
         into commands: inout [RenderCommand]
     ) -> Bool {
         guard let system = DirectWriteSystem.shared,
-              let bitmap = system.rasterize(text, in: rect.size, style: style, scaleFactor: scaleFactor)
+            let bitmap = system.rasterize(text, in: rect.size, style: style, scaleFactor: scaleFactor)
         else {
             return false
         }
@@ -47,7 +52,7 @@ enum DirectWriteTextRenderer {
 
     static func rasterize(_ text: String, style: PixelTextStyle, scaleFactor: Double) -> BitmapSurface? {
         guard let system = DirectWriteSystem.shared,
-              let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
+            let size = system.measure(text, style: style, scaleFactor: scaleFactor, maxWidth: nil)
         else {
             return nil
         }
@@ -55,7 +60,8 @@ enum DirectWriteTextRenderer {
         return system.rasterize(text, in: size, style: style, scaleFactor: scaleFactor)
     }
 
-    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+    static func rasterizeGlyph(_ character: Character, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap?
+    {
         guard let system = DirectWriteSystem.shared else {
             return nil
         }
@@ -63,7 +69,9 @@ enum DirectWriteTextRenderer {
         return system.rasterizeGlyph(character, style: style, scaleFactor: scaleFactor)
     }
 
-    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+    static func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double)
+        -> NativeGlyphBitmap?
+    {
         guard let system = DirectWriteSystem.shared else {
             return nil
         }
@@ -71,7 +79,6 @@ enum DirectWriteTextRenderer {
         return system.rasterizeGlyph(glyph, style: style, scaleFactor: scaleFactor)
     }
 }
-
 struct CapturedGlyphRasterMetrics: Equatable, Sendable {
     var renderScale: Double
     var fontSize: Double
@@ -81,8 +88,9 @@ struct CapturedGlyphRasterMetrics: Equatable, Sendable {
     var targetHeight: Int32
     var advance: Double
 }
-
-func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFactor: Double) -> CapturedGlyphRasterMetrics? {
+func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFactor: Double)
+    -> CapturedGlyphRasterMetrics?
+{
     guard scaleFactor.isFinite else {
         return nil
     }
@@ -104,7 +112,7 @@ func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFacto
     let logicalHeight = max((baselineYOffset + fontSize) * 1.5, fontSize * 2.5)
 
     guard let contentWidth = roundedUpInt32(logicalWidth * renderScale, minimum: 8),
-          let contentHeight = roundedUpInt32(logicalHeight * renderScale, minimum: 8)
+        let contentHeight = roundedUpInt32(logicalHeight * renderScale, minimum: 8)
     else {
         return nil
     }
@@ -125,7 +133,6 @@ func makeCapturedGlyphRasterMetrics(for glyph: NativeTextGlyphLayout, scaleFacto
         advance: advance
     )
 }
-
 func isUsableCapturedGlyphBitmap(_ bitmap: NativeGlyphBitmap, fontSize: Double, scaleFactor: Double) -> Bool {
     guard fontSize.isFinite, scaleFactor.isFinite, bitmap.width > 0, bitmap.height > 0 else {
         return false
@@ -134,7 +141,6 @@ func isUsableCapturedGlyphBitmap(_ bitmap: NativeGlyphBitmap, fontSize: Double, 
     let maxExtent = max(fontSize * max(scaleFactor, 1.0) * 4.0, 32.0)
     return Double(bitmap.width) <= maxExtent && Double(bitmap.height) <= maxExtent
 }
-
 private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
     guard value.isFinite else {
         return nil
@@ -147,7 +153,6 @@ private func roundedUpInt32(_ value: Double, minimum: Int32) -> Int32? {
 
     return max(minimum, Int32(rounded))
 }
-
 @MainActor
 private final class DirectWriteSystem {
     static let shared: DirectWriteSystem? = try? DirectWriteSystem()
@@ -170,8 +175,8 @@ private final class DirectWriteSystem {
 
         var iid = iidIDWriteFactory
         guard let factoryResult = withUnsafePointer(to: &iid, { loader.createDWriteFactory(from: module, iid: $0) }),
-              isSuccess(factoryResult.0),
-              let factoryRaw = factoryResult.1
+            isSuccess(factoryResult.0),
+            let factoryRaw = factoryResult.1
         else {
             loader.unloadLibrary(module)
             throw DirectWriteError.initializationFailed("DWriteCreateFactory")
@@ -180,7 +185,8 @@ private final class DirectWriteSystem {
         self.factory = factoryRaw.assumingMemoryBound(to: IDWriteFactory.self)
 
         var gdiInteropRaw: UnsafeMutableRawPointer?
-        let gdiInteropHR = factory.pointee.lpVtbl!.pointee.GetGdiInterop(UnsafeMutableRawPointer(factory), &gdiInteropRaw)
+        let gdiInteropHR = factory.pointee.lpVtbl!.pointee.GetGdiInterop(
+            UnsafeMutableRawPointer(factory), &gdiInteropRaw)
         guard isSuccess(gdiInteropHR), let gdiInteropRaw else {
             var releasableFactory: UnsafeMutablePointer<IDWriteFactory>? = factory
             releaseDirectWriteCOM(&releasableFactory)
@@ -206,10 +212,12 @@ private final class DirectWriteSystem {
     ) -> NativeTextLayoutResult? {
         guard !text.isEmpty else {
             let emptySize = snapLogicalTextSize(
-                Size(width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom),
+                Size(
+                    width: style.insets.leading + style.insets.trailing, height: style.insets.top + style.insets.bottom),
                 scaleFactor: scaleFactor
             )
-            return NativeTextLayoutResult(lines: [], lineSpacing: style.lineSpacing, contentSize: .zero, measuredSize: emptySize)
+            return NativeTextLayoutResult(
+                lines: [], lineSpacing: style.lineSpacing, contentSize: .zero, measuredSize: emptySize)
         }
 
         guard let measurementFormat = createTextFormat(style: style, wrapping: dwriteWordWrappingNoWrap) else {
@@ -269,8 +277,8 @@ private final class DirectWriteSystem {
         if let reservedLineCount = reservedTextLineCount(for: style) {
             let reservedLineHeight = lines.first?.height ?? max(style.nativeFontPixelSize, 1)
             let reservedContentHeight =
-                Double(reservedLineCount) * reservedLineHeight +
-                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+                Double(reservedLineCount) * reservedLineHeight + Double(max(reservedLineCount - 1, 0))
+                * style.lineSpacing
             contentHeight = max(contentHeight, reservedContentHeight)
         }
 
@@ -303,8 +311,10 @@ private final class DirectWriteSystem {
         }
 
         let text = String(character)
-        guard let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: glyphStyle),
-              let bounds = textBounds(for: layout)
+        guard
+            let layout = createTextLayout(
+                text: text, format: format, size: Size(width: 4096, height: 4096), style: glyphStyle),
+            let bounds = textBounds(for: layout)
         else {
             return nil
         }
@@ -338,7 +348,8 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableBitmapTarget)
         }
 
-        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
+        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(
+            UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
         guard clearBitmapTarget(bitmapTarget) else {
             return nil
         }
@@ -347,7 +358,7 @@ private final class DirectWriteSystem {
             bitmapRenderTarget: bitmapTarget,
             renderingParams: renderingParams,
             pixelsPerDip: FLOAT(scaleFactor),
-            textColor: COLORREF(0x00FFFFFF)
+            textColor: COLORREF(0x00FF_FFFF)
         )
 
         guard let renderer = createTextRenderer() else {
@@ -368,8 +379,8 @@ private final class DirectWriteSystem {
             )
         }
         guard isSuccess(drawHR),
-              let surface = extractBitmapSurface(from: bitmapTarget),
-              var cropped = cropGlyphSurface(surface, paddingPixels: 0)
+            let surface = extractBitmapSurface(from: bitmapTarget),
+            var cropped = cropGlyphSurface(surface, paddingPixels: 0)
         else {
             return nil
         }
@@ -387,11 +398,14 @@ private final class DirectWriteSystem {
         )
     }
 
-    func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double) -> NativeGlyphBitmap? {
+    func rasterizeGlyph(_ glyph: NativeTextGlyphLayout, style: PixelTextStyle, scaleFactor: Double)
+        -> NativeGlyphBitmap?
+    {
         var normalizedGlyph = glyph
         normalizedGlyph.fontSize = max(glyph.fontSize, 1)
         if let bitmap = rasterizeCapturedGlyph(normalizedGlyph, scaleFactor: scaleFactor),
-           isUsableCapturedGlyphBitmap(bitmap, fontSize: normalizedGlyph.fontSize, scaleFactor: scaleFactor) {
+            isUsableCapturedGlyphBitmap(bitmap, fontSize: normalizedGlyph.fontSize, scaleFactor: scaleFactor)
+        {
             return bitmap
         }
 
@@ -450,7 +464,8 @@ private final class DirectWriteSystem {
             }
         )
 
-        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style)) else {
+        guard let format = createTextFormat(style: style, wrapping: wrappingMode(for: resolvedLayout, style: style))
+        else {
             return nil
         }
         defer {
@@ -458,7 +473,8 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableFormat)
         }
 
-        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize, style: style) else {
+        guard let layout = createTextLayout(text: resolvedLayout.text, format: format, size: contentSize, style: style)
+        else {
             return nil
         }
         defer {
@@ -487,20 +503,23 @@ private final class DirectWriteSystem {
             releaseDirectWriteCOM(&releasableBitmapTarget)
         }
 
-        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
+        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(
+            UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
 
         guard clearBitmapTarget(bitmapTarget) else {
             return nil
         }
 
-        let bounds = textBounds(for: layout) ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangLeft: 0, overhangTop: 0)
+        let bounds =
+            textBounds(for: layout)
+            ?? TextBounds(width: contentSize.width, height: contentSize.height, overhangLeft: 0, overhangTop: 0)
         let origin = textOrigin(size: size, style: style, bounds: bounds)
 
         var drawingContext = DirectWriteDrawingContext(
             bitmapRenderTarget: bitmapTarget,
             renderingParams: renderingParams,
             pixelsPerDip: FLOAT(scaleFactor),
-            textColor: COLORREF(0x00FFFFFF)
+            textColor: COLORREF(0x00FF_FFFF)
         )
 
         guard let renderer = createTextRenderer() else {
@@ -551,8 +570,9 @@ private final class DirectWriteSystem {
         }
 
         guard let format = createTextFormat(style: lineStyle, wrapping: dwriteWordWrappingNoWrap),
-              let layout = createTextLayout(text: text, format: format, size: Size(width: 4096, height: 4096), style: lineStyle),
-              let bounds = textBounds(for: layout)
+            let layout = createTextLayout(
+                text: text, format: format, size: Size(width: 4096, height: 4096), style: lineStyle),
+            let bounds = textBounds(for: layout)
         else {
             return nil
         }
@@ -564,7 +584,8 @@ private final class DirectWriteSystem {
         }
 
         let glyphs = fallbackGlyphLayouts(from: layout, text: text, bounds: bounds, style: lineStyle)
-        let resolvedGlyphs = glyphs.isEmpty
+        let resolvedGlyphs =
+            glyphs.isEmpty
             ? captureGlyphLayouts(from: layout, text: text, style: lineStyle) ?? []
             : glyphs
 
@@ -600,11 +621,13 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        guard let bitmapTarget = createBitmapRenderTarget(
-            width: metrics.targetWidth,
-            height: metrics.targetHeight,
-            scaleFactor: metrics.renderScale
-        ) else {
+        guard
+            let bitmapTarget = createBitmapRenderTarget(
+                width: metrics.targetWidth,
+                height: metrics.targetHeight,
+                scaleFactor: metrics.renderScale
+            )
+        else {
             return nil
         }
         defer {
@@ -620,7 +643,7 @@ private final class DirectWriteSystem {
             bitmapRenderTarget: bitmapTarget,
             renderingParams: renderingParams,
             pixelsPerDip: FLOAT(metrics.renderScale),
-            textColor: COLORREF(0x00FFFFFF)
+            textColor: COLORREF(0x00FF_FFFF)
         )
 
         let glyphIndices: [UINT16] = [UINT16(truncatingIfNeeded: glyphID)]
@@ -657,8 +680,8 @@ private final class DirectWriteSystem {
         }
 
         guard isSuccess(drawHR),
-              let surface = extractBitmapSurface(from: bitmapTarget),
-              var cropped = cropGlyphSurface(surface, paddingPixels: metrics.paddingPixels)
+            let surface = extractBitmapSurface(from: bitmapTarget),
+            var cropped = cropGlyphSurface(surface, paddingPixels: metrics.paddingPixels)
         else {
             return nil
         }
@@ -736,7 +759,9 @@ private final class DirectWriteSystem {
             }
 
             let nextX: Double
-            if index + 1 < utf16Offsets.count, let nextHit = hitTestTextPosition(layout: layout, textPosition: utf16Offsets[index + 1]) {
+            if index + 1 < utf16Offsets.count,
+                let nextHit = hitTestTextPosition(layout: layout, textPosition: utf16Offsets[index + 1])
+            {
                 nextX = nextHit.x
             } else {
                 nextX = bounds.width
@@ -760,14 +785,18 @@ private final class DirectWriteSystem {
 
     private static let fallbackFontFamilies = ["Segoe UI", "Arial", "sans-serif"]
 
-    private func createTextFormat(style: PixelTextStyle, wrapping: DWriteWordWrapping) -> UnsafeMutablePointer<IDWriteTextFormat>? {
+    private func createTextFormat(style: PixelTextStyle, wrapping: DWriteWordWrapping) -> UnsafeMutablePointer<
+        IDWriteTextFormat
+    >? {
         let format = createTextFormatWithFallback(style: style)
         guard let format else {
             return nil
         }
 
-        _ = format.pointee.lpVtbl!.pointee.SetTextAlignment(UnsafeMutableRawPointer(format), style.alignment.dwriteAlignment)
-        _ = format.pointee.lpVtbl!.pointee.SetParagraphAlignment(UnsafeMutableRawPointer(format), style.verticalAlignment.dwriteParagraphAlignment)
+        _ = format.pointee.lpVtbl!.pointee.SetTextAlignment(
+            UnsafeMutableRawPointer(format), style.alignment.dwriteAlignment)
+        _ = format.pointee.lpVtbl!.pointee.SetParagraphAlignment(
+            UnsafeMutableRawPointer(format), style.verticalAlignment.dwriteParagraphAlignment)
         _ = format.pointee.lpVtbl!.pointee.SetWordWrapping(UnsafeMutableRawPointer(format), wrapping)
 
         if style.lineSpacing >= 0 {
@@ -807,7 +836,9 @@ private final class DirectWriteSystem {
         return nil
     }
 
-    private func attemptCreateTextFormat(fontFamily: String, style: PixelTextStyle) -> UnsafeMutablePointer<IDWriteTextFormat>? {
+    private func attemptCreateTextFormat(fontFamily: String, style: PixelTextStyle) -> UnsafeMutablePointer<
+        IDWriteTextFormat
+    >? {
         var formatRaw: UnsafeMutableRawPointer?
         let hr = withWideString(fontFamily) { familyName in
             withWideString("en-us") { localeName in
@@ -834,7 +865,8 @@ private final class DirectWriteSystem {
 
     private func fontFamilyName(from format: UnsafeMutablePointer<IDWriteTextFormat>) -> String? {
         var nameLength: UINT32 = 0
-        let lengthHR = format.pointee.lpVtbl!.pointee.GetFontFamilyNameLength(UnsafeMutableRawPointer(format), &nameLength)
+        let lengthHR = format.pointee.lpVtbl!.pointee.GetFontFamilyNameLength(
+            UnsafeMutableRawPointer(format), &nameLength)
         guard isSuccess(lengthHR), nameLength > 0 else {
             return nil
         }
@@ -842,7 +874,8 @@ private final class DirectWriteSystem {
         let bufferSize = Int(nameLength + 1)
         var buffer = [WCHAR](repeating: 0, count: bufferSize)
         let nameHR = buffer.withUnsafeMutableBufferPointer { bufferPointer in
-            format.pointee.lpVtbl!.pointee.GetFontFamilyName(UnsafeMutableRawPointer(format), bufferPointer.baseAddress!, UINT32(bufferSize))
+            format.pointee.lpVtbl!.pointee.GetFontFamilyName(
+                UnsafeMutableRawPointer(format), bufferPointer.baseAddress!, UINT32(bufferSize))
         }
         guard isSuccess(nameHR) else {
             return nil
@@ -851,7 +884,9 @@ private final class DirectWriteSystem {
         return String(decoding: buffer.prefix(Int(nameLength)), as: UTF16.self)
     }
 
-    private func createTextLayout(text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, size: Size, style: PixelTextStyle? = nil) -> UnsafeMutablePointer<IDWriteTextLayout>? {
+    private func createTextLayout(
+        text: String, format: UnsafeMutablePointer<IDWriteTextFormat>, size: Size, style: PixelTextStyle? = nil
+    ) -> UnsafeMutablePointer<IDWriteTextLayout>? {
         let utf16 = Array(text.utf16)
         var layoutRaw: UnsafeMutableRawPointer?
         let hr = utf16.withUnsafeBufferPointer { buffer in
@@ -878,14 +913,18 @@ private final class DirectWriteSystem {
 
             if style.underline {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
-                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    let proc = unsafeBitCast(
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                    )
                     _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
                 }
             }
 
             if style.strikethrough {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
-                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    let proc = unsafeBitCast(
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                    )
                     _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), rangeStart, rangeLength)
                 }
             }
@@ -918,7 +957,10 @@ private final class DirectWriteSystem {
         }
 
         if let fn = layout.pointee.lpVtbl!.pointee.SetTypography {
-            let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UINT32) -> HRESULT).self)
+            let proc = unsafeBitCast(
+                fn,
+                to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UINT32, UINT32) -> HRESULT)
+                    .self)
             _ = proc(UnsafeMutableRawPointer(layout), typographyRaw, startPosition, length)
         }
     }
@@ -929,7 +971,10 @@ private final class DirectWriteSystem {
             return nil
         }
 
-        let createFn = unsafeBitCast(createProc, to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT).self)
+        let createFn = unsafeBitCast(
+            createProc,
+            to: (@convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT)
+                .self)
         var typographyRaw: UnsafeMutableRawPointer?
         let hr = createFn(UnsafeMutableRawPointer(factory), &typographyRaw)
         guard isSuccess(hr), let typographyRaw else {
@@ -949,7 +994,9 @@ private final class DirectWriteSystem {
         return typographyRaw
     }
 
-    private func applyTextSpans(_ spans: [TextSpan], to layout: UnsafeMutablePointer<IDWriteTextLayout>, fullText: String) {
+    private func applyTextSpans(
+        _ spans: [TextSpan], to layout: UnsafeMutablePointer<IDWriteTextLayout>, fullText: String
+    ) {
         let utf16View = fullText.utf16
 
         for span in spans {
@@ -958,7 +1005,8 @@ private final class DirectWriteSystem {
             }
 
             guard let utf16Start = range.lowerBound.samePosition(in: utf16View),
-                  let utf16End = range.upperBound.samePosition(in: utf16View) else {
+                let utf16End = range.upperBound.samePosition(in: utf16View)
+            else {
                 continue
             }
 
@@ -968,17 +1016,22 @@ private final class DirectWriteSystem {
             let spanStyle = span.style
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontWeight {
-                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UINT32, UINT32) -> HRESULT).self)
+                let proc = unsafeBitCast(
+                    fn,
+                    to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontWeight, UINT32, UINT32) -> HRESULT).self)
                 _ = proc(UnsafeMutableRawPointer(layout), spanStyle.weight.dwriteWeight, startPosition, length)
             }
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontStyle {
-                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontStyle, UINT32, UINT32) -> HRESULT).self)
+                let proc = unsafeBitCast(
+                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, DWriteFontStyle, UINT32, UINT32) -> HRESULT).self
+                )
                 _ = proc(UnsafeMutableRawPointer(layout), spanStyle.dwriteFontStyle, startPosition, length)
             }
 
             if let fn = layout.pointee.lpVtbl!.pointee.SetFontSize {
-                let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UINT32, UINT32) -> HRESULT).self)
+                let proc = unsafeBitCast(
+                    fn, to: (@convention(c) (UnsafeMutableRawPointer?, FLOAT, UINT32, UINT32) -> HRESULT).self)
                 _ = proc(UnsafeMutableRawPointer(layout), FLOAT(spanStyle.nativeFontPixelSize), startPosition, length)
             }
 
@@ -994,14 +1047,18 @@ private final class DirectWriteSystem {
 
             if spanStyle.underline {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetUnderline {
-                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    let proc = unsafeBitCast(
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                    )
                     _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
                 }
             }
 
             if spanStyle.strikethrough {
                 if let fn = layout.pointee.lpVtbl!.pointee.SetStrikethrough {
-                    let proc = unsafeBitCast(fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self)
+                    let proc = unsafeBitCast(
+                        fn, to: (@convention(c) (UnsafeMutableRawPointer?, WindowsBool, UINT32, UINT32) -> HRESULT).self
+                    )
                     _ = proc(UnsafeMutableRawPointer(layout), WindowsBool(true), startPosition, length)
                 }
             }
@@ -1019,7 +1076,8 @@ private final class DirectWriteSystem {
 
         var overhangs = DWRITE_OVERHANG_METRICS()
         let overhangsHR = withUnsafeMutablePointer(to: &overhangs) {
-            layout.pointee.lpVtbl!.pointee.GetOverhangMetrics(UnsafeMutableRawPointer(layout), UnsafeMutableRawPointer($0))
+            layout.pointee.lpVtbl!.pointee.GetOverhangMetrics(
+                UnsafeMutableRawPointer(layout), UnsafeMutableRawPointer($0))
         }
         guard isSuccess(overhangsHR) else {
             return nil
@@ -1042,8 +1100,8 @@ private final class DirectWriteSystem {
         let reservedHeight: Double
         if let reservedLineCount = reservedTextLineCount(for: style) {
             reservedHeight =
-                Double(reservedLineCount) * style.nativeFontPixelSize +
-                Double(max(reservedLineCount - 1, 0)) * style.lineSpacing
+                Double(reservedLineCount) * style.nativeFontPixelSize + Double(max(reservedLineCount - 1, 0))
+                * style.lineSpacing
         } else {
             reservedHeight = 0
         }
@@ -1063,7 +1121,9 @@ private final class DirectWriteSystem {
         )
     }
 
-    private func hitTestTextPosition(layout: UnsafeMutablePointer<IDWriteTextLayout>, textPosition: UINT32) -> (x: Double, y: Double)? {
+    private func hitTestTextPosition(layout: UnsafeMutablePointer<IDWriteTextLayout>, textPosition: UINT32) -> (
+        x: Double, y: Double
+    )? {
         guard let rawProc = layout.pointee.lpVtbl!.pointee.HitTestTextPosition else {
             return nil
         }
@@ -1089,7 +1149,9 @@ private final class DirectWriteSystem {
         return (Double(pointX), Double(pointY))
     }
 
-    private static func makeRenderingParams(factory: UnsafeMutablePointer<IDWriteFactory>) throws -> UnsafeMutablePointer<IDWriteRenderingParams> {
+    private static func makeRenderingParams(factory: UnsafeMutablePointer<IDWriteFactory>) throws
+        -> UnsafeMutablePointer<IDWriteRenderingParams>
+    {
         var renderingParamsRaw: UnsafeMutableRawPointer?
         let customHR = factory.pointee.lpVtbl!.pointee.CreateCustomRenderingParams(
             UnsafeMutableRawPointer(factory),
@@ -1105,7 +1167,8 @@ private final class DirectWriteSystem {
             return renderingParamsRaw.assumingMemoryBound(to: IDWriteRenderingParams.self)
         }
 
-        let defaultHR = factory.pointee.lpVtbl!.pointee.CreateRenderingParams(UnsafeMutableRawPointer(factory), &renderingParamsRaw)
+        let defaultHR = factory.pointee.lpVtbl!.pointee.CreateRenderingParams(
+            UnsafeMutableRawPointer(factory), &renderingParamsRaw)
         guard isSuccess(defaultHR), let renderingParamsRaw else {
             throw DirectWriteError.initializationFailed("IDWriteFactory.CreateRenderingParams")
         }
@@ -1155,7 +1218,9 @@ private final class DirectWriteSystem {
         return BitmapSurface(width: width, height: height, bytesPerRow: bytesPerRow, pixels: data)
     }
 
-    private func createBitmapRenderTarget(width: Int32, height: Int32, scaleFactor: Double) -> UnsafeMutablePointer<IDWriteBitmapRenderTarget>? {
+    private func createBitmapRenderTarget(width: Int32, height: Int32, scaleFactor: Double) -> UnsafeMutablePointer<
+        IDWriteBitmapRenderTarget
+    >? {
         var bitmapTargetRaw: UnsafeMutableRawPointer?
         let hr = gdiInterop.pointee.lpVtbl!.pointee.CreateBitmapRenderTarget(
             UnsafeMutableRawPointer(gdiInterop),
@@ -1169,7 +1234,8 @@ private final class DirectWriteSystem {
         }
 
         let bitmapTarget = bitmapTargetRaw.assumingMemoryBound(to: IDWriteBitmapRenderTarget.self)
-        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
+        _ = bitmapTarget.pointee.lpVtbl!.pointee.SetPixelsPerDip(
+            UnsafeMutableRawPointer(bitmapTarget), FLOAT(scaleFactor))
         return bitmapTarget
     }
 
@@ -1180,7 +1246,7 @@ private final class DirectWriteSystem {
         contextPointer: UnsafeMutablePointer<DirectWriteDrawingContext>
     ) -> HRESULT {
         guard let renderer = createTextRenderer() else {
-            return HRESULT(bitPattern: 0x80004005)
+            return HRESULT(bitPattern: 0x8000_4005)
         }
         defer {
             var releasableRenderer: UnsafeMutablePointer<IDWriteTextRenderer>? = renderer
@@ -1199,7 +1265,9 @@ private final class DirectWriteSystem {
         )
     }
 
-    private func cropGlyphSurface(_ surface: BitmapSurface, paddingPixels: Int32) -> (surface: BitmapSurface, bearingX: Float, bearingY: Float)? {
+    private func cropGlyphSurface(_ surface: BitmapSurface, paddingPixels: Int32) -> (
+        surface: BitmapSurface, bearingX: Float, bearingY: Float
+    )? {
         let width = Int(surface.width)
         let height = Int(surface.height)
         let stride = Int(surface.bytesPerRow)
@@ -1214,7 +1282,8 @@ private final class DirectWriteSystem {
             for x in 0..<width {
                 let byteIndex = y * stride + x * 4
                 guard byteIndex + 3 < bytes.count,
-                      bytes[byteIndex] > 0 || bytes[byteIndex + 1] > 0 || bytes[byteIndex + 2] > 0 || bytes[byteIndex + 3] > 0
+                    bytes[byteIndex] > 0 || bytes[byteIndex + 1] > 0 || bytes[byteIndex + 2] > 0
+                        || bytes[byteIndex + 3] > 0
                 else {
                     continue
                 }
@@ -1277,14 +1346,12 @@ private final class DirectWriteSystem {
         return dwriteWordWrappingNoWrap
     }
 }
-
 private struct TextBounds {
     var width: Double
     var height: Double
     var overhangLeft: Double
     var overhangTop: Double
 }
-
 private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> Double? {
     guard let maxWidth, maxWidth.isFinite else {
         return nil
@@ -1292,7 +1359,6 @@ private func contentWidthLimit(for maxWidth: Double?, style: PixelTextStyle) -> 
 
     return max(0, maxWidth - style.insets.leading - style.insets.trailing)
 }
-
 private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle, maxWidth: Double?) -> Double {
     if style.lineBreakMode == .clip, let contentLimit = contentWidthLimit(for: maxWidth, style: style) {
         return min(contentWidth, contentLimit)
@@ -1300,14 +1366,12 @@ private func clampedMeasuredWidth(_ contentWidth: Double, style: PixelTextStyle,
 
     return contentWidth
 }
-
 func snapLogicalTextSize(_ size: Size, scaleFactor: Double) -> Size {
     Size(
         width: max(1, snapLogicalTextExtent(size.width, scaleFactor: scaleFactor)),
         height: max(1, snapLogicalTextExtent(size.height, scaleFactor: scaleFactor))
     )
 }
-
 func snapLogicalTextExtent(_ extent: Double, scaleFactor: Double) -> Double {
     guard scaleFactor > 0 else {
         return extent
@@ -1315,7 +1379,6 @@ func snapLogicalTextExtent(_ extent: Double, scaleFactor: Double) -> Double {
 
     return (extent * scaleFactor).rounded(.up) / scaleFactor
 }
-
 private func utf16CharacterOffsets(for text: String) -> [UINT32] {
     var offsets: [UINT32] = []
     offsets.reserveCapacity(text.count)
@@ -1326,7 +1389,6 @@ private func utf16CharacterOffsets(for text: String) -> [UINT32] {
     }
     return offsets
 }
-
 private func characterInfoByUTF16Offset(for text: String) -> [UInt32: (index: Int, character: Character)] {
     let characters = Array(text)
     let offsets = utf16CharacterOffsets(for: text)
@@ -1339,18 +1401,15 @@ private func characterInfoByUTF16Offset(for text: String) -> [UInt32: (index: In
 
     return result
 }
-
 private struct DirectWriteDrawingContext {
     var bitmapRenderTarget: UnsafeMutablePointer<IDWriteBitmapRenderTarget>
     var renderingParams: UnsafeMutablePointer<IDWriteRenderingParams>
     var pixelsPerDip: FLOAT
     var textColor: COLORREF
 }
-
 private struct DirectWriteGlyphLayoutContext {
     var glyphs: [DirectWriteCapturedGlyph]
 }
-
 private struct DirectWriteCapturedGlyph {
     var glyphID: UInt32
     var textPosition: UInt32?
@@ -1359,12 +1418,10 @@ private struct DirectWriteCapturedGlyph {
     var fontFace: NativeFontFaceHandle?
     var fontSize: Double
 }
-
 private struct SwiftTextRendererCOM {
     var interface: IDWriteTextRenderer
     var refCount: ULONG
 }
-
 @MainActor
 private var directWriteTextRendererVTable = IDWriteTextRendererVtbl(
     QueryInterface: directWriteRendererQueryInterface,
@@ -1378,7 +1435,6 @@ private var directWriteTextRendererVTable = IDWriteTextRendererVtbl(
     DrawStrikethrough: directWriteRendererDrawStrikethrough,
     DrawInlineObject: directWriteRendererDrawInlineObject
 )
-
 @MainActor
 private var directWriteGlyphLayoutRendererVTable = IDWriteTextRendererVtbl(
     QueryInterface: directWriteRendererQueryInterface,
@@ -1392,21 +1448,21 @@ private var directWriteGlyphLayoutRendererVTable = IDWriteTextRendererVtbl(
     DrawStrikethrough: directWriteGlyphLayoutDrawStrikethrough,
     DrawInlineObject: directWriteGlyphLayoutDrawInlineObject
 )
-
 @MainActor
 private func createTextRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? {
     let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
-    storage.initialize(to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteTextRendererVTable), refCount: 1))
+    storage.initialize(
+        to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteTextRendererVTable), refCount: 1))
     return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
 }
-
 @MainActor
 private func createGlyphLayoutRenderer() -> UnsafeMutablePointer<IDWriteTextRenderer>? {
     let storage = UnsafeMutablePointer<SwiftTextRendererCOM>.allocate(capacity: 1)
-    storage.initialize(to: SwiftTextRendererCOM(interface: IDWriteTextRenderer(lpVtbl: &directWriteGlyphLayoutRendererVTable), refCount: 1))
+    storage.initialize(
+        to: SwiftTextRendererCOM(
+            interface: IDWriteTextRenderer(lpVtbl: &directWriteGlyphLayoutRendererVTable), refCount: 1))
     return UnsafeMutableRawPointer(storage).assumingMemoryBound(to: IDWriteTextRenderer.self)
 }
-
 private func rendererStorage(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<SwiftTextRendererCOM>? {
     guard let rawPointer else {
         return nil
@@ -1414,40 +1470,45 @@ private func rendererStorage(from rawPointer: UnsafeMutableRawPointer?) -> Unsaf
 
     return rawPointer.assumingMemoryBound(to: SwiftTextRendererCOM.self)
 }
-
-private func drawingContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<DirectWriteDrawingContext>? {
+private func drawingContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<
+    DirectWriteDrawingContext
+>? {
     guard let rawPointer else {
         return nil
     }
 
     return rawPointer.assumingMemoryBound(to: DirectWriteDrawingContext.self)
 }
-
-private func glyphLayoutContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<DirectWriteGlyphLayoutContext>? {
+private func glyphLayoutContext(from rawPointer: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<
+    DirectWriteGlyphLayoutContext
+>? {
     guard let rawPointer else {
         return nil
     }
 
     return rawPointer.assumingMemoryBound(to: DirectWriteGlyphLayoutContext.self)
 }
-
-private func directWriteRendererQueryInterface(_ rawSelf: UnsafeMutableRawPointer?, _ iid: UnsafePointer<GUID>?, _ object: UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT {
+private func directWriteRendererQueryInterface(
+    _ rawSelf: UnsafeMutableRawPointer?, _ iid: UnsafePointer<GUID>?,
+    _ object: UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+) -> HRESULT {
     guard let rawSelf, let iid else {
         object?.pointee = nil
-        return HRESULT(bitPattern: 0x80004003)
+        return HRESULT(bitPattern: 0x8000_4003)
     }
 
     let guid = iid.pointee
-    if guidEquals(guid, iidIUnknownDirectWrite) || guidEquals(guid, iidIDWritePixelSnapping) || guidEquals(guid, iidIDWriteTextRenderer) {
+    if guidEquals(guid, iidIUnknownDirectWrite) || guidEquals(guid, iidIDWritePixelSnapping)
+        || guidEquals(guid, iidIDWriteTextRenderer)
+    {
         object?.pointee = rawSelf
         _ = directWriteRendererAddRef(rawSelf)
         return 0
     }
 
     object?.pointee = nil
-    return HRESULT(bitPattern: 0x80004002)
+    return HRESULT(bitPattern: 0x8000_4002)
 }
-
 private func directWriteRendererAddRef(_ rawSelf: UnsafeMutableRawPointer?) -> ULONG {
     guard let storage = rendererStorage(from: rawSelf) else {
         return 0
@@ -1456,7 +1517,6 @@ private func directWriteRendererAddRef(_ rawSelf: UnsafeMutableRawPointer?) -> U
     storage.pointee.refCount += 1
     return storage.pointee.refCount
 }
-
 private func directWriteRendererRelease(_ rawSelf: UnsafeMutableRawPointer?) -> ULONG {
     guard let storage = rendererStorage(from: rawSelf) else {
         return 0
@@ -1470,29 +1530,38 @@ private func directWriteRendererRelease(_ rawSelf: UnsafeMutableRawPointer?) -> 
     }
     return count
 }
-
-private func directWriteRendererIsPixelSnappingDisabled(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ isDisabled: UnsafeMutablePointer<WindowsBool>?) -> HRESULT {
+private func directWriteRendererIsPixelSnappingDisabled(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
+    _ isDisabled: UnsafeMutablePointer<WindowsBool>?
+) -> HRESULT {
     isDisabled?.pointee = WindowsBool(false)
     return 0
 }
-
-private func directWriteRendererGetCurrentTransform(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ transform: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteRendererGetCurrentTransform(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
+    _ transform: UnsafeMutableRawPointer?
+) -> HRESULT {
     guard let transform else {
-        return HRESULT(bitPattern: 0x80004003)
+        return HRESULT(bitPattern: 0x8000_4003)
     }
 
     transform.assumingMemoryBound(to: DWRITE_MATRIX.self).pointee = DWRITE_MATRIX()
     return 0
 }
-
-private func directWriteRendererGetPixelsPerDip(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ pixelsPerDip: UnsafeMutablePointer<FLOAT>?) -> HRESULT {
+private func directWriteRendererGetPixelsPerDip(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?,
+    _ pixelsPerDip: UnsafeMutablePointer<FLOAT>?
+) -> HRESULT {
     pixelsPerDip?.pointee = drawingContext(from: clientDrawingContext)?.pointee.pixelsPerDip ?? 1.0
     return 0
 }
-
-private func directWriteRendererDrawGlyphRun(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRun: UnsafeMutableRawPointer?, _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteRendererDrawGlyphRun(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRun: UnsafeMutableRawPointer?,
+    _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     guard let context = drawingContext(from: clientDrawingContext) else {
-        return HRESULT(bitPattern: 0x80004003)
+        return HRESULT(bitPattern: 0x8000_4003)
     }
 
     return context.pointee.bitmapRenderTarget.pointee.lpVtbl!.pointee.DrawGlyphRun(
@@ -1506,37 +1575,52 @@ private func directWriteRendererDrawGlyphRun(_ rawSelf: UnsafeMutableRawPointer?
         nil
     )
 }
-
-private func directWriteRendererDrawUnderline(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ underlineRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteRendererDrawUnderline(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ underlineRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     guard let context = drawingContext(from: clientDrawingContext), let underlineRaw else {
         return 0
     }
 
     let underline = underlineRaw.assumingMemoryBound(to: DWRITE_UNDERLINE.self).pointee
-    drawDecoration(width: underline.width, thickness: underline.thickness, offset: underline.offset, baselineOriginX: baselineOriginX, baselineOriginY: baselineOriginY, context: context.pointee)
+    drawDecoration(
+        width: underline.width, thickness: underline.thickness, offset: underline.offset,
+        baselineOriginX: baselineOriginX, baselineOriginY: baselineOriginY, context: context.pointee)
     return 0
 }
-
-private func directWriteRendererDrawStrikethrough(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ strikethroughRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteRendererDrawStrikethrough(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ strikethroughRaw: UnsafeMutableRawPointer?,
+    _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     guard let context = drawingContext(from: clientDrawingContext), let strikethroughRaw else {
         return 0
     }
 
     let strikethrough = strikethroughRaw.assumingMemoryBound(to: DWRITE_STRIKETHROUGH.self).pointee
-    drawDecoration(width: strikethrough.width, thickness: strikethrough.thickness, offset: strikethrough.offset, baselineOriginX: baselineOriginX, baselineOriginY: baselineOriginY, context: context.pointee)
+    drawDecoration(
+        width: strikethrough.width, thickness: strikethrough.thickness, offset: strikethrough.offset,
+        baselineOriginX: baselineOriginX, baselineOriginY: baselineOriginY, context: context.pointee)
     return 0
 }
-
-private func directWriteRendererDrawInlineObject(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ originX: FLOAT, _ originY: FLOAT, _ inlineObject: UnsafeMutableRawPointer?, _ isSideways: WindowsBool, _ isRightToLeft: WindowsBool, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteRendererDrawInlineObject(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ originX: FLOAT,
+    _ originY: FLOAT, _ inlineObject: UnsafeMutableRawPointer?, _ isSideways: WindowsBool, _ isRightToLeft: WindowsBool,
+    _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     return 0
 }
-
-private func directWriteGlyphLayoutDrawGlyphRun(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRunRaw: UnsafeMutableRawPointer?, _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteGlyphLayoutDrawGlyphRun(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ measuringMode: DWriteMeasuringMode, _ glyphRunRaw: UnsafeMutableRawPointer?,
+    _ glyphRunDescription: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     guard
         let context = glyphLayoutContext(from: clientDrawingContext),
         let glyphRunRaw
     else {
-        return HRESULT(bitPattern: 0x80004003)
+        return HRESULT(bitPattern: 0x8000_4003)
     }
 
     let glyphRun = glyphRunRaw.assumingMemoryBound(to: DWRITE_GLYPH_RUN.self).pointee
@@ -1564,7 +1648,7 @@ private func directWriteGlyphLayoutDrawGlyphRun(_ rawSelf: UnsafeMutableRawPoint
         offsetsStorage = Array(repeating: DWRITE_GLYPH_OFFSET(), count: glyphCount)
     }
 
-    var textPositions = Array<UInt32?>(repeating: nil, count: glyphCount)
+    var textPositions = [UInt32?](repeating: nil, count: glyphCount)
     if let glyphRunDescription {
         let description = glyphRunDescription.assumingMemoryBound(to: DWRITE_GLYPH_RUN_DESCRIPTION.self).pointee
         if let clusterMap = description.clusterMap {
@@ -1606,21 +1690,34 @@ private func directWriteGlyphLayoutDrawGlyphRun(_ rawSelf: UnsafeMutableRawPoint
 
     return 0
 }
-
-private func directWriteGlyphLayoutDrawUnderline(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ underlineRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteGlyphLayoutDrawUnderline(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ underlineRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     0
 }
-
-private func directWriteGlyphLayoutDrawStrikethrough(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT, _ baselineOriginY: FLOAT, _ strikethroughRaw: UnsafeMutableRawPointer?, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteGlyphLayoutDrawStrikethrough(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ baselineOriginX: FLOAT,
+    _ baselineOriginY: FLOAT, _ strikethroughRaw: UnsafeMutableRawPointer?,
+    _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     0
 }
-
-private func directWriteGlyphLayoutDrawInlineObject(_ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ originX: FLOAT, _ originY: FLOAT, _ inlineObject: UnsafeMutableRawPointer?, _ isSideways: WindowsBool, _ isRightToLeft: WindowsBool, _ clientDrawingEffect: UnsafeMutableRawPointer?) -> HRESULT {
+private func directWriteGlyphLayoutDrawInlineObject(
+    _ rawSelf: UnsafeMutableRawPointer?, _ clientDrawingContext: UnsafeMutableRawPointer?, _ originX: FLOAT,
+    _ originY: FLOAT, _ inlineObject: UnsafeMutableRawPointer?, _ isSideways: WindowsBool, _ isRightToLeft: WindowsBool,
+    _ clientDrawingEffect: UnsafeMutableRawPointer?
+) -> HRESULT {
     0
 }
-
-private func drawDecoration(width: FLOAT, thickness: FLOAT, offset: FLOAT, baselineOriginX: FLOAT, baselineOriginY: FLOAT, context: DirectWriteDrawingContext) {
-    guard let dc = context.bitmapRenderTarget.pointee.lpVtbl!.pointee.GetMemoryDC(UnsafeMutableRawPointer(context.bitmapRenderTarget)) else {
+private func drawDecoration(
+    width: FLOAT, thickness: FLOAT, offset: FLOAT, baselineOriginX: FLOAT, baselineOriginY: FLOAT,
+    context: DirectWriteDrawingContext
+) {
+    guard
+        let dc = context.bitmapRenderTarget.pointee.lpVtbl!.pointee.GetMemoryDC(
+            UnsafeMutableRawPointer(context.bitmapRenderTarget))
+    else {
         return
     }
 
@@ -1637,23 +1734,20 @@ private func drawDecoration(width: FLOAT, thickness: FLOAT, offset: FLOAT, basel
     FillRect(dc, &rect, brush)
     DeleteObject(HGDIOBJ(brush))
 }
-
 private enum DirectWriteError: Error {
     case initializationFailed(String)
 }
-
-private extension TextWeight {
-    var dwriteWeight: DWriteFontWeight {
+extension TextWeight {
+    fileprivate var dwriteWeight: DWriteFontWeight {
         DWriteFontWeight(gdiWeight)
     }
 }
-
-private extension PixelTextStyle {
-    var dwriteFontStyle: DWriteFontStyle {
+extension PixelTextStyle {
+    fileprivate var dwriteFontStyle: DWriteFontStyle {
         isItalic ? dwriteFontStyleItalic : dwriteFontStyleNormal
     }
 
-    var dwriteTypographyFeatures: [DWriteFontFeature] {
+    fileprivate var dwriteTypographyFeatures: [DWriteFontFeature] {
         var features: [DWriteFontFeature] = []
         if !enableKerning {
             features.append(DWriteFontFeature(nameTag: dwriteFontFeatureTagKerning, parameter: 0))
@@ -1670,9 +1764,8 @@ private extension PixelTextStyle {
         return features
     }
 }
-
-private extension TextFontWidth {
-    var dwriteFontStretch: DWriteFontStretch {
+extension TextFontWidth {
+    fileprivate var dwriteFontStretch: DWriteFontStretch {
         switch self {
         case .compressed:
             return dwriteFontStretchExtraCondensed
@@ -1685,9 +1778,8 @@ private extension TextFontWidth {
         }
     }
 }
-
-private extension TextHorizontalAlignment {
-    var dwriteAlignment: DWriteTextAlignment {
+extension TextHorizontalAlignment {
+    fileprivate var dwriteAlignment: DWriteTextAlignment {
         switch self {
         case .leading:
             return dwriteTextAlignmentLeading
@@ -1698,9 +1790,8 @@ private extension TextHorizontalAlignment {
         }
     }
 }
-
-private extension TextVerticalAlignment {
-    var dwriteParagraphAlignment: DWriteParagraphAlignment {
+extension TextVerticalAlignment {
+    fileprivate var dwriteParagraphAlignment: DWriteParagraphAlignment {
         switch self {
         case .top:
             return dwriteParagraphAlignmentNear
@@ -1711,17 +1802,13 @@ private extension TextVerticalAlignment {
         }
     }
 }
-
 private func debugLog(_ message: String) {
     #if DEBUG
-    print(message)
+        print(message)
     #endif
 }
-
 private func withWideString<Result>(_ string: String, _ body: (UnsafePointer<WCHAR>) -> Result) -> Result {
     var wide = Array(string.utf16)
     wide.append(0)
     return wide.withUnsafeBufferPointer { body($0.baseAddress!) }
 }
-
-

@@ -94,21 +94,29 @@ public struct Animation: Sendable {
         spring(response: 0.55, dampingRatio: 0.825, blendDuration: 0)
     }
 
-    public static func spring(response: Double = 0.55, dampingRatio: Double = 0.825, blendDuration: Double = 0) -> Animation {
+    public static func spring(response: Double = 0.55, dampingRatio: Double = 0.825, blendDuration: Double = 0)
+        -> Animation
+    {
         Animation(duration: response * 5.0, easing: .spring(response: response, dampingRatio: dampingRatio))
     }
 
-    public static func spring(mass: Double = 1.0, stiffness: Double, damping: Double, initialVelocity: Double = 0) -> Animation {
+    public static func spring(mass: Double = 1.0, stiffness: Double, damping: Double, initialVelocity: Double = 0)
+        -> Animation
+    {
         let response = 2.0 * Double.pi / sqrt(max(stiffness / max(mass, 0.001), 0.001))
         let dampingRatio = damping / (2.0 * sqrt(max(mass * stiffness, 0.001)))
         return Animation(duration: response * 5.0, easing: .spring(response: response, dampingRatio: dampingRatio))
     }
 
-    public static func interpolatingSpring(mass: Double = 1.0, stiffness: Double, damping: Double, initialVelocity: Double = 0) -> Animation {
+    public static func interpolatingSpring(
+        mass: Double = 1.0, stiffness: Double, damping: Double, initialVelocity: Double = 0
+    ) -> Animation {
         spring(mass: mass, stiffness: stiffness, damping: damping, initialVelocity: initialVelocity)
     }
 
-    public static func interactiveSpring(response: Double = 0.15, dampingFraction: Double = 0.86, blendDuration: Double = 0.25) -> Animation {
+    public static func interactiveSpring(
+        response: Double = 0.15, dampingFraction: Double = 0.86, blendDuration: Double = 0.25
+    ) -> Animation {
         spring(response: response, dampingRatio: dampingFraction, blendDuration: blendDuration)
     }
 
@@ -128,7 +136,9 @@ public struct Animation: Sendable {
         spring(response: duration, dampingRatio: 1 - bounce, blendDuration: 0)
     }
 
-    public static func timingCurve(_ c0x: Double, _ c0y: Double, _ c1x: Double, _ c1y: Double, duration: Double = 0.35) -> Animation {
+    public static func timingCurve(_ c0x: Double, _ c0y: Double, _ c1x: Double, _ c1y: Double, duration: Double = 0.35)
+        -> Animation
+    {
         Animation(duration: duration, easing: .timingCurve(c0x: c0x, c0y: c0y, c1x: c1x, c1y: c1y))
     }
 
@@ -160,10 +170,6 @@ public struct AnimationCompletionCriteria: Sendable, Equatable {
     }
 
     private var kind: Kind
-
-    private init(kind: Kind) {
-        self.kind = kind
-    }
 
     public static let logicallyComplete = AnimationCompletionCriteria(kind: .logicallyComplete)
     public static let removed = AnimationCompletionCriteria(kind: .removed)
@@ -287,7 +293,8 @@ public struct Binding<Value> {
         )
     }
 
-    public subscript<Element>(position: Value.Index) -> Binding<Element> where Value: MutableCollection, Value.Element == Element {
+    public subscript<Element>(position: Value.Index) -> Binding<Element>
+    where Value: MutableCollection, Value.Element == Element {
         Binding<Element>(
             get: {
                 wrappedValue[position]
@@ -418,7 +425,8 @@ public enum AccessibilityTextContentType: Sendable, Equatable, Hashable {
     case organizationName
     case organizationJobTitle
     case nickname
-    case URL
+    // swift-format-ignore: AlwaysUseLowerCamelCase
+    case URL  // matches SwiftUI UITextContentType.URL
     case name
     case namePrefix
     case givenName
@@ -471,10 +479,6 @@ public struct PaletteSelectionEffect: Sendable, Equatable, Hashable {
 
     private let kind: Kind
 
-    private init(kind: Kind) {
-        self.kind = kind
-    }
-
     public static let automatic = PaletteSelectionEffect(kind: .automatic)
     public static let highlight = PaletteSelectionEffect(kind: .highlight)
     public static let custom = PaletteSelectionEffect(kind: .custom)
@@ -484,8 +488,8 @@ public protocol DynamicProperty {
     mutating func update()
 }
 
-public extension DynamicProperty {
-    mutating func update() {}
+extension DynamicProperty {
+    public mutating func update() {}
 }
 
 public struct NamespaceID: Sendable, Hashable, CustomStringConvertible {

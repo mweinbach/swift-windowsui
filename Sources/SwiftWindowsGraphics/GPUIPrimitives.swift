@@ -113,12 +113,13 @@ public struct QuadPrimitive: Equatable, Sendable {
                 return GPUIContentMask()
             }
 
-            return GPUIContentMask(bounds: Rect(
-                x: Double(clipX),
-                y: Double(clipY),
-                width: Double(clipWidth),
-                height: Double(clipHeight)
-            ))
+            return GPUIContentMask(
+                bounds: Rect(
+                    x: Double(clipX),
+                    y: Double(clipY),
+                    width: Double(clipWidth),
+                    height: Double(clipHeight)
+                ))
         }
         set {
             guard let bounds = newValue.bounds else {
@@ -196,12 +197,13 @@ public struct GlyphPrimitive: Equatable, Sendable {
                 return GPUIContentMask()
             }
 
-            return GPUIContentMask(bounds: Rect(
-                x: Double(clipX),
-                y: Double(clipY),
-                width: Double(clipWidth),
-                height: Double(clipHeight)
-            ))
+            return GPUIContentMask(
+                bounds: Rect(
+                    x: Double(clipX),
+                    y: Double(clipY),
+                    width: Double(clipWidth),
+                    height: Double(clipHeight)
+                ))
         }
         set {
             guard let bounds = newValue.bounds else {
@@ -282,12 +284,13 @@ public struct ImagePrimitive: Equatable, Sendable {
                 return GPUIContentMask()
             }
 
-            return GPUIContentMask(bounds: Rect(
-                x: Double(clipX),
-                y: Double(clipY),
-                width: Double(clipWidth),
-                height: Double(clipHeight)
-            ))
+            return GPUIContentMask(
+                bounds: Rect(
+                    x: Double(clipX),
+                    y: Double(clipY),
+                    width: Double(clipWidth),
+                    height: Double(clipHeight)
+                ))
         }
         set {
             guard let bounds = newValue.bounds else {
@@ -369,12 +372,13 @@ public struct ShadowPrimitive: Equatable, Sendable {
                 return GPUIContentMask()
             }
 
-            return GPUIContentMask(bounds: Rect(
-                x: Double(clipX),
-                y: Double(clipY),
-                width: Double(clipWidth),
-                height: Double(clipHeight)
-            ))
+            return GPUIContentMask(
+                bounds: Rect(
+                    x: Double(clipX),
+                    y: Double(clipY),
+                    width: Double(clipWidth),
+                    height: Double(clipHeight)
+                ))
         }
         set {
             guard let bounds = newValue.bounds else {

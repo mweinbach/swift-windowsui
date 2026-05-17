@@ -2,8 +2,9 @@ import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import SwiftWindowsUI
-@testable import WinSwiftUI
 import Testing
+
+@testable import WinSwiftUI
 
 // MARK: - Render to Bitmap
 
@@ -79,8 +80,9 @@ func assertPixel(
     let dg = abs(actual.green - expected.green)
     let db = abs(actual.blue - expected.blue)
     let da = abs(actual.alpha - expected.alpha)
-    #expect(dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance,
-            "Pixel (\(x), \(y)) expected \(expected) but got \(actual)")
+    #expect(
+        dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance,
+        "Pixel (\(x), \(y)) expected \(expected) but got \(actual)")
 }
 
 @MainActor
@@ -168,13 +170,15 @@ func compareToReference(
         for y in 0..<h {
             for x in 0..<w {
                 guard let actual = bitmap.colorAt(x: x, y: y),
-                      let expected = reference.colorAt(x: x, y: y) else { continue }
+                    let expected = reference.colorAt(x: x, y: y)
+                else { continue }
                 let dr = abs(actual.red - expected.red)
                 let dg = abs(actual.green - expected.green)
                 let db = abs(actual.blue - expected.blue)
                 let da = abs(actual.alpha - expected.alpha)
-                #expect(dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance,
-                        "Pixel (\(x), \(y)) differs from reference \(name)")
+                #expect(
+                    dr <= tolerance && dg <= tolerance && db <= tolerance && da <= tolerance,
+                    "Pixel (\(x), \(y)) differs from reference \(name)")
             }
         }
     } else if recordMissingReference {
@@ -232,11 +236,11 @@ private func writeBGRA32BMP(_ bitmap: BitmapSurface, to url: URL) throws {
     try data.write(to: url, options: .atomic)
 }
 
-private extension Data {
-    mutating func appendUInt16LE(_ value: UInt16) {
+extension Data {
+    fileprivate mutating func appendUInt16LE(_ value: UInt16) {
         append(contentsOf: [UInt8(value & 0xff), UInt8((value >> 8) & 0xff)])
     }
-    mutating func appendUInt32LE(_ value: UInt32) {
+    fileprivate mutating func appendUInt32LE(_ value: UInt32) {
         append(contentsOf: [
             UInt8(value & 0xff),
             UInt8((value >> 8) & 0xff),
@@ -244,7 +248,7 @@ private extension Data {
             UInt8((value >> 24) & 0xff),
         ])
     }
-    mutating func appendInt32LE(_ value: Int32) {
+    fileprivate mutating func appendInt32LE(_ value: Int32) {
         appendUInt32LE(UInt32(bitPattern: value))
     }
 }

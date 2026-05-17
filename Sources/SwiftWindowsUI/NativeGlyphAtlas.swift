@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
 
 @MainActor
@@ -195,9 +196,8 @@ final class NativeGlyphAtlas {
         return PreparedGlyph(key: key, cachedEntry: nil, bitmap: bitmap)
     }
 }
-
-private extension TextWeight {
-    var glyphAtlasWeight: GlyphKey.GlyphWeight {
+extension TextWeight {
+    fileprivate var glyphAtlasWeight: GlyphKey.GlyphWeight {
         switch self {
         case .regular:
             return .regular
@@ -208,9 +208,8 @@ private extension TextWeight {
         }
     }
 }
-
-private extension TextFontWidth {
-    var glyphAtlasWidth: GlyphKey.GlyphWidth {
+extension TextFontWidth {
+    fileprivate var glyphAtlasWidth: GlyphKey.GlyphWidth {
         switch self {
         case .compressed:
             return .compressed

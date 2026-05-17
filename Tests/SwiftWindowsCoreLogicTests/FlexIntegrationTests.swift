@@ -1,8 +1,13 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
 import SwiftWindowsPlatform
+
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class FlexIntegrationTests: XCTestCase {
@@ -145,8 +150,8 @@ final class FlexIntegrationTests: XCTestCase {
             _ = runtime.renderFrame()
 
             XCTAssertEqual(child1.resolvedFrame.origin.x, 0, accuracy: 0.01)
-            XCTAssertEqual(child2.resolvedFrame.origin.x, 60, accuracy: 0.01) // 50 + 10
-            XCTAssertEqual(child3.resolvedFrame.origin.x, 120, accuracy: 0.01) // 50 + 10 + 50 + 10
+            XCTAssertEqual(child2.resolvedFrame.origin.x, 60, accuracy: 0.01)  // 50 + 10
+            XCTAssertEqual(child3.resolvedFrame.origin.x, 120, accuracy: 0.01)  // 50 + 10 + 50 + 10
         }
     }
 

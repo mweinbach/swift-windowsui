@@ -1,5 +1,7 @@
-import XCTest
 import SwiftWindowsCore
+
+import XCTest
+
 @testable import SwiftWindowsRendererD3D11
 
 final class D3D11RendererTests: XCTestCase {

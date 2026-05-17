@@ -1,7 +1,11 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsPlatform
+
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class FoundationAppTests: XCTestCase {
@@ -36,7 +40,6 @@ final class FoundationAppTests: XCTestCase {
         }
     }
 }
-
 @MainActor
 private final class RecordingRenderBackend: RenderBackend {
     private(set) var attachedSurfaces: [SurfaceDescriptor] = []

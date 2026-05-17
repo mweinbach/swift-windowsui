@@ -1,6 +1,9 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsLayout
+
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class DeclarativeUITests: XCTestCase {

@@ -3,21 +3,21 @@ import SwiftWindowsCore
 
 // MARK: - Minimal PNG Writer (uncompressed DEFLATE blocks)
 
-public extension BitmapSurface {
+extension BitmapSurface {
     /// Writes the bitmap as a PNG file.
     /// Uses uncompressed DEFLATE blocks so no zlib dependency is required.
     /// File size is large but fully standard-compliant.
-    func writePNG(to url: URL) throws {
+    public func writePNG(to url: URL) throws {
         let width = Int(self.width)
         let height = Int(self.height)
         let srcRowBytes = Int(bytesPerRow)
-        let dstRowSize = 1 + width * 4 // filter byte + RGBA
+        let dstRowSize = 1 + width * 4  // filter byte + RGBA
 
         // Build raw scanline data: filter byte 0 + RGBA pixels per row
         var raw = [UInt8]()
         raw.reserveCapacity(height * dstRowSize)
         for y in 0..<height {
-            raw.append(0) // filter: None
+            raw.append(0)  // filter: None
             let srcRow = y * srcRowBytes
             for x in 0..<width {
                 let src = srcRow + x * 4
@@ -26,10 +26,10 @@ public extension BitmapSurface {
                     continue
                 }
                 // BGRA -> RGBA
-                raw.append(pixels[src + 2]) // R
-                raw.append(pixels[src + 1]) // G
-                raw.append(pixels[src + 0]) // B
-                raw.append(pixels[src + 3]) // A
+                raw.append(pixels[src + 2])  // R
+                raw.append(pixels[src + 1])  // G
+                raw.append(pixels[src + 0])  // B
+                raw.append(pixels[src + 3])  // A
             }
         }
 
@@ -46,7 +46,7 @@ public extension BitmapSurface {
             let remaining = raw.count - offset
             let chunk = min(remaining, maxBlock)
             let finalBlock = remaining <= maxBlock ? 1 : 0
-            idat.append(UInt8(finalBlock)) // BFINAL=1, BTYPE=00
+            idat.append(UInt8(finalBlock))  // BFINAL=1, BTYPE=00
             idat.append(UInt8(chunk & 0xFF))
             idat.append(UInt8((chunk >> 8) & 0xFF))
             idat.append(UInt8((~chunk) & 0xFF))
@@ -83,16 +83,16 @@ private func makeIHDR(width: Int, height: Int) -> Data {
     d.reserveCapacity(13)
     d.appendBigEndian(UInt32(width))
     d.appendBigEndian(UInt32(height))
-    d.append(contentsOf: [8, 6, 0, 0, 0]) // 8-bit, RGBA, compression=0, filter=0, interlace=none
+    d.append(contentsOf: [8, 6, 0, 0, 0])  // 8-bit, RGBA, compression=0, filter=0, interlace=none
     return d
 }
 
 private func appendChunk(type: String, content: Data, to data: inout Data) {
     let typeBytes = Data(type.utf8)
-    var crc: UInt32 = 0xFFFFFFFF
+    var crc: UInt32 = 0xFFFF_FFFF
     for b in typeBytes { crc = updateCRC(crc, byte: b) }
     for b in content { crc = updateCRC(crc, byte: b) }
-    crc ^= 0xFFFFFFFF
+    crc ^= 0xFFFF_FFFF
 
     data.appendBigEndian(UInt32(content.count))
     data.append(contentsOf: typeBytes)
@@ -105,7 +105,7 @@ private let crcTable: [UInt32] = {
     for n in 0..<256 {
         var c = UInt32(n)
         for _ in 0..<8 {
-            c = (c & 1) != 0 ? (0xEDB88320 ^ (c >> 1)) : (c >> 1)
+            c = (c & 1) != 0 ? (0xEDB8_8320 ^ (c >> 1)) : (c >> 1)
         }
         t[n] = c
     }
@@ -116,8 +116,8 @@ private func updateCRC(_ crc: UInt32, byte: UInt8) -> UInt32 {
     crcTable[Int((crc ^ UInt32(byte)) & 0xFF)] ^ (crc >> 8)
 }
 
-private extension Data {
-    mutating func appendBigEndian(_ value: UInt32) {
+extension Data {
+    fileprivate mutating func appendBigEndian(_ value: UInt32) {
         append(contentsOf: [
             UInt8((value >> 24) & 0xFF),
             UInt8((value >> 16) & 0xFF),

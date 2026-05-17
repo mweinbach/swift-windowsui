@@ -26,11 +26,12 @@ struct RenderBackendFactoryTests {
         let factory = CPURenderBackendFactory()
         let backend = factory.makeRenderBackend()
 
-        try backend.attach(to: SurfaceDescriptor(
-            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-            pixelSize: IntSize(width: 4, height: 4),
-            scaleFactor: 1.0
-        ))
+        try backend.attach(
+            to: SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
+                pixelSize: IntSize(width: 4, height: 4),
+                scaleFactor: 1.0
+            ))
 
         var frame = RenderFrame(clearColor: Color(red: 1, green: 0, blue: 0, alpha: 1))
         try backend.render(frame: frame)
@@ -41,18 +42,20 @@ struct RenderBackendFactoryTests {
         let factory = CPURenderBackendFactory()
         let backend = try #require(factory.makeBatchRenderBackend())
 
-        try backend.attach(to: SurfaceDescriptor(
-            windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-            pixelSize: IntSize(width: 4, height: 4),
-            scaleFactor: 1.0
-        ))
+        try backend.attach(
+            to: SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
+                pixelSize: IntSize(width: 4, height: 4),
+                scaleFactor: 1.0
+            ))
 
         var scene = GPUIScene(clearColor: Color(red: 0, green: 1, blue: 0, alpha: 1))
-        scene.addQuad(QuadPrimitive(
-            x: 1, y: 1, width: 2, height: 2,
-            startR: 0, startG: 0, startB: 1, startA: 1,
-            endR: 0, endG: 0, endB: 1, endA: 1
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 1, y: 1, width: 2, height: 2,
+                startR: 0, startG: 0, startB: 1, startA: 1,
+                endR: 0, endG: 0, endB: 1, endA: 1
+            ))
 
         try backend.render(scene: scene)
     }

@@ -29,11 +29,12 @@ struct SwiftWindowsUISnapshotTool {
             backendName = "raw-frame"
         case .cpuBatch:
             let renderer = CPUBatchRenderer()
-            try renderer.attach(to: SurfaceDescriptor(
-                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
-                pixelSize: snapshot.size,
-                scaleFactor: options.displayScale
-            ))
+            try renderer.attach(
+                to: SurfaceDescriptor(
+                    windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 1)!)!,
+                    pixelSize: snapshot.size,
+                    scaleFactor: options.displayScale
+                ))
             try renderer.render(scene: snapshot.scene)
             bitmap = try renderer.lastRenderedBitmap.unwrapOrThrow(SnapshotError.missingBitmap)
             backendName = "cpu-batch"
@@ -110,7 +111,8 @@ private struct SnapshotOptions {
             case "--height":
                 height = try parsePositiveInt(try requireValue(after: argument, from: &iterator), name: argument)
             case "--scale":
-                displayScale = try parsePositiveDouble(try requireValue(after: argument, from: &iterator), name: argument)
+                displayScale = try parsePositiveDouble(
+                    try requireValue(after: argument, from: &iterator), name: argument)
             case "--mode":
                 let value = try requireValue(after: argument, from: &iterator)
                 guard let parsed = SnapshotMode(rawValue: value) else {
@@ -168,7 +170,9 @@ private struct SnapshotOptions {
         )
     }
 
-    private static func requireValue(after argument: String, from iterator: inout IndexingIterator<[String]>) throws -> String {
+    private static func requireValue(after argument: String, from iterator: inout IndexingIterator<[String]>) throws
+        -> String
+    {
         guard let value = iterator.next(), !value.hasPrefix("--") else {
             throw SnapshotError.invalidArgument("Missing value after \(argument).")
         }
@@ -224,20 +228,20 @@ private enum SnapshotError: Error, CustomStringConvertible {
         switch self {
         case .help:
             return """
-            Usage: swift-windowsui-snapshot [options]
+                Usage: swift-windowsui-snapshot [options]
 
-            Options:
-              -o, --output <path>     Output image path (default: artifacts/demo-screenshot.bmp)
-              --width <px>            Width in pixels (default: 1280)
-              --height <px>           Height in pixels (default: 720)
-              --scale <factor>        Display scale (default: 1.0)
-              --mode <scene|frame>    Snapshot mode (default: scene)
-              --backend <raw-scene|raw-frame|cpu-batch>
-                                      Rendering backend (default: raw-scene)
-              --format <bmp|png>      Output format (default: inferred from output extension, else bmp)
-              --html-report           Generate an HTML inspection report
-              -h, --help              Show this help message
-            """
+                Options:
+                  -o, --output <path>     Output image path (default: artifacts/demo-screenshot.bmp)
+                  --width <px>            Width in pixels (default: 1280)
+                  --height <px>           Height in pixels (default: 720)
+                  --scale <factor>        Display scale (default: 1.0)
+                  --mode <scene|frame>    Snapshot mode (default: scene)
+                  --backend <raw-scene|raw-frame|cpu-batch>
+                                          Rendering backend (default: raw-scene)
+                  --format <bmp|png>      Output format (default: inferred from output extension, else bmp)
+                  --html-report           Generate an HTML inspection report
+                  -h, --help              Show this help message
+                """
         case .invalidArgument(let message):
             return message
         case .missingBitmap:
@@ -264,55 +268,55 @@ private struct SnapshotHTMLReport {
 
         let bmpName = bitmapURL.lastPathComponent
         let html = """
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>SwiftWindowsUI Snapshot Report</title>
-            <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 24px; background: #0f1419; color: #e6edf3; }
-                h1 { font-size: 20px; margin-bottom: 8px; }
-                .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
-                .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-                .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
-                .card h2 { font-size: 14px; margin: 0 0 12px; color: #58a6ff; }
-                .metric { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
-                .metric:last-child { border-bottom: none; }
-                .metric-key { color: #8b949e; }
-                .metric-val { font-family: ui-monospace, SFMono-Regular, monospace; }
-                img { max-width: 100%; border-radius: 4px; border: 1px solid #30363d; background: #000; image-rendering: pixelated; }
-                .image-card { grid-column: 1 / -1; }
-                .image-card h2 { margin-bottom: 12px; }
-            </style>
-        </head>
-        <body>
-            <h1>SwiftWindowsUI Snapshot Report</h1>
-            <div class="subtitle">\(backendName) &middot; \(width)&times;\(height) &middot; \(snapshot.scene.primitiveCount) primitives</div>
-            <div class="grid">
-                <div class="card">
-                    <h2>Scene Metadata</h2>
-                    <div class="metric"><span class="metric-key">Layers</span><span class="metric-val">\(snapshot.scene.layers.count)</span></div>
-                    <div class="metric"><span class="metric-key">Primitives</span><span class="metric-val">\(snapshot.scene.primitiveCount)</span></div>
-                    <div class="metric"><span class="metric-key">Paint Records</span><span class="metric-val">\(snapshot.scene.paintRecords.count)</span></div>
-                    <div class="metric"><span class="metric-key">Glyph Atlas</span><span class="metric-val">\(snapshot.scene.glyphAtlas == nil ? "none" : "present")</span></div>
-                    <div class="metric"><span class="metric-key">Pixel Glyph Atlas</span><span class="metric-val">\(snapshot.scene.pixelGlyphAtlas == nil ? "none" : "present")</span></div>
-                    <div class="metric"><span class="metric-key">Image Resources</span><span class="metric-val">\(snapshot.scene.imageResources.count)</span></div>
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>SwiftWindowsUI Snapshot Report</title>
+                <style>
+                    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 24px; background: #0f1419; color: #e6edf3; }
+                    h1 { font-size: 20px; margin-bottom: 8px; }
+                    .subtitle { color: #8b949e; font-size: 13px; margin-bottom: 24px; }
+                    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+                    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; }
+                    .card h2 { font-size: 14px; margin: 0 0 12px; color: #58a6ff; }
+                    .metric { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 13px; }
+                    .metric:last-child { border-bottom: none; }
+                    .metric-key { color: #8b949e; }
+                    .metric-val { font-family: ui-monospace, SFMono-Regular, monospace; }
+                    img { max-width: 100%; border-radius: 4px; border: 1px solid #30363d; background: #000; image-rendering: pixelated; }
+                    .image-card { grid-column: 1 / -1; }
+                    .image-card h2 { margin-bottom: 12px; }
+                </style>
+            </head>
+            <body>
+                <h1>SwiftWindowsUI Snapshot Report</h1>
+                <div class="subtitle">\(backendName) &middot; \(width)&times;\(height) &middot; \(snapshot.scene.primitiveCount) primitives</div>
+                <div class="grid">
+                    <div class="card">
+                        <h2>Scene Metadata</h2>
+                        <div class="metric"><span class="metric-key">Layers</span><span class="metric-val">\(snapshot.scene.layers.count)</span></div>
+                        <div class="metric"><span class="metric-key">Primitives</span><span class="metric-val">\(snapshot.scene.primitiveCount)</span></div>
+                        <div class="metric"><span class="metric-key">Paint Records</span><span class="metric-val">\(snapshot.scene.paintRecords.count)</span></div>
+                        <div class="metric"><span class="metric-key">Glyph Atlas</span><span class="metric-val">\(snapshot.scene.glyphAtlas == nil ? "none" : "present")</span></div>
+                        <div class="metric"><span class="metric-key">Pixel Glyph Atlas</span><span class="metric-val">\(snapshot.scene.pixelGlyphAtlas == nil ? "none" : "present")</span></div>
+                        <div class="metric"><span class="metric-key">Image Resources</span><span class="metric-val">\(snapshot.scene.imageResources.count)</span></div>
+                    </div>
+                    <div class="card">
+                        <h2>Frame Metadata</h2>
+                        <div class="metric"><span class="metric-key">Commands</span><span class="metric-val">\(snapshot.frame.commands.count)</span></div>
+                        <div class="metric"><span class="metric-key">Clear Color</span><span class="metric-val">rgba(\(Int(snapshot.frame.clearColor.red*255)), \(Int(snapshot.frame.clearColor.green*255)), \(Int(snapshot.frame.clearColor.blue*255)), \(Int(snapshot.frame.clearColor.alpha*255)))</span></div>
+                        <div class="metric"><span class="metric-key">Display Scale</span><span class="metric-val">\(snapshot.displayScale)</span></div>
+                        <div class="metric"><span class="metric-key">Logical Size</span><span class="metric-val">\(snapshot.size.width)&times;\(snapshot.size.height)</span></div>
+                    </div>
+                    <div class="card image-card">
+                        <h2>Rendered Output</h2>
+                        <img src="\(bmpName)" alt="Snapshot" width="\(width)" height="\(height)">
+                    </div>
                 </div>
-                <div class="card">
-                    <h2>Frame Metadata</h2>
-                    <div class="metric"><span class="metric-key">Commands</span><span class="metric-val">\(snapshot.frame.commands.count)</span></div>
-                    <div class="metric"><span class="metric-key">Clear Color</span><span class="metric-val">rgba(\(Int(snapshot.frame.clearColor.red*255)), \(Int(snapshot.frame.clearColor.green*255)), \(Int(snapshot.frame.clearColor.blue*255)), \(Int(snapshot.frame.clearColor.alpha*255)))</span></div>
-                    <div class="metric"><span class="metric-key">Display Scale</span><span class="metric-val">\(snapshot.displayScale)</span></div>
-                    <div class="metric"><span class="metric-key">Logical Size</span><span class="metric-val">\(snapshot.size.width)&times;\(snapshot.size.height)</span></div>
-                </div>
-                <div class="card image-card">
-                    <h2>Rendered Output</h2>
-                    <img src="\(bmpName)" alt="Snapshot" width="\(width)" height="\(height)">
-                </div>
-            </div>
-        </body>
-        </html>
-        """
+            </body>
+            </html>
+            """
         try html.write(to: url, atomically: true, encoding: .utf8)
     }
 }
@@ -368,12 +372,12 @@ private func writeBGRA32BMP(_ bitmap: BitmapSurface, to url: URL) throws {
     try data.write(to: url, options: .atomic)
 }
 
-private extension Data {
-    mutating func appendUInt16LE(_ value: UInt16) {
+extension Data {
+    fileprivate mutating func appendUInt16LE(_ value: UInt16) {
         append(contentsOf: [UInt8(value & 0xff), UInt8((value >> 8) & 0xff)])
     }
 
-    mutating func appendUInt32LE(_ value: UInt32) {
+    fileprivate mutating func appendUInt32LE(_ value: UInt32) {
         append(contentsOf: [
             UInt8(value & 0xff),
             UInt8((value >> 8) & 0xff),
@@ -382,13 +386,13 @@ private extension Data {
         ])
     }
 
-    mutating func appendInt32LE(_ value: Int32) {
+    fileprivate mutating func appendInt32LE(_ value: Int32) {
         appendUInt32LE(UInt32(bitPattern: value))
     }
 }
 
-private extension Optional {
-    func unwrapOrThrow(_ error: Error) throws -> Wrapped {
+extension Optional {
+    fileprivate func unwrapOrThrow(_ error: Error) throws -> Wrapped {
         guard let value = self else { throw error }
         return value
     }

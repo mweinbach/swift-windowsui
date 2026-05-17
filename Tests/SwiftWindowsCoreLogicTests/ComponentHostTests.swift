@@ -1,8 +1,13 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
+import XCTest
+
 @testable import SwiftWindowsUI
+
 @testable import WinSwiftUI
 
 final class ComponentHostTests: XCTestCase {
@@ -75,25 +80,36 @@ final class ComponentHostTests: XCTestCase {
                     let eventLabel = useSecondState ? "second" : "first"
                     let opacity = useSecondState ? 0.85 : 0.25
                     let zIndex = useSecondState ? 9.0 : 2.0
-                    let layoutConstraints = useSecondState
+                    let layoutConstraints =
+                        useSecondState
                         ? LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36)
                         : LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16)
-                    let fixedSizeAxes = useSecondState
+                    let fixedSizeAxes =
+                        useSecondState
                         ? FixedSizeAxes(horizontal: false, vertical: true)
                         : FixedSizeAxes(horizontal: true, vertical: false)
-                    let transform = useSecondState
+                    let transform =
+                        useSecondState
                         ? Transform2D.translation(x: 24, y: 36)
                         : Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1)
-                    let borderStrokeStyle = useSecondState
-                        ? StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4)
-                        : StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8)
-                    let borderGradient: GradientType? = useSecondState
-                        ? .linear(SwiftWindowsGraphics.LinearGradient(
-                            startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
-                            endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
-                            axis: .horizontal
-                        ))
-                        : .linear(SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical))
+                    let borderStrokeStyle =
+                        useSecondState
+                        ? StrokeStyle(
+                            lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel,
+                            miterLimit: 4)
+                        : StrokeStyle(
+                            lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round,
+                            miterLimit: 8)
+                    let borderGradient: GradientType? =
+                        useSecondState
+                        ? .linear(
+                            SwiftWindowsGraphics.LinearGradient(
+                                startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                                endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                                axis: .horizontal
+                            ))
+                        : .linear(
+                            SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical))
                     let clipFillStyle = RetainedClipFillStyle(
                         eoFill: useSecondState,
                         antialiased: !useSecondState
@@ -117,10 +133,12 @@ final class ComponentHostTests: XCTestCase {
                         )
                     ]
                     let writingToolsBehavior: RetainedWritingToolsBehavior = useSecondState ? .disabled : .complete
-                    let writingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility = useSecondState
+                    let writingToolsAffordanceVisibility: RetainedWritingToolsAffordanceVisibility =
+                        useSecondState
                         ? .hidden
                         : .visible
-                    let dictationBehavior: RetainedTextInputDictationBehavior = useSecondState
+                    let dictationBehavior: RetainedTextInputDictationBehavior =
+                        useSecondState
                         ? .preventDictation
                         : .inline(activation: .onSelect)
                     let isFindDisabled = useSecondState
@@ -128,25 +146,30 @@ final class ComponentHostTests: XCTestCase {
                     let isFindNavigatorPresented = useSecondState
                     let symbolVariableValue = useSecondState ? 0.75 : 0.25
                     let imageResizingMode: RetainedImageResizingMode = useSecondState ? .tile : .stretch
-                    let imageCapInsets = useSecondState
+                    let imageCapInsets =
+                        useSecondState
                         ? EdgeInsets(top: 5, leading: 6, bottom: 7, trailing: 8)
                         : EdgeInsets(top: 1, leading: 2, bottom: 3, trailing: 4)
                     let imageRenderingMode: RetainedImageRenderingMode = useSecondState ? .original : .template
                     let imageInterpolation: RetainedImageInterpolation = useSecondState ? .high : .low
                     let imageAntialiased = useSecondState
                     let isSubmitScopeBoundary = useSecondState
-                    let submitScopeTriggersRawValue = useSecondState ? Optional(3) : Optional<Int>(nil)
+                    let submitScopeTriggersRawValue = useSecondState ? Optional(3) : Int?(nil)
                     let accessibilityPrefersCrossFadeTransitions = useSecondState ? true : false
                     let accessibilityShowLargeContentViewer = useSecondState ? true : false
-                    let accessibilityTraits: RetainedAccessibilityTraits = useSecondState
+                    let accessibilityTraits: RetainedAccessibilityTraits =
+                        useSecondState
                         ? [.isSelected, .isImage]
                         : [.isButton, .isHeader]
-                    let accessibilityChildBehavior: RetainedAccessibilityChildBehavior = useSecondState ? .contain : .combine
+                    let accessibilityChildBehavior: RetainedAccessibilityChildBehavior =
+                        useSecondState ? .contain : .combine
                     let accessibilitySortPriority = useSecondState ? 9.5 : 1.25
-                    let toolbarPlacementTags: Set<String> = useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
+                    let toolbarPlacementTags: Set<String> =
+                        useSecondState ? ["primaryAction", "navigationBar"] : ["bottomBar"]
                     let sectionHeaderChildCount = useSecondState ? 2 : 0
                     let sectionFooterChildCount = useSecondState ? 1 : 0
-                    let matchedGeometryEffect = useSecondState
+                    let matchedGeometryEffect =
+                        useSecondState
                         ? RetainedMatchedGeometryEffect(
                             namespaceID: "secondNamespace",
                             elementID: "secondElement",
@@ -161,7 +184,8 @@ final class ComponentHostTests: XCTestCase {
                             anchor: Point(x: 0, y: 0),
                             isSource: true
                         )
-                    let presentationChrome = useSecondState
+                    let presentationChrome =
+                        useSecondState
                         ? RetainedPresentationChrome(
                             hasBackgroundOverride: true,
                             backgroundColor: Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
@@ -182,11 +206,12 @@ final class ComponentHostTests: XCTestCase {
                         )
                         : RetainedPresentationChrome(
                             hasBackgroundOverride: true,
-                            backgroundGradient: .linear(SwiftWindowsGraphics.LinearGradient(
-                                startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
-                                endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
-                                axis: .vertical
-                            )),
+                            backgroundGradient: .linear(
+                                SwiftWindowsGraphics.LinearGradient(
+                                    startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                                    endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                                    axis: .vertical
+                                )),
                             hasCornerRadiusOverride: true,
                             cornerRadius: 8,
                             hasDragIndicatorOverride: true,
@@ -209,32 +234,44 @@ final class ComponentHostTests: XCTestCase {
                     node.opacity = opacity
                     node.blendMode = useSecondState ? .screen : .multiply
                     node.isCompositingGroup = useSecondState
-                    node.drawingGroup = useSecondState
+                    node.drawingGroup =
+                        useSecondState
                         ? RetainedDrawingGroup(opaque: true, colorMode: .linear)
                         : RetainedDrawingGroup(opaque: false, colorMode: .nonLinear)
-                    node.colorEffects = useSecondState
+                    node.colorEffects =
+                        useSecondState
                         ? [.contrast(1.2), .luminanceToAlpha]
                         : [.brightness(0.1), .colorInvert]
-                    node.visualEffects = useSecondState
+                    node.visualEffects =
+                        useSecondState
                         ? ["identity.opacity(0.8).offset(x:4.0,y:5.0)"]
                         : ["identity.opacity(0.4).blendMode(screen)"]
-                    node.viewMask = useSecondState
+                    node.viewMask =
+                        useSecondState
                         ? RetainedViewMask(horizontal: .trailing, vertical: .top)
                         : RetainedViewMask(horizontal: .center, vertical: .bottom)
-                    node.listRowSeparator = useSecondState
+                    node.listRowSeparator =
+                        useSecondState
                         ? RetainedListRowSeparator(visibility: .visible, edges: .bottom)
                         : RetainedListRowSeparator(visibility: .hidden, edges: .all)
-                    node.listRowSeparatorTint = useSecondState
-                        ? RetainedListSeparatorTint(color: Color(red: 0.1, green: 0.8, blue: 0.7, alpha: 1), edges: .bottom)
+                    node.listRowSeparatorTint =
+                        useSecondState
+                        ? RetainedListSeparatorTint(
+                            color: Color(red: 0.1, green: 0.8, blue: 0.7, alpha: 1), edges: .bottom)
                         : RetainedListSeparatorTint(color: nil, edges: .top)
-                    node.listSectionSeparator = useSecondState
+                    node.listSectionSeparator =
+                        useSecondState
                         ? RetainedListSectionSeparator(visibility: .visible, edges: .top)
                         : RetainedListSectionSeparator(visibility: .hidden, edges: .bottom)
-                    node.listSectionSeparatorTint = useSecondState
-                        ? RetainedListSeparatorTint(color: Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1), edges: .top)
+                    node.listSectionSeparatorTint =
+                        useSecondState
+                        ? RetainedListSeparatorTint(
+                            color: Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1), edges: .top)
                         : RetainedListSeparatorTint(color: nil, edges: .bottom)
-                    node.listItemTint = useSecondState
-                        ? RetainedListItemTint(color: Color(red: 0.4, green: 0.6, blue: 0.9, alpha: 1), kind: .preferred)
+                    node.listItemTint =
+                        useSecondState
+                        ? RetainedListItemTint(
+                            color: Color(red: 0.4, green: 0.6, blue: 0.9, alpha: 1), kind: .preferred)
                         : RetainedListItemTint(color: nil, kind: .monochrome)
                     node.selectionDisabled = !useSecondState
                     node.selectionDisabledOverride = !useSecondState
@@ -258,22 +295,28 @@ final class ComponentHostTests: XCTestCase {
                     node.hasDragPreview = useSecondState
                     node.horizontalScrollBounceBehavior = useSecondState ? "always" : "automatic"
                     node.verticalScrollBounceBehavior = useSecondState ? "basedOnSize" : "never"
-                    node.scrollTargetBehavior = useSecondState ? "viewAligned(limitBehavior:always,anchor:nil)" : "paging"
+                    node.scrollTargetBehavior =
+                        useSecondState ? "viewAligned(limitBehavior:always,anchor:nil)" : "paging"
                     node.isScrollTargetLayout = useSecondState
-                    node.scrollInputBehaviors = useSecondState ? ["look(horizontal)": "enabled"] : ["handGestureShortcut": "disabled"]
+                    node.scrollInputBehaviors =
+                        useSecondState ? ["look(horizontal)": "enabled"] : ["handGestureShortcut": "disabled"]
                     node.scrollIndicatorsFlashOnAppear = useSecondState
                     node.scrollIndicatorsFlashTrigger = useSecondState ? "Int:2" : "Int:1"
-                    node.scrollTransition = useSecondState
+                    node.scrollTransition =
+                        useSecondState
                         ? "asymmetric,topLeading:identity,bottomTrailing:interactive,timingCurve:easeInOut,axis:horizontal,identityEffect:identity.offset(x:0.0,y:0.0)"
                         : "symmetric,configuration:interactive,timingCurve:linear,axis:all,identityEffect:identity.opacity(0.5)"
-                    node.scrollPosition = useSecondState
+                    node.scrollPosition =
+                        useSecondState
                         ? "position,idType:String,id:second,anchor:0.5,1.0,bindingAnchor:0.5,1.0"
                         : "idBinding,idType:Int,id:1,anchor:0.5,0.0"
-                    node.scrollObservations = useSecondState
+                    node.scrollObservations =
+                        useSecondState
                         ? ["phase:context", "targetVisibility:idType:String,threshold:0.25"]
                         : ["geometry:type:Bool", "visibility:threshold:0.5"]
                     node.scrollReaderID = useSecondState ? "reader-second" : "reader-first"
-                    node.scrollProxyRequests = useSecondState
+                    node.scrollProxyRequests =
+                        useSecondState
                         ? ["idType:String,id:second,anchor:0.5,1.0"]
                         : ["idType:Int,id:1,anchor:0.5,0.0"]
                     node.zIndex = zIndex
@@ -323,7 +366,8 @@ final class ComponentHostTests: XCTestCase {
                     node.toolbarPlacementTags = toolbarPlacementTags
                     node.sectionHeaderChildCount = sectionHeaderChildCount
                     node.sectionFooterChildCount = sectionFooterChildCount
-                    node.retainedPreferenceValues[preferenceIdentifier] = useSecondState ? "second-preference" : "first-preference"
+                    node.retainedPreferenceValues[preferenceIdentifier] =
+                        useSecondState ? "second-preference" : "first-preference"
                     node.retainedPreferenceTransformBoundaries = useSecondState ? [preferenceIdentifier] : []
                     node.isFocusable = useSecondState
                     node.animationStates = [
@@ -341,10 +385,12 @@ final class ComponentHostTests: XCTestCase {
                         contextMenuEvents.append(eventLabel)
                     }
                     node.onDeleteRows = { offsets in
-                        dynamicDeleteEvents.append("\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))")
+                        dynamicDeleteEvents.append(
+                            "\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))")
                     }
                     node.onMoveRows = { offsets, destination in
-                        dynamicMoveEvents.append("\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))->\(destination)")
+                        dynamicMoveEvents.append(
+                            "\(eventLabel):\(Array(offsets).map(String.init).joined(separator: ","))->\(destination)")
                     }
                     node.onInsertRows = { offset, items in
                         dynamicInsertEvents.append("\(eventLabel):\(offset):\(items.count)")
@@ -404,7 +450,8 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.viewMask, RetainedViewMask(horizontal: .center, vertical: .bottom))
             XCTAssertEqual(firstNode?.listRowSeparator, RetainedListRowSeparator(visibility: .hidden, edges: .all))
             XCTAssertEqual(firstNode?.listRowSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .top))
-            XCTAssertEqual(firstNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .hidden, edges: .bottom))
+            XCTAssertEqual(
+                firstNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .hidden, edges: .bottom))
             XCTAssertEqual(firstNode?.listSectionSeparatorTint, RetainedListSeparatorTint(color: nil, edges: .bottom))
             XCTAssertEqual(firstNode?.listItemTint, RetainedListItemTint(color: nil, kind: .monochrome))
             XCTAssertEqual(firstNode?.selectionDisabled, true)
@@ -443,11 +490,20 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(firstNode?.scrollReaderID, "reader-first")
             XCTAssertEqual(firstNode?.scrollProxyRequests, ["idType:Int,id:1,anchor:0.5,0.0"])
             XCTAssertEqual(firstNode?.zIndex, 2)
-            XCTAssertEqual(firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
+            XCTAssertEqual(
+                firstNode?.layoutConstraints, LayoutConstraints(minWidth: 8, maxWidth: 32, minHeight: 4, maxHeight: 16))
             XCTAssertEqual(firstNode?.fixedSizeAxes, FixedSizeAxes(horizontal: true, vertical: false))
-            XCTAssertEqual(firstNode?.transform, Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
-            XCTAssertEqual(firstNode?.borderGradient, .linear(SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical)))
-            XCTAssertEqual(firstNode?.borderStrokeStyle, StrokeStyle(lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round, miterLimit: 8))
+            XCTAssertEqual(
+                firstNode?.transform,
+                Transform2D(translationX: 4, translationY: 5, scaleX: 1.25, scaleY: 0.75, rotation: 0.1))
+            XCTAssertEqual(
+                firstNode?.borderGradient,
+                .linear(SwiftWindowsGraphics.LinearGradient(startColor: .white, endColor: .black, axis: .vertical)))
+            XCTAssertEqual(
+                firstNode?.borderStrokeStyle,
+                StrokeStyle(
+                    lineWidth: 2, dashPattern: [1, 2], dashOffset: 0.5, lineCap: .square, lineJoin: .round,
+                    miterLimit: 8))
             XCTAssertEqual(firstNode?.clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: true))
             XCTAssertEqual(firstNode?.scrollOffset, 12)
             XCTAssertEqual(firstNode?.textInputSubmitLabel, .return)
@@ -501,11 +557,12 @@ final class ComponentHostTests: XCTestCase {
                 firstNode?.presentationChrome,
                 RetainedPresentationChrome(
                     hasBackgroundOverride: true,
-                    backgroundGradient: .linear(SwiftWindowsGraphics.LinearGradient(
-                        startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
-                        endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
-                        axis: .vertical
-                    )),
+                    backgroundGradient: .linear(
+                        SwiftWindowsGraphics.LinearGradient(
+                            startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                            endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                            axis: .vertical
+                        )),
                     hasCornerRadiusOverride: true,
                     cornerRadius: 8,
                     hasDragIndicatorOverride: true,
@@ -554,7 +611,8 @@ final class ComponentHostTests: XCTestCase {
                 reusedNode?.listRowSeparatorTint,
                 RetainedListSeparatorTint(color: Color(red: 0.1, green: 0.8, blue: 0.7, alpha: 1), edges: .bottom)
             )
-            XCTAssertEqual(reusedNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .visible, edges: .top))
+            XCTAssertEqual(
+                reusedNode?.listSectionSeparator, RetainedListSectionSeparator(visibility: .visible, edges: .top))
             XCTAssertEqual(
                 reusedNode?.listSectionSeparatorTint,
                 RetainedListSeparatorTint(color: Color(red: 0.9, green: 0.3, blue: 0.2, alpha: 1), edges: .top)
@@ -605,18 +663,24 @@ final class ComponentHostTests: XCTestCase {
             XCTAssertEqual(reusedNode?.scrollReaderID, "reader-second")
             XCTAssertEqual(reusedNode?.scrollProxyRequests, ["idType:String,id:second,anchor:0.5,1.0"])
             XCTAssertEqual(reusedNode?.zIndex, 9)
-            XCTAssertEqual(reusedNode?.layoutConstraints, LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
+            XCTAssertEqual(
+                reusedNode?.layoutConstraints,
+                LayoutConstraints(minWidth: 24, maxWidth: 72, minHeight: 12, maxHeight: 36))
             XCTAssertEqual(reusedNode?.fixedSizeAxes, FixedSizeAxes(horizontal: false, vertical: true))
             XCTAssertEqual(reusedNode?.transform, Transform2D.translation(x: 24, y: 36))
             XCTAssertEqual(
                 reusedNode?.borderGradient,
-                .linear(SwiftWindowsGraphics.LinearGradient(
-                    startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
-                    endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
-                    axis: .horizontal
-                ))
+                .linear(
+                    SwiftWindowsGraphics.LinearGradient(
+                        startColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                        endColor: Color(red: 0, green: 0, blue: 1, alpha: 1),
+                        axis: .horizontal
+                    ))
             )
-            XCTAssertEqual(reusedNode?.borderStrokeStyle, StrokeStyle(lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4))
+            XCTAssertEqual(
+                reusedNode?.borderStrokeStyle,
+                StrokeStyle(
+                    lineWidth: 5, dashPattern: [3, 1], dashOffset: 2, lineCap: .round, lineJoin: .bevel, miterLimit: 4))
             XCTAssertEqual(reusedNode?.clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
             XCTAssertEqual(reusedNode?.scrollOffset, 48)
             XCTAssertEqual(reusedNode?.textInputSubmitLabel, .search)
@@ -724,7 +788,7 @@ final class ComponentHostTests: XCTestCase {
                     "second:updated:1",
                     "second:exited",
                     "second:providers:1",
-                    "second:payloads:1"
+                    "second:payloads:1",
                 ]
             )
             XCTAssertEqual(reusedNode?.onMakeDropConfiguration?(["payload"], Point(x: 9, y: 10)) as? String, "second")
@@ -1001,7 +1065,8 @@ final class ComponentHostTests: XCTestCase {
                 if showNode {
                     Component { _ in
                         let node = ViewNode()
-                        node.transition = RetainedTransition(kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
+                        node.transition = RetainedTransition(
+                            kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
                         node.transform = Transform2D.identity
                         return node
                     }
@@ -1033,10 +1098,11 @@ final class ComponentHostTests: XCTestCase {
                 if showNode {
                     Component { _ in
                         let node = ViewNode()
-                        node.transition = RetainedTransition(kind: .asymmetric(
-                            insertion: .identity,
-                            removal: RetainedTransition(kind: .opacity)
-                        ))
+                        node.transition = RetainedTransition(
+                            kind: .asymmetric(
+                                insertion: .identity,
+                                removal: RetainedTransition(kind: .opacity)
+                            ))
                         node.opacity = 0.8
                         return node
                     }
@@ -1080,10 +1146,12 @@ final class ComponentHostTests: XCTestCase {
                 if showNode {
                     Component { _ in
                         let node = ViewNode()
-                        node.transition = RetainedTransition(kind: .asymmetric(
-                            insertion: .identity,
-                            removal: RetainedTransition(kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
-                        ))
+                        node.transition = RetainedTransition(
+                            kind: .asymmetric(
+                                insertion: .identity,
+                                removal: RetainedTransition(
+                                    kind: .scale(scaleX: 0, scaleY: 0, anchorX: 0.5, anchorY: 0.5))
+                            ))
                         node.transform = Transform2D.identity
                         return node
                     }
@@ -1124,10 +1192,11 @@ final class ComponentHostTests: XCTestCase {
                         let node = ViewNode()
                         node.frame = Rect(x: 0, y: 0, width: 100, height: 50)
                         node.resolvedFrame = node.frame
-                        node.transition = RetainedTransition(kind: .asymmetric(
-                            insertion: .identity,
-                            removal: RetainedTransition(kind: .move(edge: .trailing))
-                        ))
+                        node.transition = RetainedTransition(
+                            kind: .asymmetric(
+                                insertion: .identity,
+                                removal: RetainedTransition(kind: .move(edge: .trailing))
+                            ))
                         return node
                     }
                 }
@@ -1164,10 +1233,11 @@ final class ComponentHostTests: XCTestCase {
                 if useFirst {
                     Component(key: "first") { _ in
                         let node = ViewNode()
-                        node.transition = RetainedTransition(kind: .asymmetric(
-                            insertion: .identity,
-                            removal: RetainedTransition(kind: .opacity)
-                        ))
+                        node.transition = RetainedTransition(
+                            kind: .asymmetric(
+                                insertion: .identity,
+                                removal: RetainedTransition(kind: .opacity)
+                            ))
                         node.opacity = 1.0
                         return node
                     }
@@ -1219,10 +1289,11 @@ final class ComponentHostTests: XCTestCase {
                         let node = ViewNode()
                         node.frame = Rect(origin: .zero, size: Size(width: 100, height: 50))
                         node.backgroundColor = Color(red: 1, green: 0, blue: 0, alpha: 1)
-                        node.transition = RetainedTransition(kind: .asymmetric(
-                            insertion: .identity,
-                            removal: RetainedTransition(kind: .opacity)
-                        ))
+                        node.transition = RetainedTransition(
+                            kind: .asymmetric(
+                                insertion: .identity,
+                                removal: RetainedTransition(kind: .opacity)
+                            ))
                         node.opacity = 1.0
                         return node
                     }
@@ -1547,7 +1618,7 @@ final class ComponentHostTests: XCTestCase {
 
             let people = [
                 Person(id: "1", name: "Alice", age: 30),
-                Person(id: "2", name: "Bob", age: 25)
+                Person(id: "2", name: "Bob", age: 25),
             ]
 
             host.setContent {
@@ -1615,7 +1686,9 @@ final class ComponentHostTests: XCTestCase {
             _ = runtime.renderFrame()
 
             // Find the first selectable row and activate it
-            let firstRow = runtime.root.children.first!.children.first { $0.nodeTag?.hasPrefix("table-selection:") == true }!
+            let firstRow = runtime.root.children.first!.children.first {
+                $0.nodeTag?.hasPrefix("table-selection:") == true
+            }!
             XCTAssertNotNil(firstRow.onActivate)
             firstRow.onActivate?()
 

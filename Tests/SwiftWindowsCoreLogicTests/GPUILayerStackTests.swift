@@ -1,5 +1,6 @@
-import XCTest
 import SwiftWindowsGraphics
+
+import XCTest
 
 final class GPUILayerStackTests: XCTestCase {
 

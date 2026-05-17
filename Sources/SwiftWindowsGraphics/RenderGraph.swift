@@ -1,34 +1,8 @@
 import Foundation
+
 import SwiftWindowsCore
 
-@MainActor
-/// Consumes renderer-neutral frames emitted by shared UI/runtime code.
-public protocol RenderBackend: AnyObject {
-    var backendDisplayName: String { get }
-    var backendStatusDescription: String { get }
-
-    func attach(to surface: SurfaceDescriptor) throws
-    func resize(to size: IntSize) throws
-    func render(frame: RenderFrame) throws
-}
-
-public extension RenderBackend {
-    var backendDisplayName: String { "2D RENDERER" }
-
-    var backendStatusDescription: String { "\(backendDisplayName) READY" }
-}
-
 /// Backend-neutral display list for a single frame.
-public struct RenderFrame: Equatable, Sendable {
-    public var clearColor: Color
-    /// Ordered drawing commands produced by shared layout and view logic.
-    public var commands: [RenderCommand]
-
-    public init(clearColor: Color = .black, commands: [RenderCommand] = []) {
-        self.clearColor = clearColor
-        self.commands = commands
-    }
-}
 
 // MARK: - Render Commands
 
@@ -39,6 +13,95 @@ public struct RenderFrame: Equatable, Sendable {
 /// Additional cases exist so the shared contract can grow toward the typed
 /// scene/batch pipeline, but renderers must opt into them explicitly instead
 /// of silently dropping them.
+
+// MARK: - Blend Mode (Gap 4 fix)
+
+/// Gap 4: no per-command blend control existed. Fix: BlendMode enum lets
+/// each drawing command specify its compositing operation.
+
+// MARK: - Gradient Types (Gaps 2 & 3 fix)
+
+/// A single color stop within a gradient. Position is in 0...1.
+///
+/// Gap 3: the old LinearGradient had only startColor/endColor (2 stops).
+/// Fix: gradients now carry an unlimited array of GradientStop values.
+
+/// Linear gradient with unlimited color stops.
+///
+/// Gap 3 fix: replaces the old 2-stop startColor/endColor design.
+/// Backends that only support 2 stops can fall back to first/last.
+
+/// Gap 2 fix: radial gradient radiating from a center point.
+
+/// Gap 2 fix: conic (angular/sweep) gradient around a center point.
+
+/// Gap 2 fix: unified gradient type covering linear, radial, and conic.
+
+// MARK: - Render Path (Gap 1 fix)
+
+/// Renderer-neutral path representation. Mirrors common path segment types
+/// so that RenderGraph stays independent of any platform path API.
+///
+/// Gap 1: no path primitives existed in the render graph. Fix: RenderPath
+/// captures move/line/quad/cubic/close segments that backends translate to
+/// their native path types (e.g. ID2D1PathGeometry on Direct2D).
+
+// MARK: - Clip Shapes (Gap 5 fix)
+
+/// Gap 5: clipping only supported axis-aligned rects via clipRect on each
+/// command. Fix: ClipShape supports rects, ellipses, and arbitrary paths.
+
+/// Controls how a new clip interacts with the existing clip region.
+
+// MARK: - Command Structs
+
+/// Shared solid-fill / gradient-fill rect primitive used by all renderers.
+///
+/// Gap 2 fix: `gradient` field widened from `LinearGradient?` to
+/// `GradientType?` so radial and conic fills are representable.
+/// Gap 4 fix: optional `blendMode` added.
+
+/// Gap 4 fix: optional blendMode added to DrawBitmapCommand.
+
+/// Gap 1 fix: fill an arbitrary path with a solid color or gradient.
+
+/// Gap 1 fix: stroke an arbitrary path with configurable style.
+
+/// Simple 2D affine transform for path commands.
+
+/// Gap 6 fix: Gaussian blur applied to a rectangular region.
+
+/// First-class text drawing command reserved for renderer paths that can own
+/// text shaping/rasterization directly instead of relying on pre-baked bitmaps.
+
+/// Gap 5 fix: push an arbitrary clip shape onto the clip stack.
+
+/// Command to apply a Gaussian blur over a rectangular region.
+@MainActor
+/// Consumes renderer-neutral frames emitted by shared UI/runtime code.
+public protocol RenderBackend: AnyObject {
+    var backendDisplayName: String { get }
+    var backendStatusDescription: String { get }
+
+    func attach(to surface: SurfaceDescriptor) throws
+    func resize(to size: IntSize) throws
+    func render(frame: RenderFrame) throws
+}
+extension RenderBackend {
+    public var backendDisplayName: String { "2D RENDERER" }
+
+    public var backendStatusDescription: String { "\(backendDisplayName) READY" }
+}
+public struct RenderFrame: Equatable, Sendable {
+    public var clearColor: Color
+    /// Ordered drawing commands produced by shared layout and view logic.
+    public var commands: [RenderCommand]
+
+    public init(clearColor: Color = .black, commands: [RenderCommand] = []) {
+        self.clearColor = clearColor
+        self.commands = commands
+    }
+}
 public enum RenderCommand: Equatable, Sendable {
     case fillRect(FillRectCommand)
     case drawBitmap(DrawBitmapCommand)
@@ -55,11 +118,6 @@ public enum RenderCommand: Equatable, Sendable {
     /// Reserved for backends with clip-stack support.
     case popClip
 }
-
-// MARK: - Blend Mode (Gap 4 fix)
-
-/// Gap 4: no per-command blend control existed. Fix: BlendMode enum lets
-/// each drawing command specify its compositing operation.
 public enum BlendMode: Int, Equatable, Sendable {
     case normal = 0
     case multiply = 1
@@ -67,13 +125,6 @@ public enum BlendMode: Int, Equatable, Sendable {
     case overlay = 3
     case additive = 4
 }
-
-// MARK: - Gradient Types (Gaps 2 & 3 fix)
-
-/// A single color stop within a gradient. Position is in 0...1.
-///
-/// Gap 3: the old LinearGradient had only startColor/endColor (2 stops).
-/// Fix: gradients now carry an unlimited array of GradientStop values.
 public struct GradientStop: Equatable, Sendable {
     public var color: Color
     /// Normalized position along the gradient axis, 0...1.
@@ -84,16 +135,10 @@ public struct GradientStop: Equatable, Sendable {
         self.position = position
     }
 }
-
 public enum GradientAxis: Equatable, Sendable {
     case vertical
     case horizontal
 }
-
-/// Linear gradient with unlimited color stops.
-///
-/// Gap 3 fix: replaces the old 2-stop startColor/endColor design.
-/// Backends that only support 2 stops can fall back to first/last.
 public struct LinearGradient: Equatable, Sendable {
     public var stops: [GradientStop]
     public var axis: GradientAxis
@@ -139,8 +184,6 @@ public struct LinearGradient: Equatable, Sendable {
         }
     }
 }
-
-/// Gap 2 fix: radial gradient radiating from a center point.
 public struct RadialGradient: Equatable, Sendable {
     public var center: Point
     public var radius: Double
@@ -152,8 +195,6 @@ public struct RadialGradient: Equatable, Sendable {
         self.stops = stops
     }
 }
-
-/// Gap 2 fix: conic (angular/sweep) gradient around a center point.
 public struct ConicGradient: Equatable, Sendable {
     public var center: Point
     /// Starting angle in radians, measured clockwise from 12-o'clock.
@@ -166,8 +207,6 @@ public struct ConicGradient: Equatable, Sendable {
         self.stops = stops
     }
 }
-
-/// Gap 2 fix: unified gradient type covering linear, radial, and conic.
 public enum GradientType: Equatable, Sendable {
     case linear(LinearGradient)
     case radial(RadialGradient)
@@ -193,26 +232,23 @@ public enum GradientType: Equatable, Sendable {
         let floatOpacity = Float(opacity)
         switch self {
         case .linear(var g):
-            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            g.stops = g.stops.map {
+                GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position)
+            }
             return .linear(g)
         case .radial(var g):
-            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            g.stops = g.stops.map {
+                GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position)
+            }
             return .radial(g)
         case .conic(var g):
-            g.stops = g.stops.map { GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position) }
+            g.stops = g.stops.map {
+                GradientStop(color: $0.color.multipliedAlpha(by: floatOpacity), position: $0.position)
+            }
             return .conic(g)
         }
     }
 }
-
-// MARK: - Render Path (Gap 1 fix)
-
-/// Renderer-neutral path representation. Mirrors common path segment types
-/// so that RenderGraph stays independent of any platform path API.
-///
-/// Gap 1: no path primitives existed in the render graph. Fix: RenderPath
-/// captures move/line/quad/cubic/close segments that backends translate to
-/// their native path types (e.g. ID2D1PathGeometry on Direct2D).
 public struct RenderPath: Equatable, Sendable {
     public enum Segment: Equatable, Sendable {
         case moveTo(Point)
@@ -235,8 +271,11 @@ public struct RenderPath: Equatable, Sendable {
             case .moveTo(let p): return .moveTo(p)
             case .lineTo(let p): return .lineTo(p)
             case .quadraticCurveTo(let control, let end): return .quadCurveTo(control: control, end: end)
-            case .cubicCurveTo(let control1, let control2, let end): return .cubicCurveTo(control1: control1, control2: control2, end: end)
-            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise): return .arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
+            case .cubicCurveTo(let control1, let control2, let end):
+                return .cubicCurveTo(control1: control1, control2: control2, end: end)
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                return .arc(
+                    center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
             case .close: return .close
             }
         }
@@ -264,8 +303,11 @@ public struct RenderPath: Equatable, Sendable {
         segments.append(.close)
     }
 
-    public mutating func addArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool = false) {
-        segments.append(.arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
+    public mutating func addArc(
+        center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool = false
+    ) {
+        segments.append(
+            .arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
     }
 
     public var boundingRect: Rect? {
@@ -277,70 +319,71 @@ public struct RenderPath: Equatable, Sendable {
         let sy = rect.size.height
         let ox = rect.origin.x
         let oy = rect.origin.y
-        return RenderPath(segments: segments.map { segment in
-            switch segment {
-            case .moveTo(let p):
-                return .moveTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
-            case .lineTo(let p):
-                return .lineTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
-            case .quadCurveTo(let c, let e):
-                return .quadCurveTo(
-                    control: Point(x: c.x * sx + ox, y: c.y * sy + oy),
-                    end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
-                )
-            case .cubicCurveTo(let c1, let c2, let e):
-                return .cubicCurveTo(
-                    control1: Point(x: c1.x * sx + ox, y: c1.y * sy + oy),
-                    control2: Point(x: c2.x * sx + ox, y: c2.y * sy + oy),
-                    end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
-                )
-            case .arc(let c, let r, let s, let e, let cw):
-                return .arc(
-                    center: Point(x: c.x * sx + ox, y: c.y * sy + oy),
-                    radius: r * max(sx, sy),
-                    startAngle: s,
-                    endAngle: e,
-                    clockwise: cw
-                )
-            case .close:
-                return .close
-            }
-        })
+        return RenderPath(
+            segments: segments.map { segment in
+                switch segment {
+                case .moveTo(let p):
+                    return .moveTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
+                case .lineTo(let p):
+                    return .lineTo(Point(x: p.x * sx + ox, y: p.y * sy + oy))
+                case .quadCurveTo(let c, let e):
+                    return .quadCurveTo(
+                        control: Point(x: c.x * sx + ox, y: c.y * sy + oy),
+                        end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
+                    )
+                case .cubicCurveTo(let c1, let c2, let e):
+                    return .cubicCurveTo(
+                        control1: Point(x: c1.x * sx + ox, y: c1.y * sy + oy),
+                        control2: Point(x: c2.x * sx + ox, y: c2.y * sy + oy),
+                        end: Point(x: e.x * sx + ox, y: e.y * sy + oy)
+                    )
+                case .arc(let c, let r, let s, let e, let cw):
+                    return .arc(
+                        center: Point(x: c.x * sx + ox, y: c.y * sy + oy),
+                        radius: r * max(sx, sy),
+                        startAngle: s,
+                        endAngle: e,
+                        clockwise: cw
+                    )
+                case .close:
+                    return .close
+                }
+            })
     }
 
     public func translated(by offset: Point) -> RenderPath {
-        RenderPath(segments: segments.map { segment in
-            switch segment {
-            case .moveTo(let p):
-                return .moveTo(Point(x: p.x + offset.x, y: p.y + offset.y))
-            case .lineTo(let p):
-                return .lineTo(Point(x: p.x + offset.x, y: p.y + offset.y))
-            case .quadCurveTo(let c, let e):
-                return .quadCurveTo(
-                    control: Point(x: c.x + offset.x, y: c.y + offset.y),
-                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
-                )
-            case .cubicCurveTo(let c1, let c2, let e):
-                return .cubicCurveTo(
-                    control1: Point(x: c1.x + offset.x, y: c1.y + offset.y),
-                    control2: Point(x: c2.x + offset.x, y: c2.y + offset.y),
-                    end: Point(x: e.x + offset.x, y: e.y + offset.y)
-                )
-            case .arc(let c, let r, let s, let e, let cw):
-                return .arc(
-                    center: Point(x: c.x + offset.x, y: c.y + offset.y),
-                    radius: r,
-                    startAngle: s,
-                    endAngle: e,
-                    clockwise: cw
-                )
-            case .close:
-                return .close
-            }
-        })
+        RenderPath(
+            segments: segments.map { segment in
+                switch segment {
+                case .moveTo(let p):
+                    return .moveTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+                case .lineTo(let p):
+                    return .lineTo(Point(x: p.x + offset.x, y: p.y + offset.y))
+                case .quadCurveTo(let c, let e):
+                    return .quadCurveTo(
+                        control: Point(x: c.x + offset.x, y: c.y + offset.y),
+                        end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                    )
+                case .cubicCurveTo(let c1, let c2, let e):
+                    return .cubicCurveTo(
+                        control1: Point(x: c1.x + offset.x, y: c1.y + offset.y),
+                        control2: Point(x: c2.x + offset.x, y: c2.y + offset.y),
+                        end: Point(x: e.x + offset.x, y: e.y + offset.y)
+                    )
+                case .arc(let c, let r, let s, let e, let cw):
+                    return .arc(
+                        center: Point(x: c.x + offset.x, y: c.y + offset.y),
+                        radius: r,
+                        startAngle: s,
+                        endAngle: e,
+                        clockwise: cw
+                    )
+                case .close:
+                    return .close
+                }
+            })
     }
 }
-
 extension [RenderPath.Segment] {
     public var boundingRect: Rect? {
         var minX = Double.infinity
@@ -392,32 +435,17 @@ extension [RenderPath.Segment] {
         )
     }
 }
-
-// MARK: - Clip Shapes (Gap 5 fix)
-
-/// Gap 5: clipping only supported axis-aligned rects via clipRect on each
-/// command. Fix: ClipShape supports rects, ellipses, and arbitrary paths.
 public enum ClipShape: Equatable, Sendable {
     case rect(Rect, cornerRadius: Double)
     case ellipse(center: Point, radiusX: Double, radiusY: Double)
     case path(RenderPath)
 }
-
-/// Controls how a new clip interacts with the existing clip region.
 public enum ClipOperation: Equatable, Sendable {
     /// Intersect with the current clip (default, most common).
     case intersect
     /// Replace the current clip entirely.
     case replace
 }
-
-// MARK: - Command Structs
-
-/// Shared solid-fill / gradient-fill rect primitive used by all renderers.
-///
-/// Gap 2 fix: `gradient` field widened from `LinearGradient?` to
-/// `GradientType?` so radial and conic fills are representable.
-/// Gap 4 fix: optional `blendMode` added.
 public struct FillRectCommand: Equatable, Sendable {
     public var rect: Rect
     public var color: Color
@@ -460,7 +488,6 @@ public struct FillRectCommand: Equatable, Sendable {
         self.blendMode = blendMode
     }
 }
-
 public struct BitmapSurface: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
@@ -496,31 +523,30 @@ public struct BitmapSurface: Equatable, Sendable {
         let fileSize = fileHeaderSize + dibHeaderSize + pixelDataSize
 
         var data = Data(capacity: fileSize)
-        data.append(contentsOf: [0x42, 0x4D]) // "BM"
+        data.append(contentsOf: [0x42, 0x4D])  // "BM"
         data.append(contentsOf: withUnsafeBytes(of: Int32(fileSize)) { Array($0) })
-        data.append(contentsOf: [0, 0, 0, 0]) // reserved
-        data.append(contentsOf: withUnsafeBytes(of: Int32(fileHeaderSize + dibHeaderSize)) { Array($0) }) // pixel offset
+        data.append(contentsOf: [0, 0, 0, 0])  // reserved
+        // pixel offset
+        data.append(contentsOf: withUnsafeBytes(of: Int32(fileHeaderSize + dibHeaderSize)) { Array($0) })
 
         // BITMAPINFOHEADER (40 bytes)
         data.append(contentsOf: withUnsafeBytes(of: Int32(dibHeaderSize)) { Array($0) })
         data.append(contentsOf: withUnsafeBytes(of: Int32(width)) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: Int32(-height)) { Array($0) }) // negative = top-down
-        data.append(contentsOf: [1, 0]) // planes
-        data.append(contentsOf: [32, 0]) // bits per pixel
-        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // BI_RGB compression
+        data.append(contentsOf: withUnsafeBytes(of: Int32(-height)) { Array($0) })  // negative = top-down
+        data.append(contentsOf: [1, 0])  // planes
+        data.append(contentsOf: [32, 0])  // bits per pixel
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) })  // BI_RGB compression
         data.append(contentsOf: withUnsafeBytes(of: Int32(pixelDataSize)) { Array($0) })
-        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) }) // X pixels/meter
-        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) }) // Y pixels/meter
-        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // colors in palette
-        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) }) // important colors
+        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) })  // X pixels/meter
+        data.append(contentsOf: withUnsafeBytes(of: Int32(2835)) { Array($0) })  // Y pixels/meter
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) })  // colors in palette
+        data.append(contentsOf: withUnsafeBytes(of: Int32(0)) { Array($0) })  // important colors
 
         // Pixel array
         data.append(pixels)
         try data.write(to: url)
     }
 }
-
-/// Gap 4 fix: optional blendMode added to DrawBitmapCommand.
 public struct DrawBitmapCommand: Equatable, Sendable {
     public var rect: Rect
     public var bitmap: BitmapSurface
@@ -543,8 +569,6 @@ public struct DrawBitmapCommand: Equatable, Sendable {
         self.blendMode = blendMode
     }
 }
-
-/// Gap 1 fix: fill an arbitrary path with a solid color or gradient.
 public struct FillPathCommand: Equatable, Sendable {
     public var path: RenderPath
     public var color: Color
@@ -569,8 +593,6 @@ public struct FillPathCommand: Equatable, Sendable {
         self.clipRect = clipRect
     }
 }
-
-/// Gap 1 fix: stroke an arbitrary path with configurable style.
 public struct StrokePathCommand: Equatable, Sendable {
     public var path: RenderPath
     public var color: Color
@@ -595,8 +617,6 @@ public struct StrokePathCommand: Equatable, Sendable {
         self.clipRect = clipRect
     }
 }
-
-/// Simple 2D affine transform for path commands.
 public struct AffineTransform: Equatable, Sendable {
     public var a: Double, b: Double
     public var c: Double, d: Double
@@ -621,8 +641,6 @@ public struct AffineTransform: Equatable, Sendable {
         AffineTransform(a: x, b: 0, c: 0, d: y, tx: 0, ty: 0)
     }
 }
-
-/// Gap 6 fix: Gaussian blur applied to a rectangular region.
 public struct BlurCommand: Equatable, Sendable {
     /// The region to blur in logical coordinates.
     public var region: Rect
@@ -634,9 +652,6 @@ public struct BlurCommand: Equatable, Sendable {
         self.radius = radius
     }
 }
-
-/// First-class text drawing command reserved for renderer paths that can own
-/// text shaping/rasterization directly instead of relying on pre-baked bitmaps.
 public struct DrawTextCommand: Equatable, Sendable {
     public var text: String
     public var position: Point
@@ -681,8 +696,6 @@ public struct DrawTextCommand: Equatable, Sendable {
         case black
     }
 }
-
-/// Gap 5 fix: push an arbitrary clip shape onto the clip stack.
 public struct ClipCommand: Equatable, Sendable {
     public var shape: ClipShape
     public var operation: ClipOperation
@@ -692,8 +705,6 @@ public struct ClipCommand: Equatable, Sendable {
         self.operation = operation
     }
 }
-
-/// Command to apply a Gaussian blur over a rectangular region.
 public struct ApplyBlurCommand: Equatable, Sendable {
     public var rect: Rect
     public var radius: Double

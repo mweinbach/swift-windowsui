@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
 
 public struct Scene: Equatable, Sendable {
@@ -14,7 +15,6 @@ public struct Scene: Equatable, Sendable {
         RenderFrame(clearColor: clearColor, commands: nodes.map(\.renderCommand))
     }
 }
-
 public enum SceneNode: Equatable, Sendable {
     case solidRect(SolidRectNode)
 
@@ -31,7 +31,6 @@ public enum SceneNode: Equatable, Sendable {
         }
     }
 }
-
 public struct SolidRectNode: Equatable, Sendable {
     public var rect: Rect
     public var color: Color

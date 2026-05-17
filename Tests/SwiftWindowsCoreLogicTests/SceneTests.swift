@@ -1,7 +1,10 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsScene
+
+import XCTest
 
 final class SceneTests: XCTestCase {
     func testSceneFrameBuildsRenderCommandsFromNodes() {

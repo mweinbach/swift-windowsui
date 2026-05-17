@@ -10,7 +10,6 @@ public enum LogLevel: Int, Comparable, Sendable {
         lhs.rawValue < rhs.rawValue
     }
 }
-
 public enum RenderLogger {
     @MainActor public static var minimumLevel: LogLevel = .warning
     @MainActor public static var handler: (@Sendable (LogLevel, String, String, Int) -> Void)?
@@ -26,7 +25,7 @@ public enum RenderLogger {
         let msg = message()
         handler?(level, msg, file, line)
         #if DEBUG
-        print("[\(level)] \(file):\(line) \(msg)")
+            print("[\(level)] \(file):\(line) \(msg)")
         #endif
     }
 }

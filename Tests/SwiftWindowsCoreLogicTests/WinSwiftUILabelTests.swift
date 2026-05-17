@@ -1,6 +1,9 @@
-import XCTest
 import SwiftWindowsCore
+
+import XCTest
+
 @testable import SwiftWindowsUI
+
 @testable import WinSwiftUI
 
 final class WinSwiftUILabelTests: XCTestCase {
@@ -30,7 +33,6 @@ final class WinSwiftUILabelTests: XCTestCase {
         assertLabel(multiGradientLabel, hasTextColor: gradient.startColor, iconColor: gradient.startColor)
     }
 }
-
 @MainActor
 private func assertLabel(_ label: Label, hasTextColor textColor: Color, iconColor: Color) {
     let node = makeNode(label)
@@ -39,7 +41,6 @@ private func assertLabel(_ label: Label, hasTextColor textColor: Color, iconColo
     XCTAssertEqual(node.children[0].textStyle.color, iconColor)
     XCTAssertEqual(node.children[1].textStyle.color, textColor)
 }
-
 @MainActor
 private func makeNode<V: View>(_ view: V) -> ViewNode {
     let runtime = RetainedViewRuntime(root: ViewNode())

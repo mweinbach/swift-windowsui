@@ -1,24 +1,29 @@
-import XCTest
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
-@testable import SwiftWindowsUI
-@testable import WinSwiftUI
+
+import XCTest
+
 @testable import SwiftWindowsPlatform
+
+@testable import SwiftWindowsUI
+
+@testable import WinSwiftUI
 
 private struct OneThirdHorizontalAlignmentID: AlignmentID {
     static func defaultValue(in context: ViewDimensions) -> Double {
         context.width / 3
     }
 }
-
 private struct ThreeQuarterVerticalAlignmentID: AlignmentID {
     static func defaultValue(in context: ViewDimensions) -> Double {
         context.height * 0.75
     }
 }
-
 @MainActor
 private struct PointerHandlerProbe: View {
     typealias Body = Never
@@ -49,15 +54,12 @@ private struct PointerHandlerProbe: View {
         }
     }
 }
-
 private struct NavigationDestinationItem: Identifiable {
     let id: String
 }
-
 private enum TestParseError: Error {
     case invalid
 }
-
 private struct TestIntegerParseStrategy: ParseStrategy {
     func parse(_ value: String) throws -> Int {
         let normalized = value.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
@@ -67,7 +69,6 @@ private struct TestIntegerParseStrategy: ParseStrategy {
         return parsed
     }
 }
-
 private struct TestIntegerParseableFormatStyle: ParseableFormatStyle {
     var parseStrategy: TestIntegerParseStrategy {
         TestIntegerParseStrategy()
@@ -77,38 +78,32 @@ private struct TestIntegerParseableFormatStyle: ParseableFormatStyle {
         "#\(value)"
     }
 }
-
 private struct TestEnvironmentLabelKey: EnvironmentKey {
     static let defaultValue = "DEFAULT"
 }
-
-private extension EnvironmentValues {
-    var testEnvironmentLabel: String {
+extension EnvironmentValues {
+    fileprivate var testEnvironmentLabel: String {
         get { self[TestEnvironmentLabelKey.self] }
         set { self[TestEnvironmentLabelKey.self] = newValue }
     }
 }
-
 private struct TestFocusedLabelKey: FocusedValueKey {
     typealias Value = String
 }
-
 private struct TestFocusedBindingKey: FocusedValueKey {
     typealias Value = Binding<String>
 }
-
-private extension FocusedValues {
-    var testFocusedLabel: String? {
+extension FocusedValues {
+    fileprivate var testFocusedLabel: String? {
         get { self[TestFocusedLabelKey.self] }
         set { self[TestFocusedLabelKey.self] = newValue }
     }
 
-    var testFocusedBinding: Binding<String>? {
+    fileprivate var testFocusedBinding: Binding<String>? {
         get { self[TestFocusedBindingKey.self] }
         set { self[TestFocusedBindingKey.self] = newValue }
     }
 }
-
 private struct TestStringPreferenceKey: PreferenceKey {
     static let defaultValue = "DEFAULT"
 
@@ -116,7 +111,6 @@ private struct TestStringPreferenceKey: PreferenceKey {
         value = nextValue()
     }
 }
-
 private struct TestSumPreferenceKey: PreferenceKey {
     static let defaultValue = 0
 
@@ -124,7 +118,6 @@ private struct TestSumPreferenceKey: PreferenceKey {
         value += nextValue()
     }
 }
-
 private struct TestAnchorListPreferenceKey: PreferenceKey {
     static let defaultValue: [Anchor<Rect>] = []
 
@@ -132,35 +125,29 @@ private struct TestAnchorListPreferenceKey: PreferenceKey {
         value.append(contentsOf: nextValue())
     }
 }
-
 private struct TestLayoutRoleKey: LayoutValueKey {
     static let defaultValue = "regular"
 }
-
 private struct TestLayoutCountKey: LayoutValueKey {
     static let defaultValue = 0
 }
-
 private struct TestContainerRoleKey: ContainerValueKey {
     static let defaultValue = "regular"
 }
-
 private struct TestContainerCountKey: ContainerValueKey {
     static let defaultValue = 0
 }
-
-private extension ContainerValues {
-    var testContainerRole: String {
+extension ContainerValues {
+    fileprivate var testContainerRole: String {
         get { self[TestContainerRoleKey.self] }
         set { self[TestContainerRoleKey.self] = newValue }
     }
 
-    var testContainerCount: Int {
+    fileprivate var testContainerCount: Int {
         get { self[TestContainerCountKey.self] }
         set { self[TestContainerCountKey.self] = newValue }
     }
 }
-
 private actor AsyncTaskCounter {
     private var count = 0
 
@@ -172,7 +159,6 @@ private actor AsyncTaskCounter {
         count
     }
 }
-
 private actor AsyncTaskLifecycleRecorder {
     private var starts: [Int] = []
     private var cancellationCount = 0
@@ -197,7 +183,6 @@ private actor AsyncTaskLifecycleRecorder {
         cancellationCount
     }
 }
-
 private struct EmphasisModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
@@ -205,13 +190,11 @@ private struct EmphasisModifier: ViewModifier {
             .font(.system(size: 1.7, weight: .bold))
     }
 }
-
 private struct IdentityModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
     }
 }
-
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
@@ -240,7 +223,9 @@ final class WinSwiftUITests: XCTestCase {
             assertColor(Color(white: 1.5, opacity: -0.25), red: 1, green: 1, blue: 1, alpha: 0)
             assertColor(Color(hue: 0, saturation: 1, brightness: 1), red: 1, green: 0, blue: 0, alpha: 1)
             assertColor(Color(hue: 1.0 / 3.0, saturation: 1, brightness: 1), red: 0, green: 1, blue: 0, alpha: 1)
-            assertColor(Color(hue: 0.5, saturation: 0.5, brightness: 0.8, opacity: 0.6), red: 0.4, green: 0.8, blue: 0.8, alpha: 0.6)
+            assertColor(
+                Color(hue: 0.5, saturation: 0.5, brightness: 0.8, opacity: 0.6), red: 0.4, green: 0.8, blue: 0.8,
+                alpha: 0.6)
             assertColor(Color(hue: -0.25, saturation: 1, brightness: 0.5), red: 0.25, green: 0, blue: 0.5, alpha: 1)
         }
     }
@@ -248,11 +233,20 @@ final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorRGBColorSpaceInitializersMapToCoreRGBA() async {
         await MainActor.run {
             XCTAssertEqual(Set<Color.RGBColorSpace>([.sRGB, .sRGBLinear, .displayP3]).count, 3)
-            assertColor(Color(.displayP3, red: 0.1, green: 0.2, blue: 0.3, opacity: 0.4), red: 0.1, green: 0.2, blue: 0.3, alpha: 0.4)
-            assertColor(Color(.sRGBLinear, red: 0.25, green: 0.5, blue: 0.75, opacity: 0.6), red: 0.5370987, green: 0.735357, blue: 0.880825, alpha: 0.6)
-            assertColor(Color(.sRGBLinear, white: 0.35, opacity: 0.65), red: 0.6262097, green: 0.6262097, blue: 0.6262097, alpha: 0.65)
-            assertColor(Color(.sRGBLinear, red: -1, green: 2, blue: .nan, opacity: 1.5), red: 0, green: 1, blue: 0, alpha: 1.5)
-            assertColor(Color(.sRGB, red: 1.2, green: -0.2, blue: 0.5, opacity: 1.5), red: 1.2, green: -0.2, blue: 0.5, alpha: 1.5)
+            assertColor(
+                Color(.displayP3, red: 0.1, green: 0.2, blue: 0.3, opacity: 0.4), red: 0.1, green: 0.2, blue: 0.3,
+                alpha: 0.4)
+            assertColor(
+                Color(.sRGBLinear, red: 0.25, green: 0.5, blue: 0.75, opacity: 0.6), red: 0.5370987, green: 0.735357,
+                blue: 0.880825, alpha: 0.6)
+            assertColor(
+                Color(.sRGBLinear, white: 0.35, opacity: 0.65), red: 0.6262097, green: 0.6262097, blue: 0.6262097,
+                alpha: 0.65)
+            assertColor(
+                Color(.sRGBLinear, red: -1, green: 2, blue: .nan, opacity: 1.5), red: 0, green: 1, blue: 0, alpha: 1.5)
+            assertColor(
+                Color(.sRGB, red: 1.2, green: -0.2, blue: 0.5, opacity: 1.5), red: 1.2, green: -0.2, blue: 0.5,
+                alpha: 1.5)
         }
     }
 
@@ -268,9 +262,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Color(resource), .accentColor)
             XCTAssertEqual(Color("BrandColor", bundle: .main), .accentColor)
             XCTAssertEqual(Color("BrandColor"), .accentColor)
-            assertColor(Color("#33669980"), red: 51.0 / 255.0, green: 102.0 / 255.0, blue: 153.0 / 255.0, alpha: 128.0 / 255.0)
+            assertColor(
+                Color("#33669980"), red: 51.0 / 255.0, green: 102.0 / 255.0, blue: 153.0 / 255.0, alpha: 128.0 / 255.0)
             assertColor(Color("0xF80"), red: 1, green: 136.0 / 255.0, blue: 0, alpha: 1)
-            assertColor(Color(ColorResource(name: "0F08", bundle: .main)), red: 0, green: 1, blue: 0, alpha: 136.0 / 255.0)
+            assertColor(
+                Color(ColorResource(name: "0F08", bundle: .main)), red: 0, green: 1, blue: 0, alpha: 136.0 / 255.0)
         }
     }
 
@@ -319,16 +315,14 @@ final class WinSwiftUITests: XCTestCase {
             let leftColor = Color(red: 0.9, green: 0.2, blue: 0.3, alpha: 1)
             let rightColor = Color(red: 0.2, green: 0.8, blue: 0.4, alpha: 1)
             let combinedNode = makeNode(
-                (
-                    Text("HELLO ")
-                        .foregroundColor(leftColor)
-                        .font(.system(size: 18, weight: .bold))
-                        .underline()
+                (Text("HELLO ")
+                    .foregroundColor(leftColor)
+                    .font(.system(size: 18, weight: .bold))
+                    .underline()
                     + Text("WORLD")
-                        .foregroundColor(rightColor)
-                        .font(.system(size: 12, weight: .regular))
-                        .strikethrough()
-                )
+                    .foregroundColor(rightColor)
+                    .font(.system(size: 12, weight: .regular))
+                    .strikethrough())
             )
             let rightStyledNode = makeNode(
                 Text("PLAIN ") + Text("RIGHT").foregroundColor(rightColor)
@@ -1099,8 +1093,8 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        "\(textInputAutocapitalization == .characters ? "CHARACTERS" : "OTHER") " +
-                        "\(isAutocorrectionDisabled ? "DISABLED" : "ENABLED")"
+                        "\(textInputAutocapitalization == .characters ? "CHARACTERS" : "OTHER") "
+                            + "\(isAutocorrectionDisabled ? "DISABLED" : "ENABLED")"
                     )
                 }
             }
@@ -1191,7 +1185,9 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.textSelectionAffinity) var textSelectionAffinity
 
                 var body: some View {
-                    Text(textSelectionAffinity == .upstream ? "UPSTREAM" : textSelectionAffinity == .downstream ? "DOWNSTREAM" : "AUTO")
+                    Text(
+                        textSelectionAffinity == .upstream
+                            ? "UPSTREAM" : textSelectionAffinity == .downstream ? "DOWNSTREAM" : "AUTO")
                 }
             }
 
@@ -1271,7 +1267,8 @@ final class WinSwiftUITests: XCTestCase {
 
             var editorValue = "hello"
             var editorSelection: TextSelection? = TextSelection(
-                range: editorValue.index(editorValue.startIndex, offsetBy: 1)..<editorValue.index(editorValue.startIndex, offsetBy: 4)
+                range: editorValue.index(
+                    editorValue.startIndex, offsetBy: 1)..<editorValue.index(editorValue.startIndex, offsetBy: 4)
             )
             let editorBinding = Binding(
                 get: { editorValue },
@@ -1318,7 +1315,8 @@ final class WinSwiftUITests: XCTestCase {
 
             var insertValue = "abcdef"
             var insertSelection: TextSelection? = TextSelection(
-                range: insertValue.index(insertValue.startIndex, offsetBy: 1)..<insertValue.index(insertValue.startIndex, offsetBy: 3)
+                range: insertValue.index(
+                    insertValue.startIndex, offsetBy: 1)..<insertValue.index(insertValue.startIndex, offsetBy: 3)
             )
             let insertNode = makeNode(
                 TextField(
@@ -1343,7 +1341,9 @@ final class WinSwiftUITests: XCTestCase {
 
             var backspaceValue = "abcdef"
             var backspaceSelection: TextSelection? = TextSelection(
-                range: backspaceValue.index(backspaceValue.startIndex, offsetBy: 2)..<backspaceValue.index(backspaceValue.startIndex, offsetBy: 4)
+                range: backspaceValue.index(
+                    backspaceValue.startIndex, offsetBy: 2)..<backspaceValue.index(
+                        backspaceValue.startIndex, offsetBy: 4)
             )
             let backspaceNode = makeNode(
                 TextField(
@@ -1368,7 +1368,8 @@ final class WinSwiftUITests: XCTestCase {
 
             var deleteValue = "abcdef"
             var deleteSelection: TextSelection? = TextSelection(
-                range: deleteValue.index(deleteValue.startIndex, offsetBy: 2)..<deleteValue.index(deleteValue.startIndex, offsetBy: 5)
+                range: deleteValue.index(
+                    deleteValue.startIndex, offsetBy: 2)..<deleteValue.index(deleteValue.startIndex, offsetBy: 5)
             )
             let deleteNode = makeNode(
                 TextEditor(
@@ -1454,7 +1455,7 @@ final class WinSwiftUITests: XCTestCase {
             )
             let venues = [
                 Venue(id: 1, name: "FILLMORE", address: "1805 GEARY"),
-                Venue(id: 2, name: "CATALYST", address: "1011 PACIFIC")
+                Venue(id: 2, name: "CATALYST", address: "1011 PACIFIC"),
             ]
 
             let builderNode = makeNode(
@@ -1494,14 +1495,14 @@ final class WinSwiftUITests: XCTestCase {
                 [
                     RetainedTextInputSuggestion(displayText: "FILLMORE", completion: "1805 GEARY"),
                     RetainedTextInputSuggestion(displayText: "CATALYST", completion: "1011 PACIFIC"),
-                    RetainedTextInputSuggestion(displayText: "RIO", completion: "1205 SOQUEL")
+                    RetainedTextInputSuggestion(displayText: "RIO", completion: "1205 SOQUEL"),
                 ]
             )
             XCTAssertEqual(
                 dataNode.textInputSuggestions,
                 [
                     RetainedTextInputSuggestion(displayText: "FILLMORE", completion: "1805 GEARY"),
-                    RetainedTextInputSuggestion(displayText: "CATALYST", completion: "1011 PACIFIC")
+                    RetainedTextInputSuggestion(displayText: "CATALYST", completion: "1011 PACIFIC"),
                 ]
             )
             XCTAssertEqual(idNode.textInputSuggestions, dataNode.textInputSuggestions)
@@ -2053,10 +2054,13 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        textFieldStyle == .plain ? "PLAIN"
-                            : textFieldStyle == .roundedBorder ? "ROUNDED"
-                            : textFieldStyle == .squareBorder ? "SQUARE"
-                            : "AUTOMATIC"
+                        textFieldStyle == .plain
+                            ? "PLAIN"
+                            : textFieldStyle == .roundedBorder
+                                ? "ROUNDED"
+                                : textFieldStyle == .squareBorder
+                                    ? "SQUARE"
+                                    : "AUTOMATIC"
                     )
                 }
             }
@@ -2206,7 +2210,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(filledRectangle.backgroundColor, fillColor)
             XCTAssertEqual(filledRectangle.cornerRadius, 0)
             XCTAssertEqual(gradientRoundedRectangle.backgroundColor, gradient.startColor)
-            XCTAssertEqual(gradientRoundedRectangle.backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                gradientRoundedRectangle.backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(gradientRoundedRectangle.cornerRadius, 12)
             XCTAssertEqual(semanticCapsule.backgroundColor, .secondary)
             XCTAssertEqual(strokedRoundedRectangle.backgroundColor, .clear)
@@ -2222,7 +2227,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(strokeBorderRoundedRectangle.cornerRadius, 10)
             XCTAssertEqual(inheritedRectangle.children[0].children[0].backgroundColor, inheritedColor)
             XCTAssertEqual(inheritedGradientRectangle.children[0].children[0].backgroundColor, gradient.startColor)
-            XCTAssertEqual(inheritedGradientRectangle.children[0].children[0].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                inheritedGradientRectangle.children[0].children[0].backgroundGradient,
+                .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
         }
     }
 
@@ -2421,7 +2428,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(gradientStroke.borderColor, gradient.startColor)
             XCTAssertEqual(gradientStroke.borderGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(gradientStroke.borderWidth, 4)
-            XCTAssertEqual(gradientStroke.borderStrokeStyle, StrokeStyle(lineWidth: 4, dashPattern: [], dashOffset: 0, lineCap: .square))
+            XCTAssertEqual(
+                gradientStroke.borderStrokeStyle,
+                StrokeStyle(lineWidth: 4, dashPattern: [], dashOffset: 0, lineCap: .square))
             XCTAssertEqual(gradientStroke.cornerRadius, 10)
             XCTAssertEqual(gradientStrokeBorder.borderColor, gradient.startColor)
             XCTAssertEqual(gradientStrokeBorder.borderGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
@@ -2894,7 +2903,9 @@ final class WinSwiftUITests: XCTestCase {
     }
 
     @MainActor
-    private static func assertNativeFontSize(_ node: ViewNode, _ expectedSize: Double, file: StaticString = #filePath, line: UInt = #line) {
+    private static func assertNativeFontSize(
+        _ node: ViewNode, _ expectedSize: Double, file: StaticString = #filePath, line: UInt = #line
+    ) {
         guard let nativeFontSize = node.textStyle.nativeFontSize else {
             XCTFail("Expected native font size", file: file, line: line)
             return
@@ -3797,10 +3808,18 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             XCTAssertEqual(HierarchicalShapeStyle.primary.retainedFallbackColor, .primary)
             XCTAssertEqual(HierarchicalShapeStyle.secondary.retainedFallbackColor, .secondary)
-            XCTAssertEqual(HierarchicalShapeStyle.tertiary.retainedFallbackColor, Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1))
-            XCTAssertEqual(HierarchicalShapeStyle.quaternary.retainedFallbackColor, Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1))
-            XCTAssertEqual(HierarchicalShapeStyle.quinary.retainedFallbackColor, Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1))
-            XCTAssertEqual(ForegroundStyle(HierarchicalShapeStyle.tertiary), .color(HierarchicalShapeStyle.tertiary.retainedFallbackColor))
+            XCTAssertEqual(
+                HierarchicalShapeStyle.tertiary.retainedFallbackColor,
+                Color(red: 0.56, green: 0.61, blue: 0.69, alpha: 1))
+            XCTAssertEqual(
+                HierarchicalShapeStyle.quaternary.retainedFallbackColor,
+                Color(red: 0.44, green: 0.49, blue: 0.58, alpha: 1))
+            XCTAssertEqual(
+                HierarchicalShapeStyle.quinary.retainedFallbackColor,
+                Color(red: 0.34, green: 0.38, blue: 0.46, alpha: 1))
+            XCTAssertEqual(
+                ForegroundStyle(HierarchicalShapeStyle.tertiary),
+                .color(HierarchicalShapeStyle.tertiary.retainedFallbackColor))
 
             let tertiaryTextNode = makeNode(Text("TERTIARY").foregroundStyle(.tertiary))
             let quaternaryBackgroundNode = makeNode(Text("BACKGROUND").background(.quaternary))
@@ -3814,14 +3833,17 @@ final class WinSwiftUITests: XCTestCase {
             let erasedStyle = AnyShapeStyle(HierarchicalShapeStyle.quinary)
 
             XCTAssertEqual(tertiaryTextNode.textStyle.color, HierarchicalShapeStyle.tertiary.retainedFallbackColor)
-            XCTAssertEqual(quaternaryBackgroundNode.backgroundColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
+            XCTAssertEqual(
+                quaternaryBackgroundNode.backgroundColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
             XCTAssertEqual(firstText(in: quaternaryBackgroundNode.children[0]), "BACKGROUND")
-            XCTAssertEqual(quinaryOverlayNode.children[1].backgroundColor, HierarchicalShapeStyle.quinary.retainedFallbackColor)
+            XCTAssertEqual(
+                quinaryOverlayNode.children[1].backgroundColor, HierarchicalShapeStyle.quinary.retainedFallbackColor)
             XCTAssertEqual(quinaryOverlayNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
             XCTAssertEqual(filledShapeNode.backgroundColor, HierarchicalShapeStyle.tertiary.retainedFallbackColor)
             XCTAssertEqual(strokedShapeNode.borderColor, HierarchicalShapeStyle.quaternary.retainedFallbackColor)
             XCTAssertEqual(strokedShapeNode.borderWidth, 2)
-            XCTAssertEqual(erasedStyle.retainedForegroundStyle, .color(HierarchicalShapeStyle.quinary.retainedFallbackColor))
+            XCTAssertEqual(
+                erasedStyle.retainedForegroundStyle, .color(HierarchicalShapeStyle.quinary.retainedFallbackColor))
         }
     }
 
@@ -3908,8 +3930,10 @@ final class WinSwiftUITests: XCTestCase {
             let fillNode = makeNode(Rectangle().fill(FillShapeStyle().opacity(-1)))
 
             XCTAssertEqual(textNode.textStyle.color, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.25))
-            XCTAssertEqual(backgroundNode.backgroundGradient?.startColor, Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.4))
-            XCTAssertEqual(backgroundNode.backgroundGradient?.endColor, Color(red: 0.8, green: 0.2, blue: 0.4, alpha: 0.2))
+            XCTAssertEqual(
+                backgroundNode.backgroundGradient?.startColor, Color(red: 0.2, green: 0.4, blue: 0.8, alpha: 0.4))
+            XCTAssertEqual(
+                backgroundNode.backgroundGradient?.endColor, Color(red: 0.8, green: 0.2, blue: 0.4, alpha: 0.2))
             XCTAssertEqual(overlayNode.children[1].backgroundColor, LinkShapeStyle().retainedFallbackColor)
             XCTAssertEqual(fillNode.backgroundColor, Color(red: 1, green: 1, blue: 1, alpha: 0))
         }
@@ -3964,7 +3988,9 @@ final class WinSwiftUITests: XCTestCase {
             let shapedNode = renderedNode(
                 Text("SHAPED")
                     .frame(width: 84, height: 30)
-                    .background(in: RoundedRectangle(cornerRadius: 7), fillStyle: FillStyle(eoFill: true, antialiased: false))
+                    .background(
+                        in: RoundedRectangle(cornerRadius: 7), fillStyle: FillStyle(eoFill: true, antialiased: false)
+                    )
                     .backgroundStyle(gradient)
             )
 
@@ -3974,10 +4000,12 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: defaultNode.children[0]), "DEFAULT")
             XCTAssertEqual(ignoredSafeAreaNode.backgroundColor, customColor)
             XCTAssertEqual(firstText(in: ignoredSafeAreaNode.children[0]), "EDGES")
-            XCTAssertEqual(shapedNode.children[0].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                shapedNode.children[0].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(shapedNode.children[0].cornerRadius, 7)
             XCTAssertTrue(shapedNode.children[0].clipsToBounds)
-            XCTAssertEqual(shapedNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
+            XCTAssertEqual(
+                shapedNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
             XCTAssertEqual(shapedNode.children[0].frame, Rect(x: 0, y: 0, width: 84, height: 30))
             XCTAssertEqual(firstText(in: shapedNode.children[1]), "SHAPED")
         }
@@ -3999,13 +4027,18 @@ final class WinSwiftUITests: XCTestCase {
             let windowBackgroundNode = makeNode(Text("WINDOW").background(.windowBackground))
 
             XCTAssertEqual(ForegroundStyle.foreground, .color(.primary))
-            XCTAssertEqual(SelectionShapeStyle().retainedFallbackColor, Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.42))
-            XCTAssertEqual(SeparatorShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36))
+            XCTAssertEqual(
+                SelectionShapeStyle().retainedFallbackColor, Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 0.42))
+            XCTAssertEqual(
+                SeparatorShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.36))
             XCTAssertEqual(TintShapeStyle().retainedFallbackColor, ViewBuildContext.defaultTint)
-            XCTAssertEqual(PlaceholderTextShapeStyle().retainedFallbackColor, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62))
+            XCTAssertEqual(
+                PlaceholderTextShapeStyle().retainedFallbackColor,
+                Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 0.62))
             XCTAssertEqual(LinkShapeStyle().retainedFallbackColor, Color(red: 0.34, green: 0.70, blue: 1.0, alpha: 1))
             XCTAssertEqual(FillShapeStyle().retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.12))
-            XCTAssertEqual(WindowBackgroundShapeStyle().retainedFallbackColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+            XCTAssertEqual(
+                WindowBackgroundShapeStyle().retainedFallbackColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
             XCTAssertEqual(foregroundNode.textStyle.color, .primary)
             XCTAssertEqual(tintNode.textStyle.color, ViewBuildContext.defaultTint)
             XCTAssertEqual(placeholderNode.textStyle.color, PlaceholderTextShapeStyle().retainedFallbackColor)
@@ -4024,7 +4057,9 @@ final class WinSwiftUITests: XCTestCase {
             let backgroundNode = renderedNode(
                 Text("BACKGROUND")
                     .frame(width: 90, height: 36)
-                    .background(color, in: RoundedRectangle(cornerRadius: 9), fillStyle: FillStyle(eoFill: true, antialiased: false))
+                    .background(
+                        color, in: RoundedRectangle(cornerRadius: 9),
+                        fillStyle: FillStyle(eoFill: true, antialiased: false))
             )
             let materialNode = renderedNode(
                 Text("MATERIAL")
@@ -4041,7 +4076,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(backgroundNode.children[0].backgroundColor, color)
             XCTAssertEqual(backgroundNode.children[0].cornerRadius, 9)
             XCTAssertTrue(backgroundNode.children[0].clipsToBounds)
-            XCTAssertEqual(backgroundNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
+            XCTAssertEqual(
+                backgroundNode.children[0].clipFillStyle, RetainedClipFillStyle(eoFill: true, antialiased: false))
             XCTAssertEqual(backgroundNode.children[0].frame, Rect(x: 0, y: 0, width: 90, height: 36))
             XCTAssertEqual(firstText(in: backgroundNode.children[1]), "BACKGROUND")
 
@@ -4052,10 +4088,12 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(overlayNode.children.count, 2)
             XCTAssertEqual(firstText(in: overlayNode.children[0]), "OVERLAY")
-            XCTAssertEqual(overlayNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                overlayNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(overlayNode.children[1].cornerRadius, 14)
             XCTAssertTrue(overlayNode.children[1].clipsToBounds)
-            XCTAssertEqual(overlayNode.children[1].clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: false))
+            XCTAssertEqual(
+                overlayNode.children[1].clipFillStyle, RetainedClipFillStyle(eoFill: false, antialiased: false))
             XCTAssertEqual(overlayNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
         }
     }
@@ -4156,7 +4194,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(tertiaryColorNode.textStyle.color, primaryColor)
             XCTAssertEqual(storedNode.textStyle.color, Color(red: 0.1, green: 0.7, blue: 0.4, alpha: 1))
             XCTAssertEqual(gradientNode.children[0].backgroundColor, primaryGradient.startColor)
-            XCTAssertEqual(gradientNode.children[0].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(primaryGradient)))
+            XCTAssertEqual(
+                gradientNode.children[0].backgroundGradient,
+                .linear(SwiftWindowsGraphics.LinearGradient(primaryGradient)))
         }
     }
 
@@ -4232,7 +4272,8 @@ final class WinSwiftUITests: XCTestCase {
             let iconOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.iconOnly))
             let titleOnlyNode = makeNode(Label("SETTINGS", systemImage: "gear").labelStyle(.titleOnly))
             let concreteIconOnlyNode = makeNode(Label("TOOLS", systemImage: "wrench").labelStyle(IconOnlyLabelStyle()))
-            let concreteTitleOnlyNode = makeNode(Label("PROFILE", systemImage: "person").labelStyle(TitleOnlyLabelStyle()))
+            let concreteTitleOnlyNode = makeNode(
+                Label("PROFILE", systemImage: "person").labelStyle(TitleOnlyLabelStyle()))
             let defaultNode = makeNode(Label("HOME", systemImage: "house").labelStyle(DefaultLabelStyle()))
             let inheritedNode = makeNode(
                 VStack {
@@ -4466,24 +4507,30 @@ final class WinSwiftUITests: XCTestCase {
 
             var didRunButton = false
             let buttonTitle: Substring = "EXPORT"[...]
-            let buttonNode = makeNode(Button(buttonTitle, image: resource, role: .destructive) {
-                didRunButton = true
-            })
+            let buttonNode = makeNode(
+                Button(buttonTitle, image: resource, role: .destructive) {
+                    didRunButton = true
+                })
 
             var didRunMenuPrimary = false
-            let menuNode = makeNode(Menu(LocalizedStringKey("MORE"), image: resource, content: {
-                Button("PICK") {}
-            }, primaryAction: {
-                didRunMenuPrimary = true
-            }))
+            let menuNode = makeNode(
+                Menu(
+                    LocalizedStringKey("MORE"), image: resource,
+                    content: {
+                        Button("PICK") {}
+                    },
+                    primaryAction: {
+                        didRunMenuPrimary = true
+                    }))
 
             var didRunControl = false
             let controlTitle: Substring = "TOOLS"[...]
-            let controlNode = makeNode(ControlGroup(controlTitle, image: resource) {
-                Button("RESET") {
-                    didRunControl = true
-                }
-            })
+            let controlNode = makeNode(
+                ControlGroup(controlTitle, image: resource) {
+                    Button("RESET") {
+                        didRunControl = true
+                    }
+                })
 
             let unavailableNode = makeNode(
                 ContentUnavailableView(LocalizedStringKey("OFFLINE"), image: resource, description: Text("Try again"))
@@ -4632,11 +4679,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        symbolRenderingMode == .palette ? "PALETTE"
-                            : symbolRenderingMode == .hierarchical ? "HIERARCHICAL"
-                            : symbolRenderingMode == .multicolor ? "MULTICOLOR"
-                            : symbolRenderingMode == .monochrome ? "MONOCHROME"
-                            : "NONE"
+                        symbolRenderingMode == .palette
+                            ? "PALETTE"
+                            : symbolRenderingMode == .hierarchical
+                                ? "HIERARCHICAL"
+                                : symbolRenderingMode == .multicolor
+                                    ? "MULTICOLOR"
+                                    : symbolRenderingMode == .monochrome
+                                        ? "MONOCHROME"
+                                        : "NONE"
                     )
                 }
             }
@@ -4689,10 +4740,13 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        symbolVariants.contains([.fill, .slash]) ? "FILL_SLASH"
-                            : symbolVariants.contains(.circle) ? "CIRCLE"
-                            : symbolVariants.isEmpty ? "NONE"
-                            : "OTHER"
+                        symbolVariants.contains([.fill, .slash])
+                            ? "FILL_SLASH"
+                            : symbolVariants.contains(.circle)
+                                ? "CIRCLE"
+                                : symbolVariants.isEmpty
+                                    ? "NONE"
+                                    : "OTHER"
                     )
                 }
             }
@@ -4737,10 +4791,13 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(combinedNode.children[1].nodeTag, "symbol-variant-slash")
             XCTAssertEqual(inheritedNode.children[0].nodeTag, "symbol-variant")
             XCTAssertGreaterThan(inheritedNode.children[0].borderWidth, 0)
-            XCTAssertEqual(inheritedNode.children[0].cornerRadius, 0.5 * min(
-                inheritedNode.children[0].preferredSize?.width ?? 0,
-                inheritedNode.children[0].preferredSize?.height ?? 0
-            ))
+            XCTAssertEqual(
+                inheritedNode.children[0].cornerRadius,
+                0.5
+                    * min(
+                        inheritedNode.children[0].preferredSize?.width ?? 0,
+                        inheritedNode.children[0].preferredSize?.height ?? 0
+                    ))
             XCTAssertEqual(readerNode.text, "FILL_SLASH")
             XCTAssertEqual(resetReaderNode.children[0].text, "NONE")
         }
@@ -5095,11 +5152,14 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(colorNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
             XCTAssertEqual(optionalNode.children[1].backgroundColor, optionalColor)
             XCTAssertEqual(optionalNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
-            XCTAssertEqual(gradientNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                gradientNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(gradientNode.children[1].frame, Rect(x: 0, y: 0, width: 90, height: 36))
             XCTAssertEqual(storedColorNode.children[1].backgroundColor, color)
             XCTAssertEqual(storedColorNode.children[1].frame, Rect(x: 0, y: 0, width: 70, height: 24))
-            XCTAssertEqual(storedGradientNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                storedGradientNode.children[1].backgroundGradient,
+                .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(storedGradientNode.children[1].frame, Rect(x: 0, y: 0, width: 96, height: 40))
             XCTAssertEqual(nilNode.text, "PLAIN")
         }
@@ -5147,7 +5207,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(colorNode.children[1].frame, Rect(x: 0, y: 0, width: 80, height: 32))
             XCTAssertEqual(optionalNode.children[1].backgroundColor, optionalColor)
             XCTAssertEqual(optionalNode.children[1].frame, Rect(x: 0, y: 0, width: 72, height: 28))
-            XCTAssertEqual(gradientNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                gradientNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(gradientNode.children[1].frame, Rect(x: 0, y: 0, width: 90, height: 36))
             XCTAssertEqual(storedStyleNode.children[1].backgroundColor, color)
             XCTAssertEqual(storedStyleNode.children[1].frame, Rect(x: 0, y: 0, width: 70, height: 24))
@@ -5215,7 +5276,7 @@ final class WinSwiftUITests: XCTestCase {
             let gradient = LinearGradient(
                 colors: [
                     Color(red: 0.1, green: 0.2, blue: 0.8, alpha: 1),
-                    Color(red: 0.8, green: 0.2, blue: 0.5, alpha: 1)
+                    Color(red: 0.8, green: 0.2, blue: 0.5, alpha: 1),
                 ],
                 startPoint: .leading,
                 endPoint: .trailing
@@ -5296,7 +5357,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: gradientNode.children[0]), "GRADIENT")
             XCTAssertEqual(storedColorNode.backgroundColor, storedColor)
             XCTAssertEqual(firstText(in: storedColorNode.children[0]), "STORED")
-            XCTAssertEqual(storedGradientNode.backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                storedGradientNode.backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(firstText(in: storedGradientNode.children[0]), "STORED GRADIENT")
             XCTAssertEqual(nilNode.text, "PLAIN")
         }
@@ -5595,7 +5657,7 @@ final class WinSwiftUITests: XCTestCase {
                         guide: "custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))",
                         value: 16
                     ),
-                    RetainedAlignmentGuide(axis: .horizontal, guide: "leading", value: 11)
+                    RetainedAlignmentGuide(axis: .horizontal, guide: "leading", value: 11),
                 ]
             )
         }
@@ -5631,7 +5693,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(values?.testContainerCount, 7)
 
             let taggedNode = makeNode(Text("TAGGED").tag("selected"))
-            let taggedValues = taggedNode.retainedContainerValues[ObjectIdentifier(ContainerValues.self)] as? ContainerValues
+            let taggedValues =
+                taggedNode.retainedContainerValues[ObjectIdentifier(ContainerValues.self)] as? ContainerValues
             XCTAssertEqual(taggedValues?.tag(for: String.self), "selected")
             XCTAssertEqual(taggedValues?.hasTag("selected"), true)
             XCTAssertEqual(taggedValues?.hasTag("other"), false)
@@ -5736,11 +5799,15 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(hStackLayout, .horizontal(spacing: 0, alignment: .trailing))
             XCTAssertEqual(
                 customVStackLayout,
-                .vertical(spacing: 0, alignment: .customHorizontal("custom:\(String(reflecting: OneThirdHorizontalAlignmentID.self))"))
+                .vertical(
+                    spacing: 0,
+                    alignment: .customHorizontal("custom:\(String(reflecting: OneThirdHorizontalAlignmentID.self))"))
             )
             XCTAssertEqual(
                 customHStackLayout,
-                .horizontal(spacing: 0, alignment: .customVertical("custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))"))
+                .horizontal(
+                    spacing: 0,
+                    alignment: .customVertical("custom:\(String(reflecting: ThreeQuarterVerticalAlignmentID.self))"))
             )
             XCTAssertEqual(firstBaselineHStackLayout, .horizontal(spacing: 0, alignment: .firstTextBaseline))
             XCTAssertEqual(lastBaselineHStackLayout, .horizontal(spacing: 0, alignment: .lastTextBaseline))
@@ -5928,16 +5995,19 @@ final class WinSwiftUITests: XCTestCase {
             var didRunStringAction = false
             var didRunProtocolAction = false
             var didRunKeyAction = false
-            let stringNode = makeNode(Button("PHOTO", image: url.path) {
-                didRunStringAction = true
-            })
+            let stringNode = makeNode(
+                Button("PHOTO", image: url.path) {
+                    didRunStringAction = true
+                })
             let protocolTitle: Substring = "TOOLS"[...]
-            let protocolNode = makeNode(Button(protocolTitle, image: url.path, role: .destructive) {
-                didRunProtocolAction = true
-            })
-            let keyNode = makeNode(Button(LocalizedStringKey("ALBUM"), image: url.path, role: .cancel) {
-                didRunKeyAction = true
-            })
+            let protocolNode = makeNode(
+                Button(protocolTitle, image: url.path, role: .destructive) {
+                    didRunProtocolAction = true
+                })
+            let keyNode = makeNode(
+                Button(LocalizedStringKey("ALBUM"), image: url.path, role: .cancel) {
+                    didRunKeyAction = true
+                })
 
             XCTAssertTrue(allTexts(in: stringNode).contains("PHOTO"))
             XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
@@ -6067,9 +6137,11 @@ final class WinSwiftUITests: XCTestCase {
                     }
                     OpenSettingsReaderView()
                 }
-                .environment(\.openSettings, OpenSettingsAction {
-                    openCount += 1
-                }),
+                .environment(
+                    \.openSettings,
+                    OpenSettingsAction {
+                        openCount += 1
+                    }),
                 onInvalidate: {
                     didInvalidate = true
                 }
@@ -6104,9 +6176,11 @@ final class WinSwiftUITests: XCTestCase {
             var didInvalidate = false
             let node = makeNode(
                 RequestReviewReaderView()
-                    .environment(\.requestReview, RequestReviewAction {
-                        requestCount += 1
-                    }),
+                    .environment(
+                        \.requestReview,
+                        RequestReviewAction {
+                            requestCount += 1
+                        }),
                 onInvalidate: {
                     didInvalidate = true
                 }
@@ -6178,7 +6252,9 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.buttonBorderShape) var buttonBorderShape
 
                 var body: some View {
-                    Text(buttonBorderShape == .capsule ? "CAPSULE" : buttonBorderShape == .roundedRectangle(radius: 6) ? "ROUNDED" : "AUTOMATIC")
+                    Text(
+                        buttonBorderShape == .capsule
+                            ? "CAPSULE" : buttonBorderShape == .roundedRectangle(radius: 6) ? "ROUNDED" : "AUTOMATIC")
                 }
             }
 
@@ -6703,7 +6779,8 @@ final class WinSwiftUITests: XCTestCase {
                 Text("CARD")
                     .visualEffect { content, geometry in
                         observedSize = geometry.size
-                        return content
+                        return
+                            content
                             .opacity(0.7)
                             .blendMode(.screen)
                             .colorEffect(ShaderLibrary.default.tint(.float(0.2)))
@@ -6724,7 +6801,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(observedSize, Size(width: 320, height: 240))
             XCTAssertEqual(
                 node.visualEffects,
-                ["identity.opacity(0.7).blendMode(screen).colorEffect(shader:default.tint(float:0.2),enabled:true).distortionEffect(shader:default.wave(float2:1.0,2.0),maxSampleOffset:4.0,5.0,enabled:true).layerEffect(shader:layer,maxSampleOffset:1.0,2.0,enabled:false).offset(x:32.0,y:12.0)"]
+                [
+                    "identity.opacity(0.7).blendMode(screen).colorEffect(shader:default.tint(float:0.2),enabled:true).distortionEffect(shader:default.wave(float2:1.0,2.0),maxSampleOffset:4.0,5.0,enabled:true).layerEffect(shader:layer,maxSampleOffset:1.0,2.0,enabled:false).offset(x:32.0,y:12.0)"
+                ]
             )
         }
     }
@@ -6746,7 +6825,8 @@ final class WinSwiftUITests: XCTestCase {
                         observedSize = geometry.size
                         observedFrame = geometry.frame(in: .local)
                         observedTransform = geometry.transform(in: .global)
-                        return content
+                        return
+                            content
                             .rotation3DEffect(rotation, anchor: .back)
                             .transform3DEffect(transform)
                     },
@@ -6761,7 +6841,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(observedTransform, .identity)
             XCTAssertEqual(
                 node.visualEffects,
-                ["identity.rotation3DEffect(angle:0.5235987755982988,axis:0.0,0.0,1.0,anchor3D:0.5,0.5,1.0).transform3DEffect(translation:1.0,2.0,3.0,scale:2.0,3.0,4.0,rotation:angle:0.5235987755982988,axis:0.0,0.0,1.0)"]
+                [
+                    "identity.rotation3DEffect(angle:0.5235987755982988,axis:0.0,0.0,1.0,anchor3D:0.5,0.5,1.0).transform3DEffect(translation:1.0,2.0,3.0,scale:2.0,3.0,4.0,rotation:angle:0.5235987755982988,axis:0.0,0.0,1.0)"
+                ]
             )
         }
     }
@@ -6790,16 +6872,18 @@ final class WinSwiftUITests: XCTestCase {
                 size: Size(width: 320, height: 240)
             )
 
-            XCTAssertEqual(node.colorEffects, [
-                .brightness(0.25),
-                .contrast(0.5),
-                .saturation(-0.3),
-                .grayscale(0.75),
-                .hueRotation(Double.pi / 4),
-                .colorInvert,
-                .colorMultiply(.red),
-                .luminanceToAlpha,
-            ])
+            XCTAssertEqual(
+                node.colorEffects,
+                [
+                    .brightness(0.25),
+                    .contrast(0.5),
+                    .saturation(-0.3),
+                    .grayscale(0.75),
+                    .hueRotation(Double.pi / 4),
+                    .colorInvert,
+                    .colorMultiply(.red),
+                    .luminanceToAlpha,
+                ])
             XCTAssertEqual(node.blurRadius, 4)
             XCTAssertTrue(node.blurOpaque)
             XCTAssertEqual(node.opacity, 0.8)
@@ -6903,7 +6987,7 @@ final class WinSwiftUITests: XCTestCase {
                     "phase",
                     "phase:context",
                     "visibility:threshold:0.5",
-                    "targetVisibility:idType:String,threshold:0.25"
+                    "targetVisibility:idType:String,threshold:0.25",
                 ]
             )
             XCTAssertTrue(geometryChanges.isEmpty)
@@ -6950,7 +7034,7 @@ final class WinSwiftUITests: XCTestCase {
                 node.scrollProxyRequests,
                 [
                     "idType:String,id:top",
-                    "idType:String,id:bottom,anchor:0.5,1.0"
+                    "idType:String,id:bottom,anchor:0.5,1.0",
                 ]
             )
             XCTAssertEqual(capturedProxy?.retainedRequests, node.scrollProxyRequests)
@@ -7106,10 +7190,11 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             guard case .stack(let scrollLayout) = scrollNode.layoutMode,
-                  case .stack(let listLayout) = listNode.layoutMode,
-                  case .stack(let scrollingSectionLayout) = scrollingSectionNode.layoutMode,
-                  case .stack(let insetScrollLayout) = insetScrollNode.layoutMode,
-                  case .stack(let plainSectionLayout) = plainSectionNode.layoutMode else {
+                case .stack(let listLayout) = listNode.layoutMode,
+                case .stack(let scrollingSectionLayout) = scrollingSectionNode.layoutMode,
+                case .stack(let insetScrollLayout) = insetScrollNode.layoutMode,
+                case .stack(let plainSectionLayout) = plainSectionNode.layoutMode
+            else {
                 return XCTFail("Expected retained stack layouts for content margin assertions")
             }
 
@@ -7214,10 +7299,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(roleNode.scrollAxis, .vertical)
 
             guard case .stack(let defaultLayout) = defaultNode.layoutMode,
-                  case .stack(let roleLayout) = roleNode.layoutMode,
-                  case .stack(let horizontalLayout) = horizontalNode.layoutMode,
-                  case .stack(let listLayout) = listNode.layoutMode,
-                  case .stack(let sectionLayout) = scrollingSectionNode.layoutMode else {
+                case .stack(let roleLayout) = roleNode.layoutMode,
+                case .stack(let horizontalLayout) = horizontalNode.layoutMode,
+                case .stack(let listLayout) = listNode.layoutMode,
+                case .stack(let sectionLayout) = scrollingSectionNode.layoutMode
+            else {
                 return XCTFail("Expected retained stack layouts for default scroll anchor assertions")
             }
 
@@ -7275,7 +7361,8 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(listNode.children[0].backgroundColor, rowColor)
             XCTAssertEqual(listNode.children[0].children[0].text, "ONE")
-            XCTAssertEqual(listNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
+            XCTAssertEqual(
+                listNode.children[1].backgroundGradient, .linear(SwiftWindowsGraphics.LinearGradient(gradient)))
             XCTAssertEqual(listNode.children[1].children[0].text, "TWO")
             XCTAssertEqual(listNode.children[2].text, "THREE")
             XCTAssertEqual(viewBackgroundNode.children.count, 2)
@@ -7645,9 +7732,10 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             guard case .stack(let customLayout) = customListNode.layoutMode,
-                  case .stack(let compactLayout) = compactListNode.layoutMode,
-                  case .stack(let defaultLayout) = defaultListNode.layoutMode,
-                  case .stack(let rowSpacingWinsLayout) = rowSpacingWinsNode.layoutMode else {
+                case .stack(let compactLayout) = compactListNode.layoutMode,
+                case .stack(let defaultLayout) = defaultListNode.layoutMode,
+                case .stack(let rowSpacingWinsLayout) = rowSpacingWinsNode.layoutMode
+            else {
                 return XCTFail("Expected List to keep retained stack layout")
             }
 
@@ -7804,12 +7892,17 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        listStyle == .sidebar ? "SIDEBAR"
-                            : listStyle == .bordered ? "BORDERED"
-                            : listStyle == .elliptical ? "ELLIPTICAL"
-                            : listStyle == .inset ? "INSET"
-                            : listStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        listStyle == .sidebar
+                            ? "SIDEBAR"
+                            : listStyle == .bordered
+                                ? "BORDERED"
+                                : listStyle == .elliptical
+                                    ? "ELLIPTICAL"
+                                    : listStyle == .inset
+                                        ? "INSET"
+                                        : listStyle == .automatic
+                                            ? "AUTOMATIC"
+                                            : "OTHER"
                     )
                 }
             }
@@ -8349,7 +8442,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(groupedReaderNode.text, "GROUPED")
             XCTAssertEqual(inheritedNode.children[0].children.count, 2)
             XCTAssertEqual(inheritedNode.children[0].children[0].text, "NAME")
-            XCTAssertEqual(inheritedNode.children[0].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62))
+            XCTAssertEqual(
+                inheritedNode.children[0].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.62))
             XCTAssertEqual(inheritedNode.children[0].borderWidth, 1)
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 16)
             guard case .stack(let groupedStackLayout) = inheritedNode.children[0].layoutMode else {
@@ -8395,7 +8489,11 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected Section to use retained stack layout")
             }
 
-            XCTAssertEqual(stackLayout, .vertical(spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18), alignment: .leading))
+            XCTAssertEqual(
+                stackLayout,
+                .vertical(
+                    spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                    alignment: .leading))
             XCTAssertEqual(node.borderWidth, 1)
             XCTAssertEqual(node.cornerRadius, 28)
             XCTAssertEqual(node.children.count, 3)
@@ -8421,7 +8519,11 @@ final class WinSwiftUITests: XCTestCase {
                 return XCTFail("Expected Section to use retained stack layout")
             }
 
-            XCTAssertEqual(stackLayout, .vertical(spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18), alignment: .leading))
+            XCTAssertEqual(
+                stackLayout,
+                .vertical(
+                    spacing: 16, padding: EdgeInsets(top: 18, leading: 18, bottom: 18, trailing: 18),
+                    alignment: .leading))
             XCTAssertEqual(node.children.count, 2)
             XCTAssertEqual(node.children[0].text, "ROW")
             XCTAssertEqual(node.children[1].text, "FOOTER")
@@ -8844,7 +8946,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("PRESENTED"))
             XCTAssertTrue(allTexts(in: expandedNode.children[1]).contains("ARCHIVE"))
 
-            let exportButton = focusableNodes(in: expandedNode.children[1]).first { allTexts(in: $0).contains("EXPORT") }
+            let exportButton = focusableNodes(in: expandedNode.children[1]).first {
+                allTexts(in: $0).contains("EXPORT")
+            }
             exportButton?.onActivate?()
 
             XCTAssertEqual(activationCount, 1)
@@ -8859,13 +8963,16 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             var primaryCount = 0
             var itemCount = 0
-            let titleMenu = Menu("ACTIONS", content: {
-                Button("EXPORT") {
-                    itemCount += 1
-                }
-            }, primaryAction: {
-                primaryCount += 1
-            })
+            let titleMenu = Menu(
+                "ACTIONS",
+                content: {
+                    Button("EXPORT") {
+                        itemCount += 1
+                    }
+                },
+                primaryAction: {
+                    primaryCount += 1
+                })
 
             let titleNode = makeNode(titleMenu)
 
@@ -8882,11 +8989,14 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertFalse(allTexts(in: afterPrimaryNode).contains("EXPORT"))
 
             var imagePrimaryCount = 0
-            let imageMenu = Menu("MORE", systemImage: "ellipsis.circle", content: {
-                Button("DELETE") {}
-            }, primaryAction: {
-                imagePrimaryCount += 1
-            })
+            let imageMenu = Menu(
+                "MORE", systemImage: "ellipsis.circle",
+                content: {
+                    Button("DELETE") {}
+                },
+                primaryAction: {
+                    imagePrimaryCount += 1
+                })
 
             makeNode(imageMenu).children[0].onActivate?()
 
@@ -8904,19 +9014,24 @@ final class WinSwiftUITests: XCTestCase {
             defer { try? FileManager.default.removeItem(at: url) }
 
             var primaryCount = 0
-            let stringNode = makeNode(Menu("PHOTO", image: url.path) {
-                Button("OPEN") {}
-            })
+            let stringNode = makeNode(
+                Menu("PHOTO", image: url.path) {
+                    Button("OPEN") {}
+                })
             let protocolTitle: Substring = "TOOLS"[...]
-            let protocolMenu = Menu(protocolTitle, image: url.path, content: {
-                Button("PICK") {}
-            }, primaryAction: {
-                primaryCount += 1
-            })
+            let protocolMenu = Menu(
+                protocolTitle, image: url.path,
+                content: {
+                    Button("PICK") {}
+                },
+                primaryAction: {
+                    primaryCount += 1
+                })
             let protocolNode = makeNode(protocolMenu)
-            let keyNode = makeNode(Menu(LocalizedStringKey("ALBUM"), image: url.path) {
-                Button("EDIT") {}
-            })
+            let keyNode = makeNode(
+                Menu(LocalizedStringKey("ALBUM"), image: url.path) {
+                    Button("EDIT") {}
+                })
 
             XCTAssertTrue(allTexts(in: stringNode).contains("PHOTO"))
             XCTAssertEqual(firstBitmapNode(in: stringNode)?.bitmapSurface?.width, 2)
@@ -9166,11 +9281,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        controlGroupStyle == .palette ? "PALETTE"
-                            : controlGroupStyle == .compactMenu ? "COMPACT"
-                            : controlGroupStyle == .navigation ? "NAVIGATION"
-                            : controlGroupStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        controlGroupStyle == .palette
+                            ? "PALETTE"
+                            : controlGroupStyle == .compactMenu
+                                ? "COMPACT"
+                                : controlGroupStyle == .navigation
+                                    ? "NAVIGATION"
+                                    : controlGroupStyle == .automatic
+                                        ? "AUTOMATIC"
+                                        : "OTHER"
                     )
                 }
             }
@@ -9225,12 +9344,16 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertEqual(allTexts(in: inheritedNode.children[0]), ["EXPORT", "ARCHIVE"])
             XCTAssertEqual(inheritedNode.children[0].cornerRadius, 12)
-            XCTAssertEqual(inheritedNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64))
+            XCTAssertEqual(
+                inheritedNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.64))
             guard case .stack(let menuLayout) = inheritedNode.children[0].layoutMode else {
                 XCTFail("Expected menu control group stack layout")
                 return
             }
-            XCTAssertEqual(menuLayout, .horizontal(spacing: 5, padding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7), alignment: .center))
+            XCTAssertEqual(
+                menuLayout,
+                .horizontal(
+                    spacing: 5, padding: EdgeInsets(top: 5, leading: 7, bottom: 5, trailing: 7), alignment: .center))
 
             XCTAssertEqual(compactGroupNode.cornerRadius, 7)
             XCTAssertEqual(compactGroupNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.17, alpha: 0.58))
@@ -9238,7 +9361,10 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected compact menu control group stack layout")
                 return
             }
-            XCTAssertEqual(compactLayout, .horizontal(spacing: 2, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .center))
+            XCTAssertEqual(
+                compactLayout,
+                .horizontal(
+                    spacing: 2, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .center))
 
             XCTAssertEqual(navigationGroupNode.cornerRadius, 9)
             XCTAssertEqual(navigationGroupNode.borderColor, tint.opacity(0.24))
@@ -9246,7 +9372,10 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected navigation control group stack layout")
                 return
             }
-            XCTAssertEqual(navigationLayout, .horizontal(spacing: 3, padding: EdgeInsets(top: 4, leading: 5, bottom: 4, trailing: 5), alignment: .center))
+            XCTAssertEqual(
+                navigationLayout,
+                .horizontal(
+                    spacing: 3, padding: EdgeInsets(top: 4, leading: 5, bottom: 4, trailing: 5), alignment: .center))
 
             XCTAssertEqual(paletteGroupNode.cornerRadius, 8)
             XCTAssertEqual(paletteGroupNode.borderColor, tint.opacity(0.34))
@@ -9451,11 +9580,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        navigationViewStyle == .stack ? "STACK"
-                            : navigationViewStyle == .doubleColumn ? "DOUBLE"
-                            : navigationViewStyle == .columns ? "COLUMNS"
-                            : navigationViewStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        navigationViewStyle == .stack
+                            ? "STACK"
+                            : navigationViewStyle == .doubleColumn
+                                ? "DOUBLE"
+                                : navigationViewStyle == .columns
+                                    ? "COLUMNS"
+                                    : navigationViewStyle == .automatic
+                                        ? "AUTOMATIC"
+                                        : "OTHER"
                     )
                 }
             }
@@ -9504,13 +9637,16 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(automaticReaderNode.text, "AUTOMATIC")
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT"))
             XCTAssertTrue(allTexts(in: navigationNode).contains("ROOT TITLE"))
-            XCTAssertEqual(navigationNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96))
+            XCTAssertEqual(
+                navigationNode.children[0].backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.96))
             XCTAssertEqual(navigationNode.children[0].cornerRadius, 10)
-            XCTAssertEqual(doubleColumnNavigationNode.backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28))
+            XCTAssertEqual(
+                doubleColumnNavigationNode.backgroundColor, Color(red: 0.07, green: 0.10, blue: 0.15, alpha: 0.28))
             XCTAssertEqual(doubleColumnNavigationNode.borderWidth, 1)
             XCTAssertEqual(doubleColumnNavigationNode.cornerRadius, 12)
             XCTAssertEqual(doubleColumnNavigationNode.children[0].cornerRadius, 8)
-            XCTAssertEqual(columnsNavigationNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24))
+            XCTAssertEqual(
+                columnsNavigationNode.backgroundColor, Color(red: 0.09, green: 0.12, blue: 0.18, alpha: 0.24))
             XCTAssertEqual(columnsNavigationNode.cornerRadius, 14)
             XCTAssertEqual(columnsNavigationNode.children[0].cornerRadius, 12)
         }
@@ -9523,10 +9659,13 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        navigationSplitViewStyle == .balanced ? "BALANCED"
-                            : navigationSplitViewStyle == .prominentDetail ? "PROMINENT"
-                            : navigationSplitViewStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        navigationSplitViewStyle == .balanced
+                            ? "BALANCED"
+                            : navigationSplitViewStyle == .prominentDetail
+                                ? "PROMINENT"
+                                : navigationSplitViewStyle == .automatic
+                                    ? "AUTOMATIC"
+                                    : "OTHER"
                     )
                 }
             }
@@ -9572,7 +9711,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(splitNode.children[1].layoutPriority, 1)
             XCTAssertEqual(splitNode.children[0].borderWidth, 1)
             XCTAssertEqual(splitNode.children[1].borderWidth, 0)
-            XCTAssertEqual(splitNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24))
+            XCTAssertEqual(
+                splitNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.24))
 
             XCTAssertEqual(prominentNode.children.count, 3)
             XCTAssertEqual(prominentNode.children[0].layoutPriority, 0.75)
@@ -9581,7 +9721,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(prominentNode.children[0].borderWidth, 1)
             XCTAssertEqual(prominentNode.children[1].borderWidth, 1)
             XCTAssertEqual(prominentNode.children[2].borderWidth, 0)
-            XCTAssertEqual(prominentNode.children[2].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30))
+            XCTAssertEqual(
+                prominentNode.children[2].backgroundColor, Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30))
         }
     }
 
@@ -9683,7 +9824,8 @@ final class WinSwiftUITests: XCTestCase {
 
             let firstTabButton = node.children[0].children[0]
             let firstTabContent = firstTabButton.children[0]
-            XCTAssertEqual(firstTabContent.children[1].backgroundColor, Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96))
+            XCTAssertEqual(
+                firstTabContent.children[1].backgroundColor, Color(red: 0.92, green: 0.18, blue: 0.24, alpha: 0.96))
             XCTAssertEqual(node.children[0].children[1].children[0].text, "SECOND TAB")
         }
     }
@@ -9695,14 +9837,21 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        tabViewStyle == .page(indexDisplayMode: .never) ? "PAGE"
-                            : tabViewStyle == .verticalPage(transitionStyle: .blur) ? "VERTICAL"
-                            : tabViewStyle == .sidebarAdaptable ? "SIDEBAR"
-                            : tabViewStyle == .tabBarOnly ? "TABBAR"
-                            : tabViewStyle == .grouped ? "GROUPED"
-                            : tabViewStyle == .carousel ? "CAROUSEL"
-                            : tabViewStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        tabViewStyle == .page(indexDisplayMode: .never)
+                            ? "PAGE"
+                            : tabViewStyle == .verticalPage(transitionStyle: .blur)
+                                ? "VERTICAL"
+                                : tabViewStyle == .sidebarAdaptable
+                                    ? "SIDEBAR"
+                                    : tabViewStyle == .tabBarOnly
+                                        ? "TABBAR"
+                                        : tabViewStyle == .grouped
+                                            ? "GROUPED"
+                                            : tabViewStyle == .carousel
+                                                ? "CAROUSEL"
+                                                : tabViewStyle == .automatic
+                                                    ? "AUTOMATIC"
+                                                    : "OTHER"
                     )
                 }
             }
@@ -9786,7 +9935,10 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected page tab bar stack layout")
                 return
             }
-            XCTAssertEqual(pageLayout, .horizontal(spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
+            XCTAssertEqual(
+                pageLayout,
+                .horizontal(
+                    spacing: 6, padding: EdgeInsets(top: 3, leading: 3, bottom: 3, trailing: 3), alignment: .stretch))
 
             XCTAssertEqual(groupedTabNode.children[0].cornerRadius, 16)
             XCTAssertEqual(groupedTabNode.children[0].children[0].cornerRadius, 10)
@@ -9794,7 +9946,10 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected grouped tab bar stack layout")
                 return
             }
-            XCTAssertEqual(groupedLayout, .horizontal(spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
+            XCTAssertEqual(
+                groupedLayout,
+                .horizontal(
+                    spacing: 8, padding: EdgeInsets(top: 8, leading: 8, bottom: 8, trailing: 8), alignment: .stretch))
 
             XCTAssertEqual(sidebarTabNode.children[0].cornerRadius, 8)
             XCTAssertEqual(sidebarTabNode.children[0].children[0].borderWidth, 2)
@@ -9805,7 +9960,11 @@ final class WinSwiftUITests: XCTestCase {
                 XCTFail("Expected carousel tab bar stack layout")
                 return
             }
-            XCTAssertEqual(carouselLayout, .horizontal(spacing: 10, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .stretch))
+            XCTAssertEqual(
+                carouselLayout,
+                .horizontal(
+                    spacing: 10, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .stretch)
+            )
         }
     }
 
@@ -9816,11 +9975,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        indexViewStyle == .page(backgroundDisplayMode: .never) ? "NEVER"
-                            : indexViewStyle == .page(backgroundDisplayMode: .always) ? "ALWAYS"
-                            : indexViewStyle == .page(backgroundDisplayMode: .interactive) ? "INTERACTIVE"
-                            : indexViewStyle == .page ? "PAGE"
-                            : "OTHER"
+                        indexViewStyle == .page(backgroundDisplayMode: .never)
+                            ? "NEVER"
+                            : indexViewStyle == .page(backgroundDisplayMode: .always)
+                                ? "ALWAYS"
+                                : indexViewStyle == .page(backgroundDisplayMode: .interactive)
+                                    ? "INTERACTIVE"
+                                    : indexViewStyle == .page
+                                        ? "PAGE"
+                                        : "OTHER"
                     )
                 }
             }
@@ -9883,7 +10046,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(styledTabNode.children[2].children[1].nodeTag, "tab-page-index-unselected")
             XCTAssertEqual(styledTabNode.children[2].children[0].preferredSize, Size(width: 18, height: 6))
             XCTAssertEqual(styledTabNode.children[2].children[1].preferredSize, Size(width: 6, height: 6))
-            XCTAssertEqual(alwaysBackgroundTabNode.children[2].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72))
+            XCTAssertEqual(
+                alwaysBackgroundTabNode.children[2].backgroundColor,
+                Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.72))
             XCTAssertEqual(alwaysBackgroundTabNode.children[2].cornerRadius, 10)
             XCTAssertEqual(hiddenIndexTabNode.children.count, 2)
         }
@@ -10928,7 +11093,8 @@ final class WinSwiftUITests: XCTestCase {
             )
 
             guard let resizesSheet = resizesNode.children.last,
-                  let resizesContent = resizesSheet.children.first else {
+                let resizesContent = resizesSheet.children.first
+            else {
                 return XCTFail("Expected retained sheet content")
             }
             XCTAssertNotEqual(resizesContent.nodeTag, "presentation-content-scrolls")
@@ -11700,7 +11866,7 @@ final class WinSwiftUITests: XCTestCase {
                             .destructive(Text("DELETE")) {
                                 didDelete = true
                             },
-                            .cancel(Text("KEEP"))
+                            .cancel(Text("KEEP")),
                         ]
                     )
                 }
@@ -12328,7 +12494,7 @@ final class WinSwiftUITests: XCTestCase {
                     "entered:3",
                     "updated:6",
                     "exited",
-                    "perform:1"
+                    "perform:1",
                 ]
             )
         }
@@ -12446,7 +12612,7 @@ final class WinSwiftUITests: XCTestCase {
 
             var items = [
                 Item(id: 1, title: "FIRST", isEnabled: false),
-                Item(id: 2, title: "SECOND", isEnabled: true)
+                Item(id: 2, title: "SECOND", isEnabled: true),
             ]
             let itemsBinding = Binding(
                 get: { items },
@@ -12482,7 +12648,7 @@ final class WinSwiftUITests: XCTestCase {
 
             var items = [
                 Item(key: "alpha", title: "ALPHA"),
-                Item(key: "beta", title: "BETA")
+                Item(key: "beta", title: "BETA"),
             ]
             let itemsBinding = Binding(
                 get: { items },
@@ -12584,7 +12750,7 @@ final class WinSwiftUITests: XCTestCase {
                         get: { third },
                         set: { third = $0 }
                     )
-                )
+                ),
             ]
 
             let mixedNode = makeNode(
@@ -12785,7 +12951,7 @@ final class WinSwiftUITests: XCTestCase {
 
             var settings = [
                 Settings(isEnabled: false, title: "ALPHA"),
-                Settings(isEnabled: true, title: "BETA")
+                Settings(isEnabled: true, title: "BETA"),
             ]
             let settingsBinding = Binding(
                 get: { settings },
@@ -12811,7 +12977,7 @@ final class WinSwiftUITests: XCTestCase {
 
             var settings = [
                 Settings(isEnabled: false, title: "ALPHA"),
-                Settings(isEnabled: true, title: "BETA")
+                Settings(isEnabled: true, title: "BETA"),
             ]
             let settingsBinding = Binding(
                 get: { settings },
@@ -12997,7 +13163,8 @@ final class WinSwiftUITests: XCTestCase {
             let defaultSuiteName = "WinSwiftUITests.DefaultAppStorage.\(UUID().uuidString)"
             let explicitSuiteName = "WinSwiftUITests.DefaultAppStorageExplicit.\(UUID().uuidString)"
             guard let defaultStore = UserDefaults(suiteName: defaultSuiteName),
-                  let explicitStore = UserDefaults(suiteName: explicitSuiteName) else {
+                let explicitStore = UserDefaults(suiteName: explicitSuiteName)
+            else {
                 return XCTFail("Expected test UserDefaults suites")
             }
             defer {
@@ -13137,10 +13304,12 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     VStack {
-                        Toggle("HIGH", isOn: Binding(
-                            get: { level == .high },
-                            set: { level = $0 ? .high : .low }
-                        ))
+                        Toggle(
+                            "HIGH",
+                            isOn: Binding(
+                                get: { level == .high },
+                                set: { level = $0 ? .high : .low }
+                            ))
                         Text(level == .high ? "HIGH VALUE" : "LOW VALUE")
                     }
                 }
@@ -13440,10 +13609,12 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     VStack {
-                        Toggle("HIGH", isOn: Binding(
-                            get: { level == .high },
-                            set: { level = $0 ? .high : .low }
-                        ))
+                        Toggle(
+                            "HIGH",
+                            isOn: Binding(
+                                get: { level == .high },
+                                set: { level = $0 ? .high : .low }
+                            ))
                         Text(level == .high ? "HIGH VALUE" : "LOW VALUE")
                     }
                 }
@@ -13509,7 +13680,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(SceneStorage<Double?>("\(keyPrefix).scale").wrappedValue, 1.5)
             XCTAssertEqual(SceneStorage<String?>("\(keyPrefix).title").wrappedValue, "READY")
             XCTAssertEqual(SceneStorage<Data?>("\(keyPrefix).data").wrappedValue, Data([1, 2, 3]))
-            XCTAssertEqual(SceneStorage<URL?>("\(keyPrefix).url").wrappedValue, URL(string: "https://example.com/scene"))
+            XCTAssertEqual(
+                SceneStorage<URL?>("\(keyPrefix).url").wrappedValue, URL(string: "https://example.com/scene"))
 
             optionalFlag.wrappedValue = nil
             optionalCount.wrappedValue = nil
@@ -13821,7 +13993,9 @@ final class WinSwiftUITests: XCTestCase {
             let navigationNode = makeNode(VStack { picker().pickerStyle(NavigationLinkPickerStyle()) })
             let menuNode = makeNode(VStack { picker().pickerStyle(MenuPickerStyle()) })
 
-            XCTAssertEqual(allTexts(in: inlineNode.children[0].children[1]), [SymbolIcon.checkmark.rawValue, "COMPACT", "EXPANDED"])
+            XCTAssertEqual(
+                allTexts(in: inlineNode.children[0].children[1]),
+                [SymbolIcon.checkmark.rawValue, "COMPACT", "EXPANDED"])
             XCTAssertEqual(inlineNode.children[0].children[1].cornerRadius, 10)
             XCTAssertEqual(allTexts(in: wheelNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
             XCTAssertEqual(allTexts(in: paletteNode.children[0].children[1]), ["COMPACT", "EXPANDED"])
@@ -14107,11 +14281,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        datePickerStyle == .compact ? "COMPACT"
-                            : datePickerStyle == .graphical ? "GRAPHICAL"
-                            : datePickerStyle == .wheel ? "WHEEL"
-                            : datePickerStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        datePickerStyle == .compact
+                            ? "COMPACT"
+                            : datePickerStyle == .graphical
+                                ? "GRAPHICAL"
+                                : datePickerStyle == .wheel
+                                    ? "WHEEL"
+                                    : datePickerStyle == .automatic
+                                        ? "AUTOMATIC"
+                                        : "OTHER"
                     )
                 }
             }
@@ -14980,17 +15158,21 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        progressViewStyle == .circular ? "CIRCULAR"
-                            : progressViewStyle == .linear ? "LINEAR"
-                            : progressViewStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        progressViewStyle == .circular
+                            ? "CIRCULAR"
+                            : progressViewStyle == .linear
+                                ? "LINEAR"
+                                : progressViewStyle == .automatic
+                                    ? "AUTOMATIC"
+                                    : "OTHER"
                     )
                 }
             }
 
             let readerNode = makeNode(ProgressViewStyleReaderView().progressViewStyle(CircularProgressViewStyle()))
             let linearReaderNode = makeNode(ProgressViewStyleReaderView().progressViewStyle(LinearProgressViewStyle()))
-            let automaticReaderNode = makeNode(ProgressViewStyleReaderView().progressViewStyle(DefaultProgressViewStyle()))
+            let automaticReaderNode = makeNode(
+                ProgressViewStyleReaderView().progressViewStyle(DefaultProgressViewStyle()))
             let inheritedNode = makeNode(
                 VStack {
                     ProgressView(value: 0.25, total: 1.0)
@@ -15169,11 +15351,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        gaugeStyle == .accessoryCircularCapacity ? "CIRCULAR"
-                            : gaugeStyle == .linearCapacity ? "LINEARCAP"
-                            : gaugeStyle == .accessoryLinear ? "ACCESSORY"
-                            : gaugeStyle == .automatic ? "AUTOMATIC"
-                            : "OTHER"
+                        gaugeStyle == .accessoryCircularCapacity
+                            ? "CIRCULAR"
+                            : gaugeStyle == .linearCapacity
+                                ? "LINEARCAP"
+                                : gaugeStyle == .accessoryLinear
+                                    ? "ACCESSORY"
+                                    : gaugeStyle == .automatic
+                                        ? "AUTOMATIC"
+                                        : "OTHER"
                     )
                 }
             }
@@ -15208,7 +15394,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(circularTintNode.children[1].children.count, 12)
             XCTAssertEqual(circularTintNode.children[1].children[0].backgroundColor, tint)
             XCTAssertEqual(circularTintNode.children[1].children[5].backgroundColor, tint)
-            XCTAssertEqual(circularTintNode.children[1].children[6].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
+            XCTAssertEqual(
+                circularTintNode.children[1].children[6].backgroundColor,
+                Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
             XCTAssertEqual(inheritedNode.children[0].children[1].children[1].frame.size.width, 50)
             XCTAssertEqual(inheritedNode.children[1].children[1].children[1].frame.size.width, 150)
         }
@@ -15238,9 +15426,11 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(secondGauge.children.count, 12)
             XCTAssertEqual(firstGauge.children[0].backgroundColor, tint)
             XCTAssertEqual(firstGauge.children[2].backgroundColor, tint)
-            XCTAssertEqual(firstGauge.children[3].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
+            XCTAssertEqual(
+                firstGauge.children[3].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
             XCTAssertEqual(secondGauge.children[8].backgroundColor, tint)
-            XCTAssertEqual(secondGauge.children[9].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
+            XCTAssertEqual(
+                secondGauge.children[9].backgroundColor, Color(red: 0.30, green: 0.34, blue: 0.40, alpha: 1.0))
         }
     }
 
@@ -15421,7 +15611,7 @@ final class WinSwiftUITests: XCTestCase {
                     .saturation(0.6),
                     .grayscale(0.35),
                     .hueRotation(.pi / 2),
-                    .luminanceToAlpha
+                    .luminanceToAlpha,
                 ]
             )
         }
@@ -15443,14 +15633,15 @@ final class WinSwiftUITests: XCTestCase {
                     .layerEffect(layerShader, maxSampleOffset: CGSize(width: 2, height: 1))
             )
 
-            XCTAssertEqual(colorShader.description, "default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0)")
+            XCTAssertEqual(
+                colorShader.description, "default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0)")
             XCTAssertEqual(distortionShader.description, "default.wave(amount:float:2.0)")
             XCTAssertEqual(
                 node.visualEffects,
                 [
                     "colorEffect(shader:default.tint(float:0.25;color:red:1.0,green:0.0,blue:0.0,alpha:1.0),enabled:true)",
                     "distortionEffect(shader:default.wave(amount:float:2.0),maxSampleOffset:8.0,6.0,enabled:false)",
-                    "layerEffect(shader:manualLayer(size:3.0,4.0),maxSampleOffset:2.0,1.0,enabled:true)"
+                    "layerEffect(shader:manualLayer(size:3.0,4.0),maxSampleOffset:2.0,1.0,enabled:true)",
                 ]
             )
         }
@@ -16399,7 +16590,9 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(scaledFrom3DAnchor.transform, Transform2D.scale(x: 2, y: 3))
             XCTAssertEqual(rotatedFromAnchor.transform, Transform2D(rotation: .pi))
             XCTAssertEqual(rotatedFrom3DRotation.transform, Transform2D(rotation: .pi / 4))
-            XCTAssertEqual(transformed3DNode.visualEffects, ["transform3DEffect(translation:1.0,2.0,3.0,scale:1.0,1.0,1.0,rotation:nil)"])
+            XCTAssertEqual(
+                transformed3DNode.visualEffects,
+                ["transform3DEffect(translation:1.0,2.0,3.0,scale:1.0,1.0,1.0,rotation:nil)"])
             XCTAssertEqual(affineNode.transform, Transform2D.translation(x: 8, y: 10))
             XCTAssertEqual(projectionNode.transform, Transform2D.scale(x: 2, y: 3))
         }
@@ -16507,7 +16700,9 @@ final class WinSwiftUITests: XCTestCase {
                     .phaseAnimator([1, 2, 3], trigger: true) { content, phase in
                         content
                             .opacity(Double(phase) / 10)
-                    } animation: { _ in nil }
+                    } animation: { _ in
+                        nil
+                    }
             )
             let emptyNode = makeNode(
                 Text("EMPTY")
@@ -16722,11 +16917,15 @@ final class WinSwiftUITests: XCTestCase {
 
                 var body: some View {
                     Text(
-                        contentTransition == .numericText(countsDown: true) && addsDrawingGroup ? "COUNTDOWN"
-                            : contentTransition == .interpolate ? "INTERPOLATE"
-                            : contentTransition == .symbolEffect ? "SYMBOL"
-                            : contentTransition == .identity ? "IDENTITY"
-                            : "OTHER"
+                        contentTransition == .numericText(countsDown: true) && addsDrawingGroup
+                            ? "COUNTDOWN"
+                            : contentTransition == .interpolate
+                                ? "INTERPOLATE"
+                                : contentTransition == .symbolEffect
+                                    ? "SYMBOL"
+                                    : contentTransition == .identity
+                                        ? "IDENTITY"
+                                        : "OTHER"
                     )
                 }
             }
@@ -16755,7 +16954,8 @@ final class WinSwiftUITests: XCTestCase {
         await MainActor.run {
             let pulse = PulseSymbolEffect().wholeSymbol
             let variableColor = VariableColorSymbolEffect().reversing
-            let options = SymbolEffectOptions
+            let options =
+                SymbolEffectOptions
                 .repeat(3)
                 .speed(1.4)
             let contentTransition = ContentTransition.symbolEffect(.replace, options: .nonRepeating)
@@ -17634,7 +17834,8 @@ final class WinSwiftUITests: XCTestCase {
                         }
                 }
                 .frame(width: 100, height: 50)
-                .transformAnchorPreference(key: TestAnchorListPreferenceKey.self, value: .bounds) { anchors, containerAnchor in
+                .transformAnchorPreference(key: TestAnchorListPreferenceKey.self, value: .bounds) {
+                    anchors, containerAnchor in
                     anchors.append(containerAnchor)
                 }
                 .overlayPreferenceValue(TestAnchorListPreferenceKey.self) { anchors in
@@ -18342,15 +18543,17 @@ final class WinSwiftUITests: XCTestCase {
                 @Environment(\.refresh) var refresh
 
                 var body: some View {
-                    Button(refresh == nil ? "NO REFRESH" : "REFRESH", action: {
-                        guard let refresh else {
-                            return
-                        }
+                    Button(
+                        refresh == nil ? "NO REFRESH" : "REFRESH",
+                        action: {
+                            guard let refresh else {
+                                return
+                            }
 
-                        Task {
-                            await refresh()
-                        }
-                    })
+                            Task {
+                                await refresh()
+                            }
+                        })
                 }
             }
 
@@ -18483,9 +18686,9 @@ final class WinSwiftUITests: XCTestCase {
                         exitCount += 1
                     }
                 )
-                    .onHover { isHovered in
-                        hoverStates.append(isHovered)
-                    }
+                .onHover { isHovered in
+                    hoverStates.append(isHovered)
+                }
             )
 
             node.onPointerEnter?()
@@ -18529,7 +18732,7 @@ final class WinSwiftUITests: XCTestCase {
                 [
                     .active(Point(x: 10, y: 10)),
                     .active(Point(x: 12, y: 12)),
-                    .ended
+                    .ended,
                 ]
             )
         }
@@ -18550,9 +18753,9 @@ final class WinSwiftUITests: XCTestCase {
                         moveLocations.append(point)
                     }
                 )
-                    .onContinuousHover { phase in
-                        phases.append(phase)
-                    }
+                .onContinuousHover { phase in
+                    phases.append(phase)
+                }
             )
 
             node.onPointerMove?(Point(x: 4, y: 5))
@@ -18735,9 +18938,12 @@ final class WinSwiftUITests: XCTestCase {
             var pressingStates: [Bool] = []
             let node = makeNode(
                 Text("HOLD")
-                    .onLongPressGesture(minimumDuration: 0.25, pressing: { isPressing in
-                        pressingStates.append(isPressing)
-                    }) {
+                    .onLongPressGesture(
+                        minimumDuration: 0.25,
+                        pressing: { isPressing in
+                            pressingStates.append(isPressing)
+                        }
+                    ) {
                         longPressCount += 1
                     }
             )
@@ -19552,7 +19758,8 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(toolbarNode.cornerRadius, 6)
             XCTAssertEqual(toolbarNode.borderColor, Color(red: 0.44, green: 0.60, blue: 0.86, alpha: 0.30))
             XCTAssertEqual(toolbarNode.shadowSpread, 6)
-            XCTAssertEqual(firstTextNode(in: toolbarNode)?.textStyle.color, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
+            XCTAssertEqual(
+                firstTextNode(in: toolbarNode)?.textStyle.color, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 1))
             guard case .stack(let toolbarLayout) = toolbarNode.layoutMode else {
                 return XCTFail("Expected retained toolbar row to keep stack layout")
             }
@@ -19625,10 +19832,12 @@ final class WinSwiftUITests: XCTestCase {
 
             XCTAssertEqual(bottomOnlyNode.children[0].toolbarPlacementTags, Set(["bottomBar"]))
             XCTAssertFalse(bottomOnlyNode.children[0].isHidden)
-            XCTAssertEqual(bottomOnlyNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92))
+            XCTAssertEqual(
+                bottomOnlyNode.children[0].backgroundColor, Color(red: 0.08, green: 0.11, blue: 0.16, alpha: 0.92))
 
             XCTAssertTrue(bottomHiddenNode.children[0].isHidden)
-            XCTAssertEqual(bottomHiddenNode.children[0].backgroundColor, Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1))
+            XCTAssertEqual(
+                bottomHiddenNode.children[0].backgroundColor, Color(red: 0.2, green: 0.3, blue: 0.4, alpha: 1))
         }
     }
 
@@ -20268,7 +20477,8 @@ final class WinSwiftUITests: XCTestCase {
 
             subject.send(1)
 
-            let cancellable = subject
+            let cancellable =
+                subject
                 .filter { $0.isMultiple(of: 2) }
                 .sink { value in
                     values.append(value)
@@ -20292,7 +20502,8 @@ final class WinSwiftUITests: XCTestCase {
             let subject = CurrentValueSubject<String, Never>("ALPHA")
             var values: [String] = []
 
-            let cancellable = subject
+            let cancellable =
+                subject
                 .removeDuplicates()
                 .sink { value in
                     values.append(value)
@@ -20621,7 +20832,8 @@ final class WinSwiftUITests: XCTestCase {
 
             let textNode = firstTextNode(in: node)!
             XCTAssertNotNil(textNode.fileImporterConfiguration)
-            XCTAssertEqual(textNode.fileImporterConfiguration?.allowedContentTypes.first?.identifier, UTType.plainText.identifier)
+            XCTAssertEqual(
+                textNode.fileImporterConfiguration?.allowedContentTypes.first?.identifier, UTType.plainText.identifier)
         }
     }
 
@@ -20742,7 +20954,6 @@ final class WinSwiftUITests: XCTestCase {
     }
 
 }
-
 private func waitForAsyncTaskCounter(_ counter: AsyncTaskCounter, toReach expectedValue: Int) async {
     for _ in 0..<50 {
         if await counter.value() >= expectedValue {
@@ -20751,7 +20962,6 @@ private func waitForAsyncTaskCounter(_ counter: AsyncTaskCounter, toReach expect
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
 }
-
 private func waitForTaskStart(_ recorder: AsyncTaskLifecycleRecorder, toReach expectedValue: Int) async {
     for _ in 0..<50 {
         if await recorder.startCount() >= expectedValue {
@@ -20760,7 +20970,6 @@ private func waitForTaskStart(_ recorder: AsyncTaskLifecycleRecorder, toReach ex
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
 }
-
 private func waitForTaskCancellation(_ recorder: AsyncTaskLifecycleRecorder, toReach expectedValue: Int) async {
     for _ in 0..<50 {
         if await recorder.cancellations() >= expectedValue {
@@ -20769,7 +20978,6 @@ private func waitForTaskCancellation(_ recorder: AsyncTaskLifecycleRecorder, toR
         try? await Task.sleep(nanoseconds: 10_000_000)
     }
 }
-
 private func cancellableTask(id: Int, recorder: AsyncTaskLifecycleRecorder) async {
     await recorder.recordStart(id)
     await withTaskCancellationHandler {
@@ -20782,7 +20990,6 @@ private func cancellableTask(id: Int, recorder: AsyncTaskLifecycleRecorder) asyn
         }
     }
 }
-
 @MainActor
 private func makeNode<V: View>(
     _ view: V,
@@ -20793,7 +21000,6 @@ private func makeNode<V: View>(
     let context = ViewBuildContext(canvasSizeProvider: { size }, invalidateHandler: onInvalidate)
     return view.makeComponent(context: context).makeNode(runtime: runtime)
 }
-
 @MainActor
 private func makeRuntimeNode<V: View>(
     _ view: V,
@@ -20809,7 +21015,6 @@ private func makeRuntimeNode<V: View>(
     _ = runtime.renderFrame()
     return (runtime, node)
 }
-
 @MainActor
 private func renderedNode<V: View>(
     _ view: V,
@@ -20824,7 +21029,6 @@ private func renderedNode<V: View>(
     _ = runtime.renderFrame()
     return node
 }
-
 private func twoPixelBGRA32BMPData() -> Data {
     Data([
         0x42, 0x4D,
@@ -20844,10 +21048,9 @@ private func twoPixelBGRA32BMPData() -> Data {
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0xFF, 0xFF,
-        0x00, 0xFF, 0x00, 0xFF
+        0x00, 0xFF, 0x00, 0xFF,
     ])
 }
-
 private func assertColor(
     _ color: Color,
     red: Float,
@@ -20863,7 +21066,6 @@ private func assertColor(
     XCTAssertEqual(color.blue, blue, accuracy: accuracy, file: file, line: line)
     XCTAssertEqual(color.alpha, alpha, accuracy: accuracy, file: file, line: line)
 }
-
 @MainActor
 private func firstText(in node: ViewNode) -> String? {
     if let text = node.text {
@@ -20878,7 +21080,6 @@ private func firstText(in node: ViewNode) -> String? {
 
     return nil
 }
-
 @MainActor
 private func firstTextNode(in node: ViewNode) -> ViewNode? {
     if node.text != nil {
@@ -20893,7 +21094,6 @@ private func firstTextNode(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
-
 @MainActor
 private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
     if node.bitmapSurface != nil {
@@ -20908,7 +21108,6 @@ private func firstBitmapNode(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
-
 @MainActor
 private func allTexts(in node: ViewNode) -> [String] {
     var texts: [String] = []
@@ -20922,7 +21121,6 @@ private func allTexts(in node: ViewNode) -> [String] {
 
     return texts
 }
-
 @MainActor
 private func focusableNodes(in node: ViewNode) -> [ViewNode] {
     var nodes: [ViewNode] = node.isFocusable ? [node] : []
@@ -20933,7 +21131,6 @@ private func focusableNodes(in node: ViewNode) -> [ViewNode] {
 
     return nodes
 }
-
 @MainActor
 private func firstFocusable(in node: ViewNode) -> ViewNode? {
     if node.isFocusable {
@@ -20948,7 +21145,6 @@ private func firstFocusable(in node: ViewNode) -> ViewNode? {
 
     return nil
 }
-
 final class WindowTitleBarTests: XCTestCase {
     func testWindowTitleBarVisibilityConfiguration() async {
         await MainActor.run {
@@ -20980,7 +21176,6 @@ final class WindowTitleBarTests: XCTestCase {
         XCTAssertEqual(WindowTitleBarVisibility.automatic.kind, .automatic)
     }
 }
-
 final class WindowGroupInitTests: XCTestCase {
     func testWindowGroupInitWithID() async {
         await MainActor.run {
@@ -21037,7 +21232,6 @@ final class WindowGroupInitTests: XCTestCase {
         }
     }
 }
-
 final class WindowInitTests: XCTestCase {
     func testWindowForInitStoresTypeAndBuilder() async {
         await MainActor.run {
@@ -21071,7 +21265,6 @@ final class WindowInitTests: XCTestCase {
         }
     }
 }
-
 final class WindowSceneInitTests: XCTestCase {
     func testWindowSceneForInitStoresTypeAndBuilder() async {
         await MainActor.run {
@@ -21105,7 +21298,6 @@ final class WindowSceneInitTests: XCTestCase {
         }
     }
 }
-
 final class DocumentGroupTests: XCTestCase {
     func testDocumentGroupEditingInitForFileDocument() async {
         await MainActor.run {
@@ -21127,7 +21319,6 @@ final class DocumentGroupTests: XCTestCase {
         }
     }
 }
-
 final class NewDocumentButtonTests: XCTestCase {
     func testNewDocumentButtonDefaultTitle() async {
         await MainActor.run {
@@ -21172,7 +21363,7 @@ final class NewDocumentButtonTests: XCTestCase {
             let runtime = RetainedViewRuntime(root: ViewNode())
             _ = component.makeNode(runtime: runtime)
             // Button should be renderable with custom action
-            XCTAssertFalse(didTrigger) // Action not triggered just by rendering
+            XCTAssertFalse(didTrigger)  // Action not triggered just by rendering
         }
     }
 
@@ -21211,7 +21402,7 @@ final class NewDocumentButtonTests: XCTestCase {
             XCTAssertEqual(changeCount, 1)
 
             person.name = "Charlie"
-            XCTAssertEqual(changeCount, 1) // one-shot tracking, no re-registration
+            XCTAssertEqual(changeCount, 1)  // one-shot tracking, no re-registration
         }
     }
 
@@ -21279,7 +21470,6 @@ final class NewDocumentButtonTests: XCTestCase {
         }
     }
 }
-
 final class ClipboardButtonTests: XCTestCase {
     func testPasteButtonComponentCapturesSupportedContentTypes() async {
         await MainActor.run {
@@ -21341,7 +21531,6 @@ final class ClipboardButtonTests: XCTestCase {
         }
     }
 }
-
 final class TransitionReaderTests: XCTestCase {
     func testTransitionReaderInitWithContent() async {
         await MainActor.run {
@@ -21377,7 +21566,6 @@ final class TransitionReaderTests: XCTestCase {
         }
     }
 }
-
 final class CommandsAndSceneTests: XCTestCase {
     func testCommandsModifierAttachesToWindowConfiguration() async {
         await MainActor.run {

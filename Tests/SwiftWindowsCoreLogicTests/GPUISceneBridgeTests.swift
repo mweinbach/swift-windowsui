@@ -1,6 +1,9 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import Testing
 
 @Suite("GPUISceneBridge Tests")
@@ -58,7 +61,7 @@ struct GPUISceneBridgeTests {
     func solidColorQuad() {
         let color = Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 0.9)
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 50, height: 50), color: color)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 50, height: 50), color: color))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -77,11 +80,12 @@ struct GPUISceneBridgeTests {
     @Test("FillRect maps corner radius")
     func cornerRadiusMapping() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),
-                color: .white,
-                cornerRadius: 12.5
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                    color: .white,
+                    cornerRadius: 12.5
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -97,11 +101,12 @@ struct GPUISceneBridgeTests {
         let endColor = Color(red: 0, green: 0, blue: 1, alpha: 1)
 
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 200, height: 100),
-                color: .white,
-                gradient: LinearGradient(startColor: startColor, endColor: endColor, axis: .horizontal)
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 200, height: 100),
+                    color: .white,
+                    gradient: LinearGradient(startColor: startColor, endColor: endColor, axis: .horizontal)
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -115,17 +120,18 @@ struct GPUISceneBridgeTests {
         #expect(quad.endG == endColor.green)
         #expect(quad.endB == endColor.blue)
         #expect(quad.endA == endColor.alpha)
-        #expect(quad.gradientAxis == 1) // horizontal
+        #expect(quad.gradientAxis == 1)  // horizontal
     }
 
     @Test("Vertical gradient axis maps to 0")
     func verticalGradientAxis() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),
-                color: .white,
-                gradient: LinearGradient(startColor: .white, endColor: .black, axis: .vertical)
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                    color: .white,
+                    gradient: LinearGradient(startColor: .white, endColor: .black, axis: .vertical)
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -139,11 +145,12 @@ struct GPUISceneBridgeTests {
     func drawBitmapConversion() {
         let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
         let commands: [RenderCommand] = [
-            .drawBitmap(DrawBitmapCommand(
-                rect: Rect(x: 10, y: 20, width: 64, height: 64),
-                bitmap: bitmap,
-                opacity: 0.8
-            )),
+            .drawBitmap(
+                DrawBitmapCommand(
+                    rect: Rect(x: 10, y: 20, width: 64, height: 64),
+                    bitmap: bitmap,
+                    opacity: 0.8
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -160,9 +167,10 @@ struct GPUISceneBridgeTests {
         #expect(img.uvH == 1)
         #expect(img.opacity == 0.8)
         #expect(img.textureID == 0)
-        #expect(scene.imageResources == [
-            ImageResourceBinding(textureID: 0, bitmap: bitmap)
-        ])
+        #expect(
+            scene.imageResources == [
+                ImageResourceBinding(textureID: 0, bitmap: bitmap)
+            ])
     }
 
     // MARK: - VAL-SCENE-008: Default clip when no clip is active
@@ -170,7 +178,7 @@ struct GPUISceneBridgeTests {
     @Test("No clip uses full surface size as clip rect")
     func noClipUsesFullSurface() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
+            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -239,11 +247,12 @@ struct GPUISceneBridgeTests {
         // Intersection should be (50, 50, 150, 150)
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .rect(stackClip, cornerRadius: 0))),
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 400, height: 400),
-                color: .white,
-                clipRect: commandClip
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 400, height: 400),
+                    color: .white,
+                    clipRect: commandClip
+                )),
             .popClip,
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
@@ -262,7 +271,7 @@ struct GPUISceneBridgeTests {
     func replaceClipOperation() {
         let firstClip = Rect(x: 0, y: 0, width: 100, height: 100)
         let replaceClip = Rect(x: 50, y: 50, width: 200, height: 200)
-        
+
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .rect(firstClip, cornerRadius: 0), operation: .intersect)),
             .pushClip(ClipCommand(shape: .rect(replaceClip, cornerRadius: 0), operation: .replace)),
@@ -306,10 +315,11 @@ struct GPUISceneBridgeTests {
         let nonOverlappingClip = Rect(x: 200, y: 200, width: 50, height: 50)
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .rect(nonOverlappingClip, cornerRadius: 0))),
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),  // No overlap with clip at (200,200)
-                color: .white
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),  // No overlap with clip at (200,200)
+                    color: .white
+                )),
             .popClip,
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
@@ -324,13 +334,14 @@ struct GPUISceneBridgeTests {
     func emptyClipSuppressesDrawBitmap() {
         let bitmap = BitmapSurface(width: 64, height: 64, bytesPerRow: 256, pixels: Data(repeating: 0, count: 256 * 64))
         let nonOverlappingClip = Rect(x: 200, y: 200, width: 50, height: 50)
-        
+
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .rect(nonOverlappingClip, cornerRadius: 0))),
-            .drawBitmap(DrawBitmapCommand(
-                rect: Rect(x: 0, y: 0, width: 64, height: 64),  // No overlap with clip
-                bitmap: bitmap
-            )),
+            .drawBitmap(
+                DrawBitmapCommand(
+                    rect: Rect(x: 0, y: 0, width: 64, height: 64),  // No overlap with clip
+                    bitmap: bitmap
+                )),
             .popClip,
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
@@ -355,9 +366,10 @@ struct GPUISceneBridgeTests {
         // drawText is skipped, so both fillRects stay in one quad paint operation
         #expect(scene.layers[0].quads.count == 2)
         #expect(scene.layers[0].glyphs.isEmpty)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
-        ])
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+            ])
     }
 
     @Test("fillPath commands convert to path primitives")
@@ -378,11 +390,12 @@ struct GPUISceneBridgeTests {
 
         #expect(scene.layers[0].quads.count == 2)
         #expect(scene.layers[0].paths.count == 1)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .path, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .path, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+            ])
     }
 
     @Test("strokePath commands convert to path primitives")
@@ -415,9 +428,10 @@ struct GPUISceneBridgeTests {
 
         // applyBlur is skipped without reordering neighbors
         #expect(scene.layers[0].quads.count == 2)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
-        ])
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 2)
+            ])
     }
 
     // MARK: - VAL-SCENE-011: Unsupported style features degrade to explicit fallbacks
@@ -431,16 +445,17 @@ struct GPUISceneBridgeTests {
             radius: 50,
             stops: [
                 GradientStop(color: startColor, position: 0),
-                GradientStop(color: endColor, position: 1)
+                GradientStop(color: endColor, position: 1),
             ]
         )
-        
+
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),
-                color: .white,
-                gradient: .radial(radialGradient)
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                    color: .white,
+                    gradient: .radial(radialGradient)
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -448,7 +463,7 @@ struct GPUISceneBridgeTests {
         // Radial gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
         #expect(quad.startR == 1.0)  // white fallback (base color)
-        #expect(quad.endR == 1.0)    // same as start (no gradient)
+        #expect(quad.endR == 1.0)  // same as start (no gradient)
         #expect(quad.gradientAxis == 0)
     }
 
@@ -461,16 +476,17 @@ struct GPUISceneBridgeTests {
             angle: 0,
             stops: [
                 GradientStop(color: startColor, position: 0),
-                GradientStop(color: endColor, position: 1)
+                GradientStop(color: endColor, position: 1),
             ]
         )
-        
+
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),
-                color: .white,
-                gradient: .conic(conicGradient)
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                    color: .white,
+                    gradient: .conic(conicGradient)
+                ))
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
@@ -478,7 +494,7 @@ struct GPUISceneBridgeTests {
         // Conic gradient should fallback to base color (cmd.color)
         let quad = scene.layers[0].quads[0]
         #expect(quad.startR == 1.0)  // white fallback (base color)
-        #expect(quad.endR == 1.0)    // same as start
+        #expect(quad.endR == 1.0)  // same as start
         #expect(quad.gradientAxis == 0)
     }
 
@@ -487,7 +503,7 @@ struct GPUISceneBridgeTests {
         let ellipseCenter = Point(x: 100, y: 100)
         let radiusX: Double = 50
         let radiusY: Double = 30
-        
+
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .ellipse(center: ellipseCenter, radiusX: radiusX, radiusY: radiusY))),
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 200, height: 200), color: .white)),
@@ -512,7 +528,7 @@ struct GPUISceneBridgeTests {
         path.addLine(to: Point(x: 100, y: 100))
         path.addLine(to: Point(x: 0, y: 100))
         path.close()
-        
+
         let commands: [RenderCommand] = [
             .pushClip(ClipCommand(shape: .path(path))),
             .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 100, height: 100), color: .white)),
@@ -558,7 +574,7 @@ struct GPUISceneBridgeTests {
             color: Color(red: 1, green: 0, blue: 0, alpha: 0.5),
             blendMode: .overlay
         )
-        
+
         let commands: [RenderCommand] = [
             .fillRect(normalRect),
             .fillRect(multiplyRect),
@@ -571,10 +587,11 @@ struct GPUISceneBridgeTests {
 
         // All 5 fillRects should be converted to quads regardless of blend mode
         #expect(scene.layers[0].quads.count == 5)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 5)
-        ])
-        
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 5)
+            ])
+
         // Verify all quads have the same color (blend mode doesn't affect color mapping)
         for i in 0..<5 {
             let quad = scene.layers[0].quads[i]
@@ -612,7 +629,7 @@ struct GPUISceneBridgeTests {
             opacity: 0.8,
             blendMode: .additive
         )
-        
+
         let commands: [RenderCommand] = [
             .drawBitmap(normalBitmap),
             .drawBitmap(multiplyBitmap),
@@ -624,10 +641,11 @@ struct GPUISceneBridgeTests {
 
         // All 4 drawBitmaps should be converted to images regardless of blend mode
         #expect(scene.layers[0].images.count == 4)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 4)
-        ])
-        
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .image, startIndex: 0, count: 4)
+            ])
+
         // Verify all images have the same opacity (blend mode doesn't affect opacity mapping)
         for i in 0..<4 {
             let img = scene.layers[0].images[i]
@@ -638,22 +656,29 @@ struct GPUISceneBridgeTests {
     @Test("Mixed blend modes with supported commands preserve paint order")
     func mixedBlendModesPreserveOrder() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(rect: Rect(x: 0, y: 0, width: 50, height: 50), color: .white, blendMode: .normal)),
-            .fillRect(FillRectCommand(rect: Rect(x: 50, y: 0, width: 50, height: 50), color: .black, blendMode: .multiply)),
-            .fillRect(FillRectCommand(rect: Rect(x: 100, y: 0, width: 50, height: 50), color: .white, blendMode: .screen)),
-            .fillRect(FillRectCommand(rect: Rect(x: 150, y: 0, width: 50, height: 50), color: .black, blendMode: .additive)),
-            .fillRect(FillRectCommand(rect: Rect(x: 200, y: 0, width: 50, height: 50), color: .white, blendMode: .overlay)),
-            .fillRect(FillRectCommand(rect: Rect(x: 250, y: 0, width: 50, height: 50), color: .black, blendMode: .normal)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 0, y: 0, width: 50, height: 50), color: .white, blendMode: .normal)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 50, y: 0, width: 50, height: 50), color: .black, blendMode: .multiply)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 100, y: 0, width: 50, height: 50), color: .white, blendMode: .screen)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 150, y: 0, width: 50, height: 50), color: .black, blendMode: .additive)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 200, y: 0, width: 50, height: 50), color: .white, blendMode: .overlay)),
+            .fillRect(
+                FillRectCommand(rect: Rect(x: 250, y: 0, width: 50, height: 50), color: .black, blendMode: .normal)),
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: surfaceSize)
 
         // All 6 fillRects should be converted to quads in order
         #expect(scene.layers[0].quads.count == 6)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 6)
-        ])
-        
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 6)
+            ])
+
         // Verify positions are preserved in order
         #expect(scene.layers[0].quads[0].x == 0)
         #expect(scene.layers[0].quads[1].x == 50)
@@ -662,7 +687,6 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].quads[4].x == 200)
         #expect(scene.layers[0].quads[5].x == 250)
     }
-
 
     @Test("fillRect, drawBitmap, fillRect preserves paint order through operations")
     func layerSplitOnTypeChange() {
@@ -678,11 +702,12 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers.count == 1)
         #expect(scene.layers[0].quads.count == 2)
         #expect(scene.layers[0].images.count == 1)
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+            ])
     }
 
     @Test("Consecutive same-type commands stay in one paint operation")
@@ -699,12 +724,14 @@ struct GPUISceneBridgeTests {
         #expect(scene.layers[0].images.count == 2)
         #expect(scene.layers[0].images[0].textureID == 0)
         #expect(scene.layers[0].images[1].textureID == 0)
-        #expect(scene.imageResources == [
-            ImageResourceBinding(textureID: 0, bitmap: bitmap)
-        ])
-        #expect(scene.layers[0].paintOperations == [
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
-        ])
+        #expect(
+            scene.imageResources == [
+                ImageResourceBinding(textureID: 0, bitmap: bitmap)
+            ])
+        #expect(
+            scene.layers[0].paintOperations == [
+                GPUIPaintOperation(kind: .image, startIndex: 0, count: 2)
+            ])
     }
 
     // MARK: - GPUIScene Structure

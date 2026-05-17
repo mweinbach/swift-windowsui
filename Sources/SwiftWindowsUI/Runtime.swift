@@ -1,10 +1,24 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
-import SwiftWindowsPlatform
 
 // Gap/Fix: Granular dirty tracking — OptionSet replaces single isDirty boolean.
+import SwiftWindowsPlatform
+
+// MARK: - Animation interpolation support
+
+/// Properties that can be animated via the `animation()` view modifier.
+
+/// Tracks the interpolation state for a single animated property change.
+
+/// Color-based animation state for interpolating between two colors over time.
+
+/// Snapshot of property values used by the animation system to track previous
+/// state so it can interpolate between old and new values.
 public struct DirtyFlags: OptionSet, Sendable {
     public let rawValue: UInt8
 
@@ -13,21 +27,19 @@ public struct DirtyFlags: OptionSet, Sendable {
     }
 
     /// Property changes that affect size or position (frame, preferredSize, layoutMode, etc.).
-    public static let layout  = DirtyFlags(rawValue: 1 << 0)
+    public static let layout = DirtyFlags(rawValue: 1 << 0)
     /// Property changes that only affect visual appearance (color, opacity, borderColor, etc.).
-    public static let paint   = DirtyFlags(rawValue: 1 << 1)
+    public static let paint = DirtyFlags(rawValue: 1 << 1)
     /// Child list changed (add/remove).
     public static let children = DirtyFlags(rawValue: 1 << 2)
 
     public static let all: DirtyFlags = [.layout, .paint, .children]
 }
-
 public enum RetainedColorRenderingMode: Sendable, Equatable, Hashable {
     case nonLinear
     case linear
     case extendedLinear
 }
-
 public struct RetainedDrawingGroup: Sendable, Equatable, Hashable {
     public var opaque: Bool
     public var colorMode: RetainedColorRenderingMode
@@ -37,7 +49,6 @@ public struct RetainedDrawingGroup: Sendable, Equatable, Hashable {
         self.colorMode = colorMode
     }
 }
-
 public enum RetainedColorEffect: Sendable, Equatable {
     case brightness(Double)
     case contrast(Double)
@@ -48,19 +59,16 @@ public enum RetainedColorEffect: Sendable, Equatable {
     case hueRotation(Double)
     case luminanceToAlpha
 }
-
 public enum RetainedHorizontalAlignment: Sendable, Equatable, Hashable {
     case leading
     case center
     case trailing
 }
-
 public enum RetainedVerticalAlignment: Sendable, Equatable, Hashable {
     case top
     case center
     case bottom
 }
-
 public struct RetainedViewMask: Sendable, Equatable, Hashable {
     public var horizontal: RetainedHorizontalAlignment
     public var vertical: RetainedVerticalAlignment
@@ -76,18 +84,15 @@ public struct RetainedViewMask: Sendable, Equatable, Hashable {
         self.isInverse = isInverse
     }
 }
-
 public enum RetainedListSeparatorVisibility: Sendable, Equatable, Hashable {
     case automatic
     case visible
     case hidden
 }
-
 public enum RetainedListRowHoverStyle: Sendable, Equatable, Hashable {
     case automatic
     case disabled
 }
-
 public struct RetainedListSeparatorEdges: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: UInt8
 
@@ -99,7 +104,6 @@ public struct RetainedListSeparatorEdges: OptionSet, Sendable, Equatable, Hashab
     public static let bottom = RetainedListSeparatorEdges(rawValue: 1 << 1)
     public static let all: RetainedListSeparatorEdges = [.top, .bottom]
 }
-
 public struct RetainedListRowSeparator: Sendable, Equatable, Hashable {
     public var visibility: RetainedListSeparatorVisibility
     public var edges: RetainedListSeparatorEdges
@@ -112,7 +116,6 @@ public struct RetainedListRowSeparator: Sendable, Equatable, Hashable {
         self.edges = edges
     }
 }
-
 public struct RetainedListSectionSeparator: Sendable, Equatable, Hashable {
     public var visibility: RetainedListSeparatorVisibility
     public var edges: RetainedListSeparatorEdges
@@ -125,7 +128,6 @@ public struct RetainedListSectionSeparator: Sendable, Equatable, Hashable {
         self.edges = edges
     }
 }
-
 public struct RetainedAlternatingRowBackgrounds: Sendable, Equatable, Hashable {
     public var visibility: RetainedListSeparatorVisibility
 
@@ -133,7 +135,6 @@ public struct RetainedAlternatingRowBackgrounds: Sendable, Equatable, Hashable {
         self.visibility = visibility
     }
 }
-
 public struct RetainedNavigationSplitViewColumnWidth: Sendable, Equatable {
     public var min: Double?
     public var ideal: Double
@@ -145,7 +146,6 @@ public struct RetainedNavigationSplitViewColumnWidth: Sendable, Equatable {
         self.max = max
     }
 }
-
 public struct RetainedListSeparatorTint: Sendable, Equatable {
     public var color: Color?
     public var edges: RetainedListSeparatorEdges
@@ -158,7 +158,6 @@ public struct RetainedListSeparatorTint: Sendable, Equatable {
         self.edges = edges
     }
 }
-
 @MainActor
 public struct RetainedSwipeAction: @unchecked Sendable {
     public var title: String
@@ -175,7 +174,6 @@ public struct RetainedSwipeAction: @unchecked Sendable {
         self.action = action
     }
 }
-
 public struct RetainedEditActions: Sendable, Equatable {
     public var containsDelete: Bool
     public var containsMove: Bool
@@ -185,13 +183,11 @@ public struct RetainedEditActions: Sendable, Equatable {
         self.containsMove = actions.contains(.move)
     }
 }
-
 public enum RetainedListItemTintKind: Sendable, Equatable, Hashable {
     case fixed
     case preferred
     case monochrome
 }
-
 public struct RetainedListItemTint: Sendable, Equatable {
     public var color: Color?
     public var kind: RetainedListItemTintKind
@@ -204,7 +200,6 @@ public struct RetainedListItemTint: Sendable, Equatable {
         self.kind = kind
     }
 }
-
 public struct RetainedFileExporterConfiguration {
     public var isPresented: Binding<Bool>
     public var document: Any?
@@ -229,7 +224,6 @@ public struct RetainedFileExporterConfiguration {
         self.onCompletion = onCompletion
     }
 }
-
 public struct RetainedFileImporterConfiguration {
     public var isPresented: Binding<Bool>
     public var allowedContentTypes: [UTType]
@@ -245,7 +239,6 @@ public struct RetainedFileImporterConfiguration {
         self.onCompletion = onCompletion
     }
 }
-
 public struct RetainedFileImporterMultiConfiguration {
     public var isPresented: Binding<Bool>
     public var allowedContentTypes: [UTType]
@@ -264,7 +257,6 @@ public struct RetainedFileImporterMultiConfiguration {
         self.onCompletion = onCompletion
     }
 }
-
 public struct RetainedFileMoverConfiguration {
     public var isPresented: Binding<Bool>
     public var file: URL
@@ -280,7 +272,6 @@ public struct RetainedFileMoverConfiguration {
         self.onCompletion = onCompletion
     }
 }
-
 public struct RetainedGridCellUnsizedAxes: OptionSet, Sendable, Equatable, Hashable {
     public let rawValue: UInt8
 
@@ -292,12 +283,10 @@ public struct RetainedGridCellUnsizedAxes: OptionSet, Sendable, Equatable, Hasha
     public static let vertical = RetainedGridCellUnsizedAxes(rawValue: 1 << 1)
     public static let all: RetainedGridCellUnsizedAxes = [.horizontal, .vertical]
 }
-
 public enum RetainedAlignmentGuideAxis: Sendable, Equatable, Hashable {
     case horizontal
     case vertical
 }
-
 public struct RetainedAlignmentGuide: Sendable, Equatable, Hashable {
     public var axis: RetainedAlignmentGuideAxis
     public var guide: String
@@ -309,7 +298,6 @@ public struct RetainedAlignmentGuide: Sendable, Equatable, Hashable {
         self.value = value
     }
 }
-
 struct ViewPaintCacheKey: Equatable, Sendable {
     var bounds: Rect
     var contentMask: Rect?
@@ -328,14 +316,12 @@ struct ViewPaintCacheKey: Equatable, Sendable {
     var isFocused: Bool
     var isFocusEffectDisabled: Bool
 }
-
 struct ViewMeasureCacheKey: Equatable, Sendable {
     var constraints: LayoutConstraints
     var displayScale: Double
 }
-
-private extension RenderCommand {
-    mutating func applyBlendMode(_ blendMode: BlendMode) {
+extension RenderCommand {
+    fileprivate mutating func applyBlendMode(_ blendMode: BlendMode) {
         guard blendMode != .normal else {
             return
         }
@@ -361,7 +347,6 @@ private extension RenderCommand {
         }
     }
 }
-
 public struct KeyboardShortcutBinding: Sendable, Equatable {
     public var keyCode: UInt32
     public var modifiers: KeyboardModifiers
@@ -375,13 +360,11 @@ public struct KeyboardShortcutBinding: Sendable, Equatable {
         event.keyCode == keyCode && event.modifiers == modifiers
     }
 }
-
 public enum RetainedHoverEffect: Sendable, Equatable {
     case automatic
     case highlight
     case lift
 }
-
 public enum RetainedPointerStyle: Sendable, Equatable {
     case automatic
     case arrow
@@ -399,49 +382,41 @@ public enum RetainedPointerStyle: Sendable, Equatable {
     case dragCopy
     case contextMenu
 }
-
 public enum RetainedWindowDragInteraction: Sendable, Equatable {
     case automatic
     case disabled
     case enabled
 }
-
 public enum RetainedWindowResizeInteraction: Sendable, Equatable {
     case automatic
     case disabled
     case enabled
 }
-
 public enum RetainedWindowInteractionBehavior: Sendable, Equatable {
     case automatic
     case enabled
     case disabled
 }
-
 public enum RetainedImageResizingMode: Sendable, Equatable {
     case stretch
     case tile
 }
-
 public enum RetainedImageRenderingMode: Sendable, Equatable {
     case original
     case template
 }
-
 public enum RetainedImageInterpolation: Sendable, Equatable {
     case none
     case low
     case medium
     case high
 }
-
 public enum RetainedSymbolRenderingMode: Sendable, Equatable {
     case monochrome
     case hierarchical
     case palette
     case multicolor
 }
-
 public struct RetainedSymbolVariants: OptionSet, Sendable, Equatable {
     public let rawValue: UInt8
 
@@ -456,7 +431,6 @@ public struct RetainedSymbolVariants: OptionSet, Sendable, Equatable {
     public static let fill = RetainedSymbolVariants(rawValue: 1 << 3)
     public static let slash = RetainedSymbolVariants(rawValue: 1 << 4)
 }
-
 public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
     public var namespaceID: String
     public var elementID: String
@@ -478,7 +452,6 @@ public struct RetainedMatchedGeometryEffect: Sendable, Equatable {
         self.isSource = isSource
     }
 }
-
 public struct RetainedMatchedTransitionSource: Sendable, Equatable {
     public var namespaceID: String
     public var elementID: String
@@ -488,14 +461,12 @@ public struct RetainedMatchedTransitionSource: Sendable, Equatable {
         self.elementID = elementID
     }
 }
-
 public enum RetainedNavigationTransitionKind: Sendable, Equatable {
     case zoom(namespaceID: String, elementID: String)
     case slide
     case fade
     case automatic
 }
-
 public struct RetainedNavigationTransition: Sendable, Equatable {
     public var kind: RetainedNavigationTransitionKind
 
@@ -503,7 +474,6 @@ public struct RetainedNavigationTransition: Sendable, Equatable {
         self.kind = kind
     }
 }
-
 public struct RetainedClipFillStyle: Sendable, Equatable {
     public var eoFill: Bool
     public var antialiased: Bool
@@ -513,7 +483,6 @@ public struct RetainedClipFillStyle: Sendable, Equatable {
         self.antialiased = antialiased
     }
 }
-
 public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public let rawValue: Int
 
@@ -529,7 +498,6 @@ public struct RetainedContentShapeKinds: OptionSet, Sendable, Equatable {
     public static let accessibility = RetainedContentShapeKinds(rawValue: 1 << 5)
     public static let container = RetainedContentShapeKinds(rawValue: 1 << 6)
 }
-
 public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
     public let rawValue: UInt32
 
@@ -553,13 +521,11 @@ public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
     public static let causesPageTurn = RetainedAccessibilityTraits(rawValue: 1 << 13)
     public static let isModal = RetainedAccessibilityTraits(rawValue: 1 << 14)
 }
-
 public enum RetainedAccessibilityChildBehavior: Sendable, Equatable {
     case ignore
     case combine
     case contain
 }
-
 public enum RetainedAccessibilityActionKind: Sendable, Equatable {
     case `default`
     case escape
@@ -570,7 +536,6 @@ public enum RetainedAccessibilityActionKind: Sendable, Equatable {
     case zoomIn
     case zoomOut
 }
-
 public enum RetainedAccessibilityHeadingLevel: Sendable, Equatable, Hashable {
     case unspecified
     case h1
@@ -580,7 +545,6 @@ public enum RetainedAccessibilityHeadingLevel: Sendable, Equatable, Hashable {
     case h5
     case h6
 }
-
 public enum RetainedAccessibilityTextualContext: Sendable, Equatable, Hashable {
     case sourceCode
     case console
@@ -589,24 +553,20 @@ public enum RetainedAccessibilityTextualContext: Sendable, Equatable, Hashable {
     case spreadsheet
     case wordProcessing
 }
-
 public enum RetainedAccessibilityDirectTouchOptions: Sendable, Equatable {
     case disabled
     case enabled
     case custom(identifier: String)
 }
-
 public enum RetainedTextSelectability: Sendable, Equatable {
     case enabled
     case disabled
 }
-
 public enum RetainedTextSelectionAffinity: Sendable, Equatable, Hashable {
     case automatic
     case upstream
     case downstream
 }
-
 public struct RetainedTextSelection: Sendable, Equatable, Hashable {
     public enum Indices: Sendable, Equatable, Hashable {
         case insertionPoint(Int)
@@ -622,7 +582,6 @@ public struct RetainedTextSelection: Sendable, Equatable, Hashable {
         self.affinity = affinity
     }
 }
-
 public struct RetainedTextContentType: Sendable, Equatable, Hashable {
     public var rawValue: String
 
@@ -630,12 +589,12 @@ public struct RetainedTextContentType: Sendable, Equatable, Hashable {
         self.rawValue = rawValue
     }
 }
-
 public enum RetainedKeyboardType: Sendable, Equatable, Hashable {
     case `default`
     case asciiCapable
     case numbersAndPunctuation
-    case URL
+    // swift-format-ignore: AlwaysUseLowerCamelCase
+    case URL  // matches UIKeyboardType.URL
     case numberPad
     case phonePad
     case namePhonePad
@@ -645,7 +604,6 @@ public enum RetainedKeyboardType: Sendable, Equatable, Hashable {
     case webSearch
     case asciiCapableNumberPad
 }
-
 public struct RetainedTextInputSuggestion: Sendable, Equatable, Hashable {
     public var displayText: String
     public var completion: String?
@@ -655,31 +613,26 @@ public struct RetainedTextInputSuggestion: Sendable, Equatable, Hashable {
         self.completion = completion
     }
 }
-
 public enum RetainedWritingToolsBehavior: Sendable, Equatable, Hashable {
     case automatic
     case complete
     case limited
     case disabled
 }
-
 public enum RetainedWritingToolsAffordanceVisibility: Sendable, Equatable, Hashable {
     case automatic
     case visible
     case hidden
 }
-
 public enum RetainedTextInputDictationActivation: Sendable, Equatable, Hashable {
     case onLook
     case onSelect
 }
-
 public enum RetainedTextInputDictationBehavior: Sendable, Equatable, Hashable {
     case automatic
     case preventDictation
     case inline(activation: RetainedTextInputDictationActivation)
 }
-
 public struct RetainedAccessibilityAction {
     public var name: String?
     public var kind: RetainedAccessibilityActionKind?
@@ -695,7 +648,6 @@ public struct RetainedAccessibilityAction {
         self.handler = handler
     }
 }
-
 public struct RetainedAccessibilityRotor: Sendable, Equatable {
     public var label: String
     public var entries: [String]
@@ -705,11 +657,10 @@ public struct RetainedAccessibilityRotor: Sendable, Equatable {
         self.entries = entries
     }
 }
-
 public struct RetainedAccessibilityCustomContent: Sendable, Equatable {
     public var label: String
     public var value: String
-    public var importance: Int // 0 = default, 1 = high
+    public var importance: Int  // 0 = default, 1 = high
 
     public init(label: String, value: String, importance: Int = 0) {
         self.label = label
@@ -717,7 +668,6 @@ public struct RetainedAccessibilityCustomContent: Sendable, Equatable {
         self.importance = importance
     }
 }
-
 public enum RetainedContentShapeStyle: Sendable, Equatable {
     case rectangle
     case roundedRectangle(Double)
@@ -756,7 +706,6 @@ public enum RetainedContentShapeStyle: Sendable, Equatable {
         }
     }
 }
-
 public struct RetainedContentShape: Sendable, Equatable {
     public var kinds: RetainedContentShapeKinds
     public var style: RetainedContentShapeStyle
@@ -775,7 +724,6 @@ public struct RetainedContentShape: Sendable, Equatable {
         self.mask = mask
     }
 }
-
 public struct ViewLifecycleTaskLaunch {
     public var key: String
     public var priority: TaskPriority
@@ -791,7 +739,6 @@ public struct ViewLifecycleTaskLaunch {
         self.action = action
     }
 }
-
 public struct PhaseAnimatorState: Sendable {
     public var phasesSignature: String
     public var triggerDescription: String?
@@ -813,7 +760,6 @@ public struct PhaseAnimatorState: Sendable {
         self.phaseStartTime = phaseStartTime
     }
 }
-
 private func roundedRectContains(_ point: Point, in rect: Rect, radius: Double) -> Bool {
     let radius = min(radius, rect.size.width * 0.5, rect.size.height * 0.5)
     guard radius > 0 else {
@@ -839,7 +785,6 @@ private func roundedRectContains(_ point: Point, in rect: Rect, radius: Double) 
     let dy = point.y - centerY
     return dx * dx + dy * dy <= radius * radius
 }
-
 private func ellipseContains(_ point: Point, in rect: Rect) -> Bool {
     let radiusX = rect.size.width * 0.5
     let radiusY = rect.size.height * 0.5
@@ -853,26 +798,22 @@ private func ellipseContains(_ point: Point, in rect: Rect) -> Bool {
     let normalizedY = (point.y - centerY) / radiusY
     return normalizedX * normalizedX + normalizedY * normalizedY <= 1
 }
-
 public enum RetainedButtonRepeatBehavior: Sendable, Equatable {
     case automatic
     case enabled
     case disabled
 }
-
 public enum RetainedPresentationDetent: Sendable, Equatable, Hashable {
     case medium
     case large
     case height(Double)
     case fraction(Double)
 }
-
 public enum RetainedPresentationContentInteraction: Sendable, Equatable {
     case automatic
     case resizes
     case scrolls
 }
-
 public enum RetainedPresentationAdaptation: Sendable, Equatable {
     case automatic
     case none
@@ -880,7 +821,6 @@ public enum RetainedPresentationAdaptation: Sendable, Equatable {
     case sheet
     case fullScreenCover
 }
-
 public enum RetainedPresentationSizing: Sendable, Equatable {
     case automatic
     case fitted
@@ -889,12 +829,10 @@ public enum RetainedPresentationSizing: Sendable, Equatable {
     case fittedHorizontal
     case fittedVertical
 }
-
 public enum RetainedDialogSeverity: Sendable, Equatable {
     case standard
     case critical
 }
-
 public struct RetainedPresentationChrome: Sendable, Equatable {
     public var hasBackgroundOverride: Bool
     public var backgroundColor: Color?
@@ -990,7 +928,6 @@ public struct RetainedPresentationChrome: Sendable, Equatable {
 
     public static let empty = RetainedPresentationChrome()
 }
-
 public struct RetainedContentTransition: Sendable, Equatable, Hashable {
     public enum Kind: String, Sendable, Equatable, Hashable {
         case identity
@@ -1019,7 +956,6 @@ public struct RetainedContentTransition: Sendable, Equatable, Hashable {
     public static let interpolate = RetainedContentTransition(kind: .interpolate)
     public static let opacity = RetainedContentTransition(kind: .opacity)
 }
-
 public struct RetainedSensoryFeedback: Sendable, Equatable, Hashable {
     public enum Kind: String, Sendable, Equatable, Hashable {
         case alignment
@@ -1098,7 +1034,6 @@ public struct RetainedSensoryFeedback: Sendable, Equatable, Hashable {
         self.selectionKind = selectionKind
     }
 }
-
 public struct RetainedTransition: Sendable, Equatable {
     public var kind: Kind
 
@@ -1139,14 +1074,12 @@ public struct RetainedTransition: Sendable, Equatable {
         }
     }
 }
-
 public enum RetainedEdge: Sendable, Equatable {
     case top
     case leading
     case bottom
     case trailing
 }
-
 public struct RetainedScrollAnchor: Sendable, Equatable {
     public var x: Double
     public var y: Double
@@ -1156,7 +1089,6 @@ public struct RetainedScrollAnchor: Sendable, Equatable {
         self.y = y
     }
 }
-
 public enum RetainedSubmitLabel: Sendable, Equatable {
     case `return`
     case done
@@ -1168,7 +1100,6 @@ public enum RetainedSubmitLabel: Sendable, Equatable {
     case next
     case `continue`
 }
-
 public struct RetainedRedactionReasons: OptionSet, Sendable {
     public let rawValue: Int
 
@@ -1178,18 +1109,14 @@ public struct RetainedRedactionReasons: OptionSet, Sendable {
 
     public static let placeholder = RetainedRedactionReasons(rawValue: 1 << 0)
 }
-
 let retainedRedactionPlaceholderBaseColor = Color(red: 0.70, green: 0.74, blue: 0.78, alpha: 0.32)
-
 func retainedRedactionPlaceholderCornerRadius(for rect: Rect) -> Double {
     min(6, max(0, rect.size.height / 2))
 }
-
 struct ViewLayoutCacheKey: Equatable, Sendable {
     var frame: Rect
     var displayScale: Double
 }
-
 @MainActor
 struct ScrollIndicatorDeferredDrawPayload {
     var dispatchIndex: Int
@@ -1206,7 +1133,6 @@ struct ScrollIndicatorDeferredDrawPayload {
         )
     }
 }
-
 @MainActor
 struct DeferredSubtreePayload {
     weak var node: ViewNode?
@@ -1221,7 +1147,6 @@ struct DeferredSubtreePayload {
     var inheritedBlurOpaque: Bool
     var inheritedBlendMode: BlendMode = .normal
 }
-
 @MainActor
 private struct ButtonRepeatState {
     weak var node: ViewNode?
@@ -1229,14 +1154,12 @@ private struct ButtonRepeatState {
     var nextActivationTime: Double?
     var didRepeat: Bool
 }
-
 @MainActor
 struct DeferredSubtreeState {
     var priority: Int
     var parentDispatchIndex: Int
     var payload: DeferredSubtreePayload
 }
-
 @MainActor
 enum DeferredDrawPayload {
     case scrollIndicator(ScrollIndicatorDeferredDrawPayload)
@@ -1287,7 +1210,6 @@ enum DeferredDrawPayload {
         }
     }
 }
-
 @MainActor
 struct DeferredDrawState {
     var priority: Int
@@ -1305,12 +1227,10 @@ struct DeferredDrawState {
         payload.interaction
     }
 }
-
 @MainActor
 enum DeferredOverlayInteraction {
     case scrollIndicator(dispatchIndex: Int, track: ScrollIndicatorTrack)
 }
-
 struct PrepaintStateIndex: Equatable, Sendable {
     var dispatchIndex: Int
     var interactionIndex: Int
@@ -1319,18 +1239,15 @@ struct PrepaintStateIndex: Equatable, Sendable {
     var deferredDrawIndex: Int
     var deferredPriority: Int
 }
-
 struct PrepaintStateRange: Equatable, Sendable {
     var start: PrepaintStateIndex
     var end: PrepaintStateIndex
 }
-
 @MainActor
 struct PrepaintDispatchState {
     var node: ViewNode
     var parentIndex: Int?
 }
-
 @MainActor
 struct PrepaintInteractionState {
     var dispatchIndex: Int
@@ -1377,7 +1294,6 @@ struct PrepaintInteractionState {
         return frame.contains(transformedPoint)
     }
 }
-
 @MainActor
 struct RuntimePrepaintState {
     var dispatchNodes: [PrepaintDispatchState] = []
@@ -1387,18 +1303,15 @@ struct RuntimePrepaintState {
     var deferredDraws: [DeferredDrawState] = []
     var nextDeferredPriority: Int = 0
 }
-
 public enum ViewLayoutMode: Sendable {
     case absolute
     case stack(StackLayout)
     case flex(FlexStyle)
 }
-
 public enum ScrollAxis: Sendable {
     case horizontal
     case vertical
 }
-
 public struct FixedSizeAxes: Equatable, Sendable {
     public var horizontal: Bool
     public var vertical: Bool
@@ -1408,7 +1321,6 @@ public struct FixedSizeAxes: Equatable, Sendable {
         self.vertical = vertical
     }
 }
-
 @MainActor
 public final class ViewNode {
     public var frame: Rect {
@@ -3351,7 +3263,8 @@ public final class ViewNode {
                 stackLayout.axis == .vertical ? size.height : size.width
             }
             let spacingTotal = stackLayoutSpacingTotal(count: visibleChildren.count, spacing: stackLayout.spacing)
-            let availableMainExtent = stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
+            let availableMainExtent =
+                stackLayout.axis == .vertical ? max(0, contentRect.size.height) : max(0, contentRect.size.width)
             let availableChildMainExtent = max(0, availableMainExtent - spacingTotal)
             let allowsOverflowAlongMainAxis = scrollAxis == stackScrollAxis(for: stackLayout.axis)
 
@@ -3466,7 +3379,9 @@ public final class ViewNode {
 
                 switch stackLayout.axis {
                 case .vertical:
-                    let width = stackLayout.alignment == .stretch ? max(0, contentRect.size.width) : min(desiredSize.width, max(0, contentRect.size.width))
+                    let width =
+                        stackLayout.alignment == .stretch
+                        ? max(0, contentRect.size.width) : min(desiredSize.width, max(0, contentRect.size.width))
                     let height = max(0, allocatedMainSize)
 
                     let x: Double
@@ -3504,7 +3419,9 @@ public final class ViewNode {
 
                 case .horizontal:
                     let width = max(0, allocatedMainSize)
-                    let height = stackLayout.alignment == .stretch ? max(0, contentRect.size.height) : min(desiredSize.height, max(0, contentRect.size.height))
+                    let height =
+                        stackLayout.alignment == .stretch
+                        ? max(0, contentRect.size.height) : min(desiredSize.height, max(0, contentRect.size.height))
 
                     let y: Double
                     let usesCustomAlignmentGuide: Bool
@@ -3551,11 +3468,9 @@ public final class ViewNode {
                 visibleIndex += 1
             }
 
-            let contentMainExtent = (
-                (allowsOverflowAlongMainAxis ? desiredMainSizes : allocatedMainSizes).reduce(0, +) +
-                spacingTotal +
-                stackMainPadding(for: stackLayout)
-            )
+            let contentMainExtent =
+                ((allowsOverflowAlongMainAxis ? desiredMainSizes : allocatedMainSizes).reduce(0, +) + spacingTotal
+                    + stackMainPadding(for: stackLayout))
             let contentCrossExtent = maxCrossExtent + stackCrossPadding(for: stackLayout)
 
             switch stackLayout.axis {
@@ -3600,7 +3515,8 @@ public final class ViewNode {
                 }
 
                 let childLayout = layouts[visibleIndex]
-                child.resolvedFrame = Rect(x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
+                child.resolvedFrame = Rect(
+                    x: childLayout.x, y: childLayout.y, width: childLayout.width, height: childLayout.height)
                 child.layoutSubtree(displayScale: displayScale)
                 visibleIndex += 1
             }
@@ -3634,7 +3550,7 @@ public final class ViewNode {
             return
         }
 
-        if (contentSizeChanged || frameSizeChanged), let scrollSizeChangeAnchor {
+        if contentSizeChanged || frameSizeChanged, let scrollSizeChangeAnchor {
             scrollOffset = anchoredScrollOffset(for: scrollSizeChangeAnchor)
         }
     }
@@ -3749,8 +3665,7 @@ public final class ViewNode {
             isFocusEffectDisabled: isFocusEffectDisabled
         )
 
-        if
-            let previousState,
+        if let previousState,
             !hasDirtySubtree,
             cachedPrepaintKey == cacheKey,
             let previousRange = cachedPrepaintRange
@@ -3762,64 +3677,79 @@ public final class ViewNode {
             let deferredDrawDelta = startIndex.deferredDrawIndex - previousRange.start.deferredDrawIndex
             let deferredPriorityDelta = startIndex.deferredPriority - previousRange.start.deferredPriority
 
-            let copiedDispatchNodes = previousState.dispatchNodes[previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex]
-                .enumerated()
-                .map { offset, dispatchState in
-                    var nextDispatchState = dispatchState
-                    if let parentIndex = dispatchState.parentIndex {
-                        if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
-                            nextDispatchState.parentIndex = parentIndex + dispatchDelta
-                        } else {
-                            nextDispatchState.parentIndex = parentDispatchIndex
-                        }
+            let copiedDispatchNodes = previousState.dispatchNodes[
+                previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+            ]
+            .enumerated()
+            .map { offset, dispatchState in
+                var nextDispatchState = dispatchState
+                if let parentIndex = dispatchState.parentIndex {
+                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= parentIndex {
+                        nextDispatchState.parentIndex = parentIndex + dispatchDelta
                     } else {
                         nextDispatchState.parentIndex = parentDispatchIndex
                     }
-                    return nextDispatchState
+                } else {
+                    nextDispatchState.parentIndex = parentDispatchIndex
                 }
+                return nextDispatchState
+            }
             state.dispatchNodes.append(contentsOf: copiedDispatchNodes)
 
-            let copiedInteractions = previousState.interactions[previousRange.start.interactionIndex..<previousRange.end.interactionIndex]
-                .map { interaction in
-                    var nextInteraction = interaction
-                    nextInteraction.dispatchIndex += dispatchDelta
-                    return nextInteraction
-                }
+            let copiedInteractions = previousState.interactions[
+                previousRange.start.interactionIndex..<previousRange.end.interactionIndex
+            ]
+            .map { interaction in
+                var nextInteraction = interaction
+                nextInteraction.dispatchIndex += dispatchDelta
+                return nextInteraction
+            }
             state.interactions.append(contentsOf: copiedInteractions)
 
-            let copiedFocusOrder = previousState.focusOrder[previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex]
-                .map { $0 + dispatchDelta }
+            let copiedFocusOrder = previousState.focusOrder[
+                previousRange.start.focusOrderIndex..<previousRange.end.focusOrderIndex
+            ]
+            .map { $0 + dispatchDelta }
             state.focusOrder.append(contentsOf: copiedFocusOrder)
 
-            let copiedDeferredSubtrees = previousState.deferredSubtrees[previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex]
-                .map { deferredSubtree in
-                    var nextDeferredSubtree = deferredSubtree
-                    nextDeferredSubtree.priority += deferredPriorityDelta
-                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredSubtree.parentDispatchIndex {
-                        nextDeferredSubtree.parentDispatchIndex += dispatchDelta
-                    } else if let parentDispatchIndex {
-                        nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
-                    }
-                    return nextDeferredSubtree
+            let copiedDeferredSubtrees = previousState.deferredSubtrees[
+                previousRange.start.deferredSubtreeIndex..<previousRange.end.deferredSubtreeIndex
+            ]
+            .map { deferredSubtree in
+                var nextDeferredSubtree = deferredSubtree
+                nextDeferredSubtree.priority += deferredPriorityDelta
+                if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+                    ~= deferredSubtree.parentDispatchIndex
+                {
+                    nextDeferredSubtree.parentDispatchIndex += dispatchDelta
+                } else if let parentDispatchIndex {
+                    nextDeferredSubtree.parentDispatchIndex = parentDispatchIndex
                 }
+                return nextDeferredSubtree
+            }
             state.deferredSubtrees.append(contentsOf: copiedDeferredSubtrees)
 
-            let copiedDeferredDraws = previousState.deferredDraws[previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex]
-                .map { deferredDraw in
-                    var nextDeferredDraw = deferredDraw
-                    nextDeferredDraw.priority += deferredPriorityDelta
-                    if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex ~= deferredDraw.parentDispatchIndex {
-                        nextDeferredDraw.parentDispatchIndex += dispatchDelta
-                    } else if let parentDispatchIndex {
-                        nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
-                    }
-                    nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
-                    return nextDeferredDraw
+            let copiedDeferredDraws = previousState.deferredDraws[
+                previousRange.start.deferredDrawIndex..<previousRange.end.deferredDrawIndex
+            ]
+            .map { deferredDraw in
+                var nextDeferredDraw = deferredDraw
+                nextDeferredDraw.priority += deferredPriorityDelta
+                if previousRange.start.dispatchIndex..<previousRange.end.dispatchIndex
+                    ~= deferredDraw.parentDispatchIndex
+                {
+                    nextDeferredDraw.parentDispatchIndex += dispatchDelta
+                } else if let parentDispatchIndex {
+                    nextDeferredDraw.parentDispatchIndex = parentDispatchIndex
                 }
+                nextDeferredDraw.payload = deferredDraw.payload.remappedDispatchIndices(by: dispatchDelta)
+                return nextDeferredDraw
+            }
             state.deferredDraws.append(contentsOf: copiedDeferredDraws)
             state.nextDeferredPriority = max(
                 state.nextDeferredPriority,
-                startIndex.deferredPriority + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
+                startIndex.deferredPriority
+                    + (previousRange.end.deferredPriority - previousRange.start.deferredPriority)
             )
 
             shiftCachedPrepaintRangesRecursively(
@@ -4108,8 +4038,7 @@ public final class ViewNode {
             return
         }
 
-        if
-            let previousRenderedFrame,
+        if let previousRenderedFrame,
             !hasDirtySubtree,
             cachedFrameKey == cacheKey,
             let previousRange = cachedFrameCommandRange
@@ -4145,7 +4074,8 @@ public final class ViewNode {
 
         let effectiveShadowColor = shadowColor.multipliedAlpha(by: effectiveOpacity)
         if effectiveShadowColor.alpha > 0 {
-            let shadowRect = paintFrame
+            let shadowRect =
+                paintFrame
                 .outset(by: max(0, shadowSpread))
                 .offsetBy(dx: shadowOffset.x, dy: shadowOffset.y)
 
@@ -4189,9 +4119,12 @@ public final class ViewNode {
         }
 
         let effectiveBorderGradient = borderGradient?.withMultipliedOpacity(Double(effectiveOpacity))
-        let effectiveBorderColor = borderGradient?.startColor
+        let effectiveBorderColor =
+            borderGradient?.startColor
             ?? borderColor.multipliedAlpha(by: effectiveOpacity)
-        if effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil, baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame) {
+        if effectiveBorderColor.alpha > 0, borderWidth > 0, backgroundPath == nil,
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: absoluteFrame)
+        {
             if let borderSegments = BorderSegments.dashedSegments(
                 frame: paintFrame,
                 width: borderWidth,
@@ -4230,9 +4163,12 @@ public final class ViewNode {
         let fillCornerRadius = max(0, cornerRadius - borderWidth)
 
         let resolvedBackgroundGradient = backgroundGradient?.withMultipliedOpacity(Double(effectiveOpacity))
-        let resolvedBackgroundColor = backgroundColor?.multipliedAlpha(by: effectiveOpacity)
+        let resolvedBackgroundColor =
+            backgroundColor?.multipliedAlpha(by: effectiveOpacity)
             ?? backgroundGradient?.startColor
-        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0, fillRect.size.height > 0, backgroundPath == nil {
+        if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0, fillRect.size.width > 0,
+            fillRect.size.height > 0, backgroundPath == nil
+        {
             if baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
                 commands.append(
                     .fillRect(
@@ -4248,7 +4184,9 @@ public final class ViewNode {
             }
         }
 
-        if let path = backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        if let path = backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0,
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+        {
             let scaledPath = path.scaled(to: fillRect)
             if let resolvedBackgroundColor, resolvedBackgroundColor.alpha > 0 {
                 commands.append(
@@ -4285,7 +4223,8 @@ public final class ViewNode {
             commands.append(.fillRect(hoverOverlay))
         }
 
-        let drawsRedactionPlaceholder = redactionReasons.contains(.placeholder)
+        let drawsRedactionPlaceholder =
+            redactionReasons.contains(.placeholder)
             && (bitmapSurface != nil || (text?.isEmpty == false))
             && fillRect.size.width > 0
             && fillRect.size.height > 0
@@ -4302,7 +4241,9 @@ public final class ViewNode {
                     )
                 )
             )
-        } else if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        } else if let bitmapSurface, fillRect.size.width > 0, fillRect.size.height > 0,
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+        {
             commands.append(
                 .drawBitmap(
                     DrawBitmapCommand(
@@ -4315,9 +4256,14 @@ public final class ViewNode {
             )
         }
 
-        if !drawsRedactionPlaceholder, let text, !text.isEmpty, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        if !drawsRedactionPlaceholder, let text, !text.isEmpty,
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+        {
             let effectiveTextStyle = textStyle.multipliedOpacity(by: effectiveOpacity)
-            if !NativeTextRenderer.appendCommands(for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip, into: &commands) {
+            if !NativeTextRenderer.appendCommands(
+                for: text, in: fillRect, style: effectiveTextStyle, scaleFactor: displayScale, clipRect: effectiveClip,
+                into: &commands)
+            {
                 PixelFont.appendCommands(
                     for: text,
                     in: fillRect,
@@ -4329,7 +4275,9 @@ public final class ViewNode {
         }
 
         // Canvas custom drawing — evaluate the renderer closure and emit commands.
-        if let canvasDraw, fillRect.size.width > 0, fillRect.size.height > 0, baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect) {
+        if let canvasDraw, fillRect.size.width > 0, fillRect.size.height > 0,
+            baseClipAllowsDrawing(baseClip: effectiveClip, rect: fillRect)
+        {
             var context = CanvasGraphicsContext()
             canvasDraw(&context, fillRect.size)
             context.appendCommands(
@@ -4484,7 +4432,8 @@ public final class ViewNode {
         }
 
         let spread = max(3, min(12, min(absoluteFrame.size.width, absoluteFrame.size.height) * 0.08))
-        let shadowRect = absoluteFrame
+        let shadowRect =
+            absoluteFrame
             .outset(by: spread)
             .offsetBy(dx: 0, dy: max(1, spread * 0.35))
         guard baseClipAllowsDrawing(baseClip: inheritedClip, rect: shadowRect) else {
@@ -4588,7 +4537,9 @@ public final class ViewNode {
         return contentShape.style.contains(point, in: frame)
     }
 
-    fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?) -> ViewNode? {
+    fileprivate func scrollTarget(at point: Point, axis: ScrollAxis? = nil, parentOrigin: Point, inheritedClip: Rect?)
+        -> ViewNode?
+    {
         if isHidden {
             return nil
         }
@@ -4628,14 +4579,16 @@ public final class ViewNode {
         )
 
         for child in children.reversed() {
-            if let target = child.scrollTarget(at: point, axis: axis, parentOrigin: childOrigin, inheritedClip: effectiveClip) {
+            if let target = child.scrollTarget(
+                at: point, axis: axis, parentOrigin: childOrigin, inheritedClip: effectiveClip)
+            {
                 return target
             }
         }
 
         if isScrollable,
-           absoluteFrame.contains(point),
-           axis == nil || scrollAxis == axis
+            absoluteFrame.contains(point),
+            axis == nil || scrollAxis == axis
         {
             return self
         }
@@ -4771,12 +4724,14 @@ public final class ViewNode {
             let visibleChildren = children.filter { !$0.isHidden }
             let childSizes = visibleChildren.map { $0.sizeThatFits(in: childConstraints) }
             let spacingTotal = stackLayoutSpacingTotal(count: childSizes.count, spacing: stackLayout.spacing)
-            let mainExtent = childSizes.reduce(0.0) { partialResult, size in
-                partialResult + (stackLayout.axis == .vertical ? size.height : size.width)
-            } + spacingTotal + stackMainPadding(for: stackLayout)
-            let crossExtent = (childSizes.map { size in
-                stackLayout.axis == .vertical ? size.width : size.height
-            }.max() ?? 0) + stackCrossPadding(for: stackLayout)
+            let mainExtent =
+                childSizes.reduce(0.0) { partialResult, size in
+                    partialResult + (stackLayout.axis == .vertical ? size.height : size.width)
+                } + spacingTotal + stackMainPadding(for: stackLayout)
+            let crossExtent =
+                (childSizes.map { size in
+                    stackLayout.axis == .vertical ? size.width : size.height
+                }.max() ?? 0) + stackCrossPadding(for: stackLayout)
 
             measuredSize = Size(
                 width: stackLayout.axis == .vertical ? crossExtent : mainExtent,
@@ -4789,17 +4744,21 @@ public final class ViewNode {
             let isRow = flexStyle.direction == .row || flexStyle.direction == .rowReverse
             let gapTotal = visibleChildren.count > 1 ? flexStyle.gap * Double(visibleChildren.count - 1) : 0
 
-            let mainExtent = childSizes.reduce(0.0) { partialResult, size in
-                partialResult + (isRow ? size.width : size.height)
-            } + gapTotal + (isRow
-                ? flexStyle.padding.leading + flexStyle.padding.trailing
-                : flexStyle.padding.top + flexStyle.padding.bottom)
+            let mainExtent =
+                childSizes.reduce(0.0) { partialResult, size in
+                    partialResult + (isRow ? size.width : size.height)
+                } + gapTotal
+                + (isRow
+                    ? flexStyle.padding.leading + flexStyle.padding.trailing
+                    : flexStyle.padding.top + flexStyle.padding.bottom)
 
-            let crossExtent = (childSizes.map { size in
-                isRow ? size.height : size.width
-            }.max() ?? 0) + (isRow
-                ? flexStyle.padding.top + flexStyle.padding.bottom
-                : flexStyle.padding.leading + flexStyle.padding.trailing)
+            let crossExtent =
+                (childSizes.map { size in
+                    isRow ? size.height : size.width
+                }.max() ?? 0)
+                + (isRow
+                    ? flexStyle.padding.top + flexStyle.padding.bottom
+                    : flexStyle.padding.leading + flexStyle.padding.trailing)
 
             measuredSize = Size(
                 width: isRow ? mainExtent : crossExtent,
@@ -5026,9 +4985,11 @@ public final class ViewNode {
         case (.vertical, .upArrow), (.horizontal, .leftArrow):
             return applyScrollDelta(-scrollStep)
         case (_, .pageDown):
-            return applyScrollDelta((scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+            return applyScrollDelta(
+                (scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
         case (_, .pageUp):
-            return applyScrollDelta(-(scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
+            return applyScrollDelta(
+                -(scrollAxis == .vertical ? resolvedFrame.size.height : resolvedFrame.size.width) * 0.85)
         case (_, .home):
             return setScrollOffset(0)
         case (_, .end):
@@ -5068,7 +5029,8 @@ public final class ViewNode {
         case .vertical:
             let trackHeight = max(0, absoluteFrame.size.height - indicatorInsets.top - indicatorInsets.bottom)
             guard trackHeight > 0 else { return nil }
-            let visibleRatio = max(0.08, absoluteFrame.size.height / max(resolvedContentSize.height, absoluteFrame.size.height))
+            let visibleRatio = max(
+                0.08, absoluteFrame.size.height / max(resolvedContentSize.height, absoluteFrame.size.height))
             let indicatorHeight = max(24, trackHeight * visibleRatio)
             let travel = max(0, trackHeight - indicatorHeight)
             let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
@@ -5082,7 +5044,8 @@ public final class ViewNode {
         case .horizontal:
             let trackWidth = max(0, absoluteFrame.size.width - indicatorInsets.leading - indicatorInsets.trailing)
             guard trackWidth > 0 else { return nil }
-            let visibleRatio = max(0.08, absoluteFrame.size.width / max(resolvedContentSize.width, absoluteFrame.size.width))
+            let visibleRatio = max(
+                0.08, absoluteFrame.size.width / max(resolvedContentSize.width, absoluteFrame.size.width))
             let indicatorWidth = max(24, trackWidth * visibleRatio)
             let travel = max(0, trackWidth - indicatorWidth)
             let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
@@ -5186,7 +5149,9 @@ public final class ViewNode {
         applySingleTransition(insertion, duration: duration, easing: easing, now: now)
     }
 
-    private func applySingleTransition(_ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double) {
+    private func applySingleTransition(
+        _ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double
+    ) {
         switch transition.kind {
         case .identity:
             break
@@ -5295,7 +5260,9 @@ public final class ViewNode {
         applySingleRemovalTransition(removal, duration: duration, easing: easing, now: now)
     }
 
-    private func applySingleRemovalTransition(_ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double) {
+    private func applySingleRemovalTransition(
+        _ transition: RetainedTransition, duration: Double, easing: AnimationEasing, now: Double
+    ) {
         switch transition.kind {
         case .identity:
             break
@@ -5382,7 +5349,6 @@ public final class ViewNode {
         }
     }
 }
-
 private func insetConstraints(_ constraints: LayoutConstraints, by padding: EdgeInsets) -> LayoutConstraints {
     LayoutConstraints(
         minWidth: max(0, constraints.minWidth - padding.leading - padding.trailing),
@@ -5391,7 +5357,6 @@ private func insetConstraints(_ constraints: LayoutConstraints, by padding: Edge
         maxHeight: remainingConstraintExtent(constraints.maxHeight, offset: padding.top + padding.bottom)
     )
 }
-
 private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutConstraints {
     switch axis {
     case .vertical:
@@ -5400,7 +5365,6 @@ private func stackChildConstraints(for size: Size, axis: StackAxis) -> LayoutCon
         return LayoutConstraints(maxHeight: max(0, size.height))
     }
 }
-
 private func stackChildConstraints(for constraints: LayoutConstraints, axis: StackAxis) -> LayoutConstraints {
     switch axis {
     case .vertical:
@@ -5409,7 +5373,6 @@ private func stackChildConstraints(for constraints: LayoutConstraints, axis: Sta
         return LayoutConstraints(maxHeight: constraints.maxHeight)
     }
 }
-
 private func stackLayoutSpacingTotal(count: Int, spacing: Double) -> Double {
     guard count > 1 else {
         return 0
@@ -5417,7 +5380,6 @@ private func stackLayoutSpacingTotal(count: Int, spacing: Double) -> Double {
 
     return Double(count - 1) * spacing
 }
-
 private func stackMainPadding(for layout: StackLayout) -> Double {
     switch layout.axis {
     case .vertical:
@@ -5426,7 +5388,6 @@ private func stackMainPadding(for layout: StackLayout) -> Double {
         return layout.padding.leading + layout.padding.trailing
     }
 }
-
 private func stackCrossPadding(for layout: StackLayout) -> Double {
     switch layout.axis {
     case .vertical:
@@ -5435,7 +5396,6 @@ private func stackCrossPadding(for layout: StackLayout) -> Double {
         return layout.padding.top + layout.padding.bottom
     }
 }
-
 @MainActor
 private func stackCrossOriginUsingAlignmentGuide(
     for child: ViewNode,
@@ -5460,7 +5420,6 @@ private func stackCrossOriginUsingAlignmentGuide(
 
     return contentOrigin + stackCrossReference(for: stackAlignment, contentExtent: contentExtent) - guideValue
 }
-
 private func stackCrossAlignmentGuide(
     for stackAxis: StackAxis,
     alignment: StackCrossAlignment
@@ -5478,7 +5437,7 @@ private func stackCrossAlignmentGuide(
             return nil
         case .lastTextBaseline:
             return nil
-        case let .customHorizontal(name):
+        case .customHorizontal(let name):
             return (.horizontal, name)
         case .customVertical:
             return nil
@@ -5499,14 +5458,13 @@ private func stackCrossAlignmentGuide(
             return (.vertical, "lastTextBaseline")
         case .customHorizontal:
             return nil
-        case let .customVertical(name):
+        case .customVertical(let name):
             return (.vertical, name)
         case .stretch:
             return nil
         }
     }
 }
-
 private func stackCrossReference(for alignment: StackCrossAlignment, contentExtent: Double) -> Double {
     switch alignment {
     case .leading, .stretch:
@@ -5521,11 +5479,9 @@ private func stackCrossReference(for alignment: StackCrossAlignment, contentExte
         return 0
     }
 }
-
 private func defaultStackCrossBaselineGuideValue(for extent: Double) -> Double {
     max(0, extent) * 0.8
 }
-
 private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {
     switch axis {
     case .vertical:
@@ -5534,7 +5490,6 @@ private func stackScrollAxis(for axis: StackAxis) -> ScrollAxis {
         return .horizontal
     }
 }
-
 private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> Double {
     guard maxExtent.isFinite else {
         return .infinity
@@ -5542,7 +5497,6 @@ private func remainingConstraintExtent(_ maxExtent: Double, offset: Double) -> D
 
     return max(0, maxExtent - offset)
 }
-
 private func minimumFiniteExtent(_ lhs: Double, _ rhs: Double) -> Double {
     if lhs.isFinite && rhs.isFinite {
         return min(lhs, rhs)
@@ -5554,7 +5508,6 @@ private func minimumFiniteExtent(_ lhs: Double, _ rhs: Double) -> Double {
 
     return rhs
 }
-
 private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: Double) -> Double {
     var value = max(extent, minimum)
     if maximum.isFinite {
@@ -5562,7 +5515,6 @@ private func clampedExtent(_ extent: Double, min minimum: Double, max maximum: D
     }
     return value
 }
-
 @MainActor
 public final class RetainedViewRuntime {
     private static let buttonRepeatInitialDelay = 0.45
@@ -5802,8 +5754,10 @@ public final class RetainedViewRuntime {
                 return
             }
 
-            let delta = dragState.axis == .vertical ? point.y - dragState.startPoint.y : point.x - dragState.startPoint.x
-            _ = node.applyScrollIndicatorDrag(startOffset: dragState.startOffset, delta: delta, travel: dragState.track.travel)
+            let delta =
+                dragState.axis == .vertical ? point.y - dragState.startPoint.y : point.x - dragState.startPoint.x
+            _ = node.applyScrollIndicatorDrag(
+                startOffset: dragState.startOffset, delta: delta, travel: dragState.track.travel)
             updateScrollIndicatorHover(to: ScrollIndicatorHit(node: node, track: dragState.track))
             return
         }
@@ -5845,9 +5799,13 @@ public final class RetainedViewRuntime {
 
     public func pointerDown(at point: Point) {
         if let scrollIndicatorHit = scrollIndicatorHit(at: point) {
-            scrollDragState = ScrollDragState(node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point, startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
+            scrollDragState = ScrollDragState(
+                node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point,
+                startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
             activeScrollIndicatorNode = scrollIndicatorHit.node
-            animateColor(.scrollIndicator, of: scrollIndicatorHit.node, to: scrollIndicatorHit.node.scrollIndicatorActiveColor, duration: 0.10, at: Win32Window.currentTimestampSeconds())
+            animateColor(
+                .scrollIndicator, of: scrollIndicatorHit.node, to: scrollIndicatorHit.node.scrollIndicatorActiveColor,
+                duration: 0.10, at: Win32Window.currentTimestampSeconds())
             return
         }
 
@@ -5874,8 +5832,11 @@ public final class RetainedViewRuntime {
             updateScrollIndicatorHover(to: nextIndicatorHit)
 
             if let node = dragState.node {
-                let targetColor = nextIndicatorHit?.node === node ? node.scrollIndicatorHoverColor : node.scrollIndicatorIdleColor
-                animateColor(.scrollIndicator, of: node, to: targetColor, duration: 0.12, at: Win32Window.currentTimestampSeconds())
+                let targetColor =
+                    nextIndicatorHit?.node === node ? node.scrollIndicatorHoverColor : node.scrollIndicatorIdleColor
+                animateColor(
+                    .scrollIndicator, of: node, to: targetColor, duration: 0.12,
+                    at: Win32Window.currentTimestampSeconds())
             }
             return
         }
@@ -6043,11 +6004,16 @@ public final class RetainedViewRuntime {
         return true
     }
 
-    public func animateBackgroundColor(of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double) {
+    public func animateBackgroundColor(
+        of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double
+    ) {
         animateColor(.background, of: node, to: targetColor, duration: duration, at: timestamp)
     }
 
-    public func animateColor(_ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color, duration: Double = 0.18, at timestamp: Double) {
+    public func animateColor(
+        _ property: AnimatedColorProperty, of node: ViewNode, to targetColor: Color, duration: Double = 0.18,
+        at timestamp: Double
+    ) {
         let animationKey = ColorAnimationKey(node: node, property: property)
         let startingColor = node.color(for: property)
 
@@ -6095,7 +6061,8 @@ public final class RetainedViewRuntime {
         }
 
         guard !colorAnimations.isEmpty else {
-            return didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+            return didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
+                || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -6122,7 +6089,8 @@ public final class RetainedViewRuntime {
             }
         }
 
-        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvancePropertyAnimations
+            || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
     }
 
     // MARK: - Matched Geometry Effect
@@ -6346,9 +6314,12 @@ public final class RetainedViewRuntime {
     ) {
         for deferredDrawIndex in orderedDeferredDrawIndices(prepaintState.deferredDraws) {
             let startCommandIndex = commands.count
-            if let previousFrame, let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange {
+            if let previousFrame,
+                let cachedFrameCommandRange = prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange
+            {
                 commands.append(contentsOf: previousFrame.commands[cachedFrameCommandRange])
-                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<commands.count
+                prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange =
+                    startCommandIndex..<commands.count
                 replayCount += 1
                 continue
             }
@@ -6361,7 +6332,8 @@ public final class RetainedViewRuntime {
                 commands.append(.fillRect(fillRect))
             case .subtree(let payload):
                 guard let node = payload.node else {
-                    prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange = startCommandIndex..<startCommandIndex
+                    prepaintState.deferredDraws[deferredDrawIndex].cachedFrameCommandRange =
+                        startCommandIndex..<startCommandIndex
                     continue
                 }
                 node.appendCommands(
@@ -6450,7 +6422,8 @@ public final class RetainedViewRuntime {
     ) -> Int? {
         var currentDispatchIndex = dispatchIndex
         while let candidateDispatchIndex = currentDispatchIndex,
-              prepaintState.dispatchNodes.indices.contains(candidateDispatchIndex) {
+            prepaintState.dispatchNodes.indices.contains(candidateDispatchIndex)
+        {
             let candidate = prepaintState.dispatchNodes[candidateDispatchIndex]
             if predicate(candidate.node) {
                 return candidateDispatchIndex
@@ -6735,19 +6708,16 @@ public final class RetainedViewRuntime {
         invalidate()
     }
 }
-
 struct ScrollIndicatorTrack {
     let axis: ScrollAxis
     let origin: Double
     let travel: Double
     let indicatorRect: Rect
 }
-
 private struct ScrollIndicatorHit {
     unowned let node: ViewNode
     let track: ScrollIndicatorTrack
 }
-
 private struct ScrollDragState {
     weak var node: ViewNode?
     let axis: ScrollAxis
@@ -6755,12 +6725,10 @@ private struct ScrollDragState {
     let startOffset: Double
     let track: ScrollIndicatorTrack
 }
-
 private struct NodeDragState {
     weak var node: ViewNode?
     let startPoint: Point
 }
-
 public enum AnimatedColorProperty: Hashable, Sendable {
     case background
     case border
@@ -6768,7 +6736,6 @@ public enum AnimatedColorProperty: Hashable, Sendable {
     case shadow
     case scrollIndicator
 }
-
 private struct ColorAnimationKey: Hashable {
     let nodeIdentifier: ObjectIdentifier
     let property: AnimatedColorProperty
@@ -6778,7 +6745,6 @@ private struct ColorAnimationKey: Hashable {
         self.property = property
     }
 }
-
 private final class ViewColorAnimation {
     weak var node: ViewNode?
     let property: AnimatedColorProperty
@@ -6787,7 +6753,10 @@ private final class ViewColorAnimation {
     let startTime: Double
     let duration: Double
 
-    init(node: ViewNode, property: AnimatedColorProperty, startColor: Color, endColor: Color, startTime: Double, duration: Double) {
+    init(
+        node: ViewNode, property: AnimatedColorProperty, startColor: Color, endColor: Color, startTime: Double,
+        duration: Double
+    ) {
         self.node = node
         self.property = property
         self.startColor = startColor
@@ -6805,14 +6774,9 @@ private final class ViewColorAnimation {
         return min(max(elapsed / duration, 0), 1)
     }
 }
-
 func baseClipAllowsDrawing(baseClip: Rect?, rect: Rect) -> Bool {
     baseClip?.intersected(with: rect) != nil || baseClip == nil
 }
-
-// MARK: - Animation interpolation support
-
-/// Properties that can be animated via the `animation()` view modifier.
 public enum AnimatableProperty: Hashable, Sendable {
     case opacity
     case backgroundColor
@@ -6826,8 +6790,6 @@ public enum AnimatableProperty: Hashable, Sendable {
     case transformTranslationY
     case transformRotation
 }
-
-/// Tracks the interpolation state for a single animated property change.
 public struct AnimationState {
     public var startValue: Double
     public var endValue: Double
@@ -6835,7 +6797,9 @@ public struct AnimationState {
     public var duration: Double
     public var easing: AnimationEasing
 
-    public init(startValue: Double, endValue: Double, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut) {
+    public init(
+        startValue: Double, endValue: Double, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut
+    ) {
         self.startValue = startValue
         self.endValue = endValue
         self.startTime = startTime
@@ -6860,8 +6824,6 @@ public struct AnimationState {
         (timestamp - startTime) >= duration
     }
 }
-
-/// Color-based animation state for interpolating between two colors over time.
 public struct ColorAnimationState {
     public var startColor: Color
     public var endColor: Color
@@ -6869,7 +6831,9 @@ public struct ColorAnimationState {
     public var duration: Double
     public var easing: AnimationEasing
 
-    public init(startColor: Color, endColor: Color, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut) {
+    public init(
+        startColor: Color, endColor: Color, startTime: Double, duration: Double, easing: AnimationEasing = .easeInOut
+    ) {
         self.startColor = startColor
         self.endColor = endColor
         self.startTime = startTime
@@ -6892,9 +6856,6 @@ public struct ColorAnimationState {
         (timestamp - startTime) >= duration
     }
 }
-
-/// Snapshot of property values used by the animation system to track previous
-/// state so it can interpolate between old and new values.
 public struct PropertySnapshot {
     public var opacity: Double?
     public var backgroundColor: Color?

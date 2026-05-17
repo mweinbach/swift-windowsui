@@ -1,12 +1,27 @@
-@preconcurrency import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
-@testable import SwiftWindowsPlatform
+
 import SwiftWindowsRendererD3D11
+
+@preconcurrency import XCTest
+
+@testable import SwiftWindowsPlatform
+
 @testable import SwiftWindowsUI
-@testable import WinSwiftUI
 
 // MARK: - Fake Render Backends
+
+@testable import WinSwiftUI
+
+// MARK: - Input Event Recorder for Host-Routed Input Assertions
+
+// MARK: - Observable Test Object
+
+// MARK: - Refresh Rate Testing Helpers
+
+/// Captures the effective refresh rate behavior by examining timer configuration.
+/// Returns the expected timer interval in milliseconds for a given refresh rate.
 
 @MainActor
 final class FakeRenderBackend: RenderBackend {
@@ -60,7 +75,6 @@ final class FakeRenderBackend: RenderBackend {
         renderShouldFail = shouldFail
     }
 }
-
 @MainActor
 final class FakeBatchRenderBackend: BatchRenderBackend {
     enum Event: Equatable {
@@ -145,16 +159,12 @@ final class FakeBatchRenderBackend: BatchRenderBackend {
         requireBoundImageResourcesBeforeRender = require
     }
 }
-
 enum FakeRenderBackendError: Error, Equatable {
     case simulatedFailure
     case attachFailure
     case resizeFailure
     case renderFailure
 }
-
-// MARK: - Input Event Recorder for Host-Routed Input Assertions
-
 @MainActor
 final class RoutedInputEventRecorder {
     private(set) var events: [WindowHostInputEvent] = []
@@ -163,15 +173,11 @@ final class RoutedInputEventRecorder {
         events.append(event)
     }
 }
-
-// MARK: - Observable Test Object
-
 @MainActor
 final class TestObservableObject: ObservableObject {
     @Published var value: Int = 0
     @Published var secondaryValue: String = ""
 }
-
 @MainActor
 struct ObservedObjectValueView: View {
     @ObservedObject var model: TestObservableObject
@@ -180,7 +186,6 @@ struct ObservedObjectValueView: View {
         Text("\(model.value)")
     }
 }
-
 @MainActor
 final class HostEnvironmentRecorder {
     private(set) var snapshots: [EnvironmentValues] = []
@@ -189,7 +194,6 @@ final class HostEnvironmentRecorder {
         snapshots.append(values)
     }
 }
-
 @MainActor
 struct HostEnvironmentProbeView: View {
     typealias Body = Never
@@ -207,17 +211,11 @@ struct HostEnvironmentProbeView: View {
         }
     }
 }
-
-// MARK: - Refresh Rate Testing Helpers
-
-/// Captures the effective refresh rate behavior by examining timer configuration.
-/// Returns the expected timer interval in milliseconds for a given refresh rate.
 func expectedTimerInterval(for refreshRate: UInt32) -> UInt32 {
     let rate = max(refreshRate, 1)
     let interval = (1000.0 / Double(rate)).rounded()
     return max(1, UInt32(interval))
 }
-
 @MainActor
 final class WinSwiftUIWindowHostTests: XCTestCase {
     private func fillRectCommands(in frame: RenderFrame) -> [FillRectCommand] {
@@ -242,11 +240,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         let frame = RenderFrame(
             clearColor: .black,
             commands: [
-                .drawBitmap(DrawBitmapCommand(
-                    rect: Rect(x: 20, y: 24, width: 48, height: 32),
-                    bitmap: bitmap,
-                    opacity: 0.75
-                ))
+                .drawBitmap(
+                    DrawBitmapCommand(
+                        rect: Rect(x: 20, y: 24, width: 48, height: 32),
+                        bitmap: bitmap,
+                        opacity: 0.75
+                    ))
             ]
         )
         return GPUIScene(from: frame, surfaceSize: Size(width: 320, height: 200))
@@ -287,7 +286,10 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         scaleFactor: Double,
         frameRenderer: FakeRenderBackend = FakeRenderBackend(),
         batchRenderer: FakeBatchRenderBackend? = nil
-    ) -> (host: WinSwiftUIWindowHost, window: Win32Window, frameRenderer: FakeRenderBackend, batchRenderer: FakeBatchRenderBackend?) {
+    ) -> (
+        host: WinSwiftUIWindowHost, window: Win32Window, frameRenderer: FakeRenderBackend,
+        batchRenderer: FakeBatchRenderBackend?
+    ) {
         let surface = makeSurface(pixelSize: pixelSize, scaleFactor: scaleFactor)
         let config = WindowGroupConfiguration(
             title: "Test",
@@ -395,18 +397,23 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             batchRenderer.setRenderShouldFail(true)
             let newSize = IntSize(width: 640, height: 480)
             host.window(fakeWindow, didResizeTo: newSize)
-            
+
             // The resize triggers reload which makes runtime dirty
             // Calling windowNeedsDisplay will trigger renderCurrentFrame
             host.windowNeedsDisplay(fakeWindow)
 
             // After render failure and downgrade, frame renderer should be attached
-            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1, "Frame renderer should be attached after batch failure")
-            
+            XCTAssertEqual(
+                frameRenderer.attachedSurfaces.count, 1, "Frame renderer should be attached after batch failure")
+
             // CRITICAL: Verify the frame was actually rendered/presented through the frame path
             // This proves VAL-RENDER-004: the triggering frame renders through frame path after batch failure
-            XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Frame should be rendered through frame path after batch failure")
-            XCTAssertEqual(frameRenderer.renderedFrames.first?.clearColor, expectedColor, "Frame should contain the expected clear color")
+            XCTAssertEqual(
+                frameRenderer.renderedFrames.count, 1, "Frame should be rendered through frame path after batch failure"
+            )
+            XCTAssertEqual(
+                frameRenderer.renderedFrames.first?.clearColor, expectedColor,
+                "Frame should contain the expected clear color")
             XCTAssertEqual(
                 host.currentPresentationSelection,
                 PresentationSelection(
@@ -497,8 +504,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             XCTAssertFalse(host.isUsingScenePresentationBackend)
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1)
-            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 0, "The fallback frame must rerun the scene-incompatible deferred payload instead of replaying it")
-            XCTAssertEqual(fillRectCommands(in: frameRenderer.renderedFrames[0]).last?.rect, expectedIndicatorRect, "Deferred indicator should remain last after the downgrade-triggering fallback frame")
+            XCTAssertEqual(
+                runtime.lastDeferredDrawFrameReplayCount, 0,
+                "The fallback frame must rerun the scene-incompatible deferred payload instead of replaying it")
+            XCTAssertEqual(
+                fillRectCommands(in: frameRenderer.renderedFrames[0]).last?.rect, expectedIndicatorRect,
+                "Deferred indicator should remain last after the downgrade-triggering fallback frame")
             XCTAssertEqual(
                 host.currentPresentationSelection,
                 PresentationSelection(
@@ -513,9 +524,16 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.windowNeedsDisplay(window)
 
             XCTAssertEqual(frameRenderer.renderedFrames.count, 2)
-            XCTAssertEqual(runtime.lastPrepaintReplayCount, 2, "The downgraded frame session should preserve prepaint replay eligibility, including the unchanged left subtree")
-            XCTAssertEqual(runtime.lastDeferredDrawFrameReplayCount, 1, "The unchanged deferred indicator should replay on later downgraded-frame renders")
-            XCTAssertEqual(fillRectCommands(in: frameRenderer.renderedFrames[1]).last?.rect, expectedIndicatorRect, "Deferred indicator ordering should stay correct in the downgraded frame session")
+            XCTAssertEqual(
+                runtime.lastPrepaintReplayCount, 2,
+                "The downgraded frame session should preserve prepaint replay eligibility, including the unchanged left subtree"
+            )
+            XCTAssertEqual(
+                runtime.lastDeferredDrawFrameReplayCount, 1,
+                "The unchanged deferred indicator should replay on later downgraded-frame renders")
+            XCTAssertEqual(
+                fillRectCommands(in: frameRenderer.renderedFrames[1]).last?.rect, expectedIndicatorRect,
+                "Deferred indicator ordering should stay correct in the downgraded frame session")
         }
     }
 
@@ -597,10 +615,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertTrue(host.isUsingBatchPresentationBackend)
             XCTAssertEqual(batchRenderer.boundScenes.count, 1)
             XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
-            XCTAssertEqual(batchRenderer.events, [
-                .bind([0]),
-                .render([0]),
-            ])
+            XCTAssertEqual(
+                batchRenderer.events,
+                [
+                    .bind([0]),
+                    .render([0]),
+                ])
             XCTAssertEqual(batchRenderer.renderedScenes[0].layers[0].images[0].opacity, 0.75, accuracy: 0.001)
             XCTAssertEqual(frameRenderer.attachedSurfaces.count, 0)
             XCTAssertEqual(frameRenderer.renderedFrames.count, 0)
@@ -657,8 +677,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Should have downgraded to frame renderer
             // Fallback attaches frame renderer and calls resize
-            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1) // Frame was attached as fallback
-            XCTAssertTrue(frameRenderer.resizedSizes.contains(newSize)) // Frame got the resize
+            XCTAssertEqual(frameRenderer.attachedSurfaces.count, 1)  // Frame was attached as fallback
+            XCTAssertTrue(frameRenderer.resizedSizes.contains(newSize))  // Frame got the resize
             XCTAssertEqual(
                 host.currentPresentationSelection,
                 PresentationSelection(
@@ -862,11 +882,15 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.window(window, pointerMovedTo: pixelPoint)
 
             XCTAssertEqual(recorder.events.count, 1, "Pointer move should be recorded after real host delegation")
-            guard case let .pointerMoved(point, scaleFactor) = recorder.events[0] else {
+            guard case .pointerMoved(let point, let scaleFactor) = recorder.events[0] else {
                 return XCTFail("Expected a pointerMoved event from WinSwiftUIWindowHost")
             }
-            XCTAssertEqual(point.x, 100.0, accuracy: 0.001, "X coordinate should be converted from pixels to logical points (200/2=100)")
-            XCTAssertEqual(point.y, 50.0, accuracy: 0.001, "Y coordinate should be converted from pixels to logical points (100/2=50)")
+            XCTAssertEqual(
+                point.x, 100.0, accuracy: 0.001,
+                "X coordinate should be converted from pixels to logical points (200/2=100)")
+            XCTAssertEqual(
+                point.y, 50.0, accuracy: 0.001,
+                "Y coordinate should be converted from pixels to logical points (100/2=50)")
             XCTAssertEqual(scaleFactor, 2.0, "Host should record the scale factor used for conversion")
         }
     }
@@ -882,7 +906,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Test pointer down at pixel (100, 200) -> logical (50, 100)
             host.window(window, leftMouseDownAt: Point(x: 100, y: 200))
             XCTAssertEqual(recorder.events.count, 1, "Pointer down should be recorded after real host delegation")
-            guard case let .pointerDown(point, scaleFactor) = recorder.events[0] else {
+            guard case .pointerDown(let point, let scaleFactor) = recorder.events[0] else {
                 return XCTFail("Expected a pointerDown event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(point.x, 50.0, accuracy: 0.001, "Down X should be converted (100/2=50)")
@@ -892,7 +916,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Test pointer up at pixel (300, 400) -> logical (150, 200)
             host.window(window, leftMouseUpAt: Point(x: 300, y: 400))
             XCTAssertEqual(recorder.events.count, 2, "Pointer up should also be recorded after real host delegation")
-            guard case let .pointerUp(point, scaleFactor) = recorder.events[1] else {
+            guard case .pointerUp(let point, let scaleFactor) = recorder.events[1] else {
                 return XCTFail("Expected a pointerUp event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(point.x, 150.0, accuracy: 0.001, "Up X should be converted (300/2=150)")
@@ -914,7 +938,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             )
 
             XCTAssertEqual(recorder.events.count, 1, "Right-click should be recorded after real host delegation")
-            guard case let .contextClick(point, scaleFactor) = recorder.events[0] else {
+            guard case .contextClick(let point, let scaleFactor) = recorder.events[0] else {
                 return XCTFail("Expected a contextClick event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(point.x, 50.0, accuracy: 0.001, "Right-click X should be converted (100/2=50)")
@@ -955,7 +979,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.window(window, mouseWheelAt: Point(x: 200, y: 100), delta: 3.0)
 
             XCTAssertEqual(recorder.events.count, 1, "Wheel input should be recorded after real host delegation")
-            guard case let .mouseWheel(point, delta, axis, scaleFactor) = recorder.events[0] else {
+            guard case .mouseWheel(let point, let delta, let axis, let scaleFactor) = recorder.events[0] else {
                 return XCTFail("Expected a mouseWheel event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(point.x, 100.0, accuracy: 0.001, "Wheel X coordinate should be converted (200/2=100)")
@@ -979,7 +1003,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.window(window, horizontalScrollAt: Point(x: 400, y: 300), delta: -5.0)
 
             XCTAssertEqual(recorder.events.count, 1, "Horizontal scroll should be recorded after real host delegation")
-            guard case let .mouseWheel(point, delta, axis, scaleFactor) = recorder.events[0] else {
+            guard case .mouseWheel(let point, let delta, let axis, let scaleFactor) = recorder.events[0] else {
                 return XCTFail("Expected a mouseWheel event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(point.x, 200.0, accuracy: 0.001, "Horizontal scroll X should be converted (400/2=200)")
@@ -1005,7 +1029,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.window(window, keyDown: keyEvent)
 
             XCTAssertEqual(recorder.events.count, 1, "Key down should be recorded after real host delegation")
-            guard case let .keyDown(recordedEvent) = recorder.events[0] else {
+            guard case .keyDown(let recordedEvent) = recorder.events[0] else {
                 return XCTFail("Expected a keyDown event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(recordedEvent.keyCode, 13, "Key code should be preserved (Enter = 13)")
@@ -1027,7 +1051,7 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.window(window, keyDown: keyEvent)
 
             XCTAssertEqual(recorder.events.count, 1, "Modified key down should be recorded after real host delegation")
-            guard case let .keyDown(recordedEvent) = recorder.events[0] else {
+            guard case .keyDown(let recordedEvent) = recorder.events[0] else {
                 return XCTFail("Expected a keyDown event from WinSwiftUIWindowHost")
             }
             XCTAssertEqual(recordedEvent.keyCode, 9, "Key code should be preserved (Tab = 9)")
@@ -1252,7 +1276,9 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Verify initial render occurred
             XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Initial render should complete")
-            XCTAssertEqual(host.currentTimerState.refreshRate, 60, "Initial timer cadence should use the initial monitor refresh rate")
+            XCTAssertEqual(
+                host.currentTimerState.refreshRate, 60,
+                "Initial timer cadence should use the initial monitor refresh rate")
             XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 60))
             XCTAssertNotNil(host.currentRuntimeMinimumFrameInterval)
             XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 60.0, accuracy: 0.000_001)
@@ -1261,7 +1287,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded")
             if let firstState = recordedTimerStates.first {
                 XCTAssertTrue(firstState.usesHighResolution, "High resolution timer should be enabled")
-                XCTAssertEqual(firstState.refreshRate, 60, "Initial timer state should record the initial monitor refresh rate")
+                XCTAssertEqual(
+                    firstState.refreshRate, 60, "Initial timer state should record the initial monitor refresh rate")
                 XCTAssertEqual(firstState.intervalMilliseconds, expectedTimerInterval(for: 60))
                 XCTAssertGreaterThan(firstState.intervalMilliseconds, 0, "Timer interval should be positive")
                 XCTAssertLessThanOrEqual(firstState.intervalMilliseconds, 1000, "Timer interval should be reasonable")
@@ -1271,12 +1298,16 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.windowDidChangeDisplay(fakeWindow)
 
             XCTAssertTrue(host.currentTimerState.usesHighResolution, "Host should report high-res timer enabled")
-            XCTAssertEqual(host.currentTimerState.refreshRate, 144, "Display-change handling should resample the window monitor refresh rate")
+            XCTAssertEqual(
+                host.currentTimerState.refreshRate, 144,
+                "Display-change handling should resample the window monitor refresh rate")
             XCTAssertEqual(host.currentTimerState.intervalMilliseconds, expectedTimerInterval(for: 144))
             XCTAssertEqual(host.currentRuntimeMinimumFrameInterval ?? 0, 1.0 / 144.0, accuracy: 0.000_001)
             XCTAssertTrue(recordedTimerStates.contains(where: { $0.refreshRate == 60 }))
-            XCTAssertTrue(recordedTimerStates.contains(where: { $0.refreshRate == 144 }),
-                "Timer observability should record the updated monitor refresh rate after the real host display-change seam runs")
+            XCTAssertTrue(
+                recordedTimerStates.contains(where: { $0.refreshRate == 144 }),
+                "Timer observability should record the updated monitor refresh rate after the real host display-change seam runs"
+            )
         }
     }
 
@@ -1326,11 +1357,13 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             // Verify the timer state was recorded as disabled (or remains with isEnabled=false)
             // The last recorded state should reflect idle suppression
             let finalState = host.currentTimerState
-            XCTAssertFalse(finalState.isEnabled, "Timer should be disabled when idle (no dirty state, no animations, no input)")
+            XCTAssertFalse(
+                finalState.isEnabled, "Timer should be disabled when idle (no dirty state, no animations, no input)")
 
             // Verify timer state was recorded through the callback
             let disabledStates = recordedTimerStates.filter { !$0.isEnabled }
-            XCTAssertFalse(disabledStates.isEmpty, "At least one timer disable event should be recorded when going idle")
+            XCTAssertFalse(
+                disabledStates.isEmpty, "At least one timer disable event should be recorded when going idle")
         }
     }
 
@@ -1402,7 +1435,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             XCTAssertTrue(host.currentTimerState.isEnabled, "Timer should remain enabled after high-rate input")
 
             // Verify we recorded timer states during the input burst
-            XCTAssertFalse(recordedTimerStates.isEmpty, "Timer state changes should be recorded during input processing")
+            XCTAssertFalse(
+                recordedTimerStates.isEmpty, "Timer state changes should be recorded during input processing")
 
             // Now simulate an idle frame - but since we had high-rate input,
             // the inputRateTracker should sustain high-rate pumping for 1 second
@@ -1411,7 +1445,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
             // Wait a tiny bit then check timer is still enabled due to sustained input rate
             // The sustain window is 1 second, so timer should remain enabled
-            XCTAssertTrue(host.currentTimerState.isEnabled, "Timer should remain enabled due to sustained high input rate")
+            XCTAssertTrue(
+                host.currentTimerState.isEnabled, "Timer should remain enabled due to sustained high input rate")
         }
     }
 
@@ -1419,17 +1454,19 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         await MainActor.run {
             // Test that timer intervals are correctly calculated from refresh rates
             let testCases: [(refreshRate: UInt32, expectedMinInterval: UInt32, expectedMaxInterval: UInt32)] = [
-                (60, 16, 17),    // 1000/60 = 16.67 -> rounds to 16 or 17
-                (120, 8, 9),     // 1000/120 = 8.33 -> rounds to 8 or 9
-                (144, 6, 7),     // 1000/144 = 6.94 -> rounds to 6 or 7
-                (240, 4, 5),     // 1000/240 = 4.17 -> rounds to 4 or 5
+                (60, 16, 17),  // 1000/60 = 16.67 -> rounds to 16 or 17
+                (120, 8, 9),  // 1000/120 = 8.33 -> rounds to 8 or 9
+                (144, 6, 7),  // 1000/144 = 6.94 -> rounds to 6 or 7
+                (240, 4, 5),  // 1000/240 = 4.17 -> rounds to 4 or 5
             ]
 
             for testCase in testCases {
                 let interval = expectedTimerInterval(for: testCase.refreshRate)
-                XCTAssertGreaterThanOrEqual(interval, testCase.expectedMinInterval,
+                XCTAssertGreaterThanOrEqual(
+                    interval, testCase.expectedMinInterval,
                     "Timer interval for \(testCase.refreshRate)Hz should be >= \(testCase.expectedMinInterval)ms")
-                XCTAssertLessThanOrEqual(interval, testCase.expectedMaxInterval,
+                XCTAssertLessThanOrEqual(
+                    interval, testCase.expectedMaxInterval,
                     "Timer interval for \(testCase.refreshRate)Hz should be <= \(testCase.expectedMaxInterval)ms")
             }
         }
@@ -1488,10 +1525,13 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         observable.secondaryValue = "second change"
         observable.value = 2
 
-        XCTAssertEqual(host.scheduledReloadCount, 1, "Three same-turn changes should schedule exactly one deferred reload task")
+        XCTAssertEqual(
+            host.scheduledReloadCount, 1, "Three same-turn changes should schedule exactly one deferred reload task")
         XCTAssertEqual(scheduledEvents.count, 3, "Every observed-object change should be recorded")
         XCTAssertEqual(scheduledEvents.map(\.objectID), Array(repeating: ObjectIdentifier(observable), count: 3))
-        XCTAssertEqual(scheduledEvents.map(\.coalesced), [false, true, true], "Only the first change should create a new deferred reload task")
+        XCTAssertEqual(
+            scheduledEvents.map(\.coalesced), [false, true, true],
+            "Only the first change should create a new deferred reload task")
 
         await fulfillment(of: [reloadCompleted, deferredTaskCompleted], timeout: 1.0)
 
@@ -1500,12 +1540,17 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         XCTAssertEqual(host.executedReloadCount, 1, "Exactly one deferred reload should rebuild content")
         XCTAssertEqual(reloadCompletedCount, 1, "Exactly one deferred reload should complete")
         XCTAssertEqual(deferredTaskResults, [true], "The deferred reload task should report an executed reload")
-        XCTAssertEqual(frameRenderer.renderedFrames.count, 1, "Rebuild should queue presentation but not render until display is requested")
+        XCTAssertEqual(
+            frameRenderer.renderedFrames.count, 1,
+            "Rebuild should queue presentation but not render until display is requested")
 
         host.windowNeedsDisplay(fakeWindow)
 
-        XCTAssertEqual(frameRenderer.renderedFrames.count, 2, "The queued presentation should render exactly one follow-up frame")
-        XCTAssertEqual(frameRenderer.renderedFrames.last?.clearColor, .black, "The follow-up frame should present the configured clear color")
+        XCTAssertEqual(
+            frameRenderer.renderedFrames.count, 2, "The queued presentation should render exactly one follow-up frame")
+        XCTAssertEqual(
+            frameRenderer.renderedFrames.last?.clearColor, .black,
+            "The follow-up frame should present the configured clear color")
     }
 
     /// VAL-CROSS-010: The ComponentHost dependency set rejects irrelevant
@@ -1552,7 +1597,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         await fulfillment(of: [relevantReloadCompleted, relevantTaskCompleted], timeout: 1.0)
         host.windowNeedsDisplay(fakeWindow)
 
-        XCTAssertEqual(relevantTaskResults, [true], "A relevant observed-object change should execute one deferred reload")
+        XCTAssertEqual(
+            relevantTaskResults, [true], "A relevant observed-object change should execute one deferred reload")
         XCTAssertEqual(frameRenderer.renderedFrames.count, 2, "The relevant change should render one follow-up frame")
 
         var rejectedTaskResults: [Bool] = []
@@ -1572,28 +1618,45 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
 
         host.resetObservabilityCounters()
         host.observe(irrelevantObject)
-        XCTAssertEqual(host.observedObjectRegistrationCount, 1, "The host should hold a real observation token for the irrelevant object before filtering it")
+        XCTAssertEqual(
+            host.observedObjectRegistrationCount, 1,
+            "The host should hold a real observation token for the irrelevant object before filtering it")
 
         let renderCountBeforeIrrelevantChange = frameRenderer.renderedFrames.count
         irrelevantObject.value = 1
 
-        XCTAssertEqual(host.scheduledReloadCount, 1, "A changed but non-dependent object should still schedule one deferred reload task")
+        XCTAssertEqual(
+            host.scheduledReloadCount, 1,
+            "A changed but non-dependent object should still schedule one deferred reload task")
 
         await fulfillment(of: [rejectedTaskCompleted], timeout: 1.0)
 
-        XCTAssertEqual(host.completedObservedObjectReloadTaskCount, 1, "The deferred reload task should still finish after dependency evaluation")
-        XCTAssertEqual(host.skippedObservedObjectReloadCount, 1, "The ComponentHost dependency set should reject the irrelevant change")
+        XCTAssertEqual(
+            host.completedObservedObjectReloadTaskCount, 1,
+            "The deferred reload task should still finish after dependency evaluation")
+        XCTAssertEqual(
+            host.skippedObservedObjectReloadCount, 1,
+            "The ComponentHost dependency set should reject the irrelevant change")
         XCTAssertEqual(host.executedReloadCount, 0, "Rejected dependency changes must not rebuild content")
         XCTAssertEqual(rejectedReloadCompletedCount, 0, "Rejected dependency changes must not report reload completion")
-        XCTAssertEqual(rejectedTaskResults, [false], "The deferred reload task should report that it skipped the rebuild")
+        XCTAssertEqual(
+            rejectedTaskResults, [false], "The deferred reload task should report that it skipped the rebuild")
         XCTAssertEqual(scheduledEvents.count, 1, "Only one irrelevant notification should be scheduled")
-        XCTAssertEqual(scheduledEvents.first?.objectID, ObjectIdentifier(irrelevantObject), "The scheduled task should correspond to the irrelevant object")
-        XCTAssertEqual(scheduledEvents.first?.coalesced, false, "The irrelevant notification should schedule one non-coalesced task")
-        XCTAssertEqual(frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange, "Rejected dependency changes must not render immediately")
+        XCTAssertEqual(
+            scheduledEvents.first?.objectID, ObjectIdentifier(irrelevantObject),
+            "The scheduled task should correspond to the irrelevant object")
+        XCTAssertEqual(
+            scheduledEvents.first?.coalesced, false,
+            "The irrelevant notification should schedule one non-coalesced task")
+        XCTAssertEqual(
+            frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange,
+            "Rejected dependency changes must not render immediately")
 
         host.windowNeedsDisplay(fakeWindow)
 
-        XCTAssertEqual(frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange, "Rejected dependency changes must not queue a later render either")
+        XCTAssertEqual(
+            frameRenderer.renderedFrames.count, renderCountBeforeIrrelevantChange,
+            "Rejected dependency changes must not queue a later render either")
     }
 
     /// VAL-CROSS-010: Pending changed objects accumulation and dependency filtering.
@@ -1656,20 +1719,25 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             ObservableObjectCenter.shared.notify(object3)
 
             // Assert that all three notifications were captured
-            XCTAssertEqual(accumulatedObjectIDs.count, 3,
+            XCTAssertEqual(
+                accumulatedObjectIDs.count, 3,
                 "All three notification events should be captured")
 
             // Assert that all object IDs are in the accumulated list
-            XCTAssertTrue(accumulatedObjectIDs.contains(ObjectIdentifier(object1)),
+            XCTAssertTrue(
+                accumulatedObjectIDs.contains(ObjectIdentifier(object1)),
                 "Object 1 should be in accumulated list")
-            XCTAssertTrue(accumulatedObjectIDs.contains(ObjectIdentifier(object2)),
+            XCTAssertTrue(
+                accumulatedObjectIDs.contains(ObjectIdentifier(object2)),
                 "Object 2 should be in accumulated list")
-            XCTAssertTrue(accumulatedObjectIDs.contains(ObjectIdentifier(object3)),
+            XCTAssertTrue(
+                accumulatedObjectIDs.contains(ObjectIdentifier(object3)),
                 "Object 3 should be in accumulated list")
 
             // Assert that pendingChangedObjects would contain all three object IDs
             // (verified via reloadTriggeringObjectIDs which tracks pendingChangedObjects inserts)
-            XCTAssertEqual(host.reloadTriggeringObjectIDs.count, 3,
+            XCTAssertEqual(
+                host.reloadTriggeringObjectIDs.count, 3,
                 "reloadTriggeringObjectIDs should contain all three unique object IDs")
         }
     }
@@ -1723,20 +1791,25 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             host.observe(object1)  // Duplicate - should not register again
 
             // Assert registration count via concrete counter
-            XCTAssertEqual(host.observedObjectRegistrationCount, 2,
+            XCTAssertEqual(
+                host.observedObjectRegistrationCount, 2,
                 "Should register exactly 2 unique objects (duplicate observation ignored)")
 
             // Assert via callback tracking
-            XCTAssertEqual(registeredObjectIDs.count, 2,
+            XCTAssertEqual(
+                registeredObjectIDs.count, 2,
                 "Should have exactly 2 registration events")
-            XCTAssertTrue(registeredObjectIDs.contains(ObjectIdentifier(object1)),
+            XCTAssertTrue(
+                registeredObjectIDs.contains(ObjectIdentifier(object1)),
                 "Object 1 should be registered")
-            XCTAssertTrue(registeredObjectIDs.contains(ObjectIdentifier(object2)),
+            XCTAssertTrue(
+                registeredObjectIDs.contains(ObjectIdentifier(object2)),
                 "Object 2 should be registered")
 
             // Assert duplicate observation was ignored
             let object1RegistrationCount = registeredObjectIDs.filter { $0 == ObjectIdentifier(object1) }.count
-            XCTAssertEqual(object1RegistrationCount, 1,
+            XCTAssertEqual(
+                object1RegistrationCount, 1,
                 "Duplicate observation of same object should be ignored")
         }
     }

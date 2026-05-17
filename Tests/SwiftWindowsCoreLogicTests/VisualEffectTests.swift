@@ -1,8 +1,9 @@
 import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
-@testable import SwiftWindowsUI
 import Testing
+
+@testable import SwiftWindowsUI
 
 @MainActor
 @Suite("Visual Effect Encoding and Rendering Tests")
@@ -282,21 +283,23 @@ struct VisualEffectTests {
         let clearColor = Color(red: 0, green: 0, blue: 0, alpha: 0.5)
 
         var noBlurScene = GPUIScene(clearColor: clearColor)
-        noBlurScene.addQuad(QuadPrimitive(
-            x: 10, y: 10, width: 20, height: 20,
-            startR: 1, startG: 1, startB: 1, startA: 0.5,
-            endR: 1, endG: 1, endB: 1, endA: 0.5
-        ), toLayer: 0)
+        noBlurScene.addQuad(
+            QuadPrimitive(
+                x: 10, y: 10, width: 20, height: 20,
+                startR: 1, startG: 1, startB: 1, startA: 0.5,
+                endR: 1, endG: 1, endB: 1, endA: 0.5
+            ), toLayer: 0)
         noBlurScene.finish()
 
         var blurScene = GPUIScene(clearColor: clearColor)
-        blurScene.addQuad(QuadPrimitive(
-            x: 10, y: 10, width: 20, height: 20,
-            startR: 1, startG: 1, startB: 1, startA: 0.5,
-            endR: 1, endG: 1, endB: 1, endA: 0.5,
-            blurRadius: 2,
-            blurOpaque: 1
-        ), toLayer: 0)
+        blurScene.addQuad(
+            QuadPrimitive(
+                x: 10, y: 10, width: 20, height: 20,
+                startR: 1, startG: 1, startB: 1, startA: 0.5,
+                endR: 1, endG: 1, endB: 1, endA: 0.5,
+                blurRadius: 2,
+                blurOpaque: 1
+            ), toLayer: 0)
         blurScene.finish()
 
         let noBlurBitmap = GPUIRawSceneRasterizer.rasterize(noBlurScene, size: IntSize(width: 40, height: 40))

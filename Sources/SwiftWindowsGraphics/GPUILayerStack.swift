@@ -1,11 +1,11 @@
-import SwiftWindowsCore
-
 /// Determines when the scene painter should split into a new rendering layer.
 /// Layers ensure correct visual ordering when primitives are batched by type.
 ///
 /// When rendering, all quads in a layer are drawn together, then all glyphs.
 /// Siblings with different zIndex values must be painted in separate layers so
 /// that higher-zIndex content draws on top of the entire lower-zIndex subtree.
+import SwiftWindowsCore
+
 public struct GPUILayerStack: Sendable {
 
     /// A decision about whether to split rendering into multiple layers.

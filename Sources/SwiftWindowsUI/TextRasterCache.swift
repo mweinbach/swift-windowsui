@@ -1,5 +1,7 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
 
 struct TextRasterCacheKey: Hashable, Sendable {
@@ -91,7 +93,6 @@ struct TextRasterCacheKey: Hashable, Sendable {
         self.enableKerning = style.enableKerning
     }
 }
-
 @MainActor
 public final class TextRasterCache {
     private var entries: [TextRasterCacheKey: CacheEntry] = [:]
@@ -150,7 +151,9 @@ public final class TextRasterCache {
     }
 
     private func evictIfNeeded(incomingBytes: Int) {
-        while !accessOrder.isEmpty && (entries.count >= maxEntryCount || totalMemoryBytes + incomingBytes > maxMemoryBytes) {
+        while !accessOrder.isEmpty
+            && (entries.count >= maxEntryCount || totalMemoryBytes + incomingBytes > maxMemoryBytes)
+        {
             let oldestKey = accessOrder.removeFirst()
             if let entry = entries.removeValue(forKey: oldestKey) {
                 totalMemoryBytes -= entry.memoryBytes
@@ -158,12 +161,10 @@ public final class TextRasterCache {
         }
     }
 }
-
 private struct CacheEntry {
     var surface: BitmapSurface
     var memoryBytes: Int
 }
-
 extension TextWeight: Hashable {}
 extension TextFontWidth: Hashable {}
 extension TextHorizontalAlignment: Hashable {}

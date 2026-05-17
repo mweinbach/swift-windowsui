@@ -1,6 +1,9 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import WinSDK
 
 final class NativeFontFaceHandle: @unchecked Sendable {
@@ -31,7 +34,6 @@ final class NativeFontFaceHandle: @unchecked Sendable {
         _ = unknown.pointee.lpVtbl.pointee.Release(unknown)
     }
 }
-
 struct NativeTextGlyphLayout: Sendable {
     var character: Character
     var origin: Point
@@ -55,9 +57,7 @@ struct NativeTextGlyphLayout: Sendable {
             && lhs.sourceIndex == rhs.sourceIndex
     }
 }
-
 extension NativeTextGlyphLayout: Equatable {}
-
 struct NativeTextLineLayout: Equatable, Sendable {
     var text: String
     var width: Double
@@ -66,14 +66,12 @@ struct NativeTextLineLayout: Equatable, Sendable {
     var descent: Double = 0
     var glyphs: [NativeTextGlyphLayout]
 }
-
 struct NativeTextLayoutResult: Equatable, Sendable {
     var lines: [NativeTextLineLayout]
     var lineSpacing: Double = 0
     var contentSize: Size
     var measuredSize: Size
 }
-
 struct NativeGlyphBitmap: Equatable, Sendable {
     var surface: BitmapSurface
     var bearingX: Float

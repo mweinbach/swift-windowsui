@@ -1,3 +1,7 @@
+// swift-format-ignore-file
+// Embedded HLSL shader source uses raw string literals; opting out so
+// swift-format does not mangle their indentation.
+
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 import WinSDK

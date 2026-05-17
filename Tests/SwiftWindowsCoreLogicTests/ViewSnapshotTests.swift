@@ -1,6 +1,7 @@
-import XCTest
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class ViewSnapshotTests: XCTestCase {
@@ -41,11 +42,12 @@ final class ViewSnapshotTests: XCTestCase {
             let bitmap = try ViewSnapshot.rasterize(
                 component: UI.panel(
                     frame: Rect(origin: .zero, size: Size(width: 100, height: 50)),
-                    backgroundGradient: .linear(LinearGradient(
-                        startColor: .blue,
-                        endColor: .green,
-                        axis: .horizontal
-                    ))
+                    backgroundGradient: .linear(
+                        LinearGradient(
+                            startColor: .blue,
+                            endColor: .green,
+                            axis: .horizontal
+                        ))
                 ),
                 size: Size(width: 100, height: 50),
                 clearColor: .white
@@ -103,7 +105,7 @@ final class ViewSnapshotTests: XCTestCase {
             XCTAssertEqual(data.prefix(2), Data([0x42, 0x4D]))
             // Pixel offset at bytes 10-13
             let pixelOffset = data.subdata(in: 10..<14).withUnsafeBytes { $0.load(as: Int32.self) }
-            XCTAssertEqual(pixelOffset, 54) // 14 + 40
+            XCTAssertEqual(pixelOffset, 54)  // 14 + 40
 
             // Clean up
             try? FileManager.default.removeItem(at: tempURL)
@@ -123,7 +125,8 @@ final class ViewSnapshotTests: XCTestCase {
             for y in 0..<Int(bitmap.height) {
                 for x in 0..<Int(bitmap.width) {
                     if let color = bitmap.pixelColor(atX: x, y: y),
-                       color.red > 0.1 || color.green > 0.1 || color.blue > 0.1 {
+                        color.red > 0.1 || color.green > 0.1 || color.blue > 0.1
+                    {
                         foundGlyph = true
                         break
                     }

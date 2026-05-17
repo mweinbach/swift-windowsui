@@ -1,16 +1,15 @@
-import SwiftWindowsCore
-
 // MARK: - Clip Stack Entry
 
 /// Internal struct to track clip stack entries with their operation type.
 /// Used by GPUISceneBridge to implement proper intersect/replace semantics.
+import SwiftWindowsCore
+
+// MARK: - RenderFrame to GPUIScene Bridge
+
 private struct ClipStackEntry {
     var rect: Rect
     var operation: ClipOperation
 }
-
-// MARK: - RenderFrame to GPUIScene Bridge
-
 extension GPUIScene {
     /// Creates a `GPUIScene` from an existing `RenderFrame`.
     ///
@@ -69,7 +68,7 @@ extension GPUIScene {
                     // VAL-SCENE-009: Empty resulting clip suppresses command
                     continue
                 }
-                
+
                 let quad = Self.makeQuad(
                     from: cmd,
                     effectiveClip: effectiveClip
@@ -113,7 +112,7 @@ extension GPUIScene {
                     // VAL-SCENE-011: Path clips fallback to full surface (no-op)
                     clipRect = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
                 }
-                
+
                 clipStack.append(ClipStackEntry(rect: clipRect, operation: cmd.operation))
 
             case .popClip:
@@ -137,8 +136,10 @@ extension GPUIScene {
                         case .moveTo(let p): return .moveTo(p)
                         case .lineTo(let p): return .lineTo(p)
                         case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                        case .cubicCurveTo(let c1, let c2, let e):
+                            return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                        case .arc(let c, let r, let s, let e, let cw):
+                            return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
                         case .close: return .close
                         }
                     },
@@ -163,8 +164,10 @@ extension GPUIScene {
                         case .moveTo(let p): return .moveTo(p)
                         case .lineTo(let p): return .lineTo(p)
                         case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                        case .cubicCurveTo(let c1, let c2, let e):
+                            return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                        case .arc(let c, let r, let s, let e, let cw):
+                            return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
                         case .close: return .close
                         }
                     },
@@ -184,9 +187,9 @@ extension GPUIScene {
     }
 
     // MARK: - Clip Resolution (VAL-SCENE-009)
-    
+
     /// Resolves the effective clip rect from the stack and any per-command clip.
-    /// 
+    ///
     /// Clip semantics:
     /// - `intersect` operations intersect with the existing clip state
     /// - `replace` operations discard prior clip state for that level
@@ -198,10 +201,10 @@ extension GPUIScene {
         surfaceSize: Size
     ) -> Rect {
         let fullSurface = Rect(x: 0, y: 0, width: surfaceSize.width, height: surfaceSize.height)
-        
+
         // Build effective clip from stack, respecting intersect vs replace operations
         var effective = fullSurface
-        
+
         for entry in clipStack {
             switch entry.operation {
             case .intersect:
@@ -216,7 +219,7 @@ extension GPUIScene {
                 effective = entry.rect
             }
         }
-        
+
         // Apply per-command clip if present (always intersects)
         if let cmdClip = commandClip {
             if let intersected = effective.intersected(with: cmdClip) {
@@ -225,14 +228,14 @@ extension GPUIScene {
                 return Rect.zero
             }
         }
-        
+
         return effective
     }
 
     // MARK: - Primitive Conversion Helpers
 
     /// Converts a `FillRectCommand` to a `QuadPrimitive`.
-    /// 
+    ///
     /// Gradient handling (VAL-SCENE-011):
     /// - Linear gradients: Mapped to quad gradient fields
     /// - Radial/conic gradients: Fallback to base color (`cmd.color`)

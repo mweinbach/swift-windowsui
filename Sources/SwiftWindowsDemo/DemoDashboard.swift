@@ -1,7 +1,7 @@
 #if canImport(SwiftUI)
-import SwiftUI
+    import SwiftUI
 #else
-import WinSwiftUI
+    import WinSwiftUI
 #endif
 
 @MainActor
@@ -42,7 +42,6 @@ public final class DemoDashboardModel: ObservableObject {
         }
     }
 }
-
 public struct DemoRootView: View {
     @ObservedObject var model: DemoDashboardModel
 
@@ -60,7 +59,10 @@ public struct DemoRootView: View {
                 DemoAccent(
                     frame: layout.accentA,
                     fill: LinearGradient(
-                        colors: [model.selectedModule.glowColor.opacity(0.32), model.selectedModule.stripeColor.opacity(0.10)],
+                        colors: [
+                            model.selectedModule.glowColor.opacity(0.32),
+                            model.selectedModule.stripeColor.opacity(0.10),
+                        ],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
@@ -69,7 +71,10 @@ public struct DemoRootView: View {
                 DemoAccent(
                     frame: layout.accentB,
                     fill: LinearGradient(
-                        colors: [model.selectedModule.stripeColor.opacity(0.26), model.selectedModule.glowColor.opacity(0.08)],
+                        colors: [
+                            model.selectedModule.stripeColor.opacity(0.26),
+                            model.selectedModule.glowColor.opacity(0.08),
+                        ],
                         startPoint: .top,
                         endPoint: .bottom
                     )
@@ -97,7 +102,6 @@ public struct DemoRootView: View {
         }
     }
 }
-
 struct DemoToolbar: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -184,7 +188,9 @@ struct DemoToolbar: View {
                 DemoPillButton(
                     model.selectedModule.statusLabel,
                     width: layout.modeWidth,
-                    colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                    colors: [
+                        model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70),
+                    ]
                 ) {
                     model.cycleModule()
                 }
@@ -193,7 +199,6 @@ struct DemoToolbar: View {
         .frame(height: layout.toolbarHeight, alignment: .leading)
     }
 }
-
 struct DemoSidebar: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -230,7 +235,10 @@ struct DemoSidebar: View {
                         .frame(height: 10)
                         .background(
                             LinearGradient(
-                                colors: [model.selectedModule.glowColor.opacity(0.88), model.selectedModule.stripeColor.opacity(0.62)],
+                                colors: [
+                                    model.selectedModule.glowColor.opacity(0.88),
+                                    model.selectedModule.stripeColor.opacity(0.62),
+                                ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
@@ -263,7 +271,6 @@ struct DemoSidebar: View {
         }
     }
 }
-
 struct DemoCenterPane: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -276,21 +283,39 @@ struct DemoCenterPane: View {
 
                 if layout.compact {
                     VStack(alignment: .leading, spacing: 14) {
-                        DemoMetricCard(title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED", accent: model.selectedModule.glowColor)
-                            .frame(width: layout.contentInnerWidth, alignment: .leading)
-                        DemoMetricCard(title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary, accent: model.selectedModule.stripeColor)
-                            .frame(width: layout.contentInnerWidth, alignment: .leading)
-                        DemoMetricCard(title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI", accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96))
-                            .frame(width: layout.contentInnerWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
+                            accent: model.selectedModule.glowColor
+                        )
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
+                            accent: model.selectedModule.stripeColor
+                        )
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
+                            accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96)
+                        )
+                        .frame(width: layout.contentInnerWidth, alignment: .leading)
                     }
                 } else {
                     HStack(alignment: .center, spacing: 18) {
-                        DemoMetricCard(title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED", accent: model.selectedModule.glowColor)
-                            .frame(width: layout.metricCardWidth, alignment: .leading)
-                        DemoMetricCard(title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary, accent: model.selectedModule.stripeColor)
-                            .frame(width: layout.metricCardWidth, alignment: .leading)
-                        DemoMetricCard(title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI", accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96))
-                            .frame(width: layout.metricCardWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "INTERACTIONS", value: "\(model.interactionCount)", note: "EVENTS TRACKED",
+                            accent: model.selectedModule.glowColor
+                        )
+                        .frame(width: layout.metricCardWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "MODULE", value: model.selectedModule.label, note: model.selectedModule.summary,
+                            accent: model.selectedModule.stripeColor
+                        )
+                        .frame(width: layout.metricCardWidth, alignment: .leading)
+                        DemoMetricCard(
+                            title: "TARGET", value: "SAME SOURCE", note: "IMPORT WINSWIFTUI OR SWIFTUI",
+                            accent: Color(red: 0.79, green: 0.87, blue: 0.97, opacity: 0.96)
+                        )
+                        .frame(width: layout.metricCardWidth, alignment: .leading)
                     }
                     .frame(width: layout.contentInnerWidth, alignment: .leading)
                 }
@@ -315,7 +340,6 @@ struct DemoCenterPane: View {
         }
     }
 }
-
 struct DemoRightRail: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -357,7 +381,6 @@ struct DemoRightRail: View {
         }
     }
 }
-
 struct DemoHeroCard: View {
     let model: DemoDashboardModel
     let layout: DemoLayout
@@ -393,7 +416,10 @@ struct DemoHeroCard: View {
                     .frame(height: 12)
                     .background(
                         LinearGradient(
-                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.68)],
+                            colors: [
+                                model.selectedModule.glowColor.opacity(0.94),
+                                model.selectedModule.stripeColor.opacity(0.68),
+                            ],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -405,7 +431,10 @@ struct DemoHeroCard: View {
                     VStack(alignment: .leading, spacing: 12) {
                         DemoPillButton(
                             "OPEN \(model.selectedModule.label)",
-                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                            colors: [
+                                model.selectedModule.glowColor.opacity(0.94),
+                                model.selectedModule.stripeColor.opacity(0.70),
+                            ]
                         ) {
                             model.performAction("OPENED \(model.selectedModule.label)")
                         }
@@ -421,7 +450,10 @@ struct DemoHeroCard: View {
                     HStack(alignment: .center, spacing: 12) {
                         DemoPillButton(
                             "OPEN \(model.selectedModule.label)",
-                            colors: [model.selectedModule.glowColor.opacity(0.94), model.selectedModule.stripeColor.opacity(0.70)]
+                            colors: [
+                                model.selectedModule.glowColor.opacity(0.94),
+                                model.selectedModule.stripeColor.opacity(0.70),
+                            ]
                         ) {
                             model.performAction("OPENED \(model.selectedModule.label)")
                         }
@@ -441,7 +473,6 @@ struct DemoHeroCard: View {
         .frame(height: layout.heroHeight, alignment: .leading)
     }
 }
-
 struct DemoBackdrop: View {
     let size: CGSize
 
@@ -462,7 +493,6 @@ struct DemoBackdrop: View {
             .allowsHitTesting(false)
     }
 }
-
 struct DemoGlassSurface<Content: View>: View {
     let content: Content
     let cornerRadius: CGFloat
@@ -502,7 +532,6 @@ struct DemoGlassSurface<Content: View>: View {
             .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
     }
 }
-
 struct DemoTintedSurface<Content: View>: View {
     let content: Content
     let cornerRadius: CGFloat
@@ -544,7 +573,6 @@ struct DemoTintedSurface<Content: View>: View {
             .shadow(color: shadowColor, radius: 8, x: 0, y: 14)
     }
 }
-
 struct DemoPanel<Content: View>: View {
     let content: Content
 
@@ -558,7 +586,6 @@ struct DemoPanel<Content: View>: View {
         }
     }
 }
-
 struct DemoCapsuleText: View {
     let title: String
     let tint: Color?
@@ -582,7 +609,6 @@ struct DemoCapsuleText: View {
             .cornerRadius(13)
     }
 }
-
 struct DemoSectionTitle: View {
     let title: String
 
@@ -598,7 +624,6 @@ struct DemoSectionTitle: View {
             .lineLimit(1)
     }
 }
-
 struct DemoPillButton: View {
     let title: String
     let width: CGFloat?
@@ -637,7 +662,6 @@ struct DemoPillButton: View {
         .buttonStyle(.plain)
     }
 }
-
 struct DemoModuleButton: View {
     let systemImage: String
     let title: String
@@ -672,7 +696,6 @@ struct DemoModuleButton: View {
         .buttonStyle(.plain)
     }
 }
-
 struct DemoRowButton: View {
     let title: String
     let detail: String
@@ -737,7 +760,6 @@ struct DemoRowButton: View {
         .buttonStyle(.plain)
     }
 }
-
 struct DemoMetricCard: View {
     let title: String
     let value: String
@@ -766,7 +788,6 @@ struct DemoMetricCard: View {
         }
     }
 }
-
 struct DemoActivityCard: View {
     let title: String
     let detail: String
@@ -778,7 +799,6 @@ struct DemoActivityCard: View {
             .allowsHitTesting(false)
     }
 }
-
 struct DemoInfoCard: View {
     let card: DemoCard
 
@@ -811,7 +831,6 @@ struct DemoInfoCard: View {
         }
     }
 }
-
 struct DemoAccent: View {
     let frame: CGRect
     let fill: LinearGradient
@@ -832,7 +851,6 @@ struct DemoAccent: View {
         .allowsHitTesting(false)
     }
 }
-
 enum DemoTheme {
     static let backdropTop = Color(red: 0.91, green: 0.95, blue: 0.92, opacity: 1.0)
     static let backdropMiddle = Color(red: 0.88, green: 0.92, blue: 0.97, opacity: 1.0)
@@ -851,7 +869,6 @@ enum DemoTheme {
     static let inverseText = Color(red: 0.99, green: 1.0, blue: 1.0, opacity: 0.98)
     static let shadow = Color(red: 0.16, green: 0.20, blue: 0.30, opacity: 0.10)
 }
-
 struct DemoLayout {
     let size: CGSize
 
@@ -914,21 +931,18 @@ struct DemoLayout {
         )
     }
 }
-
 struct DemoCard {
     let title: String
     let summary: String
     let meta: String
     let accent: Color
 }
-
 struct DemoAction {
     let title: String
     let caption: String
     let systemImage: String
     let eventLabel: String
 }
-
 enum DemoModule: CaseIterable, Hashable {
     case layout
     case input
@@ -1039,23 +1053,39 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout:
             return [
-                DemoCard(title: "STACK LAYOUT", summary: "PANELS STRETCH WITH PRIORITY AND PADDING", meta: "RETENTION-FIRST MEASUREMENT", accent: glowColor),
-                DemoCard(title: "CLIPPING", summary: "SCISSOR-READY RECT CLIPPING THROUGH THE RENDER FRAME", meta: "BACKEND-NEUTRAL COMMANDS", accent: stripeColor),
+                DemoCard(
+                    title: "STACK LAYOUT", summary: "PANELS STRETCH WITH PRIORITY AND PADDING",
+                    meta: "RETENTION-FIRST MEASUREMENT", accent: glowColor),
+                DemoCard(
+                    title: "CLIPPING", summary: "SCISSOR-READY RECT CLIPPING THROUGH THE RENDER FRAME",
+                    meta: "BACKEND-NEUTRAL COMMANDS", accent: stripeColor),
             ]
         case .input:
             return [
-                DemoCard(title: "FOCUS CHAIN", summary: "TAB MOVES THROUGH FOCUSABLE RETAINED NODES", meta: "WINDOW DELEGATE TO RUNTIME", accent: glowColor),
-                DemoCard(title: "PRESS STATES", summary: "BUTTONS DRIVE FOCUSED, PRESSED, AND ACTIVATED COLORS", meta: "MAIN-ACTOR CONTROL LIFECYCLE", accent: stripeColor),
+                DemoCard(
+                    title: "FOCUS CHAIN", summary: "TAB MOVES THROUGH FOCUSABLE RETAINED NODES",
+                    meta: "WINDOW DELEGATE TO RUNTIME", accent: glowColor),
+                DemoCard(
+                    title: "PRESS STATES", summary: "BUTTONS DRIVE FOCUSED, PRESSED, AND ACTIVATED COLORS",
+                    meta: "MAIN-ACTOR CONTROL LIFECYCLE", accent: stripeColor),
             ]
         case .animation:
             return [
-                DemoCard(title: "TICK DRIVER", summary: "WINDOW ANIMATION FRAMES ADVANCE COLOR TRANSITIONS", meta: "ONLY WHEN ACTIVE", accent: glowColor),
-                DemoCard(title: "FRAME CACHE", summary: "UNCHANGED UI REUSES THE LAST RENDER FRAME UNTIL INVALIDATED", meta: "RETENTION REDRAWS", accent: stripeColor),
+                DemoCard(
+                    title: "TICK DRIVER", summary: "WINDOW ANIMATION FRAMES ADVANCE COLOR TRANSITIONS",
+                    meta: "ONLY WHEN ACTIVE", accent: glowColor),
+                DemoCard(
+                    title: "FRAME CACHE", summary: "UNCHANGED UI REUSES THE LAST RENDER FRAME UNTIL INVALIDATED",
+                    meta: "RETENTION REDRAWS", accent: stripeColor),
             ]
         case .controls:
             return [
-                DemoCard(title: "TOGGLE AND SLIDER", summary: "INTERACTIVE BINDING-DRIVEN CONTROLS", meta: "HIT-TEST AND FOCUS", accent: glowColor),
-                DemoCard(title: "TEXT INPUT", summary: "TEXTFIELD AND TEXTEDITOR WITH STATE", meta: "KEYBOARD ROUTING", accent: stripeColor),
+                DemoCard(
+                    title: "TOGGLE AND SLIDER", summary: "INTERACTIVE BINDING-DRIVEN CONTROLS",
+                    meta: "HIT-TEST AND FOCUS", accent: glowColor),
+                DemoCard(
+                    title: "TEXT INPUT", summary: "TEXTFIELD AND TEXTEDITOR WITH STATE", meta: "KEYBOARD ROUTING",
+                    accent: stripeColor),
             ]
         }
     }
@@ -1064,23 +1094,39 @@ enum DemoModule: CaseIterable, Hashable {
         switch self {
         case .layout:
             return [
-                DemoAction(title: "Inspect Stacks", caption: "READ THE CONTAINER TREE", systemImage: "rectangle.3.group", eventLabel: "STACK INSPECTOR OPENED"),
-                DemoAction(title: "Resize Panes", caption: "DRAG THE SPLIT DIVIDERS", systemImage: "rectangle.split.3x1", eventLabel: "PANE EDITOR OPENED"),
+                DemoAction(
+                    title: "Inspect Stacks", caption: "READ THE CONTAINER TREE", systemImage: "rectangle.3.group",
+                    eventLabel: "STACK INSPECTOR OPENED"),
+                DemoAction(
+                    title: "Resize Panes", caption: "DRAG THE SPLIT DIVIDERS", systemImage: "rectangle.split.3x1",
+                    eventLabel: "PANE EDITOR OPENED"),
             ]
         case .input:
             return [
-                DemoAction(title: "Focus Walk", caption: "TAB THROUGH CONTROLS", systemImage: "keyboard", eventLabel: "FOCUS WALK STARTED"),
-                DemoAction(title: "Route Events", caption: "TRACE POINTER TO NODE", systemImage: "waveform.path.ecg", eventLabel: "INPUT TRACE OPENED"),
+                DemoAction(
+                    title: "Focus Walk", caption: "TAB THROUGH CONTROLS", systemImage: "keyboard",
+                    eventLabel: "FOCUS WALK STARTED"),
+                DemoAction(
+                    title: "Route Events", caption: "TRACE POINTER TO NODE", systemImage: "waveform.path.ecg",
+                    eventLabel: "INPUT TRACE OPENED"),
             ]
         case .animation:
             return [
-                DemoAction(title: "Play Motion", caption: "RETRIGGER THE STATUS CYCLE", systemImage: "sparkles", eventLabel: "MOTION LOOP STARTED"),
-                DemoAction(title: "Inspect Ticks", caption: "FOLLOW RUNTIME INVALIDATION", systemImage: "bolt.fill", eventLabel: "TICK INSPECTOR OPENED"),
+                DemoAction(
+                    title: "Play Motion", caption: "RETRIGGER THE STATUS CYCLE", systemImage: "sparkles",
+                    eventLabel: "MOTION LOOP STARTED"),
+                DemoAction(
+                    title: "Inspect Ticks", caption: "FOLLOW RUNTIME INVALIDATION", systemImage: "bolt.fill",
+                    eventLabel: "TICK INSPECTOR OPENED"),
             ]
         case .controls:
             return [
-                DemoAction(title: "Toggle Demo", caption: "SWITCH STATES AND BINDINGS", systemImage: "switch.2", eventLabel: "TOGGLE DEMO OPENED"),
-                DemoAction(title: "Input Forms", caption: "TEXT AND PICKER LAYOUT", systemImage: "textformat", eventLabel: "INPUT FORM OPENED"),
+                DemoAction(
+                    title: "Toggle Demo", caption: "SWITCH STATES AND BINDINGS", systemImage: "switch.2",
+                    eventLabel: "TOGGLE DEMO OPENED"),
+                DemoAction(
+                    title: "Input Forms", caption: "TEXT AND PICKER LAYOUT", systemImage: "textformat",
+                    eventLabel: "INPUT FORM OPENED"),
             ]
         }
     }

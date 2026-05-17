@@ -1,7 +1,12 @@
 import Foundation
-import SwiftWindowsGraphics
 
 // MARK: - GlyphKey
+
+import SwiftWindowsGraphics
+
+// MARK: - GlyphEntry
+
+// MARK: - GlyphAtlas
 
 public struct GlyphKey: Hashable, Sendable {
     public var character: Character?
@@ -74,9 +79,6 @@ public struct GlyphKey: Hashable, Sendable {
         case compressed, condensed, standard, expanded
     }
 }
-
-// MARK: - GlyphEntry
-
 public struct GlyphEntry: Equatable, Sendable {
     public var atlasX: Int32
     public var atlasY: Int32
@@ -115,9 +117,6 @@ public struct GlyphEntry: Equatable, Sendable {
         )
     }
 }
-
-// MARK: - GlyphAtlas
-
 @MainActor
 public final class GlyphAtlas {
     public let width: Int32
@@ -144,7 +143,8 @@ public final class GlyphAtlas {
 
     public func allocate(width glyphWidth: Int32, height glyphHeight: Int32) -> (x: Int32, y: Int32)? {
         guard glyphWidth > 0, glyphHeight > 0,
-              glyphWidth <= self.width, glyphHeight <= self.height else {
+            glyphWidth <= self.width, glyphHeight <= self.height
+        else {
             return nil
         }
 
@@ -176,7 +176,9 @@ public final class GlyphAtlas {
         return (x: 0, y: newShelfY)
     }
 
-    public func writePixels(_ glyphPixels: Data, at x: Int32, y: Int32, width glyphWidth: Int32, height glyphHeight: Int32) {
+    public func writePixels(
+        _ glyphPixels: Data, at x: Int32, y: Int32, width glyphWidth: Int32, height glyphHeight: Int32
+    ) {
         let bytesPerPixel = 4
         let atlasStride = Int(self.width) * bytesPerPixel
         let glyphStride = Int(glyphWidth) * bytesPerPixel
@@ -187,28 +189,31 @@ public final class GlyphAtlas {
             let count = glyphStride
 
             guard srcOffset + count <= glyphPixels.count,
-                  dstOffset + count <= pixels.count else {
+                dstOffset + count <= pixels.count
+            else {
                 continue
             }
 
-            pixels.replaceSubrange(dstOffset..<(dstOffset + count),
-                                   with: glyphPixels[srcOffset..<(srcOffset + count)])
+            pixels.replaceSubrange(
+                dstOffset..<(dstOffset + count),
+                with: glyphPixels[srcOffset..<(srcOffset + count)])
         }
 
         isDirty = true
         let nextRegion = GlyphAtlasRegion(x: x, y: y, width: glyphWidth, height: glyphHeight)
-        dirtyRegion = dirtyRegion.map { existing in
-            let minX = min(existing.x, nextRegion.x)
-            let minY = min(existing.y, nextRegion.y)
-            let maxX = max(existing.x + existing.width, nextRegion.x + nextRegion.width)
-            let maxY = max(existing.y + existing.height, nextRegion.y + nextRegion.height)
-            return GlyphAtlasRegion(
-                x: minX,
-                y: minY,
-                width: maxX - minX,
-                height: maxY - minY
-            )
-        } ?? nextRegion
+        dirtyRegion =
+            dirtyRegion.map { existing in
+                let minX = min(existing.x, nextRegion.x)
+                let minY = min(existing.y, nextRegion.y)
+                let maxX = max(existing.x + existing.width, nextRegion.x + nextRegion.width)
+                let maxY = max(existing.y + existing.height, nextRegion.y + nextRegion.height)
+                return GlyphAtlasRegion(
+                    x: minX,
+                    y: minY,
+                    width: maxX - minX,
+                    height: maxY - minY
+                )
+            } ?? nextRegion
     }
 
     public func clear() {

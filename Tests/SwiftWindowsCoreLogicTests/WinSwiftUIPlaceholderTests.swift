@@ -1,6 +1,7 @@
-import XCTest
 import Foundation
 import SwiftWindowsCore
+import XCTest
+
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
@@ -37,9 +38,10 @@ final class WinSwiftUIPlaceholderTests: XCTestCase {
 
     func testChartRendersPlaceholderWithLabel() async {
         await MainActor.run {
-            let node = makeNode(Chart {
-                BarMark(x: PlottableValue("X", 1), y: PlottableValue("Y", 2))
-            })
+            let node = makeNode(
+                Chart {
+                    BarMark(x: PlottableValue("X", 1), y: PlottableValue("Y", 2))
+                })
             let texts = allTexts(in: node)
             XCTAssertTrue(texts.contains(where: { $0.contains("Chart") }))
         }

@@ -1,7 +1,11 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import WinSDK
+
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class TextSystemTests: XCTestCase {
@@ -22,7 +26,7 @@ final class TextSystemTests: XCTestCase {
         let loader = MockTextLibraryLoader(
             moduleAvailable: true,
             hasFactorySymbol: true,
-            factoryCreationResult: (HRESULT(bitPattern: 0x80004005), nil)
+            factoryCreationResult: (HRESULT(bitPattern: 0x8000_4005), nil)
         )
 
         let capabilities = await MainActor.run {
@@ -95,7 +99,8 @@ final class TextSystemTests: XCTestCase {
                 root: ViewNode(
                     frame: Rect(x: 0, y: 0, width: 160, height: 40),
                     text: "Fallback",
-                    textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+                    textStyle: PixelTextStyle(
+                        color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
                 )
             )
             let frame = runtime.renderFrame()
@@ -186,10 +191,12 @@ final class TextSystemTests: XCTestCase {
 
         XCTAssertFalse(result.0?.underline ?? true)
         XCTAssertFalse(result.0?.strikethrough ?? true)
-        XCTAssertEqual(result.1.map(\.color), [
-            Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7),
-            Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8)
-        ])
+        XCTAssertEqual(
+            result.1.map(\.color),
+            [
+                Color(red: 0.2, green: 0.5, blue: 1, alpha: 0.7),
+                Color(red: 1, green: 0.2, blue: 0.1, alpha: 0.8),
+            ])
     }
 
     func testPixelFrameFallbackEmitsTextDecorationCommands() async {
@@ -247,7 +254,8 @@ final class TextSystemTests: XCTestCase {
         XCTAssertNotNil(result)
         XCTAssertEqual(result?.lines.count, 1)
         XCTAssertEqual(result?.lines.first?.glyphs.count, 5)
-        XCTAssertGreaterThan(result?.lines.first?.glyphs.last?.origin.x ?? 0, result?.lines.first?.glyphs.first?.origin.x ?? 0)
+        XCTAssertGreaterThan(
+            result?.lines.first?.glyphs.last?.origin.x ?? 0, result?.lines.first?.glyphs.first?.origin.x ?? 0)
         XCTAssertEqual(result?.lines.first?.glyphs.map(\.sourceIndex), [0, 1, 2, 3, 4])
         XCTAssertEqual(result?.lines.first?.glyphs.map(\.character), Array("Hello"))
     }
@@ -660,13 +668,15 @@ final class TextSystemTests: XCTestCase {
 
     func testCapturedGlyphBitmapRejectsPathologicalExtents() {
         let normalBitmap = NativeGlyphBitmap(
-            surface: BitmapSurface(width: 18, height: 22, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 22 * 4)),
+            surface: BitmapSurface(
+                width: 18, height: 22, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 22 * 4)),
             bearingX: 0,
             bearingY: 0,
             advance: 12
         )
         let oversizedBitmap = NativeGlyphBitmap(
-            surface: BitmapSurface(width: 18, height: 420, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 420 * 4)),
+            surface: BitmapSurface(
+                width: 18, height: 420, bytesPerRow: 18 * 4, pixels: Data(repeating: 255, count: 18 * 420 * 4)),
             bearingX: 0,
             bearingY: 0,
             advance: 12
@@ -876,7 +886,8 @@ final class TextSystemTests: XCTestCase {
             var scaledStyle = baseStyle
             scaledStyle.minimumScaleFactor = 0.5
 
-            guard let naturalLayout = NativeTextRenderer.layout(text, style: baseStyle, scaleFactor: 1.0, maxWidth: nil) else {
+            guard let naturalLayout = NativeTextRenderer.layout(text, style: baseStyle, scaleFactor: 1.0, maxWidth: nil)
+            else {
                 return (nil, nil)
             }
 
@@ -935,7 +946,6 @@ final class TextSystemTests: XCTestCase {
         XCTAssertGreaterThan(reserved.height, unreserved.height)
     }
 }
-
 private struct MockTextLibraryLoader: TextLibraryLoading {
     let moduleAvailable: Bool
     let hasFactorySymbol: Bool
@@ -957,7 +967,6 @@ private struct MockTextLibraryLoader: TextLibraryLoading {
 
     func releaseFactory(_ rawPointer: UnsafeMutableRawPointer) {}
 }
-
 private let mockFarProc: FARPROC = {
     0
 }

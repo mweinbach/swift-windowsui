@@ -1,10 +1,14 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
-@testable import SwiftWindowsUI
-@testable import SwiftWindowsRendererD3D11
+
+import XCTest
 
 // MARK: - Integration Tests: Batch Renderer Wiring
+
+@testable import SwiftWindowsRendererD3D11
+
+@testable import SwiftWindowsUI
 
 final class IntegrationTests: XCTestCase {
 
@@ -25,15 +29,17 @@ final class IntegrationTests: XCTestCase {
 
     func testBridgeConvertsFillRectsToQuads() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 10, y: 20, width: 100, height: 50),
-                color: Color(red: 1, green: 0, blue: 0, alpha: 1)
-            )),
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 30, y: 40, width: 60, height: 80),
-                color: Color(red: 0, green: 1, blue: 0, alpha: 1),
-                cornerRadius: 8
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 10, y: 20, width: 100, height: 50),
+                    color: Color(red: 1, green: 0, blue: 0, alpha: 1)
+                )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 30, y: 40, width: 60, height: 80),
+                    color: Color(red: 0, green: 1, blue: 0, alpha: 1),
+                    cornerRadius: 8
+                )),
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: Size(width: 800, height: 600))
@@ -57,19 +63,23 @@ final class IntegrationTests: XCTestCase {
 
     func testBridgePushesLayerOnPrimitiveTypeChange() {
         let commands: [RenderCommand] = [
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 50, height: 50),
-                color: .white
-            )),
-            .drawBitmap(DrawBitmapCommand(
-                rect: Rect(x: 0, y: 0, width: 50, height: 50),
-                bitmap: BitmapSurface(width: 1, height: 1, bytesPerRow: 4,
-                                      pixels: Data([255, 255, 255, 255]))
-            )),
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 60, y: 0, width: 50, height: 50),
-                color: .black
-            )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 50, height: 50),
+                    color: .white
+                )),
+            .drawBitmap(
+                DrawBitmapCommand(
+                    rect: Rect(x: 0, y: 0, width: 50, height: 50),
+                    bitmap: BitmapSurface(
+                        width: 1, height: 1, bytesPerRow: 4,
+                        pixels: Data([255, 255, 255, 255]))
+                )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 60, y: 0, width: 50, height: 50),
+                    color: .black
+                )),
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
         let scene = GPUIScene(from: frame, surfaceSize: Size(width: 200, height: 200))
@@ -77,11 +87,13 @@ final class IntegrationTests: XCTestCase {
         XCTAssertEqual(scene.layers.count, 1)
         XCTAssertEqual(scene.layers[0].quads.count, 2)
         XCTAssertEqual(scene.layers[0].images.count, 1)
-        XCTAssertEqual(scene.layers[0].paintOperations, [
-            GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
-            GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
-        ])
+        XCTAssertEqual(
+            scene.layers[0].paintOperations,
+            [
+                GPUIPaintOperation(kind: .quad, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .image, startIndex: 0, count: 1),
+                GPUIPaintOperation(kind: .quad, startIndex: 1, count: 1),
+            ])
     }
 
     func testBridgePreservesClearColor() {
@@ -94,13 +106,15 @@ final class IntegrationTests: XCTestCase {
 
     func testBridgeHandlesClipCommands() {
         let commands: [RenderCommand] = [
-            .pushClip(ClipCommand(
-                shape: .rect(Rect(x: 10, y: 10, width: 80, height: 80), cornerRadius: 0)
-            )),
-            .fillRect(FillRectCommand(
-                rect: Rect(x: 0, y: 0, width: 100, height: 100),
-                color: .white
-            )),
+            .pushClip(
+                ClipCommand(
+                    shape: .rect(Rect(x: 10, y: 10, width: 80, height: 80), cornerRadius: 0)
+                )),
+            .fillRect(
+                FillRectCommand(
+                    rect: Rect(x: 0, y: 0, width: 100, height: 100),
+                    color: .white
+                )),
             .popClip,
         ]
         let frame = RenderFrame(clearColor: .black, commands: commands)
@@ -195,9 +209,7 @@ final class IntegrationTests: XCTestCase {
             XCTAssertEqual(scene.layers.count, 1)
             XCTAssertGreaterThan(scene.layers[0].glyphs.count + scene.layers[0].pixelGlyphs.count, 0)
             XCTAssertTrue(
-                scene.glyphAtlas != nil ||
-                scene.pixelGlyphAtlas != nil ||
-                NativeGlyphAtlas.shared.wasUsedInCurrentFrame
+                scene.glyphAtlas != nil || scene.pixelGlyphAtlas != nil || NativeGlyphAtlas.shared.wasUsedInCurrentFrame
             )
         }
     }
@@ -301,8 +313,7 @@ final class IntegrationTests: XCTestCase {
 
             XCTAssertFalse(mutatedGlyphs.native.isEmpty && mutatedGlyphs.pixel.isEmpty)
             XCTAssertTrue(
-                mutatedScene.glyphAtlas?.dirtyRegion != nil ||
-                mutatedScene.pixelGlyphAtlas?.dirtyRegion != nil
+                mutatedScene.glyphAtlas?.dirtyRegion != nil || mutatedScene.pixelGlyphAtlas?.dirtyRegion != nil
             )
         }
     }
@@ -325,12 +336,14 @@ final class IntegrationTests: XCTestCase {
             let unchangedNode = ViewNode(
                 frame: Rect(x: 60, y: 0, width: 40, height: 32),
                 text: "A",
-                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+                textStyle: PixelTextStyle(
+                    color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
             )
             let mutableNode = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 40, height: 32),
                 text: "X",
-                textStyle: PixelTextStyle(color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
+                textStyle: PixelTextStyle(
+                    color: .white, alignment: .leading, verticalAlignment: .top, nativeFontSize: 18)
             )
             let root = ViewNode(
                 frame: Rect(x: 0, y: 0, width: 160, height: 40),
@@ -352,11 +365,15 @@ final class IntegrationTests: XCTestCase {
             let rebuiltMutableGlyph = Self.findGlyph(in: rebuiltScene, screenX: 0)
             let rebuiltUnchangedGlyph = Self.findGlyph(in: rebuiltScene, screenX: 60)
 
-            XCTAssertEqual(runtime.lastSceneReplayCount, 0, "Atlas recovery should invalidate cached scene replay for text-bearing ranges")
+            XCTAssertEqual(
+                runtime.lastSceneReplayCount, 0,
+                "Atlas recovery should invalidate cached scene replay for text-bearing ranges")
             XCTAssertNotNil(rebuiltScene.glyphAtlas, "Recovered scene should reattach the rebuilt native glyph atlas")
             XCTAssertEqual(rebuiltMutableGlyph?.atlasU0, 0)
             XCTAssertEqual(rebuiltMutableGlyph?.atlasU1, 0.5)
-            XCTAssertEqual(rebuiltUnchangedGlyph?.atlasU0, 0.5, "Unchanged text should be rerasterized into the rebuilt atlas instead of replaying stale UVs")
+            XCTAssertEqual(
+                rebuiltUnchangedGlyph?.atlasU0, 0.5,
+                "Unchanged text should be rerasterized into the rebuilt atlas instead of replaying stale UVs")
             XCTAssertEqual(rebuiltUnchangedGlyph?.atlasU1, 1.0)
         }
     }
@@ -456,21 +473,24 @@ final class IntegrationTests: XCTestCase {
 
     func testPrimitiveCountAcrossLayers() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 10, height: 10,
-            startR: 1, startG: 1, startB: 1, startA: 1,
-            endR: 1, endG: 1, endB: 1, endA: 1
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 10, height: 10,
+                startR: 1, startG: 1, startB: 1, startA: 1,
+                endR: 1, endG: 1, endB: 1, endA: 1
+            ))
         let overlayLayer = scene.pushLayer()
-        scene.addShadow(ShadowPrimitive(
-            x: 0, y: 0, width: 10, height: 10,
-            colorR: 0, colorG: 0, colorB: 0, colorA: 0.5
-        ), toLayer: overlayLayer)
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 20, height: 20,
-            startR: 0, startG: 0, startB: 1, startA: 1,
-            endR: 0, endG: 0, endB: 1, endA: 1
-        ), toLayer: overlayLayer)
+        scene.addShadow(
+            ShadowPrimitive(
+                x: 0, y: 0, width: 10, height: 10,
+                colorR: 0, colorG: 0, colorB: 0, colorA: 0.5
+            ), toLayer: overlayLayer)
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 20, height: 20,
+                startR: 0, startG: 0, startB: 1, startA: 1,
+                endR: 0, endG: 0, endB: 1, endA: 1
+            ), toLayer: overlayLayer)
 
         XCTAssertEqual(scene.primitiveCount, 3)
     }

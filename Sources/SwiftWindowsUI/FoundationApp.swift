@@ -1,6 +1,9 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
 import SwiftWindowsPlatform
 
 @MainActor
@@ -55,7 +58,7 @@ public final class FoundationApp: WindowDelegate {
         self.recentEvents = [
             "SYSTEM READY",
             rendererStatusDescription,
-            "TEXT BACKEND \(textBackendLabel)"
+            "TEXT BACKEND \(textBackendLabel)",
         ]
 
         componentHost.setComponents { [weak self] in
@@ -247,13 +250,17 @@ public final class FoundationApp: WindowDelegate {
             UI.panel(
                 frame: layout.backgroundAccentA,
                 backgroundColor: selectedModule.glowColor,
-                backgroundGradient: .linear(LinearGradient(startColor: selectedModule.glowColor, endColor: selectedModule.stripeColor, axis: .horizontal)),
+                backgroundGradient: .linear(
+                    LinearGradient(
+                        startColor: selectedModule.glowColor, endColor: selectedModule.stripeColor, axis: .horizontal)),
                 cornerRadius: 44
             )
             UI.panel(
                 frame: layout.backgroundAccentB,
                 backgroundColor: selectedModule.stripeColor,
-                backgroundGradient: .linear(LinearGradient(startColor: selectedModule.stripeColor, endColor: selectedModule.glowColor, axis: .vertical)),
+                backgroundGradient: .linear(
+                    LinearGradient(
+                        startColor: selectedModule.stripeColor, endColor: selectedModule.glowColor, axis: .vertical)),
                 cornerRadius: 34
             )
             buildToolbar(layout)
@@ -302,11 +309,12 @@ public final class FoundationApp: WindowDelegate {
     private func buildToolbar(_ layout: DemoLayout) -> Component {
         UI.toolbar(
             frame: layout.toolbarFrame,
-            backgroundGradient: .linear(LinearGradient(
-                startColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
-                endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
-                axis: .horizontal
-            )),
+            backgroundGradient: .linear(
+                LinearGradient(
+                    startColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
+                    endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
+                    axis: .horizontal
+                )),
             cornerRadius: layout.toolbarCornerRadius,
             stackLayout: .horizontal(
                 spacing: layout.toolbarSpacing,
@@ -321,7 +329,9 @@ public final class FoundationApp: WindowDelegate {
                 stackLayout: .vertical(spacing: layout.toolbarTitleSpacing, alignment: .leading),
                 isHitTestVisible: false
             ) {
-                UI.label("SWIFT WINDOWS UI", color: .white, scale: layout.toolbarTitleScale, alignment: .leading, maximumNumberOfLines: 1)
+                UI.label(
+                    "SWIFT WINDOWS UI", color: .white, scale: layout.toolbarTitleScale, alignment: .leading,
+                    maximumNumberOfLines: 1)
                 if layout.showsToolbarSubtitle {
                     UI.label(
                         "CUSTOM WINDOWS RENDER ENGINE",
@@ -340,11 +350,18 @@ public final class FoundationApp: WindowDelegate {
                 borderColor: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.12),
                 borderWidth: 1,
                 cornerRadius: layout.toolbarPillHeight * 0.5,
-                layoutMode: .stack(.horizontal(spacing: layout.toolbarSearchSpacing, padding: layout.toolbarSearchPadding, alignment: .center)),
+                layoutMode: .stack(
+                    .horizontal(
+                        spacing: layout.toolbarSearchSpacing, padding: layout.toolbarSearchPadding, alignment: .center)),
                 isHitTestVisible: false
             ) {
-                UI.icon(.search, preferredSize: Size(width: layout.toolbarIconSize, height: layout.toolbarIconSize), color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: layout.toolbarIconScale)
-                UI.label(layout.toolbarSearchPlaceholder, layoutPriority: 1, color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: layout.toolbarSearchScale, alignment: .leading, maximumNumberOfLines: 1)
+                UI.icon(
+                    .search, preferredSize: Size(width: layout.toolbarIconSize, height: layout.toolbarIconSize),
+                    color: Color(red: 0.82, green: 0.89, blue: 0.97, alpha: 0.88), scale: layout.toolbarIconScale)
+                UI.label(
+                    layout.toolbarSearchPlaceholder, layoutPriority: 1,
+                    color: Color(red: 0.80, green: 0.88, blue: 0.97, alpha: 0.80), scale: layout.toolbarSearchScale,
+                    alignment: .leading, maximumNumberOfLines: 1)
             }
 
             UI.button(
@@ -388,11 +405,12 @@ public final class FoundationApp: WindowDelegate {
         UI.section(
             title: "WORKSPACE",
             backgroundColor: Color(red: 0.12, green: 0.16, blue: 0.22, alpha: 0.98),
-            backgroundGradient: .linear(LinearGradient(
-                startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
-                endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
-                axis: .vertical
-            )),
+            backgroundGradient: .linear(
+                LinearGradient(
+                    startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
+                    endColor: Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.98),
+                    axis: .vertical
+                )),
             borderColor: Color(red: 0.76, green: 0.84, blue: 0.93, alpha: 0.12),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
@@ -474,7 +492,10 @@ public final class FoundationApp: WindowDelegate {
             title: "CONTROL CENTER",
             preferredSize: Size(width: 0, height: layout.heroHeight),
             backgroundColor: Color(red: 0.15, green: 0.20, blue: 0.28, alpha: 0.98),
-            backgroundGradient: .linear(LinearGradient(startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor, axis: .horizontal)),
+            backgroundGradient: .linear(
+                LinearGradient(
+                    startColor: selectedModule.panelStartColor, endColor: selectedModule.panelEndColor,
+                    axis: .horizontal)),
             borderColor: Color(red: 0.74, green: 0.86, blue: 0.96, alpha: 0.10),
             cornerRadius: layout.heroCornerRadius,
             stackLayout: .vertical(
@@ -483,8 +504,12 @@ public final class FoundationApp: WindowDelegate {
                 alignment: .stretch
             )
         ) {
-            UI.label(selectedModule.headline, color: .white, scale: layout.heroHeadlineScale, alignment: .leading, maximumNumberOfLines: 1)
-            UI.label(selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.92), scale: layout.heroDetailScale, alignment: .leading, maximumNumberOfLines: 1)
+            UI.label(
+                selectedModule.headline, color: .white, scale: layout.heroHeadlineScale, alignment: .leading,
+                maximumNumberOfLines: 1)
+            UI.label(
+                selectedModule.detailLine, color: Color(red: 0.81, green: 0.90, blue: 0.98, alpha: 0.92),
+                scale: layout.heroDetailScale, alignment: .leading, maximumNumberOfLines: 1)
 
             UI.panel(
                 preferredSize: Size(width: 0, height: layout.heroStripeHeight),
@@ -535,50 +560,66 @@ public final class FoundationApp: WindowDelegate {
             stackLayout: layout.statsRowLayout,
             isHitTestVisible: false
         ) {
-            buildStatTile(title: "MODULE", value: selectedModule.label, layout: layout, palette: selectedModule.metricPalette, action: "MODULE TILE OPENED")
-            buildStatTile(title: "TEXT", value: textBackendLabel, layout: layout, palette: SurfacePalette(
-                idle: Color(red: 0.25, green: 0.38, blue: 0.31, alpha: 0.98),
-                focused: Color(red: 0.34, green: 0.51, blue: 0.42, alpha: 1.0),
-                pressed: Color(red: 0.75, green: 0.91, blue: 0.82, alpha: 1.0)
-            ), action: "TEXT TILE OPENED")
-            buildStatTile(title: "EVENTS", value: "\(interactionCount)", layout: layout, palette: SurfacePalette(
-                idle: Color(red: 0.42, green: 0.31, blue: 0.23, alpha: 0.98),
-                focused: Color(red: 0.58, green: 0.43, blue: 0.31, alpha: 1.0),
-                pressed: Color(red: 0.99, green: 0.86, blue: 0.66, alpha: 1.0)
-            ), action: "EVENT COUNTER OPENED")
+            buildStatTile(
+                title: "MODULE", value: selectedModule.label, layout: layout, palette: selectedModule.metricPalette,
+                action: "MODULE TILE OPENED")
+            buildStatTile(
+                title: "TEXT", value: textBackendLabel, layout: layout,
+                palette: SurfacePalette(
+                    idle: Color(red: 0.25, green: 0.38, blue: 0.31, alpha: 0.98),
+                    focused: Color(red: 0.34, green: 0.51, blue: 0.42, alpha: 1.0),
+                    pressed: Color(red: 0.75, green: 0.91, blue: 0.82, alpha: 1.0)
+                ), action: "TEXT TILE OPENED")
+            buildStatTile(
+                title: "EVENTS", value: "\(interactionCount)", layout: layout,
+                palette: SurfacePalette(
+                    idle: Color(red: 0.42, green: 0.31, blue: 0.23, alpha: 0.98),
+                    focused: Color(red: 0.58, green: 0.43, blue: 0.31, alpha: 1.0),
+                    pressed: Color(red: 0.99, green: 0.86, blue: 0.66, alpha: 1.0)
+                ), action: "EVENT COUNTER OPENED")
         }
     }
 
-    private func buildStatTile(title: String, value: String, layout: DemoLayout, palette: SurfacePalette, action: String) -> Component {
+    private func buildStatTile(
+        title: String, value: String, layout: DemoLayout, palette: SurfacePalette, action: String
+    ) -> Component {
         UI.buttonPanel(
             preferredSize: Size(width: 0, height: layout.statTileHeight),
             layoutPriority: 1,
             cornerRadius: layout.statTileCornerRadius,
             palette: palette,
             layoutMode: .stack(.vertical(alignment: .leading, mainAlignment: .center)),
-            action: { [weak self] in self?.performAction(action) }
-        ) {
-            UI.stackPanel(
-                preferredSize: Size(width: 0, height: layout.statTileContentHeight),
-                layoutPriority: 1,
-                stackLayout: .vertical(spacing: layout.statTileSpacing, alignment: .leading, mainAlignment: .center),
-                isHitTestVisible: false
-            ) {
-                UI.label(title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90), scale: layout.statTitleScale, alignment: .leading, maximumNumberOfLines: 1)
-                UI.label(value, color: .white, scale: layout.statValueScale, alignment: .leading, maximumNumberOfLines: 1)
+            action: { [weak self] in self?.performAction(action) },
+            content: {
+                UI.stackPanel(
+                    preferredSize: Size(width: 0, height: layout.statTileContentHeight),
+                    layoutPriority: 1,
+                    stackLayout: .vertical(
+                        spacing: layout.statTileSpacing, alignment: .leading, mainAlignment: .center),
+                    isHitTestVisible: false
+                ) {
+                    UI.label(
+                        title, color: Color(red: 0.84, green: 0.90, blue: 0.98, alpha: 0.90),
+                        scale: layout.statTitleScale,
+                        alignment: .leading, maximumNumberOfLines: 1)
+                    UI.label(
+                        value, color: .white, scale: layout.statValueScale, alignment: .leading,
+                        maximumNumberOfLines: 1)
+                }
             }
-        }
+        )
     }
 
     private func buildActivitySection(_ layout: DemoLayout) -> Component {
         UI.section(
             title: "RECENT ACTIVITY",
             backgroundColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
-            backgroundGradient: .linear(LinearGradient(
-                startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
-                endColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
-                axis: .vertical
-            )),
+            backgroundGradient: .linear(
+                LinearGradient(
+                    startColor: Color(red: 0.14, green: 0.18, blue: 0.25, alpha: 0.98),
+                    endColor: Color(red: 0.11, green: 0.15, blue: 0.21, alpha: 0.98),
+                    axis: .vertical
+                )),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
@@ -604,11 +645,12 @@ public final class FoundationApp: WindowDelegate {
         UI.section(
             title: "DETAILS",
             backgroundColor: Color(red: 0.13, green: 0.17, blue: 0.24, alpha: 0.98),
-            backgroundGradient: .linear(LinearGradient(
-                startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
-                endColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.98),
-                axis: .vertical
-            )),
+            backgroundGradient: .linear(
+                LinearGradient(
+                    startColor: Color(red: 0.14, green: 0.18, blue: 0.26, alpha: 0.98),
+                    endColor: Color(red: 0.10, green: 0.13, blue: 0.19, alpha: 0.98),
+                    axis: .vertical
+                )),
             borderColor: Color(red: 0.78, green: 0.86, blue: 0.95, alpha: 0.10),
             cornerRadius: layout.sectionCornerRadius,
             stackLayout: .vertical(
@@ -630,16 +672,26 @@ public final class FoundationApp: WindowDelegate {
                 UI.stackPanel(
                     preferredSize: Size(width: 0, height: layout.detailCardContentHeight),
                     layoutPriority: 1,
-                    stackLayout: .vertical(spacing: layout.detailCardSpacing, alignment: .leading, mainAlignment: .center),
+                    stackLayout: .vertical(
+                        spacing: layout.detailCardSpacing, alignment: .leading, mainAlignment: .center),
                     isHitTestVisible: false
                 ) {
-                    UI.label(selectedModule.label, color: .white, scale: layout.detailCardTitleScale, alignment: .leading, maximumNumberOfLines: 1)
-                    UI.label(selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.92), scale: layout.detailCardSummaryScale, alignment: .leading, lineBreakMode: .wrap, maximumNumberOfLines: 2)
-                    UI.label("LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.80), scale: layout.detailCardMetaScale, alignment: .leading, maximumNumberOfLines: 1)
+                    UI.label(
+                        selectedModule.label, color: .white, scale: layout.detailCardTitleScale, alignment: .leading,
+                        maximumNumberOfLines: 1)
+                    UI.label(
+                        selectedModule.summary, color: Color(red: 0.83, green: 0.90, blue: 0.97, alpha: 0.92),
+                        scale: layout.detailCardSummaryScale, alignment: .leading, lineBreakMode: .wrap,
+                        maximumNumberOfLines: 2)
+                    UI.label(
+                        "LAST: \(lastAction)", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.80),
+                        scale: layout.detailCardMetaScale, alignment: .leading, maximumNumberOfLines: 1)
                 }
             }
 
-            UI.label("QUICK ACTIONS", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96), scale: layout.quickActionsTitleScale, weight: .semibold, alignment: .leading, maximumNumberOfLines: 1)
+            UI.label(
+                "QUICK ACTIONS", color: Color(red: 0.90, green: 0.95, blue: 1.0, alpha: 0.96),
+                scale: layout.quickActionsTitleScale, weight: .semibold, alignment: .leading, maximumNumberOfLines: 1)
             UI.listRow(
                 title: "PROFILE LAYOUT",
                 detail: "MEASURE, PLACE, CACHE",
@@ -870,7 +922,9 @@ public final class FoundationApp: WindowDelegate {
         }
 
         var bodyFrame: Rect {
-            Rect(x: inset, y: contentTop, width: max(320, size.width - inset * 2), height: max(240, size.height - contentTop - inset))
+            Rect(
+                x: inset, y: contentTop, width: max(320, size.width - inset * 2),
+                height: max(240, size.height - contentTop - inset))
         }
 
         var sidebarMinExtent: Double {
@@ -882,7 +936,9 @@ public final class FoundationApp: WindowDelegate {
         }
 
         var centerMinExtent: Double {
-            clamp(bodyFrame.size.width * (isCondensed ? 0.42 : 0.48), min: isCondensed ? 260 : 320, max: isCompact ? 460 : 560)
+            clamp(
+                bodyFrame.size.width * (isCondensed ? 0.42 : 0.48), min: isCondensed ? 260 : 320,
+                max: isCompact ? 460 : 560)
         }
 
         var bodySecondaryMinExtent: Double {
@@ -1186,7 +1242,6 @@ public final class FoundationApp: WindowDelegate {
         print("[SwiftWindowsUI] \(error)")
     }
 }
-
 private enum DemoLayoutProfile: Equatable {
     case regular
     case compact
@@ -1204,11 +1259,9 @@ private enum DemoLayoutProfile: Equatable {
         return .regular
     }
 }
-
 private func clamp(_ value: Double, min minimum: Double, max maximum: Double) -> Double {
     Swift.min(Swift.max(value, minimum), maximum)
 }
-
 private enum DemoModule: CaseIterable {
     case layout
     case input

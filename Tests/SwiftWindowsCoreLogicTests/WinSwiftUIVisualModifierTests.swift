@@ -1,7 +1,8 @@
-import XCTest
 import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import XCTest
+
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 
@@ -118,7 +119,8 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
             for y in 0..<30 {
                 for x in 0..<20 {
                     if let c = colorAt(bitmap, x: x, y: y),
-                       c.green > 0.7, c.red < 0.3, c.blue < 0.3 {
+                        c.green > 0.7, c.red < 0.3, c.blue < 0.3
+                    {
                         foundGreen = true
                         break
                     }
@@ -202,7 +204,6 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
         }
     }
 
-
     // MARK: - scaleEffect
 
     func testScaleEffectScalesRenderedContent() async {
@@ -221,7 +222,6 @@ final class WinSwiftUIVisualModifierTests: XCTestCase {
             XCTAssertEqual(outsideScaled?.red ?? 1, 0.0, accuracy: 0.05)
         }
     }
-
 
     // MARK: - offset
 

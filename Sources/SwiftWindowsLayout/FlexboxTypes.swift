@@ -1,34 +1,30 @@
+// MARK: - Flexbox Enums
+
 import SwiftWindowsCore
 
-// MARK: - Flexbox Enums
+// MARK: - Flex Container Style
+
+// MARK: - Flex Item Style
 
 public enum FlexDirection: Sendable, Equatable {
     case row, rowReverse, column, columnReverse
 }
-
 public enum FlexWrap: Sendable, Equatable {
     case noWrap, wrap, wrapReverse
 }
-
 public enum JustifyContent: Sendable, Equatable {
     case flexStart, flexEnd, center, spaceBetween, spaceAround, spaceEvenly
 }
-
 public enum AlignItems: Sendable, Equatable {
     case flexStart, flexEnd, center, stretch
 }
-
 public enum AlignSelf: Sendable, Equatable {
     case auto, flexStart, flexEnd, center, stretch
 }
-
 public enum FlexBasis: Sendable, Equatable {
     case auto
     case fixed(Double)
 }
-
-// MARK: - Flex Container Style
-
 public struct FlexStyle: Sendable, Equatable {
     public var direction: FlexDirection
     public var wrap: FlexWrap
@@ -53,9 +49,6 @@ public struct FlexStyle: Sendable, Equatable {
         self.padding = padding
     }
 }
-
-// MARK: - Flex Item Style
-
 public struct FlexItemStyle: Sendable, Equatable {
     public var grow: Double
     public var shrink: Double

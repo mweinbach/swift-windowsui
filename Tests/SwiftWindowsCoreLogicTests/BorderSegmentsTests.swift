@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import SwiftWindowsCore
 @testable import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
@@ -114,8 +115,8 @@ struct BorderSegmentsTests {
         // Top-right corner area should have small segments
         var cornerCount = 0
         for seg in segments {
-            if seg.rect.origin.x > 20 && seg.rect.origin.y < 10 &&
-               seg.rect.size.width < 12 && seg.rect.size.height < 12 {
+            if seg.rect.origin.x > 20 && seg.rect.origin.y < 10 && seg.rect.size.width < 12 && seg.rect.size.height < 12
+            {
                 cornerCount += 1
             }
         }

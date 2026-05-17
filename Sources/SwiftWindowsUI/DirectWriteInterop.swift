@@ -1,4 +1,14 @@
+// swift-format-ignore-file
+// Mirrors DirectWrite COM vtable signatures; identifiers must match the
+// underlying ABI names (QueryInterface/AddRef/Release/...), so this file
+// opts out of swift-format's lowerCamelCase rule and other naming checks.
+
 import WinSDK
+
+// SetUnderline, SetStrikethrough, SetFontWeight, SetFontSize, SetTypography
+// use DWRITE_TEXT_RANGE which is a custom struct not representable in @convention(c).
+// These vtable slots are accessed via unsafeBitCast at call sites instead,
+// passing startPosition and length as separate UINT32 parameters.
 
 typealias DWriteFactoryType = UINT32
 typealias DWriteFontWeight = UINT32
@@ -14,7 +24,6 @@ typealias DWriteReadingDirection = UINT32
 typealias DWriteFlowDirection = UINT32
 typealias DWriteLineSpacingMethod = UINT32
 typealias DWriteFontFeatureTag = UINT32
-
 let dwriteFactoryTypeShared: DWriteFactoryType = 0
 let dwriteFontStyleNormal: DWriteFontStyle = 0
 let dwriteFontStyleItalic: DWriteFontStyle = 2
@@ -42,12 +51,10 @@ let dwriteFontFeatureTagKerning: DWriteFontFeatureTag = 0x6E72_656B
 let dwriteFontFeatureTagSmallCapitals: DWriteFontFeatureTag = 0x7063_6D73
 let dwriteFontFeatureTagCapitalsToSmallCapitals: DWriteFontFeatureTag = 0x6373_3263
 let dwriteFontFeatureTagTabularFigures: DWriteFontFeatureTag = 0x6D75_6E74
-
 struct DWRITE_TEXT_RANGE {
     var startPosition: UINT32 = 0
     var length: UINT32 = 0
 }
-
 struct DWriteFontFeature {
     var nameTag: DWriteFontFeatureTag
     var parameter: UINT32
@@ -56,7 +63,6 @@ struct DWriteFontFeature {
         UInt64(nameTag) | (UInt64(parameter) << 32)
     }
 }
-
 struct DWRITE_MATRIX {
     var m11: FLOAT = 1
     var m12: FLOAT = 0
@@ -65,12 +71,10 @@ struct DWRITE_MATRIX {
     var dx: FLOAT = 0
     var dy: FLOAT = 0
 }
-
 struct DWRITE_GLYPH_OFFSET {
     var advanceOffset: FLOAT = 0
     var ascenderOffset: FLOAT = 0
 }
-
 struct DWRITE_GLYPH_RUN {
     var fontFace: UnsafeMutableRawPointer?
     var fontEmSize: FLOAT = 0
@@ -81,7 +85,6 @@ struct DWRITE_GLYPH_RUN {
     var isSideways: WindowsBool = WindowsBool(false)
     var bidiLevel: UINT32 = 0
 }
-
 struct DWRITE_GLYPH_RUN_DESCRIPTION {
     var localeName: UnsafePointer<WCHAR>?
     var string: UnsafePointer<WCHAR>?
@@ -89,7 +92,6 @@ struct DWRITE_GLYPH_RUN_DESCRIPTION {
     var clusterMap: UnsafePointer<UINT16>?
     var textPosition: UINT32 = 0
 }
-
 struct DWRITE_UNDERLINE {
     var width: FLOAT = 0
     var thickness: FLOAT = 0
@@ -100,7 +102,6 @@ struct DWRITE_UNDERLINE {
     var localeName: UnsafePointer<WCHAR>?
     var measuringMode: DWriteMeasuringMode = dwriteMeasuringModeNatural
 }
-
 struct DWRITE_STRIKETHROUGH {
     var width: FLOAT = 0
     var thickness: FLOAT = 0
@@ -110,7 +111,6 @@ struct DWRITE_STRIKETHROUGH {
     var localeName: UnsafePointer<WCHAR>?
     var measuringMode: DWriteMeasuringMode = dwriteMeasuringModeNatural
 }
-
 struct DWRITE_TEXT_METRICS {
     var left: FLOAT = 0
     var top: FLOAT = 0
@@ -122,14 +122,12 @@ struct DWRITE_TEXT_METRICS {
     var maxBidiReorderingDepth: UINT32 = 0
     var lineCount: UINT32 = 0
 }
-
 struct DWRITE_OVERHANG_METRICS {
     var left: FLOAT = 0
     var top: FLOAT = 0
     var right: FLOAT = 0
     var bottom: FLOAT = 0
 }
-
 struct DWRITE_HIT_TEST_METRICS {
     var textPosition: UINT32 = 0
     var length: UINT32 = 0
@@ -141,7 +139,6 @@ struct DWRITE_HIT_TEST_METRICS {
     var isText: WindowsBool = WindowsBool(false)
     var isTrimmed: WindowsBool = WindowsBool(false)
 }
-
 struct IDWriteFactory { var lpVtbl: UnsafeMutablePointer<IDWriteFactoryVtbl>? }
 struct IDWriteTextFormat { var lpVtbl: UnsafeMutablePointer<IDWriteTextFormatVtbl>? }
 struct IDWriteTextLayout { var lpVtbl: UnsafeMutablePointer<IDWriteTextLayoutVtbl>? }
@@ -150,46 +147,86 @@ struct IDWriteBitmapRenderTarget { var lpVtbl: UnsafeMutablePointer<IDWriteBitma
 struct IDWriteRenderingParams { var lpVtbl: UnsafeMutablePointer<IDWriteRenderingParamsVtbl>? }
 struct IDWriteTextRenderer { var lpVtbl: UnsafeMutablePointer<IDWriteTextRendererVtbl>? }
 struct IDWriteTypography { var lpVtbl: UnsafeMutablePointer<IDWriteTypographyVtbl>? }
-
-typealias DWQueryInterfaceProc = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<GUID>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
+typealias DWQueryInterfaceProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<GUID>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) ->
+    HRESULT
 typealias DWAddRefProc = @convention(c) (UnsafeMutableRawPointer?) -> ULONG
 typealias DWReleaseProc = @convention(c) (UnsafeMutableRawPointer?) -> ULONG
-
-typealias DWCreateRenderingParamsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-typealias DWCreateCustomRenderingParamsProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT, FLOAT, FLOAT, DWritePixelGeometry, DWriteRenderingMode, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-typealias DWCreateTextFormatProc = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UnsafeMutableRawPointer?, DWriteFontWeight, DWriteFontStyle, DWriteFontStretch, FLOAT, UnsafePointer<WCHAR>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-typealias DWGetGdiInteropProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-typealias DWCreateTextLayoutProc = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UINT32, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-
+typealias DWCreateRenderingParamsProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
+typealias DWCreateCustomRenderingParamsProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, FLOAT, FLOAT, FLOAT, DWritePixelGeometry, DWriteRenderingMode,
+        UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> HRESULT
+typealias DWCreateTextFormatProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UnsafeMutableRawPointer?, DWriteFontWeight, DWriteFontStyle,
+        DWriteFontStretch, FLOAT, UnsafePointer<WCHAR>?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> HRESULT
+typealias DWGetGdiInteropProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
+typealias DWCreateTextLayoutProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafePointer<WCHAR>?, UINT32, UnsafeMutableRawPointer?, FLOAT, FLOAT,
+        UnsafeMutablePointer<UnsafeMutableRawPointer?>?
+    ) -> HRESULT
 typealias DWSetTextAlignmentProc = @convention(c) (UnsafeMutableRawPointer?, DWriteTextAlignment) -> HRESULT
 typealias DWSetParagraphAlignmentProc = @convention(c) (UnsafeMutableRawPointer?, DWriteParagraphAlignment) -> HRESULT
 typealias DWSetWordWrappingProc = @convention(c) (UnsafeMutableRawPointer?, DWriteWordWrapping) -> HRESULT
-typealias DWSetLineSpacingProc = @convention(c) (UnsafeMutableRawPointer?, DWriteLineSpacingMethod, FLOAT, FLOAT) -> HRESULT
-typealias DWDrawTextLayoutProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) -> HRESULT
+typealias DWSetLineSpacingProc =
+    @convention(c) (UnsafeMutableRawPointer?, DWriteLineSpacingMethod, FLOAT, FLOAT) -> HRESULT
+typealias DWDrawTextLayoutProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT) ->
+    HRESULT
 typealias DWGetMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
 typealias DWGetOverhangMetricsProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWHitTestTextPositionProc = @convention(c) (UnsafeMutableRawPointer?, UINT32, WindowsBool, UnsafeMutablePointer<FLOAT>?, UnsafeMutablePointer<FLOAT>?, UnsafeMutableRawPointer?) -> HRESULT
-// SetUnderline, SetStrikethrough, SetFontWeight, SetFontSize, SetTypography
-// use DWRITE_TEXT_RANGE which is a custom struct not representable in @convention(c).
-// These vtable slots are accessed via unsafeBitCast at call sites instead,
-// passing startPosition and length as separate UINT32 parameters.
-typealias DWGetFontFamilyNameLengthProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UINT32>?) -> HRESULT
-typealias DWGetFontFamilyNameProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
-
-typealias DWCreateBitmapRenderTargetProc = @convention(c) (UnsafeMutableRawPointer?, HDC?, UINT32, UINT32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) -> HRESULT
-typealias DWBitmapDrawGlyphRunProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT, FLOAT, DWriteMeasuringMode, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, COLORREF, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWHitTestTextPositionProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UINT32, WindowsBool, UnsafeMutablePointer<FLOAT>?, UnsafeMutablePointer<FLOAT>?,
+        UnsafeMutableRawPointer?
+    ) -> HRESULT
+typealias DWGetFontFamilyNameLengthProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<UINT32>?) -> HRESULT
+typealias DWGetFontFamilyNameProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutablePointer<WCHAR>?, UINT32) -> HRESULT
+typealias DWCreateBitmapRenderTargetProc =
+    @convention(c) (UnsafeMutableRawPointer?, HDC?, UINT32, UINT32, UnsafeMutablePointer<UnsafeMutableRawPointer?>?) ->
+    HRESULT
+typealias DWBitmapDrawGlyphRunProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, FLOAT, FLOAT, DWriteMeasuringMode, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?,
+        COLORREF, UnsafeMutableRawPointer?
+    ) -> HRESULT
 typealias DWBitmapGetMemoryDCProc = @convention(c) (UnsafeMutableRawPointer?) -> HDC?
 typealias DWBitmapSetPixelsPerDipProc = @convention(c) (UnsafeMutableRawPointer?, FLOAT) -> HRESULT
-
-typealias DWIsPixelSnappingDisabledProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutablePointer<WindowsBool>?) -> HRESULT
-typealias DWGetCurrentTransformProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWGetPixelsPerDipProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutablePointer<FLOAT>?) -> HRESULT
-typealias DWDrawGlyphRunProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, DWriteMeasuringMode, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWDrawUnderlineProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWDrawStrikethroughProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
-typealias DWDrawInlineObjectProc = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, WindowsBool, WindowsBool, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWIsPixelSnappingDisabledProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutablePointer<WindowsBool>?) -> HRESULT
+typealias DWGetCurrentTransformProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> HRESULT
+typealias DWGetPixelsPerDipProc =
+    @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutablePointer<FLOAT>?) -> HRESULT
+typealias DWDrawGlyphRunProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, DWriteMeasuringMode, UnsafeMutableRawPointer?,
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?
+    ) -> HRESULT
+typealias DWDrawUnderlineProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?,
+        UnsafeMutableRawPointer?
+    ) -> HRESULT
+typealias DWDrawStrikethroughProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?,
+        UnsafeMutableRawPointer?
+    ) -> HRESULT
+typealias DWDrawInlineObjectProc =
+    @convention(c) (
+        UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, FLOAT, FLOAT, UnsafeMutableRawPointer?, WindowsBool,
+        WindowsBool, UnsafeMutableRawPointer?
+    ) -> HRESULT
 typealias DWAddFontFeatureProc = @convention(c) (UnsafeMutableRawPointer?, UInt64) -> HRESULT
-
 struct IDWriteRenderingParamsVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -200,7 +237,6 @@ struct IDWriteRenderingParamsVtbl {
     var GetPixelGeometry: UnsafeMutableRawPointer?
     var GetRenderingMode: UnsafeMutableRawPointer?
 }
-
 struct IDWriteTextFormatVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -231,7 +267,6 @@ struct IDWriteTextFormatVtbl {
     var GetLocaleNameLength: UnsafeMutableRawPointer?
     var GetLocaleName: UnsafeMutableRawPointer?
 }
-
 struct IDWriteTextLayoutVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -301,7 +336,6 @@ struct IDWriteTextLayoutVtbl {
     var HitTestTextPosition: UnsafeMutableRawPointer?
     var HitTestTextRange: UnsafeMutableRawPointer?
 }
-
 struct IDWriteTypographyVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -310,7 +344,6 @@ struct IDWriteTypographyVtbl {
     var GetFontFeatureCount: UnsafeMutableRawPointer?
     var GetFontFeature: UnsafeMutableRawPointer?
 }
-
 struct IDWriteGdiInteropVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -321,7 +354,6 @@ struct IDWriteGdiInteropVtbl {
     var CreateFontFaceFromHdc: UnsafeMutableRawPointer?
     var CreateBitmapRenderTarget: DWCreateBitmapRenderTargetProc
 }
-
 struct IDWriteBitmapRenderTargetVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -335,7 +367,6 @@ struct IDWriteBitmapRenderTargetVtbl {
     var GetSize: UnsafeMutableRawPointer?
     var Resize: UnsafeMutableRawPointer?
 }
-
 struct IDWriteFactoryVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -362,7 +393,6 @@ struct IDWriteFactoryVtbl {
     var CreateNumberSubstitution: UnsafeMutableRawPointer?
     var CreateGlyphRunAnalysis: UnsafeMutableRawPointer?
 }
-
 struct IDWriteTextRendererVtbl {
     var QueryInterface: DWQueryInterfaceProc
     var AddRef: DWAddRefProc
@@ -375,13 +405,17 @@ struct IDWriteTextRendererVtbl {
     var DrawStrikethrough: DWDrawStrikethroughProc
     var DrawInlineObject: DWDrawInlineObjectProc
 }
-
-let iidIDWriteFactory = makeGUID(data1: 0xB859EE5A, data2: 0xD838, data3: 0x4B5B, data4: (0xA2, 0xE8, 0x1A, 0xDC, 0x7D, 0x93, 0xDB, 0x48))
-let iidIDWritePixelSnapping = makeGUID(data1: 0xEAF3A2DA, data2: 0xECF4, data3: 0x4D24, data4: (0xB6, 0x44, 0xB3, 0x4F, 0x68, 0x42, 0x02, 0x4B))
-let iidIDWriteTextRenderer = makeGUID(data1: 0xEF8A8135, data2: 0x5CC6, data3: 0x45FE, data4: (0x88, 0x25, 0xC5, 0xA0, 0x72, 0x4E, 0xB8, 0x19))
-let iidIUnknownDirectWrite = makeGUID(data1: 0x00000000, data2: 0x0000, data3: 0x0000, data4: (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
-
-func makeGUID(data1: UInt32, data2: UInt16, data3: UInt16, data4: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)) -> GUID {
+let iidIDWriteFactory = makeGUID(
+    data1: 0xB859_EE5A, data2: 0xD838, data3: 0x4B5B, data4: (0xA2, 0xE8, 0x1A, 0xDC, 0x7D, 0x93, 0xDB, 0x48))
+let iidIDWritePixelSnapping = makeGUID(
+    data1: 0xEAF3_A2DA, data2: 0xECF4, data3: 0x4D24, data4: (0xB6, 0x44, 0xB3, 0x4F, 0x68, 0x42, 0x02, 0x4B))
+let iidIDWriteTextRenderer = makeGUID(
+    data1: 0xEF8A_8135, data2: 0x5CC6, data3: 0x45FE, data4: (0x88, 0x25, 0xC5, 0xA0, 0x72, 0x4E, 0xB8, 0x19))
+let iidIUnknownDirectWrite = makeGUID(
+    data1: 0x0000_0000, data2: 0x0000, data3: 0x0000, data4: (0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46))
+func makeGUID(
+    data1: UInt32, data2: UInt16, data3: UInt16, data4: (UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8)
+) -> GUID {
     var guid = GUID()
     guid.Data1 = data1
     guid.Data2 = data2
@@ -389,19 +423,17 @@ func makeGUID(data1: UInt32, data2: UInt16, data3: UInt16, data4: (UInt8, UInt8,
     guid.Data4 = data4
     return guid
 }
-
 func isSuccess(_ hr: HRESULT) -> Bool {
     hr >= 0
 }
-
 func guidEquals(_ lhs: GUID, _ rhs: GUID) -> Bool {
     withUnsafeBytes(of: lhs.Data4) { lhsBytes in
         withUnsafeBytes(of: rhs.Data4) { rhsBytes in
-            lhs.Data1 == rhs.Data1 && lhs.Data2 == rhs.Data2 && lhs.Data3 == rhs.Data3 && lhsBytes.elementsEqual(rhsBytes)
+            lhs.Data1 == rhs.Data1 && lhs.Data2 == rhs.Data2 && lhs.Data3 == rhs.Data3
+                && lhsBytes.elementsEqual(rhsBytes)
         }
     }
 }
-
 func releaseDirectWriteCOM<T>(_ pointer: inout UnsafeMutablePointer<T>?) {
     guard let rawPointer = pointer else {
         return

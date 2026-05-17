@@ -1,6 +1,9 @@
-import XCTest
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
+import XCTest
+
 @testable import SwiftWindowsRendererD3D11
 
 final class D3D11BatchRendererTests: XCTestCase {
@@ -201,9 +204,11 @@ final class D3D11BatchRendererTests: XCTestCase {
 
             let firstPlan = try D3D11BatchRenderer.makeRenderPlan(for: firstScene)
             XCTAssertEqual(firstPlan.glyphAtlasSource, .snapshot)
-            XCTAssertEqual(firstPlan.steps, [
-                .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .snapshot)
-            ])
+            XCTAssertEqual(
+                firstPlan.steps,
+                [
+                    .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .snapshot)
+                ])
 
             var cachedScene = firstScene
             cachedScene.glyphAtlas = nil
@@ -213,9 +218,11 @@ final class D3D11BatchRendererTests: XCTestCase {
             )
 
             XCTAssertEqual(cachedPlan.glyphAtlasSource, .cached)
-            XCTAssertEqual(cachedPlan.steps, [
-                .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .cached)
-            ])
+            XCTAssertEqual(
+                cachedPlan.steps,
+                [
+                    .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .cached)
+                ])
         }
     }
 
@@ -236,11 +243,13 @@ final class D3D11BatchRendererTests: XCTestCase {
 
             let plan = try D3D11BatchRenderer.makeRenderPlan(for: scene)
 
-            XCTAssertEqual(plan.steps, [
-                .quads(layerIndex: 0, range: 0..<1),
-                .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .snapshot),
-                .quads(layerIndex: 0, range: 1..<2),
-            ])
+            XCTAssertEqual(
+                plan.steps,
+                [
+                    .quads(layerIndex: 0, range: 0..<1),
+                    .glyphs(layerIndex: 0, range: 0..<1, atlasSource: .snapshot),
+                    .quads(layerIndex: 0, range: 1..<2),
+                ])
         }
     }
 
@@ -284,10 +293,12 @@ final class D3D11BatchRendererTests: XCTestCase {
                 cachedResources: renderer.cachedResourcesForTesting
             )
 
-            XCTAssertEqual(plan.steps, [
-                .images(layerIndex: 0, range: 0..<2, textureID: 7),
-                .images(layerIndex: 0, range: 2..<3, textureID: 9),
-            ])
+            XCTAssertEqual(
+                plan.steps,
+                [
+                    .images(layerIndex: 0, range: 0..<2, textureID: 7),
+                    .images(layerIndex: 0, range: 2..<3, textureID: 9),
+                ])
             XCTAssertEqual(scene.layers[0].images[0].opacity, 0.25, accuracy: 0.001)
             XCTAssertEqual(scene.layers[0].images[0].clipX, 2, accuracy: 0.001)
             XCTAssertEqual(scene.layers[0].images[0].clipWidth, 20, accuracy: 0.001)
@@ -304,23 +315,27 @@ final class D3D11BatchRendererTests: XCTestCase {
             let frame = RenderFrame(
                 clearColor: .black,
                 commands: [
-                    .drawBitmap(DrawBitmapCommand(
-                        rect: Rect(x: 0, y: 0, width: 32, height: 32),
-                        bitmap: bitmap,
-                        opacity: 0.4
-                    )),
-                    .drawBitmap(DrawBitmapCommand(
-                        rect: Rect(x: 40, y: 0, width: 16, height: 16),
-                        bitmap: bitmap,
-                        opacity: 0.9,
-                        clipRect: Rect(x: 40, y: 0, width: 8, height: 16)
-                    )),
+                    .drawBitmap(
+                        DrawBitmapCommand(
+                            rect: Rect(x: 0, y: 0, width: 32, height: 32),
+                            bitmap: bitmap,
+                            opacity: 0.4
+                        )),
+                    .drawBitmap(
+                        DrawBitmapCommand(
+                            rect: Rect(x: 40, y: 0, width: 16, height: 16),
+                            bitmap: bitmap,
+                            opacity: 0.9,
+                            clipRect: Rect(x: 40, y: 0, width: 8, height: 16)
+                        )),
                 ]
             )
             let scene = GPUIScene(from: frame, surfaceSize: Size(width: 128, height: 128))
-            XCTAssertEqual(scene.imageResources, [
-                ImageResourceBinding(textureID: 0, bitmap: bitmap)
-            ])
+            XCTAssertEqual(
+                scene.imageResources,
+                [
+                    ImageResourceBinding(textureID: 0, bitmap: bitmap)
+                ])
 
             let renderer = D3D11BatchRenderer()
             renderer.bindResources(for: scene)
@@ -330,9 +345,11 @@ final class D3D11BatchRendererTests: XCTestCase {
                 cachedResources: renderer.cachedResourcesForTesting
             )
 
-            XCTAssertEqual(plan.steps, [
-                .images(layerIndex: 0, range: 0..<2, textureID: 0)
-            ])
+            XCTAssertEqual(
+                plan.steps,
+                [
+                    .images(layerIndex: 0, range: 0..<2, textureID: 0)
+                ])
             XCTAssertEqual(scene.layers[0].images[0].opacity, 0.4, accuracy: 0.001)
             XCTAssertEqual(scene.layers[0].images[1].opacity, 0.9, accuracy: 0.001)
             XCTAssertEqual(scene.layers[0].images[1].clipWidth, 8, accuracy: 0.001)
@@ -379,9 +396,11 @@ final class D3D11BatchRendererTests: XCTestCase {
             )
 
             let plan = try D3D11BatchRenderer.makeRenderPlan(for: scene)
-            XCTAssertEqual(plan.steps, [
-                .paths(layerIndex: 0, range: 0..<1)
-            ])
+            XCTAssertEqual(
+                plan.steps,
+                [
+                    .paths(layerIndex: 0, range: 0..<1)
+                ])
         }
     }
 
@@ -408,10 +427,10 @@ final class D3D11BatchRendererTests: XCTestCase {
 
         // Center pixel inside the triangle should be green (BGRA: 0, 255, 0, 255)
         let centerOffset = (10 * 20 + 10) * 4
-        XCTAssertEqual(bitmap.pixels[centerOffset], 0)     // B
-        XCTAssertEqual(bitmap.pixels[centerOffset + 1], 255) // G
-        XCTAssertEqual(bitmap.pixels[centerOffset + 2], 0)     // R
-        XCTAssertEqual(bitmap.pixels[centerOffset + 3], 255)   // A
+        XCTAssertEqual(bitmap.pixels[centerOffset], 0)  // B
+        XCTAssertEqual(bitmap.pixels[centerOffset + 1], 255)  // G
+        XCTAssertEqual(bitmap.pixels[centerOffset + 2], 0)  // R
+        XCTAssertEqual(bitmap.pixels[centerOffset + 3], 255)  // A
     }
 
     func testRasterizePathWithStrokeProducesBitmap() {
@@ -433,9 +452,9 @@ final class D3D11BatchRendererTests: XCTestCase {
 
         // Midpoint should be red
         let midOffset = (1 * 20 + 10) * 4
-        XCTAssertEqual(bitmap.pixels[midOffset], 0)     // B
-        XCTAssertEqual(bitmap.pixels[midOffset + 1], 0)   // G
-        XCTAssertEqual(bitmap.pixels[midOffset + 2], 255) // R
-        XCTAssertEqual(bitmap.pixels[midOffset + 3], 255) // A
+        XCTAssertEqual(bitmap.pixels[midOffset], 0)  // B
+        XCTAssertEqual(bitmap.pixels[midOffset + 1], 0)  // G
+        XCTAssertEqual(bitmap.pixels[midOffset + 2], 255)  // R
+        XCTAssertEqual(bitmap.pixels[midOffset + 3], 255)  // A
     }
 }

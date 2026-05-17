@@ -1,16 +1,35 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
+
 import SwiftWindowsPlatform
+
 import SwiftWindowsUI
 
-private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
+// MARK: - AsyncImage
 
+// MARK: - GridItem
+
+// MARK: - LazyVGrid
+
+// MARK: - LazyHGrid
+
+// MARK: - Grid Resolution Helpers
+
+// MARK: - Table
+
+// MARK: - Canvas
+
+// MARK: - Placeholder Panels for Platform-Specific Views
+
+private let defaultRetainedScrollIndicatorInsets = EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6)
 private func retainedScrollAnchor(from anchor: UnitPoint?) -> RetainedScrollAnchor? {
     anchor.map { RetainedScrollAnchor(x: $0.x, y: $0.y) }
 }
-
 private func stackMainAlignment(from value: Double) -> StackMainAlignment {
     if value <= 0.25 {
         return .start
@@ -20,7 +39,6 @@ private func stackMainAlignment(from value: Double) -> StackMainAlignment {
     }
     return .center
 }
-
 private func stackCrossAlignment(from value: Double) -> StackCrossAlignment {
     if value <= 0.25 {
         return .leading
@@ -30,7 +48,6 @@ private func stackCrossAlignment(from value: Double) -> StackCrossAlignment {
     }
     return .center
 }
-
 public struct GeometryProxy {
     public let size: Size
     public let safeAreaInsets: EdgeInsets
@@ -61,7 +78,6 @@ public struct GeometryProxy {
         anchor.value
     }
 }
-
 public struct GeometryProxy3D {
     public let size: Size3D
     public let safeAreaInsets: EdgeInsets3D
@@ -89,7 +105,6 @@ public struct GeometryProxy3D {
         anchor.value
     }
 }
-
 @MainActor
 public final class PhaseAnimatorTaskManager: @unchecked Sendable {
     public static let shared = PhaseAnimatorTaskManager()
@@ -131,8 +146,9 @@ public final class PhaseAnimatorTaskManager: @unchecked Sendable {
                     return
                 }
                 if let state = node.phaseAnimatorState,
-                   state.phasesSignature == signature,
-                   state.currentPhaseIndex == i - 1 {
+                    state.phasesSignature == signature,
+                    state.currentPhaseIndex == i - 1
+                {
                     node.phaseAnimatorState?.currentPhaseIndex = i
                     node.phaseAnimatorState?.phaseStartTime = Win32Window.currentTimestampSeconds()
                     invalidate()
@@ -163,15 +179,11 @@ public final class PhaseAnimatorTaskManager: @unchecked Sendable {
         return nil
     }
 }
-
 public protocol Keyframe {}
-
 public protocol Keyframes {}
-
 public struct KeyframeTrack<Value>: Keyframes where Value: Animatable {
     public init() {}
 }
-
 public struct LinearKeyframe<Value>: Keyframe where Value: Animatable {
     public let value: Value
     public let duration: Double
@@ -181,7 +193,6 @@ public struct LinearKeyframe<Value>: Keyframe where Value: Animatable {
         self.duration = duration
     }
 }
-
 public struct CubicKeyframe<Value>: Keyframe where Value: Animatable {
     public let value: Value
     public let duration: Double
@@ -191,7 +202,6 @@ public struct CubicKeyframe<Value>: Keyframe where Value: Animatable {
         self.duration = duration
     }
 }
-
 public struct SpringKeyframe<Value>: Keyframe where Value: Animatable {
     public let value: Value
     public let duration: Double
@@ -203,7 +213,6 @@ public struct SpringKeyframe<Value>: Keyframe where Value: Animatable {
         self.spring = spring
     }
 }
-
 public struct MoveKeyframe<Value>: Keyframe where Value: Animatable {
     public let value: Value
 
@@ -211,7 +220,6 @@ public struct MoveKeyframe<Value>: Keyframe where Value: Animatable {
         self.value = value
     }
 }
-
 @MainActor
 public struct KeyframeAnimator<Value>: View where Value: Animatable {
     public typealias Body = Never
@@ -261,7 +269,6 @@ public struct KeyframeAnimator<Value>: View where Value: Animatable {
         }
     }
 }
-
 @MainActor
 public struct PhaseAnimator<Phase: Equatable>: View {
     public typealias Body = Never
@@ -412,7 +419,9 @@ public struct PhaseAnimator<Phase: Equatable>: View {
             } else {
                 animationDesc = "nil"
             }
-            var effectParts = ["phase:\(phaseString)", "hasAdditionalPhases:\(hasAdditionalPhases)", "animation:\(animationDesc)"]
+            var effectParts = [
+                "phase:\(phaseString)", "hasAdditionalPhases:\(hasAdditionalPhases)", "animation:\(animationDesc)",
+            ]
             if let trigger = triggerDescription {
                 effectParts.insert("trigger:\(trigger)", at: 2)
             }
@@ -459,7 +468,6 @@ public struct PhaseAnimator<Phase: Equatable>: View {
         return nil
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct TransitionProxy: Sendable, Equatable {
@@ -471,7 +479,6 @@ public struct TransitionProxy: Sendable, Equatable {
         self.value = value
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct TransitionReader: View {
@@ -495,7 +502,6 @@ public struct TransitionReader: View {
         )
     }
 }
-
 @MainActor
 public struct ViewThatFits: View {
     public typealias Body = Never
@@ -546,7 +552,6 @@ public struct ViewThatFits: View {
         return true
     }
 }
-
 @MainActor
 public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {
     public typealias Body = Never
@@ -601,7 +606,6 @@ public struct TimelineView<Schedule: TimelineSchedule, Content: View>: View {
         }
     }
 }
-
 public struct AnimationTimelineView<Schedule: TimelineSchedule, Content: View>: View {
     public typealias Body = Never
 
@@ -649,7 +653,6 @@ public struct AnimationTimelineView<Schedule: TimelineSchedule, Content: View>: 
         }
     }
 }
-
 extension SwiftWindowsCore.Color: View {
     public typealias Body = Never
 
@@ -663,12 +666,10 @@ extension SwiftWindowsCore.Color: View {
         }
     }
 }
-
 public enum RoundedCornerStyle: Sendable, Equatable {
     case circular
     case continuous
 }
-
 @MainActor
 public struct Rectangle: View {
     public typealias Body = Never
@@ -868,7 +869,6 @@ public struct Rectangle: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct RoundedRectangle: View {
     public typealias Body = Never
@@ -1081,7 +1081,6 @@ public struct RoundedRectangle: View {
         max(cornerSize.width, cornerSize.height)
     }
 }
-
 public struct RectangleCornerRadii: Sendable, Equatable {
     public var topLeading: CGFloat
     public var bottomLeading: CGFloat
@@ -1104,7 +1103,6 @@ public struct RectangleCornerRadii: Sendable, Equatable {
         max(topLeading, bottomLeading, bottomTrailing, topTrailing)
     }
 }
-
 @MainActor
 public struct UnevenRoundedRectangle: View {
     public typealias Body = Never
@@ -1330,7 +1328,6 @@ public struct UnevenRoundedRectangle: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct Capsule: View {
     public typealias Body = Never
@@ -1532,7 +1529,6 @@ public struct Capsule: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct Circle: View {
     public typealias Body = Never
@@ -1731,7 +1727,6 @@ public struct Circle: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct Ellipse: View {
     public typealias Body = Never
@@ -1930,7 +1925,6 @@ public struct Ellipse: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct Arc: View {
     public typealias Body = Never
@@ -1981,8 +1975,12 @@ public struct Arc: View {
                 var path = Path()
                 let center = Point(x: bounds.midX, y: bounds.midY)
                 let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
-                path.moveTo(Point(x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
-                path.arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians, clockwise: clockwise)
+                path.moveTo(
+                    Point(
+                        x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
+                path.arc(
+                    center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians,
+                    clockwise: clockwise)
                 node.backgroundPath = RenderPath(path: path)
                 let fillResolved = resolvedFill(from: fill)
                 node.backgroundColor = fillResolved.color
@@ -1991,7 +1989,8 @@ public struct Arc: View {
                 node.borderColor = strokeResolved.color
                 node.borderGradient = strokeResolved.gradient
                 node.borderWidth = lineWidth
-                node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+                node.borderStrokeStyle =
+                    lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
                 node.clipFillStyle = fillRuleStyle
             }
             return node
@@ -2002,8 +2001,11 @@ public struct Arc: View {
         var path = Path()
         let center = Point(x: rect.midX, y: rect.midY)
         let radius = max(0, min(rect.size.width, rect.size.height) * 0.5)
-        path.moveTo(Point(x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
-        path.arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians, clockwise: clockwise)
+        path.moveTo(
+            Point(x: center.x + radius * cos(startAngle.radians), y: center.y + radius * sin(startAngle.radians)))
+        path.arc(
+            center: center, radius: radius, startAngle: startAngle.radians, endAngle: endAngle.radians,
+            clockwise: clockwise)
         return path
     }
 
@@ -2167,11 +2169,8 @@ public struct Arc: View {
         stroke(gradient, style: style)
     }
 }
-
 extension Arc: Shape {}
-
 extension Arc: InsettableShape {}
-
 @MainActor
 public struct ContainerRelativeShape: View {
     public typealias Body = Never
@@ -2370,7 +2369,6 @@ public struct ContainerRelativeShape: View {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public typealias Body = Never
@@ -2418,7 +2416,8 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        guard fillStyle != nil || fillRuleStyle != nil || strokeStyle != nil || strokeLineStyle != nil || lineWidth > 0 else {
+        guard fillStyle != nil || fillRuleStyle != nil || strokeStyle != nil || strokeLineStyle != nil || lineWidth > 0
+        else {
             return buildComponent(context)
         }
 
@@ -2435,7 +2434,8 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
             node.borderGradient = strokeResult.gradient
             node.borderWidth = lineWidth
             node.clipFillStyle = fillRuleStyle
-            node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+            node.borderStrokeStyle =
+                lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
             return node
         }
     }
@@ -2600,7 +2600,6 @@ public struct AnyShape: Shape, RetainedClipShape, RetainedContentShapeProvider {
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, RetainedContentShapeProvider {
     public typealias Body = Never
@@ -2681,7 +2680,8 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
                 node.borderGradient = strokeResult.gradient
                 node.borderWidth = lineWidth
                 node.clipFillStyle = fillRuleStyle
-                node.borderStrokeStyle = lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
+                node.borderStrokeStyle =
+                    lineWidth > 0 ? (strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: [])) : nil
                 switch adjustedClipShapeStyle {
                 case .roundedRectangle(let radius):
                     node.cornerRadius = radius
@@ -2878,7 +2878,6 @@ public struct InsetShape<Content: Shape>: InsettableShape, RetainedClipShape, Re
         stroke(gradient, style: style)
     }
 }
-
 @MainActor
 public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedContentShapeProvider {
     public typealias Body = Never
@@ -2944,7 +2943,8 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
                 case .moveTo(let p): segments.append(.moveTo(p))
                 case .lineTo(let p): segments.append(.lineTo(p))
                 case .quadraticCurveTo(let c, let e): segments.append(.quadCurveTo(control: c, end: e))
-                case .cubicCurveTo(let c1, let c2, let e): segments.append(.cubicCurveTo(control1: c1, control2: c2, end: e))
+                case .cubicCurveTo(let c1, let c2, let e):
+                    segments.append(.cubicCurveTo(control1: c1, control2: c2, end: e))
                 case .arc(let center, let radius, let startAngle, let endAngle, _):
                     let steps = max(4, Int(ceil(abs(endAngle - startAngle) * radius * 0.5)))
                     let step = (endAngle - startAngle) / Double(steps)
@@ -3119,14 +3119,12 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         stroke(gradient, style: style)
     }
 }
-
-public extension TrimmedShape where Content: InsettableShape {
-    func inset(by amount: CGFloat) -> TrimmedShape<Content> {
+extension TrimmedShape where Content: InsettableShape {
+    public func inset(by amount: CGFloat) -> TrimmedShape<Content> {
         var copy = self
         return copy
     }
 }
-
 @MainActor
 public struct RotatedShape<Content: Shape>: Shape {
     public typealias Body = Never
@@ -3158,7 +3156,6 @@ public struct RotatedShape<Content: Shape>: Shape {
         }
     }
 }
-
 @MainActor
 public struct ScaledShape<Content: Shape>: Shape {
     public typealias Body = Never
@@ -3190,7 +3187,6 @@ public struct ScaledShape<Content: Shape>: Shape {
         }
     }
 }
-
 @MainActor
 public struct OffsetShape<Content: Shape>: Shape {
     public typealias Body = Never
@@ -3220,7 +3216,6 @@ public struct OffsetShape<Content: Shape>: Shape {
         }
     }
 }
-
 @MainActor
 public struct TransformedShape<Content: Shape>: Shape {
     public typealias Body = Never
@@ -3250,7 +3245,6 @@ public struct TransformedShape<Content: Shape>: Shape {
         }
     }
 }
-
 public struct StrokeBorder<Content: Shape>: View {
     public typealias Body = Never
 
@@ -3270,7 +3264,6 @@ public struct StrokeBorder<Content: Shape>: View {
         shape.makeComponent(context: context)
     }
 }
-
 public struct UnionShape<Content: Shape, Other: Shape>: Shape {
     public typealias Body = Never
 
@@ -3290,7 +3283,6 @@ public struct UnionShape<Content: Shape, Other: Shape>: Shape {
         first.path(in: rect)
     }
 }
-
 public struct IntersectionShape<Content: Shape, Other: Shape>: Shape {
     public typealias Body = Never
 
@@ -3310,38 +3302,35 @@ public struct IntersectionShape<Content: Shape, Other: Shape>: Shape {
         first.path(in: rect)
     }
 }
-
-public extension Shape where Self == Rectangle {
-    static var rect: Rectangle {
+extension Shape where Self == Rectangle {
+    public static var rect: Rectangle {
         Rectangle()
     }
 }
-
-public extension Shape where Self == RoundedRectangle {
-    static func rect(
+extension Shape where Self == RoundedRectangle {
+    public static func rect(
         cornerRadius: CGFloat,
         style: RoundedCornerStyle = .continuous
     ) -> RoundedRectangle {
         RoundedRectangle(cornerRadius: cornerRadius, style: style)
     }
 
-    static func rect(
+    public static func rect(
         cornerSize: CGSize,
         style: RoundedCornerStyle = .continuous
     ) -> RoundedRectangle {
         RoundedRectangle(cornerSize: cornerSize, style: style)
     }
 }
-
-public extension Shape where Self == UnevenRoundedRectangle {
-    static func rect(
+extension Shape where Self == UnevenRoundedRectangle {
+    public static func rect(
         cornerRadii: RectangleCornerRadii,
         style: RoundedCornerStyle = .continuous
     ) -> UnevenRoundedRectangle {
         UnevenRoundedRectangle(cornerRadii: cornerRadii, style: style)
     }
 
-    static func rect(
+    public static func rect(
         topLeadingRadius: CGFloat = 0,
         bottomLeadingRadius: CGFloat = 0,
         bottomTrailingRadius: CGFloat = 0,
@@ -3357,83 +3346,70 @@ public extension Shape where Self == UnevenRoundedRectangle {
         )
     }
 }
-
-public extension Shape where Self == Capsule {
-    static var capsule: Capsule {
+extension Shape where Self == Capsule {
+    public static var capsule: Capsule {
         Capsule()
     }
 
-    static func capsule(style: RoundedCornerStyle) -> Capsule {
+    public static func capsule(style: RoundedCornerStyle) -> Capsule {
         Capsule(style: style)
     }
 }
-
-public extension Shape where Self == Circle {
-    static var circle: Circle {
+extension Shape where Self == Circle {
+    public static var circle: Circle {
         Circle()
     }
 }
-
-public extension Shape where Self == Ellipse {
-    static var ellipse: Ellipse {
+extension Shape where Self == Ellipse {
+    public static var ellipse: Ellipse {
         Ellipse()
     }
 }
-
-public extension Shape where Self == ContainerRelativeShape {
-    static var containerRelative: ContainerRelativeShape {
+extension Shape where Self == ContainerRelativeShape {
+    public static var containerRelative: ContainerRelativeShape {
         ContainerRelativeShape()
     }
 }
-
 extension Rectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .rectangle
     }
 }
-
 extension RoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(retainedUniformFallbackRadius)
     }
 }
-
 extension UnevenRoundedRectangle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .roundedRectangle(cornerRadii.retainedUniformFallbackRadius)
     }
 }
-
 extension Capsule: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
-
 extension Circle: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
-
 extension Ellipse: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
-
 extension Path: Shape {
     public func path(in rect: Rect) -> Path {
         self
     }
 }
-
 extension ContainerRelativeShape: InsettableShape, RetainedClipShape {
     var retainedClipShapeStyle: RetainedClipShapeStyle {
         .capsule
     }
 }
-
 @MainActor
 private func shapeComponent(
     fillStyle: ForegroundStyle,
@@ -3456,11 +3432,11 @@ private func shapeComponent(
             isHitTestVisible: false
         )
         node.clipFillStyle = fillRuleStyle
-        node.borderStrokeStyle = lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
+        node.borderStrokeStyle =
+            lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         return node
     }
 }
-
 @MainActor
 private func capsuleComponent(
     fillStyle: ForegroundStyle,
@@ -3481,7 +3457,8 @@ private func capsuleComponent(
             isHitTestVisible: false
         )
         node.clipFillStyle = fillRuleStyle
-        node.borderStrokeStyle = lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
+        node.borderStrokeStyle =
+            lineWidth > 0 ? strokeLineStyle ?? StrokeStyle(lineWidth: lineWidth, dashPattern: []) : nil
         node.onLayout = { [weak node] bounds in
             let radius = max(0, min(bounds.size.width, bounds.size.height) * 0.5)
             if node?.cornerRadius != radius {
@@ -3491,21 +3468,18 @@ private func capsuleComponent(
         return node
     }
 }
-
-private extension StrokeStyle {
-    var retainedShapeStrokeStyle: StrokeStyle {
+extension StrokeStyle {
+    fileprivate var retainedShapeStrokeStyle: StrokeStyle {
         var copy = self
         copy.lineWidth = max(0, lineWidth)
         return copy
     }
 }
-
-private extension FillStyle {
-    var retainedClipFillStyle: RetainedClipFillStyle {
+extension FillStyle {
+    fileprivate var retainedClipFillStyle: RetainedClipFillStyle {
         RetainedClipFillStyle(eoFill: isEOFilled, antialiased: isAntialiased)
     }
 }
-
 private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradient: GradientType?) {
     switch style {
     case .color(let color):
@@ -3518,7 +3492,6 @@ private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradien
         return (gradient.stops.first?.color ?? .clear, .conic(.init(gradient)))
     }
 }
-
 @MainActor
 public struct Group: View {
     public typealias Body = Never
@@ -3537,25 +3510,21 @@ public struct Group: View {
         composeComponent(from: content, context: context)
     }
 }
-
 @MainActor
 private struct NavigationStackEntry {
     var destination: [AnyView]
     var onDismiss: (@MainActor () -> Void)?
 }
-
 @MainActor
 private final class NavigationContainerState {
     var destinationStack: [NavigationStackEntry] = []
 }
-
 @MainActor
 private struct NavigationPathBinding {
     var values: () -> [AnyHashable]
     var append: (AnyHashable) -> Bool
     var removeLast: () -> Void
 }
-
 @MainActor
 public struct NavigationStack: View {
     public typealias Body = Never
@@ -3635,7 +3604,6 @@ public struct NavigationStack: View {
         )
     }
 }
-
 @MainActor
 public struct NavigationView: View {
     public typealias Body = Never
@@ -3665,7 +3633,6 @@ public struct NavigationView: View {
         )
     }
 }
-
 private struct RetainedNavigationViewChrome {
     var containerBackground: Color?
     var containerBorderColor: Color
@@ -3677,7 +3644,6 @@ private struct RetainedNavigationViewChrome {
     var headerCornerRadius: Double
     var spacing: Double
 }
-
 private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> RetainedNavigationViewChrome {
     let defaultChrome = RetainedNavigationViewChrome(
         containerBackground: nil,
@@ -3736,7 +3702,6 @@ private func retainedNavigationViewChrome(for style: NavigationViewStyle?) -> Re
         )
     }
 }
-
 @MainActor
 private func navigationContainerComponent(
     from content: [AnyView],
@@ -3756,7 +3721,6 @@ private func navigationContainerComponent(
         fallbackLayout: fallbackLayout
     )
 }
-
 @MainActor
 private func navigationContainerComponent(
     from content: [AnyView],
@@ -3767,9 +3731,11 @@ private func navigationContainerComponent(
     navigationViewStyle: NavigationViewStyle? = nil,
     fallbackLayout: ViewLayoutMode
 ) -> Component {
-    let rootDestinationRegistrations = context.navigationDestinationRegistrations
+    let rootDestinationRegistrations =
+        context.navigationDestinationRegistrations
         + navigationDestinations(in: content)
-    let rootPresentedDestinations = context.navigationPresentedDestinations
+    let rootPresentedDestinations =
+        context.navigationPresentedDestinations
         + navigationPresentedDestinations(in: content)
     let pathDestinationStack = resolvedNavigationStack(
         from: pathBinding?.values() ?? [],
@@ -3778,9 +3744,11 @@ private func navigationContainerComponent(
     let activePresentation = activeNavigationPresentation(in: rootPresentedDestinations)
     let presentedDestination = activePresentation?.destination
     let pushedDestinationStack = destinationStack.map(\.destination)
-    let combinedDestinationStack = pathDestinationStack + pushedDestinationStack + [presentedDestination].compactMap { $0 }
+    let combinedDestinationStack =
+        pathDestinationStack + pushedDestinationStack + [presentedDestination].compactMap { $0 }
     let visibleContent = combinedDestinationStack.last ?? content
-    let destinationRegistrations = rootDestinationRegistrations
+    let destinationRegistrations =
+        rootDestinationRegistrations
         + navigationDestinations(in: visibleContent)
 
     func pushDestination(_ destination: [AnyView], onDismiss: (@MainActor () -> Void)? = nil) {
@@ -3815,19 +3783,25 @@ private func navigationContainerComponent(
         }
     }
 
-    let navigationContext = context
-        .withEnvironmentValue(\.dismiss, DismissAction {
-            dismissVisibleDestination()
-        })
+    let navigationContext =
+        context
+        .withEnvironmentValue(
+            \.dismiss,
+            DismissAction {
+                dismissVisibleDestination()
+            }
+        )
         .withEnvironmentValue(\.isPresented, !combinedDestinationStack.isEmpty)
         .withNavigationDestinationHandler { destination, onDismiss in
             pushDestination(destination, onDismiss: onDismiss)
         }
         .withNavigationValueHandler { value in
-            guard let destination = resolveNavigationDestination(
-                for: value,
-                registrations: destinationRegistrations
-            ) else {
+            guard
+                let destination = resolveNavigationDestination(
+                    for: value,
+                    registrations: destinationRegistrations
+                )
+            else {
                 return false
             }
 
@@ -3857,15 +3831,19 @@ private func navigationContainerComponent(
     }
 
     let hidesBackButton = navigationBarBackButtonHidden(in: visibleContent) ?? false
-    let displayMode = navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
-    let titleFont: Font = displayMode == .inline
+    let displayMode =
+        navigationTitleDisplayMode(in: visibleContent) ?? navigationTitleDisplayMode(in: content) ?? .automatic
+    let titleFont: Font =
+        displayMode == .inline
         ? .system(size: 2, weight: .semibold)
         : .system(size: 3, weight: .bold)
     let chrome = retainedNavigationViewChrome(for: navigationViewStyle)
-    let titleContext = context
+    let titleContext =
+        context
         .withForegroundColor(Color(red: 0.92, green: 0.96, blue: 1.0))
         .withFont(titleFont)
-    let subtitleContext = context
+    let subtitleContext =
+        context
         .withForegroundColor(Color(red: 0.70, green: 0.78, blue: 0.90, alpha: 0.86))
         .withFont(.system(size: 1.35, weight: .regular))
 
@@ -3912,11 +3890,12 @@ private func navigationContainerComponent(
                 cornerRadius: 8,
                 palette: ButtonSurfaceStyle.plain.palette,
                 chrome: ButtonSurfaceStyle.plain.chrome,
-                layoutMode: .stack(.vertical(
-                    padding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
-                    alignment: .center,
-                    mainAlignment: .center
-                )),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled,
                 action: {
                     dismissVisibleDestination()
@@ -3966,7 +3945,6 @@ private func navigationContainerComponent(
         )
     }
 }
-
 @MainActor
 private func extractToolbarContent(from node: ViewNode) -> (toolbarContent: [ViewNode], remainingBody: ViewNode)? {
     // The .toolbar() modifier wraps content as:
@@ -3983,42 +3961,34 @@ private func extractToolbarContent(from node: ViewNode) -> (toolbarContent: [Vie
     node.removeChild(at: toolbarIndex)
     return (toolbarContent, node)
 }
-
 @MainActor
 private func navigationTitle(in content: [AnyView]) -> [AnyView]? {
     content.lazy.compactMap(\.navigationTitle).first
 }
-
 @MainActor
 private func navigationSubtitle(in content: [AnyView]) -> [AnyView]? {
     content.lazy.compactMap(\.navigationSubtitle).first
 }
-
 @MainActor
 private func navigationTitleDisplayMode(in content: [AnyView]) -> NavigationBarItem.TitleDisplayMode? {
     content.lazy.compactMap(\.navigationTitleDisplayMode).first
 }
-
 @MainActor
 private func navigationBarBackButtonHidden(in content: [AnyView]) -> Bool? {
     content.lazy.compactMap(\.navigationBarBackButtonHidden).first
 }
-
 @MainActor
 private func navigationBarHidden(in content: [AnyView]) -> Bool? {
     content.lazy.compactMap(\.navigationBarHidden).first
 }
-
 @MainActor
 private func navigationDestinations(in content: [AnyView]) -> [NavigationDestinationRegistration] {
     content.flatMap(\.navigationDestinationRegistrations)
 }
-
 @MainActor
 private func navigationPresentedDestinations(in content: [AnyView]) -> [NavigationPresentedDestination] {
     content.flatMap(\.navigationPresentedDestinations)
 }
-
 @MainActor
 private func activeNavigationPresentation(
     in presentations: [NavigationPresentedDestination]
@@ -4033,7 +4003,6 @@ private func activeNavigationPresentation(
 
     return nil
 }
-
 @MainActor
 private func resolveNavigationDestination(
     for value: AnyHashable,
@@ -4047,7 +4016,6 @@ private func resolveNavigationDestination(
 
     return nil
 }
-
 @MainActor
 private func resolvedNavigationStack(
     from values: [AnyHashable],
@@ -4066,7 +4034,6 @@ private func resolvedNavigationStack(
 
     return stack
 }
-
 @MainActor
 public struct NavigationSplitView: View {
     public typealias Body = Never
@@ -4192,7 +4159,8 @@ public struct NavigationSplitView: View {
         case .prominentDetail:
             let isDetail = index == count - 1
             node.layoutPriority = isDetail ? 2 : 0.75
-            node.backgroundColor = isDetail
+            node.backgroundColor =
+                isDetail
                 ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
                 : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
             node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
@@ -4200,7 +4168,8 @@ public struct NavigationSplitView: View {
         case .prominentDetailAndSidebar:
             let isDetail = index == count - 1
             node.layoutPriority = isDetail ? 2 : 0.75
-            node.backgroundColor = isDetail
+            node.backgroundColor =
+                isDetail
                 ? Color(red: 0.10, green: 0.14, blue: 0.20, alpha: 0.30)
                 : Color(red: 0.06, green: 0.09, blue: 0.13, alpha: 0.28)
             node.borderColor = isDetail ? .clear : Color(red: 0.95, green: 0.98, blue: 1.0, alpha: 0.12)
@@ -4226,7 +4195,6 @@ public struct NavigationSplitView: View {
         }
     }
 }
-
 @MainActor
 public struct NavigationLink: View {
     public typealias Body = Never
@@ -4477,11 +4445,12 @@ public struct NavigationLink: View {
                 cornerRadius: 8,
                 palette: ButtonSurfaceStyle.plain.palette,
                 chrome: ButtonSurfaceStyle.plain.chrome,
-                layoutMode: .stack(.vertical(
-                    padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
-                    alignment: .stretch,
-                    mainAlignment: .center
-                )),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                        alignment: .stretch,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled,
                 action: {
                     if let navigationValue {
@@ -4503,7 +4472,6 @@ public struct NavigationLink: View {
         }
     }
 }
-
 @MainActor
 public struct TabView: View {
     public typealias Body = Never
@@ -4584,7 +4552,8 @@ public struct TabView: View {
         }
 
         if let selectedTag = selectedTag?(),
-           let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag }) {
+            let selectedIndex = content.firstIndex(where: { $0.selectionTag == selectedTag })
+        {
             return selectedIndex
         }
 
@@ -4621,7 +4590,8 @@ public struct TabView: View {
                     tabContentNode = labelNode
                 }
                 let isSelected = index == selectedIndex
-                let palette = isSelected
+                let palette =
+                    isSelected
                     ? ButtonSurfaceStyle.default.palette
                     : ButtonSurfaceStyle.plain.palette
 
@@ -4631,7 +4601,8 @@ public struct TabView: View {
                     cornerRadius: chrome.tabCornerRadius,
                     palette: palette,
                     chrome: SurfaceChrome(
-                        borderColor: isSelected ? context.tint.opacity(chrome.selectedBorderAlpha) : chrome.unselectedBorderColor,
+                        borderColor: isSelected
+                            ? context.tint.opacity(chrome.selectedBorderAlpha) : chrome.unselectedBorderColor,
                         borderHoveredColor: context.tint.opacity(isSelected ? 0.62 : chrome.hoverBorderAlpha),
                         borderFocusedColor: context.tint.opacity(0.68),
                         borderPressedColor: context.tint.opacity(0.78),
@@ -4639,11 +4610,12 @@ public struct TabView: View {
                         focusRingColor: context.tint.opacity(0.24),
                         focusRingWidth: 2
                     ),
-                    layoutMode: .stack(.vertical(
-                        padding: chrome.tabPadding,
-                        alignment: .center,
-                        mainAlignment: .center
-                    )),
+                    layoutMode: .stack(
+                        .vertical(
+                            padding: chrome.tabPadding,
+                            alignment: .center,
+                            mainAlignment: .center
+                        )),
                     isEnabled: context.isEnabled,
                     action: {
                         if let tag = view.selectionTag {
@@ -4871,7 +4843,6 @@ public struct TabView: View {
         }
     }
 }
-
 @MainActor
 public struct TabSection<Content: View>: View {
     public typealias Body = Never
@@ -4901,7 +4872,6 @@ public struct TabSection<Content: View>: View {
         )
     }
 }
-
 @MainActor
 public struct TableOfContents: View {
     public typealias Body = Never
@@ -4916,14 +4886,12 @@ public struct TableOfContents: View {
         composeComponent(from: [], context: context)
     }
 }
-
 @MainActor
 public protocol DynamicViewContent<Data>: View {
     associatedtype Data: Collection
 
     var data: Data { get }
 }
-
 @MainActor
 public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
     public typealias Body = Never
@@ -4972,11 +4940,9 @@ public struct ForEach<Data: RandomAccessCollection, ID: Hashable>: View {
         return views
     }
 }
-
 extension ForEach: DynamicViewContent {}
-
-public extension ForEach {
-    func onDelete(perform action: ((IndexSet) -> Void)?) -> ForEach<Data, ID> {
+extension ForEach {
+    public func onDelete(perform action: ((IndexSet) -> Void)?) -> ForEach<Data, ID> {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
@@ -4990,7 +4956,7 @@ public extension ForEach {
         )
     }
 
-    func onMove(perform action: ((IndexSet, Int) -> Void)?) -> ForEach<Data, ID> {
+    public func onMove(perform action: ((IndexSet, Int) -> Void)?) -> ForEach<Data, ID> {
         ForEach(
             data: data,
             contentViews: contentViews.map { view in
@@ -5004,7 +4970,7 @@ public extension ForEach {
         )
     }
 
-    func onInsert(
+    public func onInsert(
         of supportedContentTypes: [UTType],
         perform action: @escaping (Int, [NSItemProvider]) -> Void
     ) -> ForEach<Data, ID> {
@@ -5023,7 +4989,7 @@ public extension ForEach {
         )
     }
 
-    func onInsert(
+    public func onInsert(
         of acceptedTypeIdentifiers: [String],
         perform action: @escaping (Int, [NSItemProvider]) -> Void
     ) -> ForEach<Data, ID> {
@@ -5041,7 +5007,7 @@ public extension ForEach {
         )
     }
 
-    func dropDestination<T: Transferable>(
+    public func dropDestination<T: Transferable>(
         for payloadType: T.Type = T.self,
         action: @escaping ([T], Int) -> Void
     ) -> ForEach<Data, ID> {
@@ -5061,7 +5027,6 @@ public extension ForEach {
         )
     }
 }
-
 @MainActor
 private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
     typealias Body = Never
@@ -5154,24 +5119,22 @@ private struct DynamicListEditMetadataView: View, TaggedViewMetadata {
         }
     }
 }
-
 @MainActor
 public struct BindingCollectionElement<Element, ID: Hashable> {
     public let id: ID
     public let binding: Binding<Element>
 }
-
-public extension ForEach where Data.Element: Identifiable, ID == Data.Element.ID {
-    init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) {
+extension ForEach where Data.Element: Identifiable, ID == Data.Element.ID {
+    public init(_ data: Data, @ViewBuilder content: (Data.Element) -> [AnyView]) {
         self.init(data, id: \.id, content: content)
     }
 }
-
-public extension ForEach {
-    init<Collection>(
+extension ForEach {
+    public init<Collection>(
         _ data: Binding<Collection>,
         @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
-    ) where
+    )
+    where
         Data == [BindingCollectionElement<Collection.Element, ID>],
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Element: Identifiable,
@@ -5200,11 +5163,12 @@ public extension ForEach {
         }
     }
 
-    init<Collection>(
+    public init<Collection>(
         _ data: Binding<Collection>,
         id: KeyPath<Collection.Element, ID>,
         @ViewBuilder content: (Binding<Collection.Element>) -> [AnyView]
-    ) where
+    )
+    where
         Data == [BindingCollectionElement<Collection.Element, ID>],
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Index: Hashable
@@ -5231,19 +5195,16 @@ public extension ForEach {
         }
     }
 }
-
-public extension ForEach where Data == Range<Int>, ID == Int {
-    init(_ data: Range<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+extension ForEach where Data == Range<Int>, ID == Int {
+    public init(_ data: Range<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
         self.init(data, id: \.self, content: content)
     }
 }
-
-public extension ForEach where Data == ClosedRange<Int>, ID == Int {
-    init(_ data: ClosedRange<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
+extension ForEach where Data == ClosedRange<Int>, ID == Int {
+    public init(_ data: ClosedRange<Int>, @ViewBuilder content: (Int) -> [AnyView]) {
         self.init(data, id: \.self, content: content)
     }
 }
-
 @MainActor
 public struct Text: View {
     public typealias Body = Never
@@ -5699,7 +5660,8 @@ public struct Text: View {
             timerStyle: lhs.timerStyle ?? rhs.timerStyle,
             lineBreakMode: lhs.lineBreakMode ?? rhs.lineBreakMode,
             hyphenationFrequency: lhs.hyphenationFrequency ?? rhs.hyphenationFrequency,
-            allowsDefaultTighteningForTruncation: lhs.allowsDefaultTighteningForTruncation ?? rhs.allowsDefaultTighteningForTruncation,
+            allowsDefaultTighteningForTruncation: lhs.allowsDefaultTighteningForTruncation
+                ?? rhs.allowsDefaultTighteningForTruncation,
             typesettingLanguage: lhs.typesettingLanguage ?? rhs.typesettingLanguage
         )
     }
@@ -5724,7 +5686,8 @@ public struct Text: View {
         if let fontWidth {
             resolvedFont = resolvedFont.width(fontWidth ?? .standard)
         }
-        resolvedFont = resolvedFont
+        resolvedFont =
+            resolvedFont
             .scaled(for: context.dynamicTypeSize)
             .scaled(by: textScale ?? context.textScale)
         let resolvedAlignment = alignment ?? context.textAlignment
@@ -5749,7 +5712,8 @@ public struct Text: View {
             .retainedTextDecorationPattern
         let resolvedUnderlineColor = underline != nil ? underlineColor : context.underlineStyle?.color
         let resolvedStrikethrough = strikethrough ?? context.strikethroughStyle?.isActive ?? false
-        let resolvedStrikethroughPattern = (strikethrough != nil ? strikethroughPattern : context.strikethroughStyle?.pattern ?? .solid)
+        let resolvedStrikethroughPattern =
+            (strikethrough != nil ? strikethroughPattern : context.strikethroughStyle?.pattern ?? .solid)
             .retainedTextDecorationPattern
         let resolvedStrikethroughColor = strikethrough != nil ? strikethroughColor : context.strikethroughStyle?.color
 
@@ -5769,14 +5733,16 @@ public struct Text: View {
                 alignment: resolvedAlignment.textAlignment(layoutDirection: context.layoutDirection),
                 letterSpacing: letterSpacing ?? context.letterSpacing ?? 1,
                 lineSpacing: lineSpacing ?? context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
-                lineBreakMode: self.lineBreakMode?.retainedTextLineBreakMode ?? resolvedLineBreakMode(
-                    lineLimit: resolvedLineLimit,
-                    truncationMode: truncationMode ?? context.truncationMode
-                ),
+                lineBreakMode: self.lineBreakMode?.retainedTextLineBreakMode
+                    ?? resolvedLineBreakMode(
+                        lineLimit: resolvedLineLimit,
+                        truncationMode: truncationMode ?? context.truncationMode
+                    ),
                 maximumNumberOfLines: resolvedLineLimit,
                 minimumNumberOfLines: resolvedMinimumLineLimit,
                 minimumScaleFactor: minimumScaleFactor ?? context.minimumScaleFactor,
-                reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace) && resolvedLineLimit != nil,
+                reservesLineLimitSpace: (lineLimitReservesSpace ?? context.lineLimitReservesSpace)
+                    && resolvedLineLimit != nil,
                 underline: resolvedUnderline,
                 underlinePattern: resolvedUnderlinePattern,
                 underlineColor: resolvedUnderlineColor,
@@ -5846,7 +5812,9 @@ public struct Text: View {
         return foregroundStyle(primary.retainedForegroundStyle)
     }
 
-    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Text {
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle)
+        -> Text
+    {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
@@ -5871,7 +5839,9 @@ public struct Text: View {
         return foregroundStyle(primary)
     }
 
-    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient) -> Text {
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient)
+        -> Text
+    {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
@@ -6142,9 +6112,8 @@ public struct Text: View {
         }
     }
 }
-
-private extension String {
-    func resolvedTextCase(_ textCase: Text.Case?) -> String {
+extension String {
+    fileprivate func resolvedTextCase(_ textCase: Text.Case?) -> String {
         switch textCase {
         case .uppercase:
             return uppercased()
@@ -6155,9 +6124,8 @@ private extension String {
         }
     }
 }
-
-private extension Text.LineStyle.Pattern {
-    var retainedTextDecorationPattern: TextDecorationPattern {
+extension Text.LineStyle.Pattern {
+    fileprivate var retainedTextDecorationPattern: TextDecorationPattern {
         switch self {
         case .solid:
             return .solid
@@ -6172,7 +6140,6 @@ private extension Text.LineStyle.Pattern {
         }
     }
 }
-
 @MainActor
 public struct Image: View {
     public typealias Body = Never
@@ -6337,7 +6304,8 @@ public struct Image: View {
             )
             let imageScale = context.imageScale.resolvedMultiplier
             let resolvedScale = font.resolvedScale * imageScale
-            let baseSize = Size(width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
+            let baseSize = Size(
+                width: font.resolvedNativeTextSize * imageScale, height: font.resolvedNativeTextSize * imageScale)
             let preferredSize = resolvedPreferredSize(baseSize: baseSize, requiresExplicitOptIn: true)
             return Component { _ in
                 let node = Controls.icon(
@@ -6545,7 +6513,8 @@ public struct Image: View {
             }
         }
 
-        return BitmapSurface(width: bitmap.width, height: bitmap.height, bytesPerRow: bitmap.bytesPerRow, pixels: pixels)
+        return BitmapSurface(
+            width: bitmap.width, height: bitmap.height, bytesPerRow: bitmap.bytesPerRow, pixels: pixels)
     }
 
     private func templateByte(_ value: Float) -> UInt8 {
@@ -6580,10 +6549,12 @@ public struct Image: View {
         tint: Color,
         context: ViewBuildContext
     ) -> ViewNode {
-        guard variants.contains(.circle)
-            || variants.contains(.square)
-            || variants.contains(.rectangle)
-            || variants.contains(.slash) else {
+        guard
+            variants.contains(.circle)
+                || variants.contains(.square)
+                || variants.contains(.rectangle)
+                || variants.contains(.slash)
+        else {
             return iconNode
         }
 
@@ -6657,7 +6628,6 @@ public struct Image: View {
         node.imageAntialiased = antialiased
     }
 }
-
 extension Image.ResizingMode {
     var retainedImageResizingMode: RetainedImageResizingMode {
         switch self {
@@ -6668,7 +6638,6 @@ extension Image.ResizingMode {
         }
     }
 }
-
 extension Image.TemplateRenderingMode {
     var retainedImageRenderingMode: RetainedImageRenderingMode {
         switch self {
@@ -6679,7 +6648,6 @@ extension Image.TemplateRenderingMode {
         }
     }
 }
-
 extension Image.Interpolation {
     var retainedImageInterpolation: RetainedImageInterpolation {
         switch self {
@@ -6694,15 +6662,11 @@ extension Image.Interpolation {
         }
     }
 }
-
-private extension BitmapSurface {
-    var logicalSize: Size {
+extension BitmapSurface {
+    fileprivate var logicalSize: Size {
         Size(width: Double(width), height: Double(height))
     }
 }
-
-// MARK: - AsyncImage
-
 public enum AsyncImagePhase {
     case empty
     case success(Image)
@@ -6726,12 +6690,10 @@ public enum AsyncImagePhase {
         }
     }
 }
-
 public struct AsyncImageError: Error {
     public static let decodingFailed = AsyncImageError()
     private init() {}
 }
-
 @MainActor
 public final class AsyncImageLoader: ObservableObject {
     @Published public var phase: AsyncImagePhase = .empty
@@ -6776,7 +6738,6 @@ public final class AsyncImageLoader: ObservableObject {
         }
     }
 }
-
 @MainActor
 private final class AsyncImageLoaderCache {
     static let shared = AsyncImageLoaderCache()
@@ -6791,7 +6752,6 @@ private final class AsyncImageLoaderCache {
         return loader
     }
 }
-
 @MainActor
 public struct AsyncImage: View {
     public typealias Body = Never
@@ -6860,15 +6820,13 @@ public struct AsyncImage: View {
         return content(loader.phase).makeComponent(context: context)
     }
 }
-
 extension Text {
     var plainContent: String {
         content
     }
 }
-
-private extension Image.Scale {
-    var resolvedMultiplier: Double {
+extension Image.Scale {
+    fileprivate var resolvedMultiplier: Double {
         switch self {
         case .small:
             return 0.82
@@ -6879,7 +6837,6 @@ private extension Image.Scale {
         }
     }
 }
-
 @MainActor
 public struct LabeledContent: View {
     public typealias Body = Never
@@ -6943,7 +6900,8 @@ public struct LabeledContent: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelComponent = composeComponent(
             from: label,
-            context: context
+            context:
+                context
                 .withForegroundColor(.secondary)
                 .withTextAlignment(.leading)
                 .withLineLimit(1),
@@ -6952,7 +6910,8 @@ public struct LabeledContent: View {
         )
         let contentComponent = composeComponent(
             from: content,
-            context: context
+            context:
+                context
                 .withTextAlignment(.trailing)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
@@ -6971,7 +6930,6 @@ public struct LabeledContent: View {
         }
     }
 }
-
 @MainActor
 public struct ToolbarItem: View, TaggedViewMetadata {
     public typealias Body = Never
@@ -7029,7 +6987,6 @@ public struct ToolbarItem: View, TaggedViewMetadata {
         }
     }
 }
-
 @MainActor
 public struct ToolbarItemGroup: View, TaggedViewMetadata {
     public typealias Body = Never
@@ -7087,7 +7044,6 @@ public struct ToolbarItemGroup: View, TaggedViewMetadata {
         }
     }
 }
-
 @MainActor
 public struct ToolbarTitleMenu: View {
     public typealias Body = Never
@@ -7119,27 +7075,22 @@ public struct ToolbarTitleMenu: View {
         )
     }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 @preconcurrency public protocol ToolbarContent {
     associatedtype Body: ToolbarContent
     var body: Self.Body { get }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 extension Never: @preconcurrency ToolbarContent {}
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public protocol CustomToolbarContent: ToolbarContent {
     associatedtype Content: ToolbarContent
     func makeContent(in context: ToolbarContentContext) -> Content
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct ToolbarContentContext: Sendable {
     public init() {}
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 @resultBuilder
 public struct ToolbarContentBuilder {
@@ -7163,13 +7114,11 @@ public struct ToolbarContentBuilder {
         EmptyToolbarContent()
     }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct EmptyToolbarContent: ToolbarContent {
     public typealias Body = Never
     public var body: Never { fatalError("EmptyToolbarContent has no body") }
 }
-
 @available(macOS 11.0, iOS 14.0, watchOS 9.0, tvOS 14.0, *)
 public struct AnyToolbarContent: ToolbarContent {
     public typealias Body = Never
@@ -7181,7 +7130,6 @@ public struct AnyToolbarContent: ToolbarContent {
         self.content = content
     }
 }
-
 @MainActor
 public struct Label: View {
     public typealias Body = Never
@@ -7278,7 +7226,8 @@ public struct Label: View {
                 contrast: context.colorSchemeContrast,
                 backgroundProminence: context.backgroundProminence
             )
-        let labelContext = context
+        let labelContext =
+            context
             .withForegroundColor(resolvedColor)
             .withFont(font)
             .withTextAlignment(.leading)
@@ -7345,7 +7294,9 @@ public struct Label: View {
         return foregroundStyle(primary.retainedForegroundStyle)
     }
 
-    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle) -> Label {
+    public func foregroundStyle(_ primary: ForegroundStyle, _ secondary: ForegroundStyle, _ tertiary: ForegroundStyle)
+        -> Label
+    {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
@@ -7370,7 +7321,9 @@ public struct Label: View {
         return foregroundStyle(primary)
     }
 
-    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient) -> Label {
+    public func foregroundStyle(_ primary: LinearGradient, _ secondary: LinearGradient, _ tertiary: LinearGradient)
+        -> Label
+    {
         _ = secondary
         _ = tertiary
         return foregroundStyle(primary)
@@ -7382,7 +7335,6 @@ public struct Label: View {
         return copy
     }
 }
-
 @MainActor
 public struct ContentUnavailableView: View {
     public typealias Body = Never
@@ -7473,7 +7425,8 @@ public struct ContentUnavailableView: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelComponent = composeComponent(
             from: label,
-            context: context
+            context:
+                context
                 .withTextAlignment(.center)
                 .withLineLimit(2),
             fallbackLayout: .stack(.horizontal(spacing: 8, alignment: .center, mainAlignment: .center)),
@@ -7481,7 +7434,8 @@ public struct ContentUnavailableView: View {
         )
         let descriptionComponent = composeComponent(
             from: description,
-            context: context
+            context:
+                context
                 .withForegroundColor(.secondary)
                 .withFont(.caption)
                 .withTextAlignment(.center),
@@ -7517,7 +7471,6 @@ public struct ContentUnavailableView: View {
         }
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableConfiguration: Sendable {
@@ -7540,7 +7493,6 @@ public struct ContentUnavailableConfiguration: Sendable {
 
     public static let empty = ContentUnavailableConfiguration()
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableActions: Sendable {
@@ -7555,7 +7507,6 @@ public struct ContentUnavailableActions: Sendable {
         self.secondary = secondary
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableButton: Sendable {
@@ -7570,7 +7521,6 @@ public struct ContentUnavailableButton: Sendable {
         self.action = action
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableDescription: View {
@@ -7590,7 +7540,6 @@ public struct ContentUnavailableDescription: View {
         Text(text).makeComponent(context: context)
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableImage: View {
@@ -7610,7 +7559,6 @@ public struct ContentUnavailableImage: View {
         Image(name).makeComponent(context: context)
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 @MainActor
 public struct ContentUnavailableTitle: View {
@@ -7630,7 +7578,6 @@ public struct ContentUnavailableTitle: View {
         Text(text).font(.headline).makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct Spacer: View {
     public typealias Body = Never
@@ -7665,7 +7612,6 @@ public struct Spacer: View {
         }
     }
 }
-
 @MainActor
 public struct Divider: View {
     public typealias Body = Never
@@ -7690,7 +7636,6 @@ public struct Divider: View {
         }
     }
 }
-
 @MainActor
 public struct VStack: View {
     public typealias Body = Never
@@ -7699,7 +7644,8 @@ public struct VStack: View {
     private let spacing: Double
     private let content: [AnyView]
 
-    public init(alignment: HorizontalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView]) {
+    public init(alignment: HorizontalAlignment = .center, spacing: Double? = nil, @ViewBuilder content: () -> [AnyView])
+    {
         self.alignment = alignment
         self.spacing = spacing ?? 0
         self.content = content()
@@ -7723,7 +7669,6 @@ public struct VStack: View {
         }
     }
 }
-
 @MainActor
 public struct HStack: View {
     public typealias Body = Never
@@ -7753,7 +7698,6 @@ public struct HStack: View {
         }
     }
 }
-
 @MainActor
 public struct VStackLayout {
     public var alignment: HorizontalAlignment
@@ -7774,7 +7718,6 @@ public struct VStackLayout {
         VStack(alignment: alignment, spacing: spacing, content: content)
     }
 }
-
 @MainActor
 public struct HStackLayout {
     public var alignment: VerticalAlignment
@@ -7795,7 +7738,6 @@ public struct HStackLayout {
         HStack(alignment: alignment, spacing: spacing, content: content)
     }
 }
-
 @MainActor
 public struct ZStackLayout {
     public var alignment: Alignment
@@ -7812,7 +7754,6 @@ public struct ZStackLayout {
         ZStack(alignment: alignment, content: content)
     }
 }
-
 @MainActor
 public struct GridLayout {
     public var alignment: Alignment
@@ -7826,10 +7767,11 @@ public struct GridLayout {
     }
 
     public func callAsFunction(@ViewBuilder content: () -> [AnyView]) -> some View {
-        Grid(alignment: alignment, horizontalSpacing: horizontalSpacing, verticalSpacing: verticalSpacing, content: content)
+        Grid(
+            alignment: alignment, horizontalSpacing: horizontalSpacing, verticalSpacing: verticalSpacing,
+            content: content)
     }
 }
-
 @MainActor
 public struct GridRowLayout {
     public var alignment: VerticalAlignment
@@ -7842,7 +7784,6 @@ public struct GridRowLayout {
         GridRow(alignment: alignment, content: content)
     }
 }
-
 @MainActor
 public struct AnyLayout {
     private enum Storage {
@@ -7880,7 +7821,6 @@ public struct AnyLayout {
         }
     }
 }
-
 @MainActor
 private struct AnyLayoutView: View {
     typealias Body = Never
@@ -7896,7 +7836,6 @@ private struct AnyLayoutView: View {
         layout.makeView(content: content).makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct LazyVStack: View {
     public typealias Body = Never
@@ -7942,7 +7881,6 @@ public struct LazyVStack: View {
         }
     }
 }
-
 @MainActor
 public struct LazyHStack: View {
     public typealias Body = Never
@@ -7985,7 +7923,6 @@ public struct LazyHStack: View {
         }
     }
 }
-
 @MainActor
 private func retainedLazyStackChildren(
     from content: [AnyView],
@@ -8003,7 +7940,6 @@ private func retainedLazyStackChildren(
     }
     return children
 }
-
 @MainActor
 private func applyRetainedPinnedSectionHints(to node: ViewNode, pinnedViews: PinnedScrollableViews) {
     if pinnedViews.contains(.sectionHeaders), node.sectionHeaderChildCount > 0 {
@@ -8022,7 +7958,6 @@ private func applyRetainedPinnedSectionHints(to node: ViewNode, pinnedViews: Pin
         applyRetainedPinnedSectionHints(to: child, pinnedViews: pinnedViews)
     }
 }
-
 @MainActor
 public struct Grid: View {
     public typealias Body = Never
@@ -8051,7 +7986,8 @@ public struct Grid: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let verticalSpacing = verticalSpacing
         let horizontalSpacing = horizontalSpacing
-        let childContext = context
+        let childContext =
+            context
             .withStackAxis(.vertical)
             .withEnvironmentValue(\.gridHorizontalSpacing, horizontalSpacing)
         let content = content
@@ -8068,7 +8004,6 @@ public struct Grid: View {
         }
     }
 }
-
 @MainActor
 public struct GridRow: View {
     public typealias Body = Never
@@ -8097,7 +8032,6 @@ public struct GridRow: View {
         }
     }
 }
-
 public struct GridCell<Content: View>: View {
     public typealias Body = Never
 
@@ -8115,7 +8049,6 @@ public struct GridCell<Content: View>: View {
         composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
     }
 }
-
 public struct GridCellAnchor: Sendable, Equatable {
     public let unitPoint: UnitPoint
 
@@ -8123,14 +8056,12 @@ public struct GridCellAnchor: Sendable, Equatable {
         self.unitPoint = unitPoint
     }
 }
-
 extension GridCellAnchor: Hashable {
     public func hash(into hasher: inout Hasher) {
         hasher.combine(unitPoint.x)
         hasher.combine(unitPoint.y)
     }
 }
-
 public struct GridColumn: Equatable, Hashable {
     public let id: AnyHashable
 
@@ -8138,7 +8069,6 @@ public struct GridColumn: Equatable, Hashable {
         self.id = AnyHashable(id)
     }
 }
-
 public enum GridRowAlignment: Sendable, Equatable, Hashable {
     case firstTextBaseline
     case lastTextBaseline
@@ -8146,15 +8076,11 @@ public enum GridRowAlignment: Sendable, Equatable, Hashable {
     case top
     case bottom
 }
-
 public enum GridColumnAlignment: Sendable, Equatable, Hashable {
     case leading
     case trailing
     case center
 }
-
-// MARK: - GridItem
-
 public struct GridItem: Sendable {
     public var size: Size
     public var spacing: Double?
@@ -8172,9 +8098,6 @@ public struct GridItem: Sendable {
         case adaptive(minimum: Double, maximum: Double = .infinity)
     }
 }
-
-// MARK: - LazyVGrid
-
 @MainActor
 public struct LazyVGrid: View {
     public typealias Body = Never
@@ -8258,9 +8181,6 @@ public struct LazyVGrid: View {
         }
     }
 }
-
-// MARK: - LazyHGrid
-
 @MainActor
 public struct LazyHGrid: View {
     public typealias Body = Never
@@ -8344,21 +8264,11 @@ public struct LazyHGrid: View {
         }
     }
 }
-
-// MARK: - Grid Resolution Helpers
-
 private struct ResolvedGridSpec {
     var size: GridItem.Size
     var spacing: Double?
     var alignment: Alignment?
-
-    init(size: GridItem.Size, spacing: Double?, alignment: Alignment?) {
-        self.size = size
-        self.spacing = spacing
-        self.alignment = alignment
-    }
 }
-
 private func resolveVGridSpecs(_ columns: [GridItem], availableWidth: Double) -> [ResolvedGridSpec] {
     let nonAdaptive = columns.filter {
         if case .adaptive = $0.size { return false }
@@ -8400,7 +8310,8 @@ private func resolveVGridSpecs(_ columns: [GridItem], availableWidth: Double) ->
             if case .adaptive = item.size {
                 let width = remainingWidth / Double(adaptiveCount)
                 for _ in 0..<adaptiveCount {
-                    result.append(ResolvedGridSpec(size: .fixed(width), spacing: item.spacing, alignment: item.alignment))
+                    result.append(
+                        ResolvedGridSpec(size: .fixed(width), spacing: item.spacing, alignment: item.alignment))
                 }
             } else {
                 result.append(ResolvedGridSpec(size: item.size, spacing: item.spacing, alignment: item.alignment))
@@ -8410,7 +8321,6 @@ private func resolveVGridSpecs(_ columns: [GridItem], availableWidth: Double) ->
     }
     return []
 }
-
 private func resolveHGridSpecs(_ rows: [GridItem], availableHeight: Double) -> [ResolvedGridSpec] {
     let nonAdaptive = rows.filter {
         if case .adaptive = $0.size { return false }
@@ -8451,7 +8361,8 @@ private func resolveHGridSpecs(_ rows: [GridItem], availableHeight: Double) -> [
             if case .adaptive = item.size {
                 let height = remainingHeight / Double(adaptiveCount)
                 for _ in 0..<adaptiveCount {
-                    result.append(ResolvedGridSpec(size: .fixed(height), spacing: item.spacing, alignment: item.alignment))
+                    result.append(
+                        ResolvedGridSpec(size: .fixed(height), spacing: item.spacing, alignment: item.alignment))
                 }
             } else {
                 result.append(ResolvedGridSpec(size: item.size, spacing: item.spacing, alignment: item.alignment))
@@ -8461,7 +8372,6 @@ private func resolveHGridSpecs(_ rows: [GridItem], availableHeight: Double) -> [
     }
     return []
 }
-
 @MainActor
 private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: StackAxis) {
     switch spec.size {
@@ -8498,7 +8408,6 @@ private func applyGridSpec(_ spec: ResolvedGridSpec, to node: ViewNode, axis: St
         break
     }
 }
-
 @MainActor
 public struct ZStack: View {
     public typealias Body = Never
@@ -8537,7 +8446,6 @@ public struct ZStack: View {
         }
     }
 }
-
 @MainActor
 public struct GeometryReader: View {
     public typealias Body = Never
@@ -8560,7 +8468,6 @@ public struct GeometryReader: View {
         )
     }
 }
-
 @MainActor
 public struct ScrollView: View {
     public typealias Body = Never
@@ -8600,7 +8507,8 @@ public struct ScrollView: View {
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let node = Controls.scrollPanel(
                 axis: axis.scrollAxis,
-                backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground ? nil : style.backgroundColor,
+                backgroundColor: context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
+                    ? nil : style.backgroundColor,
                 borderColor: style.borderColor,
                 borderWidth: style.borderWidth,
                 shadowColor: style.shadowColor,
@@ -8634,7 +8542,8 @@ public struct ScrollView: View {
                 node.scrollAxis = nil
                 node.showsScrollIndicator = false
             } else {
-                node.showsScrollIndicator = (showsIndicators ?? true)
+                node.showsScrollIndicator =
+                    (showsIndicators ?? true)
                     && context.scrollIndicatorVisibility(for: axis).showsRetainedScrollIndicator
             }
             if context.isScrollClipDisabled {
@@ -8668,7 +8577,6 @@ public struct ScrollView: View {
         }
     }
 }
-
 @MainActor
 public struct ScrollViewReader: View {
     public typealias Body = Never
@@ -8697,7 +8605,6 @@ public struct ScrollViewReader: View {
         }
     }
 }
-
 @MainActor
 private enum ListSelectionMode {
     case single(get: () -> AnyHashable?, set: (AnyHashable?) -> Void)
@@ -8769,7 +8676,6 @@ private enum ListSelectionMode {
         }
     }
 }
-
 @MainActor
 public struct List: View {
     public typealias Body = Never
@@ -8879,9 +8785,12 @@ public struct List: View {
         children: KeyPath<Data.Element, [Data.Element]?>,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = [AnyView(OutlineGroup(data, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = nil
     }
 
@@ -8891,9 +8800,12 @@ public struct List: View {
         children: KeyPath<Data.Element, [Data.Element]?>,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, id: id, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = nil
     }
 
@@ -8903,9 +8815,12 @@ public struct List: View {
         selection: Binding<Data.Element.ID?>?,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = [AnyView(OutlineGroup(data, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = selection.map { .single($0) }
     }
 
@@ -8916,9 +8831,12 @@ public struct List: View {
         selection: Binding<ID?>?,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, id: id, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = selection.map { .single($0) }
     }
 
@@ -8928,9 +8846,12 @@ public struct List: View {
         selection: Binding<Set<Data.Element.ID>>?,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) where Data.Element: Identifiable {
-        self.content = [AnyView(OutlineGroup(data, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -8941,9 +8862,12 @@ public struct List: View {
         selection: Binding<Set<ID>>?,
         @ViewBuilder rowContent: @escaping (Data.Element) -> [AnyView]
     ) {
-        self.content = [AnyView(OutlineGroup(data, id: id, children: children) { item in
-            Group { rowContent(item) }
-        })]
+        self.content = [
+            AnyView(
+                OutlineGroup(data, id: id, children: children) { item in
+                    Group { rowContent(item) }
+                })
+        ]
         self.selectionMode = selection.map { .multiple($0) }
     }
 
@@ -8963,7 +8887,8 @@ public struct List: View {
                 borderWidth: listChrome.borderWidth,
                 cornerRadius: listChrome.cornerRadius,
                 stackLayout: .vertical(
-                    spacing: context.listRowSpacing ?? context.listSectionSpacing(defaultSpacing: listChrome.defaultSpacing),
+                    spacing: context.listRowSpacing
+                        ?? context.listSectionSpacing(defaultSpacing: listChrome.defaultSpacing),
                     padding: context.contentInsets(for: .scrollContent, defaultInsets: listChrome.padding),
                     alignment: .stretch,
                     mainAlignment: alignmentAnchor.map { stackMainAlignment(from: $0.y) } ?? .start
@@ -8974,7 +8899,8 @@ public struct List: View {
                     let view = pair.element
                     let tag = view.selectionTag
                     let isSelected = tag.map { selectionMode?.contains($0) == true } == true
-                    let rowContext = isSelected
+                    let rowContext =
+                        isSelected
                         ? context.withEnvironmentValue(\.backgroundProminence, .increased)
                         : context
                     var row = view.makeComponent(context: rowContext).makeNode(runtime: runtime)
@@ -9071,7 +8997,8 @@ public struct List: View {
         if isEditing {
             row.layoutPriority = max(row.layoutPriority, 1)
         }
-        let rowContent = isEditing
+        let rowContent =
+            isEditing
             ? Controls.stackPanel(
                 layoutPriority: 1,
                 stackLayout: .horizontal(spacing: 10, padding: .zero, alignment: .center),
@@ -9117,11 +9044,12 @@ public struct List: View {
         listChrome: RetainedListChrome
     ) -> ViewNode {
         guard listChrome.alternatesRowBackgrounds,
-              !isSelected,
-              index % 2 == 1,
-              row.backgroundColor == nil,
-              row.backgroundGradient == nil,
-              let backgroundColor = listChrome.alternatingRowBackgroundColor else {
+            !isSelected,
+            index % 2 == 1,
+            row.backgroundColor == nil,
+            row.backgroundGradient == nil,
+            let backgroundColor = listChrome.alternatingRowBackgroundColor
+        else {
             return row
         }
 
@@ -9156,7 +9084,8 @@ public struct List: View {
     public init<Collection>(
         _ data: Binding<Collection>,
         @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
-    ) where
+    )
+    where
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Element: Identifiable,
         Collection.Index: Hashable
@@ -9169,7 +9098,8 @@ public struct List: View {
         _ data: Binding<Collection>,
         id: KeyPath<Collection.Element, ID>,
         @ViewBuilder rowContent: (Binding<Collection.Element>) -> [AnyView]
-    ) where
+    )
+    where
         Collection: MutableCollection & RandomAccessCollection,
         Collection.Index: Hashable
     {
@@ -9177,9 +9107,6 @@ public struct List: View {
         self.selectionMode = nil
     }
 }
-
-// MARK: - Table
-
 @resultBuilder
 public enum TableColumnBuilder {
     public static func buildBlock<RowValue>(_ columns: [AnyTableColumn<RowValue>]...) -> [AnyTableColumn<RowValue>] {
@@ -9190,11 +9117,13 @@ public enum TableColumnBuilder {
         component ?? []
     }
 
-    public static func buildEither<RowValue>(first component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+    public static func buildEither<RowValue>(first component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>]
+    {
         component
     }
 
-    public static func buildEither<RowValue>(second component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+    public static func buildEither<RowValue>(second component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>]
+    {
         component
     }
 
@@ -9212,11 +9141,12 @@ public enum TableColumnBuilder {
         [expression.eraseToAnyTableColumn()]
     }
 
-    public static func buildLimitedAvailability<RowValue>(_ component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<RowValue>] {
+    public static func buildLimitedAvailability<RowValue>(_ component: [AnyTableColumn<RowValue>]) -> [AnyTableColumn<
+        RowValue
+    >] {
         component
     }
 }
-
 @MainActor
 public struct AnyTableColumn<RowValue> {
     public let title: String
@@ -9242,7 +9172,6 @@ public struct AnyTableColumn<RowValue> {
         self.headerBuilder = headerBuilder
     }
 }
-
 public enum TableColumnWidth: Sendable, Equatable {
     case `default`
     case fixed(Double)
@@ -9265,13 +9194,11 @@ public enum TableColumnWidth: Sendable, Equatable {
         .minMax(min: min, max: max)
     }
 }
-
 public enum TableColumnAlignment: Sendable, Equatable, Hashable {
     case leading
     case trailing
     case center
 }
-
 public struct TableColumnSort: Equatable, Hashable {
     public let key: AnyHashable
     public let isAscending: Bool
@@ -9281,7 +9208,6 @@ public struct TableColumnSort: Equatable, Hashable {
         self.isAscending = isAscending
     }
 }
-
 @MainActor
 public struct TableColumn<RowValue> {
     public let title: String
@@ -9333,13 +9259,11 @@ public struct TableColumn<RowValue> {
         )
     }
 }
-
 extension TableColumn {
     public func makeTableColumn() -> AnyTableColumn<RowValue> {
         eraseToAnyTableColumn()
     }
 }
-
 @MainActor
 public struct Table<Data: RandomAccessCollection>: View where Data.Element: Identifiable {
     public typealias Body = Never
@@ -9408,13 +9332,16 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
 
             switch style.kind {
             case .inset:
-                headerBackground = isDark
+                headerBackground =
+                    isDark
                     ? Color(red: 0.10, green: 0.12, blue: 0.14, alpha: 1)
                     : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
-                rowAltBackground = isDark
+                rowAltBackground =
+                    isDark
                     ? Color(red: 0.09, green: 0.11, blue: 0.13, alpha: 1)
                     : Color(red: 0.98, green: 0.99, blue: 1.0, alpha: 1)
-                borderColor = isDark
+                borderColor =
+                    isDark
                     ? Color(red: 0.24, green: 0.28, blue: 0.32, alpha: 1)
                     : Color(red: 0.78, green: 0.82, blue: 0.86, alpha: 1)
                 borderWidth = 1
@@ -9423,13 +9350,16 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                 headerPadding = EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
                 rowPadding = EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
             case .bordered:
-                headerBackground = isDark
+                headerBackground =
+                    isDark
                     ? Color(red: 0.14, green: 0.16, blue: 0.18, alpha: 1)
                     : Color(red: 0.92, green: 0.94, blue: 0.96, alpha: 1)
-                rowAltBackground = isDark
+                rowAltBackground =
+                    isDark
                     ? Color(red: 0.11, green: 0.13, blue: 0.15, alpha: 1)
                     : Color(red: 0.96, green: 0.97, blue: 0.98, alpha: 1)
-                borderColor = isDark
+                borderColor =
+                    isDark
                     ? Color(red: 0.35, green: 0.40, blue: 0.45, alpha: 1)
                     : Color(red: 0.65, green: 0.70, blue: 0.75, alpha: 1)
                 borderWidth = 2
@@ -9438,10 +9368,12 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
                 headerPadding = EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
                 rowPadding = EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
             case .automatic:
-                headerBackground = isDark
+                headerBackground =
+                    isDark
                     ? Color(red: 0.12, green: 0.14, blue: 0.16, alpha: 1)
                     : Color(red: 0.95, green: 0.96, blue: 0.97, alpha: 1)
-                rowAltBackground = isDark
+                rowAltBackground =
+                    isDark
                     ? Color(red: 0.10, green: 0.11, blue: 0.12, alpha: 1)
                     : Color(red: 0.97, green: 0.98, blue: 0.99, alpha: 1)
                 borderColor = Color(red: 0.85, green: 0.87, blue: 0.89, alpha: 1)
@@ -9546,7 +9478,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         runtime: RetainedViewRuntime
     ) -> ViewNode {
         var headerViews = column.headerBuilder()
-        let headerNode = headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
+        let headerNode =
+            headerViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
             ?? Controls.panel(frame: .zero, text: column.title)
 
         // Apply column width constraints
@@ -9585,7 +9518,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         runtime: RetainedViewRuntime
     ) -> ViewNode {
         let cellViews = column.cellBuilder(element)
-        let cellNode = cellViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
+        let cellNode =
+            cellViews.first?.makeComponent(context: context).makeNode(runtime: runtime)
             ?? Controls.panel(frame: .zero)
         applyColumnWidth(column.width, to: cellNode)
         return cellNode
@@ -9627,7 +9561,8 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
             borderColor: isSelected ? tint.opacity(0.5) : .clear,
             borderWidth: isSelected ? 1 : 0,
             cornerRadius: 6,
-            stackLayout: .vertical(spacing: 0, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .stretch),
+            stackLayout: .vertical(
+                spacing: 0, padding: EdgeInsets(top: 2, leading: 4, bottom: 2, trailing: 4), alignment: .stretch),
             children: [row]
         )
         rowNode.nodeTag = "table-selection:\(String(describing: tag.base))"
@@ -9645,12 +9580,10 @@ public struct Table<Data: RandomAccessCollection>: View where Data.Element: Iden
         return rowNode
     }
 }
-
 public enum SortOrder: Sendable, Equatable {
     case forward
     case reverse
 }
-
 @MainActor
 public struct TableRow<Content: View>: View {
     public typealias Body = Never
@@ -9669,7 +9602,6 @@ public struct TableRow<Content: View>: View {
         content.makeComponent(context: context)
     }
 }
-
 @MainActor
 public enum TableRowBuilder {
     public static func buildBlock(_ rows: [AnyView]...) -> [AnyView] {
@@ -9700,9 +9632,8 @@ public enum TableRowBuilder {
         component
     }
 }
-
-private extension ViewNode {
-    func applyDefaultMinimumHeight(_ minimumHeight: Double) {
+extension ViewNode {
+    fileprivate func applyDefaultMinimumHeight(_ minimumHeight: Double) {
         let resolvedMinimumHeight = max(0, minimumHeight)
         let constraints = layoutConstraints ?? .unconstrained
         layoutConstraints = LayoutConstraints(
@@ -9713,7 +9644,6 @@ private extension ViewNode {
         )
     }
 }
-
 @MainActor
 public struct Form: View {
     public typealias Body = Never
@@ -9784,7 +9714,6 @@ public struct Form: View {
         }
     }
 }
-
 @MainActor
 public struct Section: View {
     public typealias Body = Never
@@ -9928,12 +9857,14 @@ public struct Section: View {
         let expansionBinding = isExpanded
         return Component { runtime in
             let headerFont = style.headerFont.resolvedHeaderFont(for: context.headerProminence)
-            let headerContext = context
+            let headerContext =
+                context
                 .withForegroundColor(style.headerColor)
                 .withFont(headerFont)
                 .withTextAlignment(.leading)
                 .withLineLimit(1)
-            let footerContext = context
+            let footerContext =
+                context
                 .withForegroundColor(.secondary)
                 .withFont(.caption)
                 .withTextAlignment(.leading)
@@ -9954,7 +9885,8 @@ public struct Section: View {
                 )
                 let headerContent = Controls.stackPanel(
                     layoutPriority: 1,
-                    stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center),
+                    stackLayout: .horizontal(
+                        spacing: 8, padding: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4), alignment: .center),
                     isHitTestVisible: false,
                     children: [chevronNode] + headerNodes
                 )
@@ -9977,18 +9909,21 @@ public struct Section: View {
                 resolvedHeaderNodes = headerNodes
             }
             if let minimumHeaderHeight = context.defaultMinListHeaderHeight, minimumHeaderHeight > 0 {
-                resolvedHeaderNodes.forEach { $0.applyDefaultMinimumHeight(minimumHeaderHeight) }
+                for headerNode in resolvedHeaderNodes {
+                    headerNode.applyDefaultMinimumHeight(minimumHeaderHeight)
+                }
             }
 
-            let contentNodes = expansionBinding?.wrappedValue == false
+            let contentNodes =
+                expansionBinding?.wrappedValue == false
                 ? []
                 : content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
             let children =
-                resolvedHeaderNodes +
-                contentNodes +
-                footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
-            let hidesScrollContentBackground = style.scrollAxis != nil &&
-                context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
+                resolvedHeaderNodes + contentNodes
+                + footer.map { $0.makeComponent(context: footerContext).makeNode(runtime: runtime) }
+            let hidesScrollContentBackground =
+                style.scrollAxis != nil
+                && context.scrollContentBackgroundVisibility.hidesRetainedScrollContentBackground
             let alignmentAnchor = style.scrollAxis == nil ? nil : context.defaultScrollAnchor(for: .alignment)
 
             let node = Controls.stackPanel(
@@ -10046,7 +9981,6 @@ public struct Section: View {
         }
     }
 }
-
 public struct Header<Content: View>: View {
     public typealias Body = Never
 
@@ -10064,7 +9998,6 @@ public struct Header<Content: View>: View {
         composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
     }
 }
-
 public struct Footer<Content: View>: View {
     public typealias Body = Never
 
@@ -10082,9 +10015,8 @@ public struct Footer<Content: View>: View {
         composeComponent(from: content, context: context, fallbackLayout: .stack(.vertical(alignment: .stretch)))
     }
 }
-
-private extension Font {
-    func resolvedHeaderFont(for prominence: Prominence) -> Font {
+extension Font {
+    fileprivate func resolvedHeaderFont(for prominence: Prominence) -> Font {
         switch prominence {
         case .standard:
             return self
@@ -10093,7 +10025,6 @@ private extension Font {
         }
     }
 }
-
 @MainActor
 public struct GroupBox: View {
     public typealias Body = Never
@@ -10158,7 +10089,6 @@ public struct GroupBox: View {
         }
     }
 }
-
 @MainActor
 public struct DisclosureGroup: View {
     public typealias Body = Never
@@ -10247,7 +10177,8 @@ public struct DisclosureGroup: View {
             let labelNode = labelComponent.makeNode(runtime: runtime)
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
-                stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center),
+                stackLayout: .horizontal(
+                    spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center),
                 isHitTestVisible: false,
                 children: [chevronNode, labelNode]
             )
@@ -10274,7 +10205,8 @@ public struct DisclosureGroup: View {
             if isOpen {
                 let contentNode = contentComponent.makeNode(runtime: runtime)
                 let insetContent = Controls.stackPanel(
-                    stackLayout: .vertical(padding: EdgeInsets(top: 2, leading: 34, bottom: 2, trailing: 0), alignment: .stretch),
+                    stackLayout: .vertical(
+                        padding: EdgeInsets(top: 2, leading: 34, bottom: 2, trailing: 0), alignment: .stretch),
                     isHitTestVisible: false,
                     children: [contentNode]
                 )
@@ -10289,11 +10221,9 @@ public struct DisclosureGroup: View {
         }
     }
 }
-
 private final class OutlineExpansionState {
     var isExpanded = false
 }
-
 @MainActor
 public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
     public typealias Body = Never
@@ -10394,7 +10324,9 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
                     let labelNode = labelComponent.makeNode(runtime: runtime)
                     let headerContent = Controls.stackPanel(
                         layoutPriority: 1,
-                        stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8), alignment: .center),
+                        stackLayout: .horizontal(
+                            spacing: 8, padding: EdgeInsets(top: 6, leading: 8, bottom: 6, trailing: 8),
+                            alignment: .center),
                         isHitTestVisible: false,
                         children: [chevronNode, labelNode]
                     )
@@ -10418,7 +10350,9 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
                         let contentNode = nestedComponent.makeNode(runtime: runtime)
                         let leadingPadding = Double(indentLevel + 1) * 24.0
                         let insetContent = Controls.stackPanel(
-                            stackLayout: .vertical(padding: EdgeInsets(top: 2, leading: leadingPadding, bottom: 2, trailing: 0), alignment: .stretch),
+                            stackLayout: .vertical(
+                                padding: EdgeInsets(top: 2, leading: leadingPadding, bottom: 2, trailing: 0),
+                                alignment: .stretch),
                             isHitTestVisible: false,
                             children: [contentNode]
                         )
@@ -10446,7 +10380,6 @@ public struct OutlineGroup<Element, ID: Hashable, Content: View>: View {
         }
     }
 }
-
 @MainActor
 public struct Menu: View {
     public typealias Body = Never
@@ -10486,12 +10419,14 @@ public struct Menu: View {
         @ViewBuilder content: () -> [AnyView],
         primaryAction: (@MainActor () -> Void)?
     ) {
-        self.init(content: content, label: {
-            Text(title)
-                .font(.system(size: 1.6, weight: .semibold))
-                .multilineTextAlignment(.leading)
-                .lineLimit(1)
-        }, primaryAction: primaryAction)
+        self.init(
+            content: content,
+            label: {
+                Text(title)
+                    .font(.system(size: 1.6, weight: .semibold))
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            }, primaryAction: primaryAction)
     }
 
     public init<S: StringProtocol>(_ title: S, @ViewBuilder content: () -> [AnyView]) {
@@ -10528,9 +10463,11 @@ public struct Menu: View {
         @ViewBuilder content: () -> [AnyView],
         primaryAction: (@MainActor () -> Void)?
     ) {
-        self.init(content: content, label: {
-            Label(title, image: name)
-        }, primaryAction: primaryAction)
+        self.init(
+            content: content,
+            label: {
+                Label(title, image: name)
+            }, primaryAction: primaryAction)
     }
 
     public init<S: StringProtocol>(_ title: S, image name: String, @ViewBuilder content: () -> [AnyView]) {
@@ -10560,9 +10497,11 @@ public struct Menu: View {
         @ViewBuilder content: () -> [AnyView],
         primaryAction: (@MainActor () -> Void)?
     ) {
-        self.init(content: content, label: {
-            Label(title, image: resource)
-        }, primaryAction: primaryAction)
+        self.init(
+            content: content,
+            label: {
+                Label(title, image: resource)
+            }, primaryAction: primaryAction)
     }
 
     public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, @ViewBuilder content: () -> [AnyView]) {
@@ -10597,9 +10536,11 @@ public struct Menu: View {
         @ViewBuilder content: () -> [AnyView],
         primaryAction: (@MainActor () -> Void)?
     ) {
-        self.init(content: content, label: {
-            Label(title, systemImage: systemImage)
-        }, primaryAction: primaryAction)
+        self.init(
+            content: content,
+            label: {
+                Label(title, systemImage: systemImage)
+            }, primaryAction: primaryAction)
     }
 
     public init<S: StringProtocol>(_ title: S, systemImage: String, @ViewBuilder content: () -> [AnyView]) {
@@ -10693,7 +10634,8 @@ public struct Menu: View {
             let headerChildren = showsMenuIndicator ? [labelNode, disclosureNode] : [labelNode]
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
-                stackLayout: .horizontal(spacing: 8, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .center),
+                stackLayout: .horizontal(
+                    spacing: 8, padding: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10), alignment: .center),
                 isHitTestVisible: false,
                 children: headerChildren
             )
@@ -10727,7 +10669,8 @@ public struct Menu: View {
             }
             var children: [ViewNode] = [menuButton]
             if menuState.isOpen {
-                let itemContext = context
+                let itemContext =
+                    context
                     .withButtonStyle(.plain)
                     .withEnvironmentValue(\.dismiss, DismissAction(handler: dismissMenu))
                     .withEnvironmentValue(\.isPresented, true)
@@ -10744,7 +10687,9 @@ public struct Menu: View {
                     shadowOffset: Point(x: 0, y: 10),
                     shadowSpread: 8,
                     cornerRadius: 10,
-                    stackLayout: .vertical(spacing: 2, padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6), alignment: .stretch),
+                    stackLayout: .vertical(
+                        spacing: 2, padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6), alignment: .stretch
+                    ),
                     isHitTestVisible: false,
                     children: itemNodes
                 )
@@ -10792,7 +10737,6 @@ public struct Menu: View {
         }
     }
 }
-
 @MainActor
 public struct MenuButton<Label: View>: View {
     public typealias Body = Never
@@ -10831,7 +10775,6 @@ public struct MenuButton<Label: View>: View {
         }
     }
 }
-
 @MainActor
 public struct ControlGroup: View {
     public typealias Body = Never
@@ -10912,7 +10855,9 @@ public struct ControlGroup: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelComponents = label.map { $0.makeComponent(context: context) }
         let chrome = Self.retainedChrome(for: context.controlGroupStyle, tint: context.tint)
-        let controlComponents = content.map { $0.makeComponent(context: context.withButtonStyle(chrome.childButtonStyle)) }
+        let controlComponents = content.map {
+            $0.makeComponent(context: context.withButtonStyle(chrome.childButtonStyle))
+        }
 
         return Component { runtime in
             var children = labelComponents.map { component in
@@ -11003,7 +10948,6 @@ public struct ControlGroup: View {
         }
     }
 }
-
 @MainActor
 public struct TextField: View {
     public typealias Body = Never
@@ -11475,7 +11419,8 @@ public struct TextField: View {
             text: text,
             isSecure: false,
             allowsNewlines: allowsNewlines,
-            preferredSize: allowsNewlines ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
+            preferredSize: allowsNewlines
+                ? context.controlSize.multilineTextInputSize : context.controlSize.singleLineTextInputSize,
             label: label,
             selection: selection,
             onEditingChanged: onEditingChanged,
@@ -11484,7 +11429,6 @@ public struct TextField: View {
         )
     }
 }
-
 @MainActor
 public struct SecureField: View {
     public typealias Body = Never
@@ -11562,7 +11506,6 @@ public struct SecureField: View {
         )
     }
 }
-
 @MainActor
 public struct TextEditor: View {
     public typealias Body = Never
@@ -11594,7 +11537,6 @@ public struct TextEditor: View {
         )
     }
 }
-
 @MainActor
 private func formatterBackedTextBinding<Value>(
     value: Binding<Value>,
@@ -11611,7 +11553,6 @@ private func formatterBackedTextBinding<Value>(
         }
     )
 }
-
 @MainActor
 private func optionalFormatterBackedTextBinding<Value>(
     value: Binding<Value?>,
@@ -11632,26 +11573,26 @@ private func optionalFormatterBackedTextBinding<Value>(
         }
     )
 }
-
 private func parsedFormatterValue<Value>(_ text: String, formatter: Formatter) -> Value? {
     if Value.self == String.self {
         return text as? Value
     }
 
     if let numberFormatter = formatter as? NumberFormatter,
-       let number = numberFormatter.number(from: text),
-       let value: Value = convertedFormatterValue(number) {
+        let number = numberFormatter.number(from: text),
+        let value: Value = convertedFormatterValue(number)
+    {
         return value
     }
 
     if let dateFormatter = formatter as? DateFormatter,
-       let date = dateFormatter.date(from: text) as? Value {
+        let date = dateFormatter.date(from: text) as? Value
+    {
         return date
     }
 
     return nil
 }
-
 @MainActor
 private func parseableFormatBackedTextBinding<F: ParseableFormatStyle>(
     value: Binding<F.FormatInput>,
@@ -11668,7 +11609,6 @@ private func parseableFormatBackedTextBinding<F: ParseableFormatStyle>(
         }
     )
 }
-
 @MainActor
 private func optionalParseableFormatBackedTextBinding<F: ParseableFormatStyle>(
     value: Binding<F.FormatInput?>,
@@ -11683,7 +11623,6 @@ private func optionalParseableFormatBackedTextBinding<F: ParseableFormatStyle>(
         }
     )
 }
-
 private func convertedFormatterValue<Value>(_ object: Any) -> Value? {
     if let value = object as? Value {
         return value
@@ -11724,16 +11663,15 @@ private func convertedFormatterValue<Value>(_ object: Any) -> Value? {
         return nil
     }
 }
-
-public extension View {
-    func searchable(
+extension View {
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic
     ) -> some View {
         searchable(text: text, placement: placement, prompt: "Search")
     }
 
-    func searchable<S: StringProtocol>(
+    public func searchable<S: StringProtocol>(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         prompt: S
@@ -11750,7 +11688,7 @@ public extension View {
         }
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         prompt: LocalizedStringKey
@@ -11758,7 +11696,7 @@ public extension View {
         searchable(text: text, placement: placement, prompt: prompt.resolvedString)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         prompt: Text
@@ -11766,7 +11704,7 @@ public extension View {
         searchable(text: text, placement: placement, prompt: prompt.plainContent)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic
@@ -11774,7 +11712,7 @@ public extension View {
         searchable(text: text, isPresented: isPresented, placement: placement, prompt: "Search")
     }
 
-    func searchable<S: StringProtocol>(
+    public func searchable<S: StringProtocol>(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic,
@@ -11792,7 +11730,7 @@ public extension View {
         }
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic,
@@ -11801,7 +11739,7 @@ public extension View {
         searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt.resolvedString)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic,
@@ -11810,7 +11748,7 @@ public extension View {
         searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt.plainContent)
     }
 
-    func searchable<T>(
+    public func searchable<T>(
         text: Binding<String>,
         tokens: Binding<[T]>,
         placement: SearchFieldPlacement = .automatic,
@@ -11820,7 +11758,7 @@ public extension View {
         searchable(text: text, placement: placement, prompt: prompt)
     }
 
-    func searchable<T>(
+    public func searchable<T>(
         text: Binding<String>,
         tokens: Binding<[T]>,
         isPresented: Binding<Bool>,
@@ -11831,7 +11769,7 @@ public extension View {
         searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt)
     }
 
-    func searchable<T>(
+    public func searchable<T>(
         text: Binding<String>,
         tokens: Binding<[T]>,
         suggestedTokens: Binding<[T]>,
@@ -11843,7 +11781,7 @@ public extension View {
         return searchable(text: text, placement: placement, prompt: prompt)
     }
 
-    func searchable<T>(
+    public func searchable<T>(
         text: Binding<String>,
         tokens: Binding<[T]>,
         suggestedTokens: Binding<[T]>,
@@ -11856,7 +11794,7 @@ public extension View {
         return searchable(text: text, isPresented: isPresented, placement: placement, prompt: prompt)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         prompt: String = "Search",
@@ -11865,7 +11803,7 @@ public extension View {
         searchable(text: text, placement: placement, prompt: prompt)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         prompt: Text,
@@ -11874,7 +11812,7 @@ public extension View {
         return searchable(text: text, placement: placement, prompt: prompt)
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic,
@@ -11894,7 +11832,7 @@ public extension View {
         }
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         placement: SearchFieldPlacement = .automatic,
         suggestionsPlacement: SearchSuggestionsPlacement = .automatic,
@@ -11913,7 +11851,7 @@ public extension View {
         }
     }
 
-    func searchable(
+    public func searchable(
         text: Binding<String>,
         isPresented: Binding<Bool>,
         placement: SearchFieldPlacement = .automatic,
@@ -11933,13 +11871,13 @@ public extension View {
         }
     }
 
-    func searchSuggestions(@ViewBuilder _ suggestions: @escaping () -> [AnyView]) -> some View {
+    public func searchSuggestions(@ViewBuilder _ suggestions: @escaping () -> [AnyView]) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.searchSuggestions, suggestions()))
         }
     }
 
-    func searchSuggestions<Data: RandomAccessCollection>(
+    public func searchSuggestions<Data: RandomAccessCollection>(
         _ data: Data,
         @ViewBuilder content: @escaping (Data.Element) -> [AnyView]
     ) -> some View where Data.Element: Identifiable {
@@ -11948,19 +11886,19 @@ public extension View {
         }
     }
 
-    func searchPresentationBehavior(_ behavior: SearchPresentationBehavior) -> some View {
+    public func searchPresentationBehavior(_ behavior: SearchPresentationBehavior) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
         }
     }
 
-    func searchCompletion(_ completion: String) -> some View {
+    public func searchCompletion(_ completion: String) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context.withEnvironmentValue(\.searchCompletion, completion))
         }
     }
 
-    func searchScopes<V: Hashable>(
+    public func searchScopes<V: Hashable>(
         _ scope: Binding<V>,
         activation: SearchScopeActivation = .automatic,
         @ViewBuilder scopes: @escaping () -> [AnyView]
@@ -11975,7 +11913,7 @@ public extension View {
         }
     }
 
-    func searchFocused(_ isFocused: FocusState<Bool>.Binding) -> some View {
+    public func searchFocused(_ isFocused: FocusState<Bool>.Binding) -> some View {
         ModifiedView(content: self) { content, context in
             let child = content.makeComponent(context: context)
             return Component { runtime in
@@ -11986,20 +11924,21 @@ public extension View {
         }
     }
 
-    func searchPresentationDestination<Destination: View>(@ViewBuilder destination: @escaping () -> Destination) -> some View {
+    public func searchPresentationDestination<Destination: View>(@ViewBuilder destination: @escaping () -> Destination)
+        -> some View
+    {
         ModifiedView(content: self) { content, context in
             let _ = destination()
             return content.makeComponent(context: context)
         }
     }
 
-    func searchPresentationToolbarBehavior(_ behavior: SearchPresentationToolbarBehavior) -> some View {
+    public func searchPresentationToolbarBehavior(_ behavior: SearchPresentationToolbarBehavior) -> some View {
         ModifiedView(content: self) { content, context in
             content.makeComponent(context: context)
         }
     }
 }
-
 @MainActor
 private func searchableComponent<Content: View>(
     content: Content,
@@ -12026,7 +11965,8 @@ private func searchableComponent<Content: View>(
         context.invalidate()
     }
 
-    let searchContext = context
+    let searchContext =
+        context
         .withEnvironmentValue(\.isSearching, isSearching)
         .withEnvironmentValue(\.dismissSearch, dismissSearch)
     let searchField = TextField(title, text: text)
@@ -12066,7 +12006,6 @@ private func searchableComponent<Content: View>(
         )
     }
 }
-
 private struct RetainedSearchChrome {
     var nodeTag: String
     var preferredSize: Size?
@@ -12075,7 +12014,6 @@ private struct RetainedSearchChrome {
     var borderWidth: Double
     var cornerRadius: Double
 }
-
 @MainActor
 private func applySearchPlacementChrome(
     to node: ViewNode,
@@ -12093,7 +12031,6 @@ private func applySearchPlacementChrome(
     node.borderWidth = chrome.borderWidth
     node.cornerRadius = chrome.cornerRadius
 }
-
 @MainActor
 private func retainedSearchChrome(
     for placement: SearchFieldPlacement,
@@ -12121,7 +12058,8 @@ private func retainedSearchChrome(
         )
     }
 
-    let isNavigationDrawer = placement == .navigationBarDrawer
+    let isNavigationDrawer =
+        placement == .navigationBarDrawer
         || placement == .navigationBarDrawer(displayMode: .automatic)
         || placement == .navigationBarDrawer(displayMode: .always)
     if isNavigationDrawer {
@@ -12137,9 +12075,8 @@ private func retainedSearchChrome(
 
     return nil
 }
-
-private extension ControlSize {
-    var singleLineTextInputSize: Size {
+extension ControlSize {
+    fileprivate var singleLineTextInputSize: Size {
         switch self {
         case .mini:
             return Size(width: 180, height: 28)
@@ -12154,7 +12091,7 @@ private extension ControlSize {
         }
     }
 
-    var multilineTextInputSize: Size {
+    fileprivate var multilineTextInputSize: Size {
         switch self {
         case .mini:
             return Size(width: 220, height: 88)
@@ -12169,7 +12106,7 @@ private extension ControlSize {
         }
     }
 
-    var togglePreferredSize: Size {
+    fileprivate var togglePreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 44, height: 28)
@@ -12184,7 +12121,7 @@ private extension ControlSize {
         }
     }
 
-    var pickerMenuPreferredSize: Size {
+    fileprivate var pickerMenuPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 160, height: 30)
@@ -12199,7 +12136,7 @@ private extension ControlSize {
         }
     }
 
-    var stepperButtonPreferredSize: Size {
+    fileprivate var stepperButtonPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 28, height: 24)
@@ -12214,7 +12151,7 @@ private extension ControlSize {
         }
     }
 
-    var sliderPreferredSize: Size {
+    fileprivate var sliderPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 160, height: 22)
@@ -12229,7 +12166,7 @@ private extension ControlSize {
         }
     }
 
-    var progressPreferredSize: Size {
+    fileprivate var progressPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 160, height: 5)
@@ -12244,7 +12181,7 @@ private extension ControlSize {
         }
     }
 
-    var circularProgressPreferredSize: Size {
+    fileprivate var circularProgressPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 18, height: 18)
@@ -12259,7 +12196,7 @@ private extension ControlSize {
         }
     }
 
-    var colorSwatchPreferredSize: Size {
+    fileprivate var colorSwatchPreferredSize: Size {
         switch self {
         case .mini:
             return Size(width: 28, height: 22)
@@ -12274,7 +12211,6 @@ private extension ControlSize {
         }
     }
 }
-
 @MainActor
 private func textInputComponent(
     title: String?,
@@ -12294,9 +12230,11 @@ private func textInputComponent(
     return Component { runtime in
         let currentText = binding.wrappedValue
         let isShowingPlaceholder = currentText.isEmpty
-        let resolvedPlaceholder = placeholder
+        let resolvedPlaceholder =
+            placeholder
             ?? labelViews.flatMap { retainedPlainText(from: $0, context: context, runtime: runtime) }
-        let displayText = isSecure && !isShowingPlaceholder ? String(repeating: "*", count: currentText.count) : currentText
+        let displayText =
+            isSecure && !isShowingPlaceholder ? String(repeating: "*", count: currentText.count) : currentText
         let textColor: Color
         if !context.isEnabled {
             textColor = Color(red: 0.55, green: 0.58, blue: 0.62, alpha: 0.78)
@@ -12356,7 +12294,8 @@ private func textInputComponent(
             runtime: runtime
         )
         node.writingToolsBehavior = context.writingToolsBehavior?.retainedBehavior
-        node.writingToolsAffordanceVisibility = context.writingToolsAffordanceVisibility.retainedWritingToolsAffordanceVisibility
+        node.writingToolsAffordanceVisibility =
+            context.writingToolsAffordanceVisibility.retainedWritingToolsAffordanceVisibility
         node.isFindDisabled = context.isFindDisabled
         node.isReplaceDisabled = context.isReplaceDisabled
         node.isFindNavigatorPresented = context.isFindNavigatorPresented
@@ -12465,17 +12404,20 @@ private func textInputComponent(
                 return
             case .backspace, .deleteForward:
                 return
-            case nil, .tab, .enter, .shift, .control, .alt, .escape, .pageUp, .pageDown, .upArrow, .downArrow, .space, .mediaPlayPause:
+            case nil, .tab, .enter, .shift, .control, .alt, .escape, .pageUp, .pageDown, .upArrow, .downArrow, .space,
+                .mediaPlayPause:
                 break
             }
 
             let replacementRange = selectedRange ?? (clampedCaret..<clampedCaret)
-            guard let character = textFieldInsertedCharacter(
-                for: event,
-                allowsNewlines: allowsNewlines,
-                currentText: binding.wrappedValue.textPrefix(upTo: replacementRange.lowerBound),
-                textInputAutocapitalization: context.textInputAutocapitalization
-            ) else {
+            guard
+                let character = textFieldInsertedCharacter(
+                    for: event,
+                    allowsNewlines: allowsNewlines,
+                    currentText: binding.wrappedValue.textPrefix(upTo: replacementRange.lowerBound),
+                    textInputAutocapitalization: context.textInputAutocapitalization
+                )
+            else {
                 return
             }
 
@@ -12487,7 +12429,6 @@ private func textInputComponent(
         return node
     }
 }
-
 @MainActor
 private func retainedTextInputSuggestions(
     from views: [AnyView]?,
@@ -12506,7 +12447,6 @@ private func retainedTextInputSuggestions(
     }
     return suggestions
 }
-
 @MainActor
 private func appendRetainedTextInputSuggestions(
     from node: ViewNode,
@@ -12535,7 +12475,6 @@ private func appendRetainedTextInputSuggestions(
         appendRetainedTextInputSuggestions(from: child, to: &suggestions)
     }
 }
-
 @MainActor
 private func firstTextInputCompletion(in node: ViewNode) -> String? {
     if let completion = node.textInputCompletion {
@@ -12548,7 +12487,6 @@ private func firstTextInputCompletion(in node: ViewNode) -> String? {
     }
     return nil
 }
-
 @MainActor
 private func retainedPlainText(
     from views: [AnyView],
@@ -12563,13 +12501,11 @@ private func retainedPlainText(
     }
     return nil
 }
-
 @MainActor
 private func firstRetainedText(in node: ViewNode) -> String? {
     let candidates = retainedTextCandidates(in: node)
     return candidates.preferred ?? candidates.fallback
 }
-
 @MainActor
 private func retainedTextCandidates(in node: ViewNode) -> (preferred: String?, fallback: String?) {
     var fallback: String?
@@ -12588,7 +12524,6 @@ private func retainedTextCandidates(in node: ViewNode) -> (preferred: String?, f
     }
     return (nil, fallback)
 }
-
 public struct DatePickerComponents: OptionSet, Sendable, Equatable {
     public let rawValue: Int
 
@@ -12600,7 +12535,6 @@ public struct DatePickerComponents: OptionSet, Sendable, Equatable {
     public static let date = DatePickerComponents(rawValue: 1 << 1)
     public static let all: DatePickerComponents = [.date, .hourAndMinute]
 }
-
 private struct DatePickerRange: Sendable {
     var lowerBound: Date?
     var upperBound: Date?
@@ -12632,7 +12566,6 @@ private struct DatePickerRange: Sendable {
         return true
     }
 }
-
 @MainActor
 public struct DatePicker: View {
     public typealias Body = Never
@@ -12831,7 +12764,8 @@ public struct DatePicker: View {
         interactionCalendar.timeZone = environmentValues.timeZone
         let labelComponent = composeComponent(
             from: labelViews,
-            context: context
+            context:
+                context
                 .withForegroundColor(.secondary)
                 .withTextAlignment(.leading)
                 .withLineLimit(1),
@@ -12840,21 +12774,24 @@ public struct DatePicker: View {
         )
 
         return Component { runtime in
-            let valueNode = Text(Self.formattedValue(
-                selection.wrappedValue,
-                components: displayedComponents,
-                calendar: environmentValues.calendar,
-                timeZone: environmentValues.timeZone,
-                locale: environmentValues.locale
-            ))
-                .monospaced()
-                .lineLimit(1)
-                .makeComponent(
-                    context: context
-                        .withTextAlignment(.trailing)
-                        .withLineLimit(1)
+            let valueNode = Text(
+                Self.formattedValue(
+                    selection.wrappedValue,
+                    components: displayedComponents,
+                    calendar: environmentValues.calendar,
+                    timeZone: environmentValues.timeZone,
+                    locale: environmentValues.locale
                 )
-                .makeNode(runtime: runtime)
+            )
+            .monospaced()
+            .lineLimit(1)
+            .makeComponent(
+                context:
+                    context
+                    .withTextAlignment(.trailing)
+                    .withLineLimit(1)
+            )
+            .makeNode(runtime: runtime)
             valueNode.layoutPriority = max(valueNode.layoutPriority, 1)
             let controlNode = Self.retainedValueControl(
                 for: valueNode,
@@ -12952,8 +12889,10 @@ public struct DatePicker: View {
                 ),
                 isHitTestVisible: false,
                 children: [
-                    Controls.label("+", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
-                    Controls.label("-", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0)
+                    Controls.label(
+                        "+", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
+                    Controls.label(
+                        "-", color: context.foregroundColor.opacity(context.isEnabled ? 0.70 : 0.38), scale: 1.0),
                 ]
             )
             return Controls.stackPanel(
@@ -13070,12 +13009,14 @@ public struct DatePicker: View {
                 return
             }
 
-            guard let proposedDate = steppedDate(
-                from: selection.wrappedValue,
-                direction: direction,
-                components: components,
-                calendar: calendar
-            ), range.contains(proposedDate) else {
+            guard
+                let proposedDate = steppedDate(
+                    from: selection.wrappedValue,
+                    direction: direction,
+                    components: components,
+                    calendar: calendar
+                ), range.contains(proposedDate)
+            else {
                 return
             }
 
@@ -13167,7 +13108,6 @@ public struct DatePicker: View {
         return formatter.string(from: date)
     }
 }
-
 @MainActor
 public struct MultiDatePicker: View {
     public typealias Body = Never
@@ -13227,9 +13167,9 @@ public struct MultiDatePicker: View {
                 }
                 let totalCells = ((firstWeekday + daysInMonth + 6) / 7) * 7
                 let rows = totalCells / 7
-                ForEach(0 ..< rows, id: \.self) { row in
+                ForEach(0..<rows, id: \.self) { row in
                     HStack(spacing: 0) {
-                        ForEach(0 ..< 7, id: \.self) { col in
+                        ForEach(0..<7, id: \.self) { col in
                             let index = row * 7 + col
                             let day = index - firstWeekday + 1
                             if day >= 1 && day <= daysInMonth {
@@ -13265,7 +13205,6 @@ public struct MultiDatePicker: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct ColorPicker: View {
     public typealias Body = Never
@@ -13312,7 +13251,8 @@ public struct ColorPicker: View {
         let supportsOpacity = supportsOpacity
         let labelComponent = composeComponent(
             from: labelViews,
-            context: context
+            context:
+                context
                 .withForegroundColor(.secondary)
                 .withTextAlignment(.leading)
                 .withLineLimit(1),
@@ -13334,7 +13274,8 @@ public struct ColorPicker: View {
                 .monospaced()
                 .lineLimit(1)
                 .makeComponent(
-                    context: context
+                    context:
+                        context
                         .withTextAlignment(.trailing)
                         .withLineLimit(1)
                 )
@@ -13518,7 +13459,6 @@ public struct ColorPicker: View {
         return Int((clampedChannel * 255).rounded())
     }
 }
-
 @MainActor
 public struct Toggle: View {
     public typealias Body = Never
@@ -13775,7 +13715,8 @@ public struct Toggle: View {
     ) -> ViewNode {
         let boxSize: Double = 20
         let surfaceStyle = ButtonSurfaceStyle.default
-        let checkIcon = binding.wrappedValue
+        let checkIcon =
+            binding.wrappedValue
             ? Controls.icon(
                 .checkmark,
                 preferredSize: Size(width: boxSize - 4, height: boxSize - 4),
@@ -13800,7 +13741,8 @@ public struct Toggle: View {
             isHitTestVisible: false,
             children: [checkIcon]
         )
-        let children = context.labelsHidden
+        let children =
+            context.labelsHidden
             ? [box]
             : [box, labelComponent.makeNode(runtime: runtime)]
         let hiddenPreferredSize = Size(
@@ -13852,7 +13794,8 @@ public struct Toggle: View {
         labelComponent: Component
     ) -> ViewNode {
         let surfaceStyle = ButtonSurfaceStyle.default
-        let palette = binding.wrappedValue
+        let palette =
+            binding.wrappedValue
             ? SurfacePalette(
                 idle: context.tint.opacity(0.82),
                 hovered: context.tint.opacity(0.90),
@@ -13863,7 +13806,8 @@ public struct Toggle: View {
             : surfaceStyle.palette
         let children: [ViewNode]
         if context.labelsHidden {
-            let iconNode = binding.wrappedValue
+            let iconNode =
+                binding.wrappedValue
                 ? Controls.icon(
                     .checkmark,
                     preferredSize: Size(width: 20, height: 20),
@@ -13931,7 +13875,6 @@ public struct Toggle: View {
         )
     }
 }
-
 @MainActor
 public struct Picker<SelectionValue: Hashable>: View {
     public typealias Body = Never
@@ -14031,7 +13974,8 @@ public struct Picker<SelectionValue: Hashable>: View {
         )
         let currentValueLabelComponent = composeComponent(
             from: currentValueLabelViews,
-            context: context
+            context:
+                context
                 .withTextAlignment(.trailing)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center)),
@@ -14166,20 +14110,24 @@ public struct Picker<SelectionValue: Hashable>: View {
                 cornerRadius: 8,
                 palette: palette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                    borderHoveredColor: isSelected ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-                    borderFocusedColor: isSelected ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+                    borderColor: isSelected
+                        ? context.tint.opacity(0.45) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderHoveredColor: isSelected
+                        ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                    borderFocusedColor: isSelected
+                        ? context.tint.opacity(0.76) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
                     borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
                     borderWidth: 1,
                     focusRingColor: context.tint.opacity(0.28),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
-                layoutMode: .stack(.vertical(
-                    padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
-                    alignment: .center,
-                    mainAlignment: .center
-                )),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled && option.value != nil,
                 action: option.value.map { value in
                     {
@@ -14216,7 +14164,8 @@ public struct Picker<SelectionValue: Hashable>: View {
     ) -> ViewNode {
         let optionNodes: [ViewNode] = options.map { option in
             let isSelected = option.value.map { AnyHashable($0) == selectedAnyValue } ?? false
-            let indicatorNode = isSelected
+            let indicatorNode =
+                isSelected
                 ? Controls.icon(
                     .checkmark,
                     preferredSize: Size(width: 18, height: 18),
@@ -14249,7 +14198,8 @@ public struct Picker<SelectionValue: Hashable>: View {
                 ),
                 chrome: SurfaceChrome(
                     borderColor: isSelected ? context.tint.opacity(0.36) : .clear,
-                    borderHoveredColor: isSelected ? context.tint.opacity(0.50) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
+                    borderHoveredColor: isSelected
+                        ? context.tint.opacity(0.50) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.12),
                     borderFocusedColor: context.tint.opacity(0.64),
                     borderPressedColor: context.tint.opacity(0.72),
                     borderWidth: isSelected ? 1 : 0,
@@ -14257,11 +14207,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
-                layoutMode: .stack(.horizontal(
-                    spacing: 8,
-                    padding: EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 10),
-                    alignment: .center
-                )),
+                layoutMode: .stack(
+                    .horizontal(
+                        spacing: 8,
+                        padding: EdgeInsets(top: 7, leading: 8, bottom: 7, trailing: 10),
+                        alignment: .center
+                    )),
                 isEnabled: context.isEnabled && option.value != nil,
                 action: option.value.map { value in
                     {
@@ -14356,20 +14307,24 @@ public struct Picker<SelectionValue: Hashable>: View {
                 cornerRadius: 10,
                 palette: palette,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
-                    borderHoveredColor: isSelected ? context.tint.opacity(0.78) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
-                    borderFocusedColor: isSelected ? context.tint.opacity(0.88) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.30),
+                    borderColor: isSelected
+                        ? context.tint.opacity(0.62) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.10),
+                    borderHoveredColor: isSelected
+                        ? context.tint.opacity(0.78) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.22),
+                    borderFocusedColor: isSelected
+                        ? context.tint.opacity(0.88) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.30),
                     borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.36),
                     borderWidth: isSelected ? 2 : 1,
                     focusRingColor: context.tint.opacity(0.30),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
-                layoutMode: .stack(.vertical(
-                    padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
-                    alignment: .center,
-                    mainAlignment: .center
-                )),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 4, leading: 6, bottom: 4, trailing: 6),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled && option.value != nil,
                 action: option.value.map { value in
                     {
@@ -14416,19 +14371,22 @@ public struct Picker<SelectionValue: Hashable>: View {
                 palette: palette,
                 chrome: SurfaceChrome(
                     borderColor: isSelected ? context.tint.opacity(0.48) : .clear,
-                    borderHoveredColor: isSelected ? context.tint.opacity(0.64) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
-                    borderFocusedColor: isSelected ? context.tint.opacity(0.78) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.24),
+                    borderHoveredColor: isSelected
+                        ? context.tint.opacity(0.64) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.14),
+                    borderFocusedColor: isSelected
+                        ? context.tint.opacity(0.78) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.24),
                     borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
                     borderWidth: isSelected ? 1 : 0,
                     focusRingColor: context.tint.opacity(0.28),
                     focusRingWidth: 2
                 ),
                 clipsToBounds: true,
-                layoutMode: .stack(.vertical(
-                    padding: EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12),
-                    alignment: .center,
-                    mainAlignment: .center
-                )),
+                layoutMode: .stack(
+                    .vertical(
+                        padding: EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12),
+                        alignment: .center,
+                        mainAlignment: .center
+                    )),
                 isEnabled: context.isEnabled && option.value != nil,
                 action: option.value.map { value in
                     {
@@ -14486,9 +14444,12 @@ public struct Picker<SelectionValue: Hashable>: View {
                 isEnabled: context.isEnabled && option.value != nil,
                 layoutPriority: 1,
                 chrome: SurfaceChrome(
-                    borderColor: isSelected ? context.tint.opacity(0.40) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
-                    borderHoveredColor: isSelected ? context.tint.opacity(0.58) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
-                    borderFocusedColor: isSelected ? context.tint.opacity(0.72) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
+                    borderColor: isSelected
+                        ? context.tint.opacity(0.40) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.08),
+                    borderHoveredColor: isSelected
+                        ? context.tint.opacity(0.58) : Color(red: 0.96, green: 0.98, blue: 1.0, alpha: 0.18),
+                    borderFocusedColor: isSelected
+                        ? context.tint.opacity(0.72) : Color(red: 0.86, green: 0.93, blue: 1.0, alpha: 0.26),
                     borderPressedColor: Color(red: 0.98, green: 1.0, blue: 1.0, alpha: 0.34),
                     borderWidth: 1,
                     focusRingColor: context.tint.opacity(0.28),
@@ -14584,7 +14545,6 @@ public struct Picker<SelectionValue: Hashable>: View {
         )
     }
 }
-
 @MainActor
 public struct Stepper: View {
     public typealias Body = Never
@@ -15068,7 +15028,6 @@ public struct Stepper: View {
         return min(max(candidate, bounds.lowerBound), bounds.upperBound)
     }
 }
-
 @MainActor
 public struct Slider: View {
     public typealias Body = Never
@@ -15421,7 +15380,6 @@ public struct Slider: View {
         Double(bounds.lowerBound)...Double(bounds.upperBound)
     }
 }
-
 @MainActor
 public struct ProgressView: View {
     public typealias Body = Never
@@ -15631,7 +15589,6 @@ public struct ProgressView: View {
         return countsDown ? 1 - progress : progress
     }
 }
-
 @MainActor
 public struct Gauge: View {
     public typealias Body = Never
@@ -15934,7 +15891,6 @@ public struct Gauge: View {
         Double(bounds.lowerBound)...Double(bounds.upperBound)
     }
 }
-
 @MainActor
 public struct Link: View {
     public typealias Body = Never
@@ -15974,7 +15930,8 @@ public struct Link: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let labelComponent = composeComponent(
             from: label,
-            context: context
+            context:
+                context
                 .withForegroundColor(context.tint)
                 .withLineLimit(1),
             fallbackLayout: .stack(.horizontal(spacing: 0, alignment: .center))
@@ -16002,7 +15959,6 @@ public struct Link: View {
         }
     }
 }
-
 @MainActor
 public struct RenameButton: View {
     public typealias Body = Never
@@ -16039,7 +15995,6 @@ public struct RenameButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct NewDocumentButton: View {
     public typealias Body = Never
@@ -16080,7 +16035,6 @@ public struct NewDocumentButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct DefaultSettingsLinkLabel: View {
     public init() {}
@@ -16089,7 +16043,6 @@ public struct DefaultSettingsLinkLabel: View {
         Text("Settings")
     }
 }
-
 @MainActor
 public struct SettingsLink: View {
     public typealias Body = Never
@@ -16119,7 +16072,6 @@ public struct SettingsLink: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct HelpLink: View {
     public typealias Body = Never
@@ -16144,7 +16096,6 @@ public struct HelpLink: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct SharePreview {
     public let title: String
@@ -16160,7 +16111,6 @@ public struct SharePreview {
         self.image = icon
     }
 }
-
 @MainActor
 public struct ShareLink: View {
     public typealias Body = Never
@@ -16227,18 +16177,22 @@ public struct ShareLink: View {
         item: some Transferable,
         preview: SharePreview? = nil
     ) {
-        self.init(item: item, preview: preview, label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            item: item, preview: preview,
+            label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            })
     }
 
     public init(
         items: [some Transferable],
         preview: SharePreview? = nil
     ) {
-        self.init(items: items, preview: preview, label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            items: items, preview: preview,
+            label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            })
     }
 
     public init(
@@ -16247,9 +16201,11 @@ public struct ShareLink: View {
         message: String?,
         preview: SharePreview? = nil
     ) {
-        self.init(item: item, subject: subject, message: message, preview: preview, label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            item: item, subject: subject, message: message, preview: preview,
+            label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            })
     }
 
     public init(
@@ -16258,15 +16214,19 @@ public struct ShareLink: View {
         message: String?,
         preview: SharePreview? = nil
     ) {
-        self.init(items: items, subject: subject, message: message, preview: preview, label: {
-            Label("Share", systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            items: items, subject: subject, message: message, preview: preview,
+            label: {
+                Label("Share", systemImage: "square.and.arrow.up")
+            })
     }
 
     public init(_ title: String, item: some Transferable) {
-        self.init(item: item, label: {
-            Label(title, systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            item: item,
+            label: {
+                Label(title, systemImage: "square.and.arrow.up")
+            })
     }
 
     public init<S: StringProtocol>(_ title: S, item: some Transferable) {
@@ -16278,9 +16238,11 @@ public struct ShareLink: View {
     }
 
     public init(_ title: String, items: [some Transferable]) {
-        self.init(items: items, label: {
-            Label(title, systemImage: "square.and.arrow.up")
-        })
+        self.init(
+            items: items,
+            label: {
+                Label(title, systemImage: "square.and.arrow.up")
+            })
     }
 
     public init<S: StringProtocol>(_ title: S, items: [some Transferable]) {
@@ -16309,7 +16271,6 @@ public struct ShareLink: View {
         .makeComponent(context: context)
     }
 }
-
 @available(macOS 16.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 @MainActor
 public struct ShortcutsLink: View {
@@ -16327,7 +16288,6 @@ public struct ShortcutsLink: View {
         }
     }
 }
-
 @available(macOS 16.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 @MainActor
 public struct ShortcutsButton: View {
@@ -16352,7 +16312,6 @@ public struct ShortcutsButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct LocationButton: View {
     public typealias Body = Never
@@ -16376,7 +16335,6 @@ public struct LocationButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct PasteButton: View {
     public typealias Body = Never
@@ -16440,7 +16398,6 @@ public struct PasteButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct CopyButton: View {
     public typealias Body = Never
@@ -16464,9 +16421,10 @@ public struct CopyButton: View {
     }
 
     public init(items: [Any]) {
-        self.init(label: {
-            Label("Copy", systemImage: "doc.on.doc")
-        }, items: items)
+        self.init(
+            label: {
+                Label("Copy", systemImage: "doc.on.doc")
+            }, items: items)
     }
 
     public init(item: Any) {
@@ -16488,7 +16446,6 @@ public struct CopyButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct CutButton: View {
     public typealias Body = Never
@@ -16512,9 +16469,10 @@ public struct CutButton: View {
     }
 
     public init(items: [Any]) {
-        self.init(label: {
-            Label("Cut", systemImage: "scissors")
-        }, items: items)
+        self.init(
+            label: {
+                Label("Cut", systemImage: "scissors")
+            }, items: items)
     }
 
     public init(item: Any) {
@@ -16536,7 +16494,6 @@ public struct CutButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct DeleteButton: View {
     public typealias Body = Never
@@ -16560,9 +16517,10 @@ public struct DeleteButton: View {
     }
 
     public init(items: [Any]) {
-        self.init(label: {
-            Label("Delete", systemImage: "trash")
-        }, items: items)
+        self.init(
+            label: {
+                Label("Delete", systemImage: "trash")
+            }, items: items)
     }
 
     public init(item: Any) {
@@ -16587,7 +16545,6 @@ public struct DeleteButton: View {
         .makeComponent(context: context)
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct ExportButton: View {
@@ -16612,9 +16569,10 @@ public struct ExportButton: View {
     }
 
     public init(items: [Any]) {
-        self.init(label: {
-            Label("Export", systemImage: "square.and.arrow.up")
-        }, items: items)
+        self.init(
+            label: {
+                Label("Export", systemImage: "square.and.arrow.up")
+            }, items: items)
     }
 
     public init(item: Any) {
@@ -16636,7 +16594,6 @@ public struct ExportButton: View {
         .makeComponent(context: context)
     }
 }
-
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, *)
 @MainActor
 public struct ImportButton: View {
@@ -16689,7 +16646,6 @@ public struct ImportButton: View {
         .makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct Button: View {
     public typealias Body = Never
@@ -16775,7 +16731,8 @@ public struct Button: View {
         self._storedTitle = String(title)
     }
 
-    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, action: @escaping @MainActor () -> Void) {
+    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, action: @escaping @MainActor () -> Void)
+    {
         self.init(titleKey.resolvedString, image: resource, action: action)
     }
 
@@ -16836,15 +16793,21 @@ public struct Button: View {
         self._storedTitle = title
     }
 
-    public init<S: StringProtocol>(_ title: S, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init<S: StringProtocol>(
+        _ title: S, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void
+    ) {
         self.init(String(title), image: name, role: role, action: action)
     }
 
-    public init(_ titleKey: LocalizedStringKey, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init(
+        _ titleKey: LocalizedStringKey, image name: String, role: ButtonRole?, action: @escaping @MainActor () -> Void
+    ) {
         self.init(titleKey.resolvedString, image: name, role: role, action: action)
     }
 
-    public init<S: StringProtocol>(_ title: S, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init<S: StringProtocol>(
+        _ title: S, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void
+    ) {
         self.action = action
         self.label = [
             AnyView(Label(title, image: resource))
@@ -16856,7 +16819,10 @@ public struct Button: View {
         self._storedTitle = String(title)
     }
 
-    public init(_ titleKey: LocalizedStringKey, image resource: ImageResource, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init(
+        _ titleKey: LocalizedStringKey, image resource: ImageResource, role: ButtonRole?,
+        action: @escaping @MainActor () -> Void
+    ) {
         self.init(titleKey.resolvedString, image: resource, role: role, action: action)
     }
 
@@ -16872,11 +16838,15 @@ public struct Button: View {
         self._storedTitle = title
     }
 
-    public init<S: StringProtocol>(_ title: S, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init<S: StringProtocol>(
+        _ title: S, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void
+    ) {
         self.init(String(title), systemImage: systemImage, role: role, action: action)
     }
 
-    public init(_ titleKey: LocalizedStringKey, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void) {
+    public init(
+        _ titleKey: LocalizedStringKey, systemImage: String, role: ButtonRole?, action: @escaping @MainActor () -> Void
+    ) {
         self.init(titleKey.resolvedString, systemImage: systemImage, role: role, action: action)
     }
 
@@ -16897,7 +16867,8 @@ public struct Button: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            let buttonStyle = resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
+            let buttonStyle =
+                resolvedButtonStyle == .automatic && !hasCustomSurfaceStyle ? context.buttonStyle : resolvedButtonStyle
             let surfaceStyle = resolvedSurfaceStyle(for: buttonStyle, context: context)
             let buttonBorderShape = context.environmentValues.buttonBorderShape
             let node = Controls.button(
@@ -16988,7 +16959,6 @@ public struct Button: View {
         }
     }
 }
-
 @MainActor
 public struct EditButton: View {
     public typealias Body = Never
@@ -17013,7 +16983,6 @@ public struct EditButton: View {
         .makeComponent(context: context)
     }
 }
-
 public struct HelpButton: View {
     public typealias Body = Never
 
@@ -17033,7 +17002,6 @@ public struct HelpButton: View {
         }.makeComponent(context: context)
     }
 }
-
 public struct CloseButton: View {
     public typealias Body = Never
 
@@ -17053,7 +17021,6 @@ public struct CloseButton: View {
         }.makeComponent(context: context)
     }
 }
-
 public struct BackButton: View {
     public typealias Body = Never
 
@@ -17073,7 +17040,6 @@ public struct BackButton: View {
         }.makeComponent(context: context)
     }
 }
-
 @MainActor
 public struct HSplitView: View {
     public typealias Body = Never
@@ -17118,7 +17084,6 @@ public struct HSplitView: View {
         splitComponent(axis: .horizontal, context: context)
     }
 }
-
 @MainActor
 public struct VSplitView: View {
     public typealias Body = Never
@@ -17163,9 +17128,8 @@ public struct VSplitView: View {
         splitComponent(axis: .vertical, context: context)
     }
 }
-
-private extension HSplitView {
-    func splitComponent(axis: SplitAxis, context: ViewBuildContext) -> Component {
+extension HSplitView {
+    fileprivate func splitComponent(axis: SplitAxis, context: ViewBuildContext) -> Component {
         buildSplitComponent(
             content: content,
             axis: axis,
@@ -17181,9 +17145,8 @@ private extension HSplitView {
         )
     }
 }
-
-private extension VSplitView {
-    func splitComponent(axis: SplitAxis, context: ViewBuildContext) -> Component {
+extension VSplitView {
+    fileprivate func splitComponent(axis: SplitAxis, context: ViewBuildContext) -> Component {
         buildSplitComponent(
             content: content,
             axis: axis,
@@ -17199,7 +17162,6 @@ private extension VSplitView {
         )
     }
 }
-
 @MainActor
 private func buildSplitComponent(
     content: [AnyView],
@@ -17227,7 +17189,8 @@ private func buildSplitComponent(
         let primaryNode = primaryComponent.makeNode(runtime: runtime)
         let secondaryNode = secondaryComponent.makeNode(runtime: runtime)
         let defaultExtent = axis == .horizontal ? context.canvasSize.width : context.canvasSize.height
-        let primaryExtent = axis == .horizontal ? primaryNode.intrinsicContentSize().width : primaryNode.intrinsicContentSize().height
+        let primaryExtent =
+            axis == .horizontal ? primaryNode.intrinsicContentSize().width : primaryNode.intrinsicContentSize().height
         let inferredRatio = max(0.1, min(0.9, primaryExtent / max(1, defaultExtent - dividerThickness)))
 
         return Controls.splitView(
@@ -17246,9 +17209,9 @@ private func buildSplitComponent(
         )
     }
 }
-
 private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants = .none) -> SymbolIcon {
-    let resolvedName = variants.contains(.fill) && !systemName.hasSuffix(".fill")
+    let resolvedName =
+        variants.contains(.fill) && !systemName.hasSuffix(".fill")
         ? "\(systemName).fill"
         : systemName
 
@@ -17279,7 +17242,6 @@ private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants
         return .sparkle
     }
 }
-
 private struct ResolvedTextInputStyle {
     var backgroundColor: Color
     var borderColor: Color
@@ -17287,9 +17249,8 @@ private struct ResolvedTextInputStyle {
     var cornerRadius: Double
     var padding: EdgeInsets
 }
-
-private extension TextFieldStyle {
-    func resolvedTextInputStyle(isEnabled: Bool) -> ResolvedTextInputStyle {
+extension TextFieldStyle {
+    fileprivate func resolvedTextInputStyle(isEnabled: Bool) -> ResolvedTextInputStyle {
         switch kind {
         case .automatic, .roundedBorder:
             return ResolvedTextInputStyle(
@@ -17326,7 +17287,6 @@ private extension TextFieldStyle {
         }
     }
 }
-
 private func textFieldInsertedCharacter(
     for event: KeyboardEvent,
     allowsNewlines: Bool,
@@ -17379,18 +17339,16 @@ private func textFieldInsertedCharacter(
         textInputAutocapitalization: textInputAutocapitalization
     )
 }
-
 private func clampedTextOffset(_ offset: Int, in text: String) -> Int {
     min(max(0, offset), text.count)
 }
-
-private extension String {
-    func textPrefix(upTo offset: Int) -> String {
+extension String {
+    fileprivate func textPrefix(upTo offset: Int) -> String {
         let clampedOffset = clampedTextOffset(offset, in: self)
         return String(prefix(clampedOffset))
     }
 
-    func insertingText(_ insertedText: String, at offset: Int) -> String {
+    fileprivate func insertingText(_ insertedText: String, at offset: Int) -> String {
         let clampedOffset = clampedTextOffset(offset, in: self)
         let insertionIndex = index(startIndex, offsetBy: clampedOffset)
         var copy = self
@@ -17398,7 +17356,7 @@ private extension String {
         return copy
     }
 
-    func removingText(in offsets: Range<Int>) -> String {
+    fileprivate func removingText(in offsets: Range<Int>) -> String {
         let lowerBound = clampedTextOffset(offsets.lowerBound, in: self)
         let upperBound = clampedTextOffset(offsets.upperBound, in: self)
         guard lowerBound < upperBound else {
@@ -17412,7 +17370,7 @@ private extension String {
         return copy
     }
 
-    func replacingText(in offsets: Range<Int>, with replacement: String) -> String {
+    fileprivate func replacingText(in offsets: Range<Int>, with replacement: String) -> String {
         let lowerBound = clampedTextOffset(offsets.lowerBound, in: self)
         let upperBound = clampedTextOffset(offsets.upperBound, in: self)
         let lowerIndex = index(startIndex, offsetBy: lowerBound)
@@ -17422,7 +17380,6 @@ private extension String {
         return copy
     }
 }
-
 private func autocapitalizedInsertedCharacter(
     _ character: String,
     currentText: String,
@@ -17444,7 +17401,6 @@ private func autocapitalizedInsertedCharacter(
         return character
     }
 }
-
 private func shouldCapitalizeSentenceInsertion(after text: String) -> Bool {
     guard let lastCharacter = text.last else {
         return true
@@ -17457,9 +17413,6 @@ private func shouldCapitalizeSentenceInsertion(after text: String) -> Bool {
     }
     return lastMeaningfulCharacter == "." || lastMeaningfulCharacter == "!" || lastMeaningfulCharacter == "?"
 }
-
-// MARK: - Canvas
-
 @MainActor
 public struct Canvas: View {
     public typealias Body = Never
@@ -17536,7 +17489,6 @@ public struct Canvas: View {
         }
     }
 }
-
 public struct Map: View {
     public typealias Body = Never
 
@@ -17550,7 +17502,6 @@ public struct Map: View {
         placeholderPanel(label: "Map", systemImage: "map", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct MapStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -17564,7 +17515,6 @@ public struct MapStyle: Sendable, Equatable {
     public static let imagery = MapStyle(kind: .imagery)
     public static let hybrid = MapStyle(kind: .hybrid)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct MapCameraPosition: Sendable, Equatable {
     public indirect enum Kind: Sendable, Equatable {
@@ -17585,12 +17535,13 @@ public struct MapCameraPosition: Sendable, Equatable {
         latitudeDelta: Double,
         longitudeDelta: Double
     ) -> MapCameraPosition {
-        MapCameraPosition(kind: .region(
-            latitude: centerLatitude,
-            longitude: centerLongitude,
-            latitudeDelta: latitudeDelta,
-            longitudeDelta: longitudeDelta
-        ))
+        MapCameraPosition(
+            kind: .region(
+                latitude: centerLatitude,
+                longitude: centerLongitude,
+                latitudeDelta: latitudeDelta,
+                longitudeDelta: longitudeDelta
+            ))
     }
 
     public static func item(latitude: Double, longitude: Double) -> MapCameraPosition {
@@ -17603,12 +17554,13 @@ public struct MapCameraPosition: Sendable, Equatable {
         maxLatitude: Double,
         maxLongitude: Double
     ) -> MapCameraPosition {
-        MapCameraPosition(kind: .rect(
-            minLatitude: minLatitude,
-            minLongitude: minLongitude,
-            maxLatitude: maxLatitude,
-            maxLongitude: maxLongitude
-        ))
+        MapCameraPosition(
+            kind: .rect(
+                minLatitude: minLatitude,
+                minLongitude: minLongitude,
+                maxLatitude: maxLatitude,
+                maxLongitude: maxLongitude
+            ))
     }
 
     public static func userLocation(fallback: MapCameraPosition = .automatic) -> MapCameraPosition {
@@ -17623,7 +17575,6 @@ public struct MapCameraPosition: Sendable, Equatable {
         MapCameraPosition(kind: .camera(latitude: latitude, longitude: longitude, distance: distance))
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct MapCameraBounds: Sendable, Equatable {
     public var centerLatitude: Double
@@ -17643,13 +17594,11 @@ public struct MapCameraBounds: Sendable, Equatable {
         self.longitudeDelta = longitudeDelta
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public enum MapProjection: Sendable, Equatable {
     case mercator
     case equalArea
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct MapReader<Content: View>: View {
     public typealias Body = Never
@@ -17669,14 +17618,12 @@ public struct MapReader<Content: View>: View {
         return content(proxy).makeComponent(context: context)
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct MapProxy {
     public init() {}
     public func convert(_ coordinate: (latitude: Double, longitude: Double), to: CoordinateSpace) -> Point? { nil }
     public func convert(_ point: Point, from: CoordinateSpace) -> (latitude: Double, longitude: Double)? { nil }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct LookAroundViewer: View {
     public typealias Body = Never
@@ -17693,7 +17640,6 @@ public struct LookAroundViewer: View {
         }
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct Marker: View {
     public typealias Body = Never
@@ -17718,7 +17664,6 @@ public struct Marker: View {
         }
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct Annotation<Content: View>: View {
     public typealias Body = Never
@@ -17747,7 +17692,6 @@ public struct Annotation<Content: View>: View {
         content.makeComponent(context: context)
     }
 }
-
 public struct PhotosPicker: View {
     public typealias Body = Never
 
@@ -17790,7 +17734,6 @@ public struct PhotosPicker: View {
         .makeComponent(context: context)
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct PhotosPickerItem: Sendable, Equatable {
     public let itemIdentifier: String
@@ -17801,7 +17744,6 @@ public struct PhotosPickerItem: Sendable, Equatable {
         self.fileURL = fileURL
     }
 }
-
 public struct VideoPlayer<VideoOverlay: View>: View {
     public typealias Body = Never
 
@@ -17820,10 +17762,10 @@ public struct VideoPlayer<VideoOverlay: View>: View {
     }
 
     public func makeComponent(context: ViewBuildContext) -> Component {
-        placeholderPanel(label: "Video Player", systemImage: "play.rectangle", preferredSize: Size(width: 300, height: 200))
+        placeholderPanel(
+            label: "Video Player", systemImage: "play.rectangle", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 public struct MapKitMap: View {
     public typealias Body = Never
 
@@ -17837,7 +17779,6 @@ public struct MapKitMap: View {
         placeholderPanel(label: "Map", systemImage: "map", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 public struct AVPlayerView: View {
     public typealias Body = Never
 
@@ -17851,7 +17792,6 @@ public struct AVPlayerView: View {
         placeholderPanel(label: "AVPlayer", systemImage: "play.circle", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 public struct LivePhotoView: View {
     public typealias Body = Never
 
@@ -17865,7 +17805,6 @@ public struct LivePhotoView: View {
         placeholderPanel(label: "Live Photo", systemImage: "livephoto", preferredSize: Size(width: 200, height: 200))
     }
 }
-
 public struct Camera: View {
     public typealias Body = Never
 
@@ -17879,7 +17818,6 @@ public struct Camera: View {
         placeholderPanel(label: "Camera", systemImage: "camera", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 public struct ImagePicker: View {
     public typealias Body = Never
 
@@ -17910,7 +17848,6 @@ public struct ImagePicker: View {
         .makeComponent(context: context)
     }
 }
-
 public struct QuickLookPreview: View {
     public typealias Body = Never
 
@@ -17937,7 +17874,6 @@ public struct QuickLookPreview: View {
         return placeholderPanel(label: "Quick Look", systemImage: "eye", preferredSize: Size(width: 300, height: 400))
     }
 }
-
 public struct PDFView: View {
     public typealias Body = Never
 
@@ -17964,7 +17900,6 @@ public struct PDFView: View {
         return placeholderPanel(label: "PDF", systemImage: "doc.text", preferredSize: Size(width: 300, height: 400))
     }
 }
-
 public struct WebView: View {
     public typealias Body = Never
 
@@ -17991,7 +17926,6 @@ public struct WebView: View {
         return placeholderPanel(label: "WebView", systemImage: "globe", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public struct SpriteView: View {
     public typealias Body = Never
@@ -18011,10 +17945,10 @@ public struct SpriteView: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         let _ = scene
         let _ = isPaused
-        return placeholderPanel(label: "SpriteKit", systemImage: "sparkles", preferredSize: Size(width: 300, height: 200))
+        return placeholderPanel(
+            label: "SpriteKit", systemImage: "sparkles", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public struct SceneView: View {
     public typealias Body = Never
@@ -18037,7 +17971,6 @@ public struct SceneView: View {
         return placeholderPanel(label: "SceneKit", systemImage: "cube", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public struct RealityView: View {
     public typealias Body = Never
@@ -18054,10 +17987,10 @@ public struct RealityView: View {
 
     public func makeComponent(context: ViewBuildContext) -> Component {
         let _ = update
-        return placeholderPanel(label: "RealityKit", systemImage: "visionpro", preferredSize: Size(width: 300, height: 200))
+        return placeholderPanel(
+            label: "RealityKit", systemImage: "visionpro", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 @available(macOS 12.0, iOS 15.0, watchOS 8.0, tvOS 15.0, *)
 public struct Model3D: View {
     public typealias Body = Never
@@ -18085,17 +18018,14 @@ public struct Model3D: View {
         return placeholderPanel(label: "3D Model", systemImage: "cube", preferredSize: Size(width: 200, height: 200))
     }
 }
-
 public enum Model3DPhase: Sendable {
     case loading
     case ready
     case error(Error)
 }
-
 public struct Model3DPlaceholderStyle: Sendable, Equatable, Hashable {
     public init() {}
 }
-
 public struct SceneRealityView: View {
     public typealias Body = Never
 
@@ -18105,31 +18035,24 @@ public struct SceneRealityView: View {
         fatalError("SceneRealityView has no body")
     }
 }
-
 public struct RealityViewCameraContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct RealityViewAttachmentContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct RealityViewEntityContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct SceneRealityViewCameraContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct SceneRealityViewAttachmentContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct SceneRealityViewEntityContent: Sendable, Equatable {
     public init() {}
 }
-
 public struct ImmersiveSpaceContent: View {
     public typealias Body = Never
 
@@ -18139,7 +18062,6 @@ public struct ImmersiveSpaceContent: View {
         fatalError("ImmersiveSpaceContent has no body")
     }
 }
-
 public struct ImmersiveSpaceRoot: View {
     public typealias Body = Never
 
@@ -18149,7 +18071,6 @@ public struct ImmersiveSpaceRoot: View {
         fatalError("ImmersiveSpaceRoot has no body")
     }
 }
-
 public struct ImmersiveScene: View {
     public typealias Body = Never
 
@@ -18159,7 +18080,6 @@ public struct ImmersiveScene: View {
         fatalError("ImmersiveScene has no body")
     }
 }
-
 public struct Volumetric: View {
     public typealias Body = Never
 
@@ -18169,7 +18089,6 @@ public struct Volumetric: View {
         fatalError("Volumetric has no body")
     }
 }
-
 public struct Ornament<Content: View>: View {
     public typealias Body = Never
 
@@ -18197,7 +18116,6 @@ public struct Ornament<Content: View>: View {
         return content.makeComponent(context: context)
     }
 }
-
 public struct AppStoreOverlay: View {
     public typealias Body = Never
 
@@ -18213,7 +18131,6 @@ public struct AppStoreOverlay: View {
         }
     }
 }
-
 public struct SubscriptionStoreView: View {
     public typealias Body = Never
 
@@ -18234,7 +18151,6 @@ public struct SubscriptionStoreView: View {
         }
     }
 }
-
 public struct SubscriptionView: View {
     public typealias Body = Never
 
@@ -18255,9 +18171,7 @@ public struct SubscriptionView: View {
         }
     }
 }
-
 public protocol ChartContent: View {}
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AnyChart: ChartContent {
     public typealias Body = Never
@@ -18278,7 +18192,6 @@ public struct AnyChart: ChartContent {
         buildComponent(context)
     }
 }
-
 public struct Chart<Content: ChartContent>: View {
     public typealias Body = Never
 
@@ -18296,9 +18209,7 @@ public struct Chart<Content: ChartContent>: View {
         placeholderPanel(label: "Chart", systemImage: "chart.bar", preferredSize: Size(width: 300, height: 200))
     }
 }
-
 public protocol Mark: ChartContent {}
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct BarMark: Mark {
     public typealias Body = Never
@@ -18330,7 +18241,6 @@ public struct BarMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct LineMark: Mark {
     public typealias Body = Never
@@ -18359,7 +18269,6 @@ public struct LineMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AreaMark: Mark {
     public typealias Body = Never
@@ -18388,7 +18297,6 @@ public struct AreaMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct RuleMark: Mark {
     public typealias Body = Never
@@ -18414,7 +18322,6 @@ public struct RuleMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct PointMark: Mark {
     public typealias Body = Never
@@ -18443,7 +18350,6 @@ public struct PointMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct RectangleMark: Mark {
     public typealias Body = Never
@@ -18475,7 +18381,6 @@ public struct RectangleMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct SectorMark: Mark {
     public typealias Body = Never
@@ -18507,7 +18412,6 @@ public struct SectorMark: Mark {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AxisMarks: ChartContent {
     public typealias Body = Never
@@ -18524,7 +18428,6 @@ public struct AxisMarks: ChartContent {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AxisValueLabel: ChartContent {
     public typealias Body = Never
@@ -18541,7 +18444,6 @@ public struct AxisValueLabel: ChartContent {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AxisGridLine: ChartContent {
     public typealias Body = Never
@@ -18558,7 +18460,6 @@ public struct AxisGridLine: ChartContent {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct AxisTick: ChartContent {
     public typealias Body = Never
@@ -18575,16 +18476,13 @@ public struct AxisTick: ChartContent {
         }
     }
 }
-
 @available(macOS 13.0, iOS 16.0, watchOS 9.0, tvOS 16.0, *)
 public struct ChartProxy {
     public init() {}
 }
-
 public protocol ChartSymbolShape: Shape {
     init()
 }
-
 public struct AxisValue: Sendable, Equatable {
     public let value: Double
 
@@ -18592,11 +18490,9 @@ public struct AxisValue: Sendable, Equatable {
         self.value = value
     }
 }
-
 public struct Plot: Sendable, Equatable {
     public init() {}
 }
-
 public struct PlottableDomain: Sendable, Equatable {
     public var min: Double
     public var max: Double
@@ -18606,7 +18502,6 @@ public struct PlottableDomain: Sendable, Equatable {
         self.max = max
     }
 }
-
 public struct ChartBackground: View, ChartContent {
     public typealias Body = Never
 
@@ -18616,11 +18511,9 @@ public struct ChartBackground: View, ChartContent {
         fatalError("ChartBackground has no body")
     }
 }
-
 public struct ChartForegroundStyleScale: Sendable, Equatable {
     public init() {}
 }
-
 public struct ChartXAxis: View {
     public typealias Body = Never
 
@@ -18630,7 +18523,6 @@ public struct ChartXAxis: View {
         fatalError("ChartXAxis has no body")
     }
 }
-
 public struct ChartYAxis: View {
     public typealias Body = Never
 
@@ -18640,11 +18532,9 @@ public struct ChartYAxis: View {
         fatalError("ChartYAxis has no body")
     }
 }
-
 public struct ChartScrollTargetBehavior: Sendable, Equatable {
     public init() {}
 }
-
 @MainActor
 public protocol Tip {
     associatedtype Title: View
@@ -18657,13 +18547,11 @@ public protocol Tip {
 
     static var options: [TipOption] { get }
 }
-
-public extension Tip {
-    var message: Message? { nil }
-    var image: Image? { nil }
-    static var options: [TipOption] { [] }
+extension Tip {
+    public var message: Message? { nil }
+    public var image: Image? { nil }
+    public static var options: [TipOption] { [] }
 }
-
 public struct TipOption: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case maxDisplayCount(Int)
@@ -18674,7 +18562,6 @@ public struct TipOption: Sendable, Equatable {
         TipOption(kind: .maxDisplayCount(count))
     }
 }
-
 public struct TipView<TipType: Tip>: View {
     public typealias Body = Never
 
@@ -18702,7 +18589,6 @@ public struct TipView<TipType: Tip>: View {
         return placeholderPanel(label: "Tip", systemImage: "lightbulb", preferredSize: Size(width: 200, height: 80))
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct TipViewStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18716,7 +18602,6 @@ public struct TipViewStyle: Sendable, Equatable {
     public static let inline = TipViewStyle(kind: .inline)
     public static let floating = TipViewStyle(kind: .floating)
 }
-
 public struct TipAction: Sendable, Equatable {
     public let id: String
     public let title: String
@@ -18726,7 +18611,6 @@ public struct TipAction: Sendable, Equatable {
         self.title = title
     }
 }
-
 public struct TipDismissal: Sendable, Equatable {
     public let id: String
 
@@ -18734,7 +18618,6 @@ public struct TipDismissal: Sendable, Equatable {
         self.id = id
     }
 }
-
 public struct StoreView: View {
     public typealias Body = Never
 
@@ -18753,7 +18636,6 @@ public struct StoreView: View {
         return placeholderPanel(label: "App Store", systemImage: "bag", preferredSize: Size(width: 300, height: 400))
     }
 }
-
 public struct ProductView: View {
     public typealias Body = Never
 
@@ -18772,7 +18654,6 @@ public struct ProductView: View {
         return placeholderPanel(label: "Product", systemImage: "tag", preferredSize: Size(width: 280, height: 120))
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct ProductViewStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18786,7 +18667,6 @@ public struct ProductViewStyle: Sendable, Equatable {
     public static let compact = ProductViewStyle(kind: .compact)
     public static let large = ProductViewStyle(kind: .large)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct SubscriptionStoreViewStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18802,7 +18682,6 @@ public struct SubscriptionStoreViewStyle: Sendable, Equatable {
     public static let large = SubscriptionStoreViewStyle(kind: .large)
     public static let fullHeight = SubscriptionStoreViewStyle(kind: .fullHeight)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct SubscriptionStoreControlStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18816,13 +18695,11 @@ public struct SubscriptionStoreControlStyle: Sendable, Equatable {
     public static let compact = SubscriptionStoreControlStyle(kind: .compact)
     public static let pageSheet = SubscriptionStoreControlStyle(kind: .pageSheet)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public enum SubscriptionStoreButtonLabel: Sendable, Equatable, Hashable {
     case singleLine
     case multiline
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct StoreButton: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18838,7 +18715,6 @@ public struct StoreButton: Sendable, Equatable {
     public static let actions = StoreButton(kind: .actions)
     public static let complete = StoreButton(kind: .complete)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct SubscriptionStorePickerItemBackground: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18850,7 +18726,6 @@ public struct SubscriptionStorePickerItemBackground: Sendable, Equatable {
     public static let automatic = SubscriptionStorePickerItemBackground(kind: .automatic)
     public static let hidden = SubscriptionStorePickerItemBackground(kind: .hidden)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct StoreViewStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18864,7 +18739,6 @@ public struct StoreViewStyle: Sendable, Equatable {
     public static let compact = StoreViewStyle(kind: .compact)
     public static let large = StoreViewStyle(kind: .large)
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct InAppPurchaseButton: View {
     public typealias Body = Never
@@ -18879,7 +18753,6 @@ public struct InAppPurchaseButton: View {
         placeholderPanel(label: "Purchase", systemImage: "cart", preferredSize: Size(width: 120, height: 44))
     }
 }
-
 @available(macOS 14.0, iOS 17.0, watchOS 10.0, tvOS 17.0, *)
 public struct StoreButtonStyle: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
@@ -18896,9 +18769,6 @@ public struct StoreButtonStyle: Sendable, Equatable {
     public static let automatic = StoreButtonStyle(kind: .automatic)
     public static let prominent = StoreButtonStyle(kind: .prominent)
 }
-
-// MARK: - Placeholder Panels for Platform-Specific Views
-
 @MainActor
 private func placeholderPanel(
     label: String,

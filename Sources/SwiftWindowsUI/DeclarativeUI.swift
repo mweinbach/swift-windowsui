@@ -1,5 +1,7 @@
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsLayout
 
 @MainActor
@@ -39,7 +41,6 @@ public struct Component {
 
     public static let empty = Component { _ in ViewNode() }
 }
-
 @resultBuilder
 public enum ComponentBuilder {
     public static func buildExpression(_ component: Component) -> [Component] {
@@ -70,7 +71,6 @@ public enum ComponentBuilder {
         components
     }
 }
-
 @MainActor
 public enum UI {
     public static func group(@ComponentBuilder _ content: () -> [Component]) -> [Component] {
@@ -98,13 +98,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.panel(
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    backgroundColor: backgroundColor,
-                    backgroundGradient: backgroundGradient,
-                    text: text,
+            Controls.panel(
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
+                text: text,
                 textStyle: textStyle,
                 borderColor: borderColor,
                 borderWidth: borderWidth,
@@ -139,13 +139,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.stackPanel(
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    backgroundColor: backgroundColor,
-                    backgroundGradient: backgroundGradient,
-                    borderColor: borderColor,
+            Controls.stackPanel(
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
+                borderColor: borderColor,
                 borderWidth: borderWidth,
                 shadowColor: shadowColor,
                 shadowOffset: shadowOffset,
@@ -182,14 +182,14 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.scrollPanel(
-                    axis: axis,
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    backgroundColor: backgroundColor,
-                    borderColor: borderColor,
-                    borderWidth: borderWidth,
+            Controls.scrollPanel(
+                axis: axis,
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                backgroundColor: backgroundColor,
+                borderColor: borderColor,
+                borderWidth: borderWidth,
                 shadowColor: shadowColor,
                 shadowOffset: shadowOffset,
                 shadowSpread: shadowSpread,
@@ -263,13 +263,13 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.toolbar(
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    backgroundColor: backgroundColor,
-                    backgroundGradient: backgroundGradient,
-                    borderColor: borderColor,
+            Controls.toolbar(
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                backgroundColor: backgroundColor,
+                backgroundGradient: backgroundGradient,
+                borderColor: borderColor,
                 shadowColor: shadowColor,
                 cornerRadius: cornerRadius,
                 stackLayout: stackLayout,
@@ -308,12 +308,12 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.section(
-                    title: title,
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    backgroundColor: backgroundColor,
+            Controls.section(
+                title: title,
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                backgroundColor: backgroundColor,
                 backgroundGradient: backgroundGradient,
                 borderColor: borderColor,
                 shadowColor: shadowColor,
@@ -405,15 +405,15 @@ public enum UI {
         action: (() -> Void)? = nil
     ) -> Component {
         return Component { runtime in
-                Controls.button(
-                    runtime: runtime,
-                    title: title,
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    cornerRadius: cornerRadius,
-                    palette: palette,
-                    chrome: chrome,
+            Controls.button(
+                runtime: runtime,
+                title: title,
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                cornerRadius: cornerRadius,
+                palette: palette,
+                chrome: chrome,
                 titleColor: titleColor,
                 titleScale: titleScale,
                 titleWeight: titleWeight,
@@ -439,14 +439,14 @@ public enum UI {
     ) -> Component {
         let childComponents = content()
         return Component { runtime in
-                Controls.button(
-                    runtime: runtime,
-                    frame: frame,
-                    preferredSize: preferredSize,
-                    layoutPriority: layoutPriority,
-                    cornerRadius: cornerRadius,
-                    palette: palette,
-                    chrome: chrome,
+            Controls.button(
+                runtime: runtime,
+                frame: frame,
+                preferredSize: preferredSize,
+                layoutPriority: layoutPriority,
+                cornerRadius: cornerRadius,
+                palette: palette,
+                chrome: chrome,
                 clipsToBounds: clipsToBounds,
                 layoutMode: layoutMode,
                 animation: animation,
@@ -503,7 +503,6 @@ public enum UI {
         }
     }
 }
-
 extension Component {
     public func transform(_ transform: Transform2D) -> Component {
         Component(key: key) { runtime in

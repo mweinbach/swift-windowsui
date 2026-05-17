@@ -10,7 +10,11 @@ public struct RetainedDigitalCrownRotation: Sendable, Equatable {
     public var isContinuous: Bool
     public var isHapticFeedbackEnabled: Bool
 
-    public init(value: Double = 0, minValue: Double = 0, maxValue: Double = 1, sensitivity: DigitalCrownRotationalSensitivity = .medium, isContinuous: Bool = false, isHapticFeedbackEnabled: Bool = true) {
+    public init(
+        value: Double = 0, minValue: Double = 0, maxValue: Double = 1,
+        sensitivity: DigitalCrownRotationalSensitivity = .medium, isContinuous: Bool = false,
+        isHapticFeedbackEnabled: Bool = true
+    ) {
         self.value = value
         self.minValue = minValue
         self.maxValue = maxValue

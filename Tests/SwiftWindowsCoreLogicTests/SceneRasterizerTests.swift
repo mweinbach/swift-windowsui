@@ -1,9 +1,14 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import SwiftWindowsUI
-@testable import WinSwiftUI
+
 import Testing
+
+@testable import WinSwiftUI
 
 @MainActor
 @Suite("Raw Scene Rasterizer Tests")
@@ -24,20 +29,21 @@ struct SceneRasterizerTests {
     @Test("Rasterizer paints scene quads from paint records")
     func quadPaintRecords() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addQuad(QuadPrimitive(
-            x: 1,
-            y: 1,
-            width: 2,
-            height: 2,
-            startR: 1,
-            startG: 0,
-            startB: 0,
-            startA: 1,
-            endR: 1,
-            endG: 0,
-            endB: 0,
-            endA: 1
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 1,
+                y: 1,
+                width: 2,
+                height: 2,
+                startR: 1,
+                startG: 0,
+                startB: 0,
+                startA: 1,
+                endR: 1,
+                endG: 0,
+                endB: 0,
+                endA: 1
+            ))
 
         let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 4, height: 4))
         let redPixelOffset = (1 * 4 + 1) * 4
@@ -56,28 +62,31 @@ struct SceneRasterizerTests {
     @Test("Visual helper: red quad renders red pixels")
     func visualRedQuad() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addQuad(QuadPrimitive(
-            x: 10, y: 10, width: 20, height: 20,
-            startR: 1, startG: 0, startB: 0, startA: 1,
-            endR: 1, endG: 0, endB: 0, endA: 1
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 10, y: 10, width: 20, height: 20,
+                startR: 1, startG: 0, startB: 0, startA: 1,
+                endR: 1, endG: 0, endB: 0, endA: 1
+            ))
         let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 40, height: 40))
 
         assertPixel(bitmap, x: 15, y: 15, color: Color(red: 1, green: 0, blue: 0, alpha: 1))
         assertPixel(bitmap, x: 5, y: 5, color: Color(red: 0, green: 0, blue: 0, alpha: 1))
-        assertRegionColor(bitmap, x: 10, y: 10, width: 20, height: 20,
-                          color: Color(red: 1, green: 0, blue: 0, alpha: 1))
+        assertRegionColor(
+            bitmap, x: 10, y: 10, width: 20, height: 20,
+            color: Color(red: 1, green: 0, blue: 0, alpha: 1))
     }
 
     @Test("Visual helper: gradient quad renders blended colors")
     func visualGradientQuad() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addQuad(QuadPrimitive(
-            x: 0, y: 0, width: 40, height: 10,
-            startR: 1, startG: 0, startB: 0, startA: 1,
-            endR: 0, endG: 0, endB: 1, endA: 1,
-            gradientAxis: 1
-        ))
+        scene.addQuad(
+            QuadPrimitive(
+                x: 0, y: 0, width: 40, height: 10,
+                startR: 1, startG: 0, startB: 0, startA: 1,
+                endR: 0, endG: 0, endB: 1, endA: 1,
+                gradientAxis: 1
+            ))
         let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 40, height: 10))
 
         // Verify gradient direction: left is red-dominant, right is blue-dominant, center is mixed
@@ -93,17 +102,18 @@ struct SceneRasterizerTests {
     @Test("Rasterizer fills triangle path primitive")
     func trianglePathFill() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addPath(PathPrimitive(
-            elements: [
-                .moveTo(Point(x: 10, y: 10)),
-                .lineTo(Point(x: 30, y: 10)),
-                .lineTo(Point(x: 20, y: 30)),
-                .close,
-            ],
-            bounds: Rect(x: 10, y: 10, width: 20, height: 20),
-            fillColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
-            clipBounds: nil
-        ), toLayer: 0)
+        scene.addPath(
+            PathPrimitive(
+                elements: [
+                    .moveTo(Point(x: 10, y: 10)),
+                    .lineTo(Point(x: 30, y: 10)),
+                    .lineTo(Point(x: 20, y: 30)),
+                    .close,
+                ],
+                bounds: Rect(x: 10, y: 10, width: 20, height: 20),
+                fillColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
+                clipBounds: nil
+            ), toLayer: 0)
 
         let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 40, height: 40))
         assertPixel(bitmap, x: 20, y: 20, color: Color(red: 0, green: 1, blue: 0, alpha: 1))
@@ -113,16 +123,17 @@ struct SceneRasterizerTests {
     @Test("Rasterizer strokes line path primitive")
     func linePathStroke() {
         var scene = GPUIScene(clearColor: .black)
-        scene.addPath(PathPrimitive(
-            elements: [
-                .moveTo(Point(x: 10, y: 20)),
-                .lineTo(Point(x: 30, y: 20)),
-            ],
-            bounds: Rect(x: 10, y: 19, width: 20, height: 2),
-            strokeColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
-            lineWidth: 2,
-            clipBounds: nil
-        ), toLayer: 0)
+        scene.addPath(
+            PathPrimitive(
+                elements: [
+                    .moveTo(Point(x: 10, y: 20)),
+                    .lineTo(Point(x: 30, y: 20)),
+                ],
+                bounds: Rect(x: 10, y: 19, width: 20, height: 2),
+                strokeColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+                lineWidth: 2,
+                clipBounds: nil
+            ), toLayer: 0)
 
         let bitmap = GPUIRawSceneRasterizer.rasterize(scene, size: IntSize(width: 40, height: 40))
         assertPixel(bitmap, x: 20, y: 20, color: Color(red: 1, green: 0, blue: 0, alpha: 1))

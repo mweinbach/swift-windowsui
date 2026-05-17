@@ -1,5 +1,7 @@
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsPlatform
 
 @MainActor
@@ -328,7 +330,9 @@ public final class ComponentHost {
             }
         }
         if target.backgroundColor != source.backgroundColor { target.backgroundColor = source.backgroundColor }
-        if target.backgroundGradient != source.backgroundGradient { target.backgroundGradient = source.backgroundGradient }
+        if target.backgroundGradient != source.backgroundGradient {
+            target.backgroundGradient = source.backgroundGradient
+        }
         if target.bitmapSurface != source.bitmapSurface { target.bitmapSurface = source.bitmapSurface }
         target.canvasDraw = source.canvasDraw
         if target.text != source.text { target.text = source.text }
@@ -350,13 +354,21 @@ public final class ComponentHost {
         if target.layoutConstraints != source.layoutConstraints { target.layoutConstraints = source.layoutConstraints }
         if target.fixedSizeAxes != source.fixedSizeAxes { target.fixedSizeAxes = source.fixedSizeAxes }
         if target.layoutPriority != source.layoutPriority { target.layoutPriority = source.layoutPriority }
-        if target.spatialCompressionResistance != source.spatialCompressionResistance { target.spatialCompressionResistance = source.spatialCompressionResistance }
-        if target.spatialExpansionResistance != source.spatialExpansionResistance { target.spatialExpansionResistance = source.spatialExpansionResistance }
+        if target.spatialCompressionResistance != source.spatialCompressionResistance {
+            target.spatialCompressionResistance = source.spatialCompressionResistance
+        }
+        if target.spatialExpansionResistance != source.spatialExpansionResistance {
+            target.spatialExpansionResistance = source.spatialExpansionResistance
+        }
         if target.alignmentGuides != source.alignmentGuides { target.alignmentGuides = source.alignmentGuides }
         if target.gridCellAnchor != source.gridCellAnchor { target.gridCellAnchor = source.gridCellAnchor }
-        if target.gridCellUnsizedAxes != source.gridCellUnsizedAxes { target.gridCellUnsizedAxes = source.gridCellUnsizedAxes }
+        if target.gridCellUnsizedAxes != source.gridCellUnsizedAxes {
+            target.gridCellUnsizedAxes = source.gridCellUnsizedAxes
+        }
         if target.gridCellColumns != source.gridCellColumns { target.gridCellColumns = source.gridCellColumns }
-        if target.gridColumnAlignment != source.gridColumnAlignment { target.gridColumnAlignment = source.gridColumnAlignment }
+        if target.gridColumnAlignment != source.gridColumnAlignment {
+            target.gridColumnAlignment = source.gridColumnAlignment
+        }
         if target.blurRadius != source.blurRadius { target.blurRadius = source.blurRadius }
         if target.blurOpaque != source.blurOpaque { target.blurOpaque = source.blurOpaque }
         if target.geometryEffect != source.geometryEffect { target.geometryEffect = source.geometryEffect }
@@ -377,27 +389,49 @@ public final class ComponentHost {
             }
         }
         if target.blendMode != source.blendMode { target.blendMode = source.blendMode }
-        if target.isCompositingGroup != source.isCompositingGroup { target.isCompositingGroup = source.isCompositingGroup }
+        if target.isCompositingGroup != source.isCompositingGroup {
+            target.isCompositingGroup = source.isCompositingGroup
+        }
         if target.drawingGroup != source.drawingGroup { target.drawingGroup = source.drawingGroup }
         if target.colorEffects != source.colorEffects { target.colorEffects = source.colorEffects }
         if target.visualEffects != source.visualEffects { target.visualEffects = source.visualEffects }
         if target.viewMask != source.viewMask { target.viewMask = source.viewMask }
         if target.listRowSeparator != source.listRowSeparator { target.listRowSeparator = source.listRowSeparator }
-        if target.listRowSeparatorTint != source.listRowSeparatorTint { target.listRowSeparatorTint = source.listRowSeparatorTint }
-        if target.listSectionSeparator != source.listSectionSeparator { target.listSectionSeparator = source.listSectionSeparator }
-        if target.listSectionSeparatorTint != source.listSectionSeparatorTint { target.listSectionSeparatorTint = source.listSectionSeparatorTint }
-        if target.alternatingRowBackgrounds != source.alternatingRowBackgrounds { target.alternatingRowBackgrounds = source.alternatingRowBackgrounds }
+        if target.listRowSeparatorTint != source.listRowSeparatorTint {
+            target.listRowSeparatorTint = source.listRowSeparatorTint
+        }
+        if target.listSectionSeparator != source.listSectionSeparator {
+            target.listSectionSeparator = source.listSectionSeparator
+        }
+        if target.listSectionSeparatorTint != source.listSectionSeparatorTint {
+            target.listSectionSeparatorTint = source.listSectionSeparatorTint
+        }
+        if target.alternatingRowBackgrounds != source.alternatingRowBackgrounds {
+            target.alternatingRowBackgrounds = source.alternatingRowBackgrounds
+        }
         if target.listRowHoverStyle != source.listRowHoverStyle { target.listRowHoverStyle = source.listRowHoverStyle }
         if target.listItemTint != source.listItemTint { target.listItemTint = source.listItemTint }
-        if target.listRowPlatterColor != source.listRowPlatterColor { target.listRowPlatterColor = source.listRowPlatterColor }
-        if target.navigationSplitViewColumnWidth != source.navigationSplitViewColumnWidth { target.navigationSplitViewColumnWidth = source.navigationSplitViewColumnWidth }
-        if target.preferredCompactColumn != source.preferredCompactColumn { target.preferredCompactColumn = source.preferredCompactColumn }
+        if target.listRowPlatterColor != source.listRowPlatterColor {
+            target.listRowPlatterColor = source.listRowPlatterColor
+        }
+        if target.navigationSplitViewColumnWidth != source.navigationSplitViewColumnWidth {
+            target.navigationSplitViewColumnWidth = source.navigationSplitViewColumnWidth
+        }
+        if target.preferredCompactColumn != source.preferredCompactColumn {
+            target.preferredCompactColumn = source.preferredCompactColumn
+        }
         if target.selectionDisabled != source.selectionDisabled { target.selectionDisabled = source.selectionDisabled }
-        if target.selectionDisabledOverride != source.selectionDisabledOverride { target.selectionDisabledOverride = source.selectionDisabledOverride }
+        if target.selectionDisabledOverride != source.selectionDisabledOverride {
+            target.selectionDisabledOverride = source.selectionDisabledOverride
+        }
         if target.deleteDisabled != source.deleteDisabled { target.deleteDisabled = source.deleteDisabled }
-        if target.deleteDisabledOverride != source.deleteDisabledOverride { target.deleteDisabledOverride = source.deleteDisabledOverride }
+        if target.deleteDisabledOverride != source.deleteDisabledOverride {
+            target.deleteDisabledOverride = source.deleteDisabledOverride
+        }
         if target.moveDisabled != source.moveDisabled { target.moveDisabled = source.moveDisabled }
-        if target.moveDisabledOverride != source.moveDisabledOverride { target.moveDisabledOverride = source.moveDisabledOverride }
+        if target.moveDisabledOverride != source.moveDisabledOverride {
+            target.moveDisabledOverride = source.moveDisabledOverride
+        }
         target.onDeleteAction = source.onDeleteAction
         target.onMoveAction = source.onMoveAction
         if target.editActions != source.editActions { target.editActions = source.editActions }
@@ -409,40 +443,94 @@ public final class ComponentHost {
         target.fileImporterConfiguration = source.fileImporterConfiguration
         target.fileImporterMultiConfiguration = source.fileImporterMultiConfiguration
         target.fileMoverConfiguration = source.fileMoverConfiguration
-        if target.inspectorColumnWidth != source.inspectorColumnWidth { target.inspectorColumnWidth = source.inspectorColumnWidth }
-        if target.inspectorColumnWidthFraction != source.inspectorColumnWidthFraction { target.inspectorColumnWidthFraction = source.inspectorColumnWidthFraction }
-        if target.inspectorColumnWidthMin != source.inspectorColumnWidthMin { target.inspectorColumnWidthMin = source.inspectorColumnWidthMin }
-        if target.inspectorPresentationStyle != source.inspectorPresentationStyle { target.inspectorPresentationStyle = source.inspectorPresentationStyle }
-        if target.fileDialogCustomizationID != source.fileDialogCustomizationID { target.fileDialogCustomizationID = source.fileDialogCustomizationID }
-        if target.fileDialogConfirmationLabel != source.fileDialogConfirmationLabel { target.fileDialogConfirmationLabel = source.fileDialogConfirmationLabel }
-        if target.fileDialogDefaultDirectory != source.fileDialogDefaultDirectory { target.fileDialogDefaultDirectory = source.fileDialogDefaultDirectory }
+        if target.inspectorColumnWidth != source.inspectorColumnWidth {
+            target.inspectorColumnWidth = source.inspectorColumnWidth
+        }
+        if target.inspectorColumnWidthFraction != source.inspectorColumnWidthFraction {
+            target.inspectorColumnWidthFraction = source.inspectorColumnWidthFraction
+        }
+        if target.inspectorColumnWidthMin != source.inspectorColumnWidthMin {
+            target.inspectorColumnWidthMin = source.inspectorColumnWidthMin
+        }
+        if target.inspectorPresentationStyle != source.inspectorPresentationStyle {
+            target.inspectorPresentationStyle = source.inspectorPresentationStyle
+        }
+        if target.fileDialogCustomizationID != source.fileDialogCustomizationID {
+            target.fileDialogCustomizationID = source.fileDialogCustomizationID
+        }
+        if target.fileDialogConfirmationLabel != source.fileDialogConfirmationLabel {
+            target.fileDialogConfirmationLabel = source.fileDialogConfirmationLabel
+        }
+        if target.fileDialogDefaultDirectory != source.fileDialogDefaultDirectory {
+            target.fileDialogDefaultDirectory = source.fileDialogDefaultDirectory
+        }
         if target.fileDialogMessage != source.fileDialogMessage { target.fileDialogMessage = source.fileDialogMessage }
-        if target.dynamicContentIndex != source.dynamicContentIndex { target.dynamicContentIndex = source.dynamicContentIndex }
-        if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes { target.dynamicInsertContentTypes = source.dynamicInsertContentTypes }
-        if target.dynamicDropPayloadType != source.dynamicDropPayloadType { target.dynamicDropPayloadType = source.dynamicDropPayloadType }
-        if target.dropAcceptedContentTypes != source.dropAcceptedContentTypes { target.dropAcceptedContentTypes = source.dropAcceptedContentTypes }
+        if target.dynamicContentIndex != source.dynamicContentIndex {
+            target.dynamicContentIndex = source.dynamicContentIndex
+        }
+        if target.dynamicInsertContentTypes != source.dynamicInsertContentTypes {
+            target.dynamicInsertContentTypes = source.dynamicInsertContentTypes
+        }
+        if target.dynamicDropPayloadType != source.dynamicDropPayloadType {
+            target.dynamicDropPayloadType = source.dynamicDropPayloadType
+        }
+        if target.dropAcceptedContentTypes != source.dropAcceptedContentTypes {
+            target.dropAcceptedContentTypes = source.dropAcceptedContentTypes
+        }
         if target.dropPayloadType != source.dropPayloadType { target.dropPayloadType = source.dropPayloadType }
-        if target.isDropDestinationEnabled != source.isDropDestinationEnabled { target.isDropDestinationEnabled = source.isDropDestinationEnabled }
-        if target.hasDropConfiguration != source.hasDropConfiguration { target.hasDropConfiguration = source.hasDropConfiguration }
-        if target.dragDropPreviewsFormation != source.dragDropPreviewsFormation { target.dragDropPreviewsFormation = source.dragDropPreviewsFormation }
-        if target.springLoadingBehavior != source.springLoadingBehavior { target.springLoadingBehavior = source.springLoadingBehavior }
+        if target.isDropDestinationEnabled != source.isDropDestinationEnabled {
+            target.isDropDestinationEnabled = source.isDropDestinationEnabled
+        }
+        if target.hasDropConfiguration != source.hasDropConfiguration {
+            target.hasDropConfiguration = source.hasDropConfiguration
+        }
+        if target.dragDropPreviewsFormation != source.dragDropPreviewsFormation {
+            target.dragDropPreviewsFormation = source.dragDropPreviewsFormation
+        }
+        if target.springLoadingBehavior != source.springLoadingBehavior {
+            target.springLoadingBehavior = source.springLoadingBehavior
+        }
         if target.dragPayloadType != source.dragPayloadType { target.dragPayloadType = source.dragPayloadType }
-        if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers { target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers }
-        if target.dragContainerItemID != source.dragContainerItemID { target.dragContainerItemID = source.dragContainerItemID }
-        if target.dragContainerNamespaceID != source.dragContainerNamespaceID { target.dragContainerNamespaceID = source.dragContainerNamespaceID }
+        if target.dragItemProviderTypeIdentifiers != source.dragItemProviderTypeIdentifiers {
+            target.dragItemProviderTypeIdentifiers = source.dragItemProviderTypeIdentifiers
+        }
+        if target.dragContainerItemID != source.dragContainerItemID {
+            target.dragContainerItemID = source.dragContainerItemID
+        }
+        if target.dragContainerNamespaceID != source.dragContainerNamespaceID {
+            target.dragContainerNamespaceID = source.dragContainerNamespaceID
+        }
         if target.hasDragPreview != source.hasDragPreview { target.hasDragPreview = source.hasDragPreview }
-        if target.horizontalScrollBounceBehavior != source.horizontalScrollBounceBehavior { target.horizontalScrollBounceBehavior = source.horizontalScrollBounceBehavior }
-        if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior { target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior }
-        if target.scrollTargetBehavior != source.scrollTargetBehavior { target.scrollTargetBehavior = source.scrollTargetBehavior }
-        if target.isScrollTargetLayout != source.isScrollTargetLayout { target.isScrollTargetLayout = source.isScrollTargetLayout }
-        if target.scrollInputBehaviors != source.scrollInputBehaviors { target.scrollInputBehaviors = source.scrollInputBehaviors }
-        if target.scrollIndicatorsFlashOnAppear != source.scrollIndicatorsFlashOnAppear { target.scrollIndicatorsFlashOnAppear = source.scrollIndicatorsFlashOnAppear }
-        if target.scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger { target.scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger }
+        if target.horizontalScrollBounceBehavior != source.horizontalScrollBounceBehavior {
+            target.horizontalScrollBounceBehavior = source.horizontalScrollBounceBehavior
+        }
+        if target.verticalScrollBounceBehavior != source.verticalScrollBounceBehavior {
+            target.verticalScrollBounceBehavior = source.verticalScrollBounceBehavior
+        }
+        if target.scrollTargetBehavior != source.scrollTargetBehavior {
+            target.scrollTargetBehavior = source.scrollTargetBehavior
+        }
+        if target.isScrollTargetLayout != source.isScrollTargetLayout {
+            target.isScrollTargetLayout = source.isScrollTargetLayout
+        }
+        if target.scrollInputBehaviors != source.scrollInputBehaviors {
+            target.scrollInputBehaviors = source.scrollInputBehaviors
+        }
+        if target.scrollIndicatorsFlashOnAppear != source.scrollIndicatorsFlashOnAppear {
+            target.scrollIndicatorsFlashOnAppear = source.scrollIndicatorsFlashOnAppear
+        }
+        if target.scrollIndicatorsFlashTrigger != source.scrollIndicatorsFlashTrigger {
+            target.scrollIndicatorsFlashTrigger = source.scrollIndicatorsFlashTrigger
+        }
         if target.scrollTransition != source.scrollTransition { target.scrollTransition = source.scrollTransition }
         if target.scrollPosition != source.scrollPosition { target.scrollPosition = source.scrollPosition }
-        if target.scrollObservations != source.scrollObservations { target.scrollObservations = source.scrollObservations }
+        if target.scrollObservations != source.scrollObservations {
+            target.scrollObservations = source.scrollObservations
+        }
         if target.scrollReaderID != source.scrollReaderID { target.scrollReaderID = source.scrollReaderID }
-        if target.scrollProxyRequests != source.scrollProxyRequests { target.scrollProxyRequests = source.scrollProxyRequests }
+        if target.scrollProxyRequests != source.scrollProxyRequests {
+            target.scrollProxyRequests = source.scrollProxyRequests
+        }
         if target.zIndex != source.zIndex { target.zIndex = source.zIndex }
         if target.position != source.position { target.position = source.position }
         if target.transform != source.transform {
@@ -555,113 +643,271 @@ public final class ComponentHost {
         if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
         if target.scrollOffset != source.scrollOffset { target.scrollOffset = source.scrollOffset }
         if target.scrollStep != source.scrollStep { target.scrollStep = source.scrollStep }
-        if target.showsScrollIndicator != source.showsScrollIndicator { target.showsScrollIndicator = source.showsScrollIndicator }
-        if target.scrollIndicatorColor != source.scrollIndicatorColor { target.scrollIndicatorColor = source.scrollIndicatorColor }
-        if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor { target.scrollIndicatorIdleColor = source.scrollIndicatorIdleColor }
-        if target.scrollIndicatorHoverColor != source.scrollIndicatorHoverColor { target.scrollIndicatorHoverColor = source.scrollIndicatorHoverColor }
-        if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor { target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor }
-        if target.scrollIndicatorThickness != source.scrollIndicatorThickness { target.scrollIndicatorThickness = source.scrollIndicatorThickness }
-        if target.scrollIndicatorInsets != source.scrollIndicatorInsets { target.scrollIndicatorInsets = source.scrollIndicatorInsets }
-        if target.initialScrollAnchor != source.initialScrollAnchor { target.initialScrollAnchor = source.initialScrollAnchor }
-        if target.scrollSizeChangeAnchor != source.scrollSizeChangeAnchor { target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor }
+        if target.showsScrollIndicator != source.showsScrollIndicator {
+            target.showsScrollIndicator = source.showsScrollIndicator
+        }
+        if target.scrollIndicatorColor != source.scrollIndicatorColor {
+            target.scrollIndicatorColor = source.scrollIndicatorColor
+        }
+        if target.scrollIndicatorIdleColor != source.scrollIndicatorIdleColor {
+            target.scrollIndicatorIdleColor = source.scrollIndicatorIdleColor
+        }
+        if target.scrollIndicatorHoverColor != source.scrollIndicatorHoverColor {
+            target.scrollIndicatorHoverColor = source.scrollIndicatorHoverColor
+        }
+        if target.scrollIndicatorActiveColor != source.scrollIndicatorActiveColor {
+            target.scrollIndicatorActiveColor = source.scrollIndicatorActiveColor
+        }
+        if target.scrollIndicatorThickness != source.scrollIndicatorThickness {
+            target.scrollIndicatorThickness = source.scrollIndicatorThickness
+        }
+        if target.scrollIndicatorInsets != source.scrollIndicatorInsets {
+            target.scrollIndicatorInsets = source.scrollIndicatorInsets
+        }
+        if target.initialScrollAnchor != source.initialScrollAnchor {
+            target.initialScrollAnchor = source.initialScrollAnchor
+        }
+        if target.scrollSizeChangeAnchor != source.scrollSizeChangeAnchor {
+            target.scrollSizeChangeAnchor = source.scrollSizeChangeAnchor
+        }
         if target.isFocusable != source.isFocusable { target.isFocusable = source.isFocusable }
         if target.isHitTestVisible != source.isHitTestVisible { target.isHitTestVisible = source.isHitTestVisible }
-        if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations { target.allowsAutomaticWindowDecorations = source.allowsAutomaticWindowDecorations }
+        if target.allowsAutomaticWindowDecorations != source.allowsAutomaticWindowDecorations {
+            target.allowsAutomaticWindowDecorations = source.allowsAutomaticWindowDecorations
+        }
         if target.isHidden != source.isHidden { target.isHidden = source.isHidden }
-        if target.accessibilityLabel != source.accessibilityLabel { target.accessibilityLabel = source.accessibilityLabel }
-        if target.accessibilityDescription != source.accessibilityDescription { target.accessibilityDescription = source.accessibilityDescription }
-        if target.accessibilityValue != source.accessibilityValue { target.accessibilityValue = source.accessibilityValue }
+        if target.accessibilityLabel != source.accessibilityLabel {
+            target.accessibilityLabel = source.accessibilityLabel
+        }
+        if target.accessibilityDescription != source.accessibilityDescription {
+            target.accessibilityDescription = source.accessibilityDescription
+        }
+        if target.accessibilityValue != source.accessibilityValue {
+            target.accessibilityValue = source.accessibilityValue
+        }
         if target.accessibilityHint != source.accessibilityHint { target.accessibilityHint = source.accessibilityHint }
-        if target.accessibilityIdentifier != source.accessibilityIdentifier { target.accessibilityIdentifier = source.accessibilityIdentifier }
-        if target.accessibilityLanguage != source.accessibilityLanguage { target.accessibilityLanguage = source.accessibilityLanguage }
-        if target.accessibilityTextualContext != source.accessibilityTextualContext { target.accessibilityTextualContext = source.accessibilityTextualContext }
-        if target.accessibilityHeadingLevel != source.accessibilityHeadingLevel { target.accessibilityHeadingLevel = source.accessibilityHeadingLevel }
+        if target.accessibilityIdentifier != source.accessibilityIdentifier {
+            target.accessibilityIdentifier = source.accessibilityIdentifier
+        }
+        if target.accessibilityLanguage != source.accessibilityLanguage {
+            target.accessibilityLanguage = source.accessibilityLanguage
+        }
+        if target.accessibilityTextualContext != source.accessibilityTextualContext {
+            target.accessibilityTextualContext = source.accessibilityTextualContext
+        }
+        if target.accessibilityHeadingLevel != source.accessibilityHeadingLevel {
+            target.accessibilityHeadingLevel = source.accessibilityHeadingLevel
+        }
         if target.tooltip != source.tooltip { target.tooltip = source.tooltip }
-        if target.accessibilityTraits != source.accessibilityTraits { target.accessibilityTraits = source.accessibilityTraits }
-        if target.accessibilityChildBehavior != source.accessibilityChildBehavior { target.accessibilityChildBehavior = source.accessibilityChildBehavior }
-        if target.accessibilitySortPriority != source.accessibilitySortPriority { target.accessibilitySortPriority = source.accessibilitySortPriority }
+        if target.accessibilityTraits != source.accessibilityTraits {
+            target.accessibilityTraits = source.accessibilityTraits
+        }
+        if target.accessibilityChildBehavior != source.accessibilityChildBehavior {
+            target.accessibilityChildBehavior = source.accessibilityChildBehavior
+        }
+        if target.accessibilitySortPriority != source.accessibilitySortPriority {
+            target.accessibilitySortPriority = source.accessibilitySortPriority
+        }
         target.accessibilityActions = source.accessibilityActions
-        if target.accessibilityInputLabels != source.accessibilityInputLabels { target.accessibilityInputLabels = source.accessibilityInputLabels }
-        if target.isAccessibilityHidden != source.isAccessibilityHidden { target.isAccessibilityHidden = source.isAccessibilityHidden }
-        if target.accessibilityIgnoresInvertColors != source.accessibilityIgnoresInvertColors { target.accessibilityIgnoresInvertColors = source.accessibilityIgnoresInvertColors }
-        if target.accessibilityRespondsToUserInteraction != source.accessibilityRespondsToUserInteraction { target.accessibilityRespondsToUserInteraction = source.accessibilityRespondsToUserInteraction }
-        if target.accessibilityPrefersSliderBehavior != source.accessibilityPrefersSliderBehavior { target.accessibilityPrefersSliderBehavior = source.accessibilityPrefersSliderBehavior }
-        if target.accessibilityRequiresActivationPoint != source.accessibilityRequiresActivationPoint { target.accessibilityRequiresActivationPoint = source.accessibilityRequiresActivationPoint }
-        if target.accessibilityDirectTouchOptions != source.accessibilityDirectTouchOptions { target.accessibilityDirectTouchOptions = source.accessibilityDirectTouchOptions }
-        if target.accessibilityPrefersCrossFadeTransitions != source.accessibilityPrefersCrossFadeTransitions { target.accessibilityPrefersCrossFadeTransitions = source.accessibilityPrefersCrossFadeTransitions }
-        if target.accessibilityShowLargeContentViewer != source.accessibilityShowLargeContentViewer { target.accessibilityShowLargeContentViewer = source.accessibilityShowLargeContentViewer }
-        if target.symbolVariableValue != source.symbolVariableValue { target.symbolVariableValue = source.symbolVariableValue }
-        if target.symbolRenderingMode != source.symbolRenderingMode { target.symbolRenderingMode = source.symbolRenderingMode }
+        if target.accessibilityInputLabels != source.accessibilityInputLabels {
+            target.accessibilityInputLabels = source.accessibilityInputLabels
+        }
+        if target.isAccessibilityHidden != source.isAccessibilityHidden {
+            target.isAccessibilityHidden = source.isAccessibilityHidden
+        }
+        if target.accessibilityIgnoresInvertColors != source.accessibilityIgnoresInvertColors {
+            target.accessibilityIgnoresInvertColors = source.accessibilityIgnoresInvertColors
+        }
+        if target.accessibilityRespondsToUserInteraction != source.accessibilityRespondsToUserInteraction {
+            target.accessibilityRespondsToUserInteraction = source.accessibilityRespondsToUserInteraction
+        }
+        if target.accessibilityPrefersSliderBehavior != source.accessibilityPrefersSliderBehavior {
+            target.accessibilityPrefersSliderBehavior = source.accessibilityPrefersSliderBehavior
+        }
+        if target.accessibilityRequiresActivationPoint != source.accessibilityRequiresActivationPoint {
+            target.accessibilityRequiresActivationPoint = source.accessibilityRequiresActivationPoint
+        }
+        if target.accessibilityDirectTouchOptions != source.accessibilityDirectTouchOptions {
+            target.accessibilityDirectTouchOptions = source.accessibilityDirectTouchOptions
+        }
+        if target.accessibilityPrefersCrossFadeTransitions != source.accessibilityPrefersCrossFadeTransitions {
+            target.accessibilityPrefersCrossFadeTransitions = source.accessibilityPrefersCrossFadeTransitions
+        }
+        if target.accessibilityShowLargeContentViewer != source.accessibilityShowLargeContentViewer {
+            target.accessibilityShowLargeContentViewer = source.accessibilityShowLargeContentViewer
+        }
+        if target.symbolVariableValue != source.symbolVariableValue {
+            target.symbolVariableValue = source.symbolVariableValue
+        }
+        if target.symbolRenderingMode != source.symbolRenderingMode {
+            target.symbolRenderingMode = source.symbolRenderingMode
+        }
         if target.symbolVariants != source.symbolVariants { target.symbolVariants = source.symbolVariants }
         if target.imageResizingMode != source.imageResizingMode { target.imageResizingMode = source.imageResizingMode }
         if target.imageCapInsets != source.imageCapInsets { target.imageCapInsets = source.imageCapInsets }
-        if target.imageRenderingMode != source.imageRenderingMode { target.imageRenderingMode = source.imageRenderingMode }
-        if target.imageInterpolation != source.imageInterpolation { target.imageInterpolation = source.imageInterpolation }
+        if target.imageRenderingMode != source.imageRenderingMode {
+            target.imageRenderingMode = source.imageRenderingMode
+        }
+        if target.imageInterpolation != source.imageInterpolation {
+            target.imageInterpolation = source.imageInterpolation
+        }
         if target.imageAntialiased != source.imageAntialiased { target.imageAntialiased = source.imageAntialiased }
         if target.keyboardShortcuts != source.keyboardShortcuts { target.keyboardShortcuts = source.keyboardShortcuts }
-        if target.textInputSubmitLabel != source.textInputSubmitLabel { target.textInputSubmitLabel = source.textInputSubmitLabel }
-        if target.textInputCaretOffset != source.textInputCaretOffset { target.textInputCaretOffset = source.textInputCaretOffset }
+        if target.textInputSubmitLabel != source.textInputSubmitLabel {
+            target.textInputSubmitLabel = source.textInputSubmitLabel
+        }
+        if target.textInputCaretOffset != source.textInputCaretOffset {
+            target.textInputCaretOffset = source.textInputCaretOffset
+        }
         if target.textSelectability != source.textSelectability { target.textSelectability = source.textSelectability }
-        if target.textSelectionAffinity != source.textSelectionAffinity { target.textSelectionAffinity = source.textSelectionAffinity }
-        if target.textInputSelection != source.textInputSelection { target.textInputSelection = source.textInputSelection }
+        if target.textSelectionAffinity != source.textSelectionAffinity {
+            target.textSelectionAffinity = source.textSelectionAffinity
+        }
+        if target.textInputSelection != source.textInputSelection {
+            target.textInputSelection = source.textInputSelection
+        }
         if target.textContentType != source.textContentType { target.textContentType = source.textContentType }
-        if target.textInputKeyboardType != source.textInputKeyboardType { target.textInputKeyboardType = source.textInputKeyboardType }
-        if target.textInputCompletion != source.textInputCompletion { target.textInputCompletion = source.textInputCompletion }
-        if target.textInputSuggestions != source.textInputSuggestions { target.textInputSuggestions = source.textInputSuggestions }
-        if target.writingToolsBehavior != source.writingToolsBehavior { target.writingToolsBehavior = source.writingToolsBehavior }
-        if target.writingToolsAffordanceVisibility != source.writingToolsAffordanceVisibility { target.writingToolsAffordanceVisibility = source.writingToolsAffordanceVisibility }
-        if target.textInputDictationBehavior != source.textInputDictationBehavior { target.textInputDictationBehavior = source.textInputDictationBehavior }
+        if target.textInputKeyboardType != source.textInputKeyboardType {
+            target.textInputKeyboardType = source.textInputKeyboardType
+        }
+        if target.textInputCompletion != source.textInputCompletion {
+            target.textInputCompletion = source.textInputCompletion
+        }
+        if target.textInputSuggestions != source.textInputSuggestions {
+            target.textInputSuggestions = source.textInputSuggestions
+        }
+        if target.writingToolsBehavior != source.writingToolsBehavior {
+            target.writingToolsBehavior = source.writingToolsBehavior
+        }
+        if target.writingToolsAffordanceVisibility != source.writingToolsAffordanceVisibility {
+            target.writingToolsAffordanceVisibility = source.writingToolsAffordanceVisibility
+        }
+        if target.textInputDictationBehavior != source.textInputDictationBehavior {
+            target.textInputDictationBehavior = source.textInputDictationBehavior
+        }
         if target.isFindDisabled != source.isFindDisabled { target.isFindDisabled = source.isFindDisabled }
         if target.isReplaceDisabled != source.isReplaceDisabled { target.isReplaceDisabled = source.isReplaceDisabled }
-        if target.isFindNavigatorPresented != source.isFindNavigatorPresented { target.isFindNavigatorPresented = source.isFindNavigatorPresented }
-        if target.isSubmitScopeBoundary != source.isSubmitScopeBoundary { target.isSubmitScopeBoundary = source.isSubmitScopeBoundary }
-        if target.submitScopeTriggersRawValue != source.submitScopeTriggersRawValue { target.submitScopeTriggersRawValue = source.submitScopeTriggersRawValue }
+        if target.isFindNavigatorPresented != source.isFindNavigatorPresented {
+            target.isFindNavigatorPresented = source.isFindNavigatorPresented
+        }
+        if target.isSubmitScopeBoundary != source.isSubmitScopeBoundary {
+            target.isSubmitScopeBoundary = source.isSubmitScopeBoundary
+        }
+        if target.submitScopeTriggersRawValue != source.submitScopeTriggersRawValue {
+            target.submitScopeTriggersRawValue = source.submitScopeTriggersRawValue
+        }
         if target.isFocusSection != source.isFocusSection { target.isFocusSection = source.isFocusSection }
-        if target.prefersDefaultFocus != source.prefersDefaultFocus { target.prefersDefaultFocus = source.prefersDefaultFocus }
+        if target.prefersDefaultFocus != source.prefersDefaultFocus {
+            target.prefersDefaultFocus = source.prefersDefaultFocus
+        }
         if target.focusNamespace != source.focusNamespace { target.focusNamespace = source.focusNamespace }
         if target.isGeometryGroup != source.isGeometryGroup { target.isGeometryGroup = source.isGeometryGroup }
         if target.hoverEffect != source.hoverEffect { target.hoverEffect = source.hoverEffect }
-        if target.isHoverEffectDisabled != source.isHoverEffectDisabled { target.isHoverEffectDisabled = source.isHoverEffectDisabled }
-        if target.isFocusEffectDisabled != source.isFocusEffectDisabled { target.isFocusEffectDisabled = source.isFocusEffectDisabled }
-        if target.isFocusDestination != source.isFocusDestination { target.isFocusDestination = source.isFocusDestination }
+        if target.isHoverEffectDisabled != source.isHoverEffectDisabled {
+            target.isHoverEffectDisabled = source.isHoverEffectDisabled
+        }
+        if target.isFocusEffectDisabled != source.isFocusEffectDisabled {
+            target.isFocusEffectDisabled = source.isFocusEffectDisabled
+        }
+        if target.isFocusDestination != source.isFocusDestination {
+            target.isFocusDestination = source.isFocusDestination
+        }
         if target.isFocusActive != source.isFocusActive { target.isFocusActive = source.isFocusActive }
         if target.isFocusEnabled != source.isFocusEnabled { target.isFocusEnabled = source.isFocusEnabled }
         if target.pointerStyle != source.pointerStyle { target.pointerStyle = source.pointerStyle }
         if target.pointerVisibility != source.pointerVisibility { target.pointerVisibility = source.pointerVisibility }
-        if target.digitalCrownRotation != source.digitalCrownRotation { target.digitalCrownRotation = source.digitalCrownRotation }
-        if target.windowDragInteraction != source.windowDragInteraction { target.windowDragInteraction = source.windowDragInteraction }
-        if target.windowResizeInteraction != source.windowResizeInteraction { target.windowResizeInteraction = source.windowResizeInteraction }
-        if target.windowDismissBehavior != source.windowDismissBehavior { target.windowDismissBehavior = source.windowDismissBehavior }
-        if target.windowFullScreenBehavior != source.windowFullScreenBehavior { target.windowFullScreenBehavior = source.windowFullScreenBehavior }
-        if target.windowMinimizeBehavior != source.windowMinimizeBehavior { target.windowMinimizeBehavior = source.windowMinimizeBehavior }
-        if target.windowResizeBehavior != source.windowResizeBehavior { target.windowResizeBehavior = source.windowResizeBehavior }
-        if target.windowCornerRadius != source.windowCornerRadius { target.windowCornerRadius = source.windowCornerRadius }
+        if target.digitalCrownRotation != source.digitalCrownRotation {
+            target.digitalCrownRotation = source.digitalCrownRotation
+        }
+        if target.windowDragInteraction != source.windowDragInteraction {
+            target.windowDragInteraction = source.windowDragInteraction
+        }
+        if target.windowResizeInteraction != source.windowResizeInteraction {
+            target.windowResizeInteraction = source.windowResizeInteraction
+        }
+        if target.windowDismissBehavior != source.windowDismissBehavior {
+            target.windowDismissBehavior = source.windowDismissBehavior
+        }
+        if target.windowFullScreenBehavior != source.windowFullScreenBehavior {
+            target.windowFullScreenBehavior = source.windowFullScreenBehavior
+        }
+        if target.windowMinimizeBehavior != source.windowMinimizeBehavior {
+            target.windowMinimizeBehavior = source.windowMinimizeBehavior
+        }
+        if target.windowResizeBehavior != source.windowResizeBehavior {
+            target.windowResizeBehavior = source.windowResizeBehavior
+        }
+        if target.windowCornerRadius != source.windowCornerRadius {
+            target.windowCornerRadius = source.windowCornerRadius
+        }
         if target.contentShapes != source.contentShapes { target.contentShapes = source.contentShapes }
-        if target.buttonRepeatBehavior != source.buttonRepeatBehavior { target.buttonRepeatBehavior = source.buttonRepeatBehavior }
+        if target.buttonRepeatBehavior != source.buttonRepeatBehavior {
+            target.buttonRepeatBehavior = source.buttonRepeatBehavior
+        }
         if target.redactionReasons != source.redactionReasons { target.redactionReasons = source.redactionReasons }
-        if target.isPrivacySensitive != source.isPrivacySensitive { target.isPrivacySensitive = source.isPrivacySensitive }
-        if target.isAccessibilityShowsLargeContentViewer != source.isAccessibilityShowsLargeContentViewer { target.isAccessibilityShowsLargeContentViewer = source.isAccessibilityShowsLargeContentViewer }
-        if target.isAccessibilityQuickActionEnabled != source.isAccessibilityQuickActionEnabled { target.isAccessibilityQuickActionEnabled = source.isAccessibilityQuickActionEnabled }
-        if target.accessibilityQuickActionStyle != source.accessibilityQuickActionStyle { target.accessibilityQuickActionStyle = source.accessibilityQuickActionStyle }
-        if target.isAccessibilityZoomActionEnabled != source.isAccessibilityZoomActionEnabled { target.isAccessibilityZoomActionEnabled = source.isAccessibilityZoomActionEnabled }
-        if target.isAccessibilityScrollActionEnabled != source.isAccessibilityScrollActionEnabled { target.isAccessibilityScrollActionEnabled = source.isAccessibilityScrollActionEnabled }
-        if target.isAccessibilityFocusSection != source.isAccessibilityFocusSection { target.isAccessibilityFocusSection = source.isAccessibilityFocusSection }
-        if target.isAccessibilityImage != source.isAccessibilityImage { target.isAccessibilityImage = source.isAccessibilityImage }
-        if target.accessibilityLinkDestination != source.accessibilityLinkDestination { target.accessibilityLinkDestination = source.accessibilityLinkDestination }
-        if target.accessibilityLinkedGroup != source.accessibilityLinkedGroup { target.accessibilityLinkedGroup = source.accessibilityLinkedGroup }
+        if target.isPrivacySensitive != source.isPrivacySensitive {
+            target.isPrivacySensitive = source.isPrivacySensitive
+        }
+        if target.isAccessibilityShowsLargeContentViewer != source.isAccessibilityShowsLargeContentViewer {
+            target.isAccessibilityShowsLargeContentViewer = source.isAccessibilityShowsLargeContentViewer
+        }
+        if target.isAccessibilityQuickActionEnabled != source.isAccessibilityQuickActionEnabled {
+            target.isAccessibilityQuickActionEnabled = source.isAccessibilityQuickActionEnabled
+        }
+        if target.accessibilityQuickActionStyle != source.accessibilityQuickActionStyle {
+            target.accessibilityQuickActionStyle = source.accessibilityQuickActionStyle
+        }
+        if target.isAccessibilityZoomActionEnabled != source.isAccessibilityZoomActionEnabled {
+            target.isAccessibilityZoomActionEnabled = source.isAccessibilityZoomActionEnabled
+        }
+        if target.isAccessibilityScrollActionEnabled != source.isAccessibilityScrollActionEnabled {
+            target.isAccessibilityScrollActionEnabled = source.isAccessibilityScrollActionEnabled
+        }
+        if target.isAccessibilityFocusSection != source.isAccessibilityFocusSection {
+            target.isAccessibilityFocusSection = source.isAccessibilityFocusSection
+        }
+        if target.isAccessibilityImage != source.isAccessibilityImage {
+            target.isAccessibilityImage = source.isAccessibilityImage
+        }
+        if target.accessibilityLinkDestination != source.accessibilityLinkDestination {
+            target.accessibilityLinkDestination = source.accessibilityLinkDestination
+        }
+        if target.accessibilityLinkedGroup != source.accessibilityLinkedGroup {
+            target.accessibilityLinkedGroup = source.accessibilityLinkedGroup
+        }
         if target.accessibilityPage != source.accessibilityPage { target.accessibilityPage = source.accessibilityPage }
-        if target.contextMenuForSelectionType != source.contextMenuForSelectionType { target.contextMenuForSelectionType = source.contextMenuForSelectionType }
+        if target.contextMenuForSelectionType != source.contextMenuForSelectionType {
+            target.contextMenuForSelectionType = source.contextMenuForSelectionType
+        }
         if target.widgetURL != source.widgetURL { target.widgetURL = source.widgetURL }
-        if target.isWidgetAccentable != source.isWidgetAccentable { target.isWidgetAccentable = source.isWidgetAccentable }
-        if target.widgetAccentedRenderingMode != source.widgetAccentedRenderingMode { target.widgetAccentedRenderingMode = source.widgetAccentedRenderingMode }
-        if target.widgetBackgroundStyle != source.widgetBackgroundStyle { target.widgetBackgroundStyle = source.widgetBackgroundStyle }
-        if target.widgetBackgroundPlacement != source.widgetBackgroundPlacement { target.widgetBackgroundPlacement = source.widgetBackgroundPlacement }
+        if target.isWidgetAccentable != source.isWidgetAccentable {
+            target.isWidgetAccentable = source.isWidgetAccentable
+        }
+        if target.widgetAccentedRenderingMode != source.widgetAccentedRenderingMode {
+            target.widgetAccentedRenderingMode = source.widgetAccentedRenderingMode
+        }
+        if target.widgetBackgroundStyle != source.widgetBackgroundStyle {
+            target.widgetBackgroundStyle = source.widgetBackgroundStyle
+        }
+        if target.widgetBackgroundPlacement != source.widgetBackgroundPlacement {
+            target.widgetBackgroundPlacement = source.widgetBackgroundPlacement
+        }
         if target.widgetRelevancy != source.widgetRelevancy { target.widgetRelevancy = source.widgetRelevancy }
-        if target.paletteSelectionEffect != source.paletteSelectionEffect { target.paletteSelectionEffect = source.paletteSelectionEffect }
-        if target.paintsInDeferredPhase != source.paintsInDeferredPhase { target.paintsInDeferredPhase = source.paintsInDeferredPhase }
-        if target.matchedGeometryEffect != source.matchedGeometryEffect { target.matchedGeometryEffect = source.matchedGeometryEffect }
-        if target.matchedTransitionSource != source.matchedTransitionSource { target.matchedTransitionSource = source.matchedTransitionSource }
-        if target.navigationTransition != source.navigationTransition { target.navigationTransition = source.navigationTransition }
+        if target.paletteSelectionEffect != source.paletteSelectionEffect {
+            target.paletteSelectionEffect = source.paletteSelectionEffect
+        }
+        if target.paintsInDeferredPhase != source.paintsInDeferredPhase {
+            target.paintsInDeferredPhase = source.paintsInDeferredPhase
+        }
+        if target.matchedGeometryEffect != source.matchedGeometryEffect {
+            target.matchedGeometryEffect = source.matchedGeometryEffect
+        }
+        if target.matchedTransitionSource != source.matchedTransitionSource {
+            target.matchedTransitionSource = source.matchedTransitionSource
+        }
+        if target.navigationTransition != source.navigationTransition {
+            target.navigationTransition = source.navigationTransition
+        }
         if target.chartXAxis != source.chartXAxis { target.chartXAxis = source.chartXAxis }
         if target.chartXScale != source.chartXScale { target.chartXScale = source.chartXScale }
         if target.chartYScale != source.chartYScale { target.chartYScale = source.chartYScale }
@@ -672,29 +918,59 @@ public final class ComponentHost {
         if target.chartPlotStyle != source.chartPlotStyle { target.chartPlotStyle = source.chartPlotStyle }
         if target.chartOverlay != source.chartOverlay { target.chartOverlay = source.chartOverlay }
         if target.chartSelection != source.chartSelection { target.chartSelection = source.chartSelection }
-        if target.chartScrollableAxes != source.chartScrollableAxes { target.chartScrollableAxes = source.chartScrollableAxes }
-        if target.chartForegroundStyleScale != source.chartForegroundStyleScale { target.chartForegroundStyleScale = source.chartForegroundStyleScale }
+        if target.chartScrollableAxes != source.chartScrollableAxes {
+            target.chartScrollableAxes = source.chartScrollableAxes
+        }
+        if target.chartForegroundStyleScale != source.chartForegroundStyleScale {
+            target.chartForegroundStyleScale = source.chartForegroundStyleScale
+        }
         if target.chartSymbolSize != source.chartSymbolSize { target.chartSymbolSize = source.chartSymbolSize }
         if target.chartSymbol != source.chartSymbol { target.chartSymbol = source.chartSymbol }
         if target.chartAngleScale != source.chartAngleScale { target.chartAngleScale = source.chartAngleScale }
-        if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale { target.chartBackgroundStyleScale = source.chartBackgroundStyleScale }
+        if target.chartBackgroundStyleScale != source.chartBackgroundStyleScale {
+            target.chartBackgroundStyleScale = source.chartBackgroundStyleScale
+        }
         if target.chartSymbolScale != source.chartSymbolScale { target.chartSymbolScale = source.chartSymbolScale }
-        if target.chartXVisibleDomain != source.chartXVisibleDomain { target.chartXVisibleDomain = source.chartXVisibleDomain }
-        if target.chartYVisibleDomain != source.chartYVisibleDomain { target.chartYVisibleDomain = source.chartYVisibleDomain }
+        if target.chartXVisibleDomain != source.chartXVisibleDomain {
+            target.chartXVisibleDomain = source.chartXVisibleDomain
+        }
+        if target.chartYVisibleDomain != source.chartYVisibleDomain {
+            target.chartYVisibleDomain = source.chartYVisibleDomain
+        }
         if target.chartXSelection != source.chartXSelection { target.chartXSelection = source.chartXSelection }
         if target.chartYSelection != source.chartYSelection { target.chartYSelection = source.chartYSelection }
-        if target.chartAngleSelection != source.chartAngleSelection { target.chartAngleSelection = source.chartAngleSelection }
-        if target.chartScrollPositionX != source.chartScrollPositionX { target.chartScrollPositionX = source.chartScrollPositionX }
-        if target.chartScrollPositionY != source.chartScrollPositionY { target.chartScrollPositionY = source.chartScrollPositionY }
-        if target.tableColumnHeadersVisible != source.tableColumnHeadersVisible { target.tableColumnHeadersVisible = source.tableColumnHeadersVisible }
-        if target.isContentInvalidatable != source.isContentInvalidatable { target.isContentInvalidatable = source.isContentInvalidatable }
+        if target.chartAngleSelection != source.chartAngleSelection {
+            target.chartAngleSelection = source.chartAngleSelection
+        }
+        if target.chartScrollPositionX != source.chartScrollPositionX {
+            target.chartScrollPositionX = source.chartScrollPositionX
+        }
+        if target.chartScrollPositionY != source.chartScrollPositionY {
+            target.chartScrollPositionY = source.chartScrollPositionY
+        }
+        if target.tableColumnHeadersVisible != source.tableColumnHeadersVisible {
+            target.tableColumnHeadersVisible = source.tableColumnHeadersVisible
+        }
+        if target.isContentInvalidatable != source.isContentInvalidatable {
+            target.isContentInvalidatable = source.isContentInvalidatable
+        }
         if target.isLineSelectable != source.isLineSelectable { target.isLineSelectable = source.isLineSelectable }
-        if target.accessibilityActivationPoint != source.accessibilityActivationPoint { target.accessibilityActivationPoint = source.accessibilityActivationPoint }
-        if target.accessibilityTextContentType != source.accessibilityTextContentType { target.accessibilityTextContentType = source.accessibilityTextContentType }
+        if target.accessibilityActivationPoint != source.accessibilityActivationPoint {
+            target.accessibilityActivationPoint = source.accessibilityActivationPoint
+        }
+        if target.accessibilityTextContentType != source.accessibilityTextContentType {
+            target.accessibilityTextContentType = source.accessibilityTextContentType
+        }
         target.accessibilityMagicTapAction = source.accessibilityMagicTapAction
-        if target.presentationChrome != source.presentationChrome { target.presentationChrome = source.presentationChrome }
-        if target.isToolbarContainer != source.isToolbarContainer { target.isToolbarContainer = source.isToolbarContainer }
-        if target.toolbarPlacementTags != source.toolbarPlacementTags { target.toolbarPlacementTags = source.toolbarPlacementTags }
+        if target.presentationChrome != source.presentationChrome {
+            target.presentationChrome = source.presentationChrome
+        }
+        if target.isToolbarContainer != source.isToolbarContainer {
+            target.isToolbarContainer = source.isToolbarContainer
+        }
+        if target.toolbarPlacementTags != source.toolbarPlacementTags {
+            target.toolbarPlacementTags = source.toolbarPlacementTags
+        }
         if target.menuOrder != source.menuOrder { target.menuOrder = source.menuOrder }
         target.toolbarTitleMenuChildren = source.toolbarTitleMenuChildren
         target.toolbarTitleActionsChildren = source.toolbarTitleActionsChildren
@@ -702,9 +978,15 @@ public final class ComponentHost {
         if target.gestureName != source.gestureName { target.gestureName = source.gestureName }
         target.textRenderer = source.textRenderer
         if target.scenePaddingEdges != source.scenePaddingEdges { target.scenePaddingEdges = source.scenePaddingEdges }
-        if target.coordinateSpaceName != source.coordinateSpaceName { target.coordinateSpaceName = source.coordinateSpaceName }
-        if target.sectionHeaderChildCount != source.sectionHeaderChildCount { target.sectionHeaderChildCount = source.sectionHeaderChildCount }
-        if target.sectionFooterChildCount != source.sectionFooterChildCount { target.sectionFooterChildCount = source.sectionFooterChildCount }
+        if target.coordinateSpaceName != source.coordinateSpaceName {
+            target.coordinateSpaceName = source.coordinateSpaceName
+        }
+        if target.sectionHeaderChildCount != source.sectionHeaderChildCount {
+            target.sectionHeaderChildCount = source.sectionHeaderChildCount
+        }
+        if target.sectionFooterChildCount != source.sectionFooterChildCount {
+            target.sectionFooterChildCount = source.sectionFooterChildCount
+        }
         target.retainedPreferenceValues = source.retainedPreferenceValues
         target.retainedPreferenceTransformBoundaries = source.retainedPreferenceTransformBoundaries
         target.retainedLayoutValues = source.retainedLayoutValues

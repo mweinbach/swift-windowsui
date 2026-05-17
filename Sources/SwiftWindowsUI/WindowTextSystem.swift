@@ -1,4 +1,5 @@
 import Foundation
+
 import SwiftWindowsCore
 
 @MainActor
@@ -82,7 +83,7 @@ final class WindowTextSystem {
 
             let utf16View = text.utf16
             guard let utf16Start = range.lowerBound.samePosition(in: utf16View),
-                  let utf16End = range.upperBound.samePosition(in: utf16View)
+                let utf16End = range.upperBound.samePosition(in: utf16View)
             else {
                 return nil
             }
@@ -115,7 +116,9 @@ final class WindowTextSystem {
         self.maxEntryCount = maxEntryCount
     }
 
-    func layout(_ text: String, style: PixelTextStyle, maxWidth: Double? = nil, scaleFactor: Double) -> NativeTextLayoutResult? {
+    func layout(_ text: String, style: PixelTextStyle, maxWidth: Double? = nil, scaleFactor: Double)
+        -> NativeTextLayoutResult?
+    {
         let key = LayoutKey(text: text, style: style, maxWidth: maxWidth)
         if let cached = layouts[key] {
             touch(key)

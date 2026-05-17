@@ -1,7 +1,11 @@
-import XCTest
 import Foundation
+
 import SwiftWindowsCore
+
+import XCTest
+
 @testable import SwiftWindowsUI
+
 @testable import WinSwiftUI
 
 private struct TestStringFormatStyle: FormatStyle {
@@ -9,13 +13,11 @@ private struct TestStringFormatStyle: FormatStyle {
         "COUNT \(value)"
     }
 }
-
 private struct TestAttributedStringFormatStyle: FormatStyle {
     func format(_ value: Int) -> AttributedString {
         AttributedString("ATTR \(value)")
     }
 }
-
 final class WinSwiftUITextTests: XCTestCase {
     func testItalicModifierMapsToRetainedTextStyle() async {
         await MainActor.run {
@@ -289,7 +291,6 @@ final class WinSwiftUITextTests: XCTestCase {
         }
     }
 }
-
 @MainActor
 private func makeNode<V: View>(_ view: V) -> ViewNode {
     let runtime = RetainedViewRuntime(root: ViewNode())

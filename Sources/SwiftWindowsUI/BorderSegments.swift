@@ -334,17 +334,17 @@ enum BorderSegments {
 
         // Arc centres for the four corners (outer arc, inner arc share centre)
         let centers: [(cx: Double, cy: Double)] = [
-            (frame.maxX - r, frame.origin.y + r),   // top-right
-            (frame.maxX - r, frame.maxY - r),         // bottom-right
-            (frame.origin.x + r, frame.maxY - r),     // bottom-left
-            (frame.origin.x + r, frame.origin.y + r), // top-left
+            (frame.maxX - r, frame.origin.y + r),  // top-right
+            (frame.maxX - r, frame.maxY - r),  // bottom-right
+            (frame.origin.x + r, frame.maxY - r),  // bottom-left
+            (frame.origin.x + r, frame.origin.y + r),  // top-left
         ]
         // Start angles for the four corners (top, right, bottom, left edges)
         let baseAngles: [Double] = [
-            -Double.pi / 2, // top-right: starts at top
-            0,              // bottom-right: starts at right
+            -Double.pi / 2,  // top-right: starts at top
+            0,  // bottom-right: starts at right
             Double.pi / 2,  // bottom-left: starts at bottom
-            Double.pi,      // top-left: starts at left
+            Double.pi,  // top-left: starts at left
         ]
 
         let (cx, cy) = centers[arcIndex]
@@ -356,12 +356,12 @@ enum BorderSegments {
             let subLength = subEnd - subStart
             guard subLength > 0 else { continue }
 
-            let θ1 = baseAngle + (subStart / arcLength) * (Double.pi / 2)
-            let θ2 = baseAngle + (subEnd / arcLength) * (Double.pi / 2)
+            let theta1 = baseAngle + (subStart / arcLength) * (Double.pi / 2)
+            let theta2 = baseAngle + (subEnd / arcLength) * (Double.pi / 2)
 
-            // Bounding box of the annular sector from innerR to r, θ1..θ2
-            let xs = [cos(θ1), cos(θ2)].sorted()
-            let ys = [sin(θ1), sin(θ2)].sorted()
+            // Bounding box of the annular sector from innerR to r, theta1..theta2
+            let xs = [cos(theta1), cos(theta2)].sorted()
+            let ys = [sin(theta1), sin(theta2)].sorted()
 
             let minX = cx + innerR * xs[0]
             let maxX = cx + r * xs[1]
@@ -370,8 +370,8 @@ enum BorderSegments {
 
             // Apply square/round cap extension along the arc tangent.
             // This is an axis-aligned approximation of the true tangent extension.
-            let capX = capExtension * abs(cos((θ1 + θ2) * 0.5))
-            let capY = capExtension * abs(sin((θ1 + θ2) * 0.5))
+            let capX = capExtension * abs(cos((theta1 + theta2) * 0.5))
+            let capY = capExtension * abs(sin((theta1 + theta2) * 0.5))
 
             let rect = Rect(
                 x: minX - capX,

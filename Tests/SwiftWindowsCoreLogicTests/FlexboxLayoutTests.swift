@@ -1,5 +1,6 @@
-import XCTest
 import SwiftWindowsCore
+import XCTest
+
 @testable import SwiftWindowsLayout
 
 final class FlexboxLayoutTests: XCTestCase {
@@ -188,7 +189,7 @@ final class FlexboxLayoutTests: XCTestCase {
                 padding: EdgeInsets(top: 10, leading: 20, bottom: 10, trailing: 20)
             ),
             children: [
-                .init(intrinsicWidth: 100, intrinsicHeight: 50),
+                .init(intrinsicWidth: 100, intrinsicHeight: 50)
             ]
         )
         let result = FlexboxEngine.layout(input)
@@ -222,7 +223,7 @@ final class FlexboxLayoutTests: XCTestCase {
             containerWidth: 400, containerHeight: 100,
             style: FlexStyle(direction: .row, alignItems: .center),
             children: [
-                .init(intrinsicWidth: 100, intrinsicHeight: 40),
+                .init(intrinsicWidth: 100, intrinsicHeight: 40)
             ]
         )
         let result = FlexboxEngine.layout(input)
@@ -251,7 +252,7 @@ final class FlexboxLayoutTests: XCTestCase {
             containerWidth: 400, containerHeight: 100,
             style: FlexStyle(direction: .row),
             children: [
-                .init(intrinsicWidth: 150, intrinsicHeight: 60),
+                .init(intrinsicWidth: 150, intrinsicHeight: 60)
             ]
         )
         let result = FlexboxEngine.layout(input)
@@ -324,7 +325,7 @@ final class FlexboxLayoutTests: XCTestCase {
             containerWidth: 400, containerHeight: 100,
             style: FlexStyle(direction: .row, alignItems: .flexEnd),
             children: [
-                .init(intrinsicWidth: 100, intrinsicHeight: 40),
+                .init(intrinsicWidth: 100, intrinsicHeight: 40)
             ]
         )
         let result = FlexboxEngine.layout(input)
@@ -378,7 +379,7 @@ final class FlexboxLayoutTests: XCTestCase {
             containerWidth: 400, containerHeight: 100,
             style: FlexStyle(direction: .row, justifyContent: .spaceBetween),
             children: [
-                .init(intrinsicWidth: 100, intrinsicHeight: 50),
+                .init(intrinsicWidth: 100, intrinsicHeight: 50)
             ]
         )
         let result = FlexboxEngine.layout(input)

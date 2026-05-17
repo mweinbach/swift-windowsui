@@ -1,7 +1,18 @@
 import Foundation
-import SwiftWindowsCore
 
 // MARK: - GPUILayer
+
+import SwiftWindowsCore
+
+/// A rendering layer containing typed, contiguous primitive arrays.
+/// `paintOperations` preserves the source paint order across primitive families
+/// while sidecar draw-order metadata enables Zed-style sorted batching.
+
+// MARK: - GPUIScene
+
+/// Top-level GPUI-style scene container that organizes primitives by type into
+/// contiguous arrays within layers. This structure replaces the flat
+/// `[RenderCommand]` list with typed arrays suitable for instanced draw calls.
 
 public enum GPUIPaintPrimitiveKind: Equatable, Sendable {
     case shadow
@@ -11,7 +22,6 @@ public enum GPUIPaintPrimitiveKind: Equatable, Sendable {
     case image
     case path
 }
-
 public struct GPUIPaintOperation: Equatable, Sendable {
     public var kind: GPUIPaintPrimitiveKind
     public var startIndex: Int
@@ -23,7 +33,6 @@ public struct GPUIPaintOperation: Equatable, Sendable {
         self.count = count
     }
 }
-
 public enum GPUIScenePrimitive: Equatable, Sendable {
     case shadow(ShadowPrimitive)
     case quad(QuadPrimitive)
@@ -32,13 +41,11 @@ public enum GPUIScenePrimitive: Equatable, Sendable {
     case image(ImagePrimitive)
     case path(PathPrimitive)
 }
-
 public enum GPUIScenePaintRecord: Equatable, Sendable {
     case primitive(layerIndex: Int, primitive: GPUIScenePrimitive)
     case startLayer(layerIndex: Int, bounds: Rect)
     case endLayer(layerIndex: Int)
 }
-
 public struct GlyphAtlasRegion: Equatable, Sendable {
     public var x: Int32
     public var y: Int32
@@ -52,7 +59,6 @@ public struct GlyphAtlasRegion: Equatable, Sendable {
         self.height = height
     }
 }
-
 public struct GlyphAtlasSnapshot: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
@@ -66,7 +72,6 @@ public struct GlyphAtlasSnapshot: Equatable, Sendable {
         self.dirtyRegion = dirtyRegion
     }
 }
-
 public struct ImageResourceBinding: Equatable, Sendable {
     public var textureID: Int32
     public var bitmap: BitmapSurface
@@ -76,10 +81,6 @@ public struct ImageResourceBinding: Equatable, Sendable {
         self.bitmap = bitmap
     }
 }
-
-/// A rendering layer containing typed, contiguous primitive arrays.
-/// `paintOperations` preserves the source paint order across primitive families
-/// while sidecar draw-order metadata enables Zed-style sorted batching.
 public struct GPUILayer: Equatable, Sendable {
     public var shadows: [ShadowPrimitive]
     public var quads: [QuadPrimitive]
@@ -116,13 +117,26 @@ public struct GPUILayer: Equatable, Sendable {
         self.images = images
         self.paths = paths
         self.paintOperations = paintOperations
-        self.shadowOrderings = shadows.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.quadOrderings = quads.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.glyphOrderings = glyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.pixelGlyphOrderings = pixelGlyphs.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.imageOrderings = images.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.pathOrderings = paths.indices.map { GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0)) }
-        self.nextPaintIndex = UInt32(shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count + paths.count)
+        self.shadowOrderings = shadows.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.quadOrderings = quads.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.glyphOrderings = glyphs.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.pixelGlyphOrderings = pixelGlyphs.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.imageOrderings = images.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.pathOrderings = paths.indices.map {
+            GPUIPrimitiveOrdering(primitiveIndex: $0, order: 0, paintIndex: UInt32($0))
+        }
+        self.nextPaintIndex = UInt32(
+            shadows.count + quads.count + glyphs.count + pixelGlyphs.count + images.count + paths.count)
     }
 
     public var primitiveCount: Int {
@@ -382,21 +396,11 @@ public struct GPUILayer: Equatable, Sendable {
     }
 
     public static func == (lhs: GPUILayer, rhs: GPUILayer) -> Bool {
-        lhs.shadows == rhs.shadows &&
-        lhs.quads == rhs.quads &&
-        lhs.glyphs == rhs.glyphs &&
-        lhs.pixelGlyphs == rhs.pixelGlyphs &&
-        lhs.images == rhs.images &&
-        lhs.paths == rhs.paths &&
-        lhs.paintOperations == rhs.paintOperations
+        lhs.shadows == rhs.shadows && lhs.quads == rhs.quads && lhs.glyphs == rhs.glyphs
+            && lhs.pixelGlyphs == rhs.pixelGlyphs && lhs.images == rhs.images && lhs.paths == rhs.paths
+            && lhs.paintOperations == rhs.paintOperations
     }
 }
-
-// MARK: - GPUIScene
-
-/// Top-level GPUI-style scene container that organizes primitives by type into
-/// contiguous arrays within layers. This structure replaces the flat
-/// `[RenderCommand]` list with typed arrays suitable for instanced draw calls.
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
@@ -552,24 +556,24 @@ public struct GPUIScene: Equatable, Sendable {
         }
     }
 
-/// Represents the result of a replay operation.
-public enum GPUISceneReplayResult: Equatable, Sendable {
-    /// Replay succeeded and reconstructed equivalent scene content.
-    case success
-    /// Replay was rejected because the range is structurally unbalanced.
-    /// Contains details about the validation failure.
-    case unbalanced(layerIndex: Int?, depth: Int, reason: UnbalancedReason)
-    
-    /// Reason why a range is unbalanced.
-    public enum UnbalancedReason: Equatable, Sendable {
-        /// Range starts inside a scoped layer without the matching startLayer marker.
-        case startsInsideScope
-        /// Range ends inside a scoped layer without the matching endLayer marker.
-        case endsInsideScope
-        /// Layer stack depth mismatch at end of replay.
-        case depthMismatch
+    /// Represents the result of a replay operation.
+    public enum GPUISceneReplayResult: Equatable, Sendable {
+        /// Replay succeeded and reconstructed equivalent scene content.
+        case success
+        /// Replay was rejected because the range is structurally unbalanced.
+        /// Contains details about the validation failure.
+        case unbalanced(layerIndex: Int?, depth: Int, reason: UnbalancedReason)
+
+        /// Reason why a range is unbalanced.
+        public enum UnbalancedReason: Equatable, Sendable {
+            /// Range starts inside a scoped layer without the matching startLayer marker.
+            case startsInsideScope
+            /// Range ends inside a scoped layer without the matching endLayer marker.
+            case endsInsideScope
+            /// Layer stack depth mismatch at end of replay.
+            case depthMismatch
+        }
     }
-}
 
     public mutating func replay(_ range: Range<Int>, from previousScene: GPUIScene) -> GPUISceneReplayResult {
         // Validate that the range is structurally balanced
@@ -585,7 +589,7 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
         for binding in previousScene.imageResources {
             bindImageResource(binding.bitmap, for: binding.textureID)
         }
-        
+
         for record in previousScene.paintRecords[range] {
             switch record {
             case .primitive(let layerIndex, let primitive):
@@ -609,10 +613,10 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                 popScopedLayer(fromLayer: layerIndex)
             }
         }
-        
+
         return .success
     }
-    
+
     /// Validates that a replay range is structurally balanced.
     /// A balanced range has matching startLayer/endLayer markers for each layer,
     /// AND the range must start at depth 0 (no unclosed scoped layers before the range).
@@ -626,7 +630,7 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
         // by scanning records before range.lowerBound
         var initialLayerDepths: [Int: Int] = [:]
         var maxLayerIndex = -1
-        
+
         for recordIndex in 0..<range.lowerBound {
             let record = scene.paintRecords[recordIndex]
             switch record {
@@ -640,7 +644,7 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                 maxLayerIndex = max(maxLayerIndex, layerIndex)
             }
         }
-        
+
         // Check if any layer has non-zero depth at the range boundary
         // This means the range starts inside a scoped layer without its marker
         for (layerIndex, depth) in initialLayerDepths {
@@ -648,10 +652,10 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                 return (false, layerIndex, depth, .startsInsideScope)
             }
         }
-        
+
         // Track per-layer scope depth within the range
         var layerDepths: [Int: Int] = [:]
-        
+
         // First pass: check for starting inside a scope and track depths
         for record in scene.paintRecords[range] {
             switch record {
@@ -669,17 +673,18 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
                 maxLayerIndex = max(maxLayerIndex, layerIndex)
             }
         }
-        
+
         // Check that all layers end at depth 0
         for (layerIndex, depth) in layerDepths {
             if depth != 0 {
-                let reason: GPUISceneReplayResult.UnbalancedReason = depth > 0
+                let reason: GPUISceneReplayResult.UnbalancedReason =
+                    depth > 0
                     ? .endsInsideScope
                     : .depthMismatch
                 return (false, layerIndex, depth, reason)
             }
         }
-        
+
         return (true, nil, 0, nil)
     }
 
@@ -707,30 +712,26 @@ public enum GPUISceneReplayResult: Equatable, Sendable {
     }
 
     public static func == (lhs: GPUIScene, rhs: GPUIScene) -> Bool {
-        lhs.clearColor == rhs.clearColor &&
-        lhs.layers == rhs.layers &&
-        lhs.paintRecords == rhs.paintRecords &&
-        lhs.glyphAtlas == rhs.glyphAtlas &&
-        lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas &&
-        lhs.imageResources == rhs.imageResources
+        lhs.clearColor == rhs.clearColor && lhs.layers == rhs.layers && lhs.paintRecords == rhs.paintRecords
+            && lhs.glyphAtlas == rhs.glyphAtlas && lhs.pixelGlyphAtlas == rhs.pixelGlyphAtlas
+            && lhs.imageResources == rhs.imageResources
     }
 }
-
-private extension QuadPrimitive {
-    var contentMaskedBounds: Rect? {
+extension QuadPrimitive {
+    fileprivate var contentMaskedBounds: Rect? {
         guard width > 0, height > 0 else {
             return nil
         }
 
         let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
-        
+
         // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
         // If both are 0, it means "no clip" (unclipped). If both are > 0, it's a normal clip.
         let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
         guard !hasExplicitZeroDimensionClip else {
             return nil
         }
-        
+
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -744,21 +745,20 @@ private extension QuadPrimitive {
         return masked
     }
 }
-
-private extension GlyphPrimitive {
-    var contentMaskedBounds: Rect? {
+extension GlyphPrimitive {
+    fileprivate var contentMaskedBounds: Rect? {
         guard screenW > 0, screenH > 0 else {
             return nil
         }
 
         let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
-        
+
         // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
         let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
         guard !hasExplicitZeroDimensionClip else {
             return nil
         }
-        
+
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -772,21 +772,20 @@ private extension GlyphPrimitive {
         return masked
     }
 }
-
-private extension ImagePrimitive {
-    var contentMaskedBounds: Rect? {
+extension ImagePrimitive {
+    fileprivate var contentMaskedBounds: Rect? {
         guard screenW > 0, screenH > 0 else {
             return nil
         }
 
         let bounds = Rect(x: Double(screenX), y: Double(screenY), width: Double(screenW), height: Double(screenH))
-        
+
         // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
         let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
         guard !hasExplicitZeroDimensionClip else {
             return nil
         }
-        
+
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }
@@ -800,21 +799,20 @@ private extension ImagePrimitive {
         return masked
     }
 }
-
-private extension ShadowPrimitive {
-    var contentMaskedBounds: Rect? {
+extension ShadowPrimitive {
+    fileprivate var contentMaskedBounds: Rect? {
         guard width > 0, height > 0 else {
             return nil
         }
 
         let bounds = Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
-        
+
         // Check for zero-dimension effective clip: one dimension is 0, the other is > 0
         let hasExplicitZeroDimensionClip = (clipWidth == 0 && clipHeight > 0) || (clipWidth > 0 && clipHeight == 0)
         guard !hasExplicitZeroDimensionClip else {
             return nil
         }
-        
+
         guard let maskBounds = contentMask.bounds else {
             return bounds
         }

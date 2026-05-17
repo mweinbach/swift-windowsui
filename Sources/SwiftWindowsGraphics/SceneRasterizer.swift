@@ -1,5 +1,8 @@
 import Foundation
+
 import SwiftWindowsCore
+
+// MARK: - Path Flattening & Scanline Fill
 
 public enum GPUIRawSceneRasterizer {
     public static func rasterize(_ scene: GPUIScene, size: IntSize) -> BitmapSurface {
@@ -101,7 +104,6 @@ public enum GPUIRawSceneRasterizer {
         }
     }
 }
-
 private struct RasterTarget {
     var width: Int
     var height: Int
@@ -127,7 +129,10 @@ private struct RasterTarget {
             width: Double(quad.width),
             height: Double(quad.height)
         )
-        guard let bounds = clippedPixelBounds(rect, clip: clipRect(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight)) else {
+        guard
+            let bounds = clippedPixelBounds(
+                rect, clip: clipRect(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight))
+        else {
             return
         }
 
@@ -170,7 +175,9 @@ private struct RasterTarget {
                     progress = Float(clamp((centerY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
                 }
                 var color = start.interpolated(to: end, progress: progress).withAlphaMultiplier(Float(coverage))
-                color = applyRasterColorEffect(color, effectType: effectType, intensity: effectIntensity, param1: effectParam1, param2: effectParam2, param3: effectParam3, param4: effectParam4)
+                color = applyRasterColorEffect(
+                    color, effectType: effectType, intensity: effectIntensity, param1: effectParam1,
+                    param2: effectParam2, param3: effectParam3, param4: effectParam4)
                 let mode = BlendMode(rawValue: Int(quad.blendMode)) ?? .normal
                 blend(color, x: x, y: y, mode: mode)
             }
@@ -198,11 +205,15 @@ private struct RasterTarget {
             width: Double(shadow.width) + spread,
             height: Double(shadow.height) + spread
         )
-        guard let bounds = clippedPixelBounds(rect, clip: clipRect(shadow.clipX, shadow.clipY, shadow.clipWidth, shadow.clipHeight)) else {
+        guard
+            let bounds = clippedPixelBounds(
+                rect, clip: clipRect(shadow.clipX, shadow.clipY, shadow.clipWidth, shadow.clipHeight))
+        else {
             return
         }
 
-        let color = RasterColor(red: shadow.colorR, green: shadow.colorG, blue: shadow.colorB, alpha: shadow.colorA * 0.55)
+        let color = RasterColor(
+            red: shadow.colorR, green: shadow.colorG, blue: shadow.colorB, alpha: shadow.colorA * 0.55)
         let radius = max(0, Double(shadow.cornerRadius + shadow.blurRadius * 0.35))
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
@@ -230,7 +241,10 @@ private struct RasterTarget {
             width: Double(glyph.screenW),
             height: Double(glyph.screenH)
         )
-        guard let bounds = clippedPixelBounds(rect, clip: clipRect(glyph.clipX, glyph.clipY, glyph.clipWidth, glyph.clipHeight)) else {
+        guard
+            let bounds = clippedPixelBounds(
+                rect, clip: clipRect(glyph.clipX, glyph.clipY, glyph.clipWidth, glyph.clipHeight))
+        else {
             return
         }
 
@@ -246,15 +260,20 @@ private struct RasterTarget {
             for x in bounds.x0..<bounds.x1 {
                 let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
-                let sourceX = clamp(Int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)), lower: 0, upper: atlasWidth - 1)
-                let sourceY = clamp(Int(((v0 + (v1 - v0) * ty) * Double(atlasHeight)).rounded(.down)), lower: 0, upper: atlasHeight - 1)
+                let sourceX = clamp(
+                    Int(((u0 + (u1 - u0) * tx) * Double(atlasWidth)).rounded(.down)), lower: 0, upper: atlasWidth - 1)
+                let sourceY = clamp(
+                    Int(((v0 + (v1 - v0) * ty) * Double(atlasHeight)).rounded(.down)), lower: 0, upper: atlasHeight - 1)
                 let offset = (sourceY * atlasWidth + sourceX) * 4
                 guard offset + 3 < atlas.pixels.count else {
                     continue
                 }
 
                 let alphaByte = atlas.pixels[offset + 3]
-                let coverage = alphaByte > 0 ? Float(alphaByte) / 255.0 : Float(max(atlas.pixels[offset], max(atlas.pixels[offset + 1], atlas.pixels[offset + 2]))) / 255.0
+                let coverage =
+                    alphaByte > 0
+                    ? Float(alphaByte) / 255.0
+                    : Float(max(atlas.pixels[offset], max(atlas.pixels[offset + 1], atlas.pixels[offset + 2]))) / 255.0
                 if coverage > 0 {
                     blend(color.withAlphaMultiplier(coverage), x: x, y: y)
                 }
@@ -269,7 +288,10 @@ private struct RasterTarget {
             width: Double(image.screenW),
             height: Double(image.screenH)
         )
-        guard let bounds = clippedPixelBounds(rect, clip: clipRect(image.clipX, image.clipY, image.clipWidth, image.clipHeight)) else {
+        guard
+            let bounds = clippedPixelBounds(
+                rect, clip: clipRect(image.clipX, image.clipY, image.clipWidth, image.clipHeight))
+        else {
             return
         }
 
@@ -280,8 +302,12 @@ private struct RasterTarget {
             for x in bounds.x0..<bounds.x1 {
                 let tx = clamp((Double(x) + 0.5 - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1)
                 let ty = clamp((Double(y) + 0.5 - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1)
-                let sourceX = clamp(Int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0, upper: sourceWidth - 1)
-                let sourceY = clamp(Int((Double(image.uvY) + Double(image.uvH) * ty) * Double(sourceHeight)), lower: 0, upper: sourceHeight - 1)
+                let sourceX = clamp(
+                    Int((Double(image.uvX) + Double(image.uvW) * tx) * Double(sourceWidth)), lower: 0,
+                    upper: sourceWidth - 1)
+                let sourceY = clamp(
+                    Int((Double(image.uvY) + Double(image.uvH) * ty) * Double(sourceHeight)), lower: 0,
+                    upper: sourceHeight - 1)
                 let offset = sourceY * bytesPerRow + sourceX * 4
                 guard offset + 3 < bitmap.pixels.count else {
                     continue
@@ -311,7 +337,10 @@ private struct RasterTarget {
 
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                var sumB: Float = 0, sumG: Float = 0, sumR: Float = 0, sumA: Float = 0
+                var sumB: Float = 0
+                var sumG: Float = 0
+                var sumR: Float = 0
+                var sumA: Float = 0
                 let xStart = max(x - radius, bounds.x0)
                 let xEnd = min(x + radius + 1, bounds.x1)
                 let count = xEnd - xStart
@@ -332,7 +361,10 @@ private struct RasterTarget {
 
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                var sumB: Float = 0, sumG: Float = 0, sumR: Float = 0, sumA: Float = 0
+                var sumB: Float = 0
+                var sumG: Float = 0
+                var sumR: Float = 0
+                var sumA: Float = 0
                 let yStart = max(y - radius, bounds.y0)
                 let yEnd = min(y + radius + 1, bounds.y1)
                 let count = yEnd - yStart
@@ -457,18 +489,26 @@ private struct RasterTarget {
             blendedGreen = 1 - (1 - color.green) * (1 - destinationGreen)
             blendedBlue = 1 - (1 - color.blue) * (1 - destinationBlue)
         case .overlay:
-            blendedRed = destinationRed < 0.5 ? 2 * color.red * destinationRed : 1 - 2 * (1 - color.red) * (1 - destinationRed)
-            blendedGreen = destinationGreen < 0.5 ? 2 * color.green * destinationGreen : 1 - 2 * (1 - color.green) * (1 - destinationGreen)
-            blendedBlue = destinationBlue < 0.5 ? 2 * color.blue * destinationBlue : 1 - 2 * (1 - color.blue) * (1 - destinationBlue)
+            blendedRed =
+                destinationRed < 0.5 ? 2 * color.red * destinationRed : 1 - 2 * (1 - color.red) * (1 - destinationRed)
+            blendedGreen =
+                destinationGreen < 0.5
+                ? 2 * color.green * destinationGreen : 1 - 2 * (1 - color.green) * (1 - destinationGreen)
+            blendedBlue =
+                destinationBlue < 0.5
+                ? 2 * color.blue * destinationBlue : 1 - 2 * (1 - color.blue) * (1 - destinationBlue)
         case .additive:
             blendedRed = min(1, color.red + destinationRed)
             blendedGreen = min(1, color.green + destinationGreen)
             blendedBlue = min(1, color.blue + destinationBlue)
         }
 
-        pixels[offset] = byte((blendedBlue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
-        pixels[offset + 1] = byte((blendedGreen * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
-        pixels[offset + 2] = byte((blendedRed * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+        pixels[offset] = byte(
+            (blendedBlue * sourceAlpha + destinationBlue * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+        pixels[offset + 1] = byte(
+            (blendedGreen * sourceAlpha + destinationGreen * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
+        pixels[offset + 2] = byte(
+            (blendedRed * sourceAlpha + destinationRed * destinationAlpha * (1 - sourceAlpha)) / outputAlpha)
         pixels[offset + 3] = byte(outputAlpha)
     }
 
@@ -497,14 +537,12 @@ private struct RasterTarget {
         (y * width + x) * 4
     }
 }
-
 private struct PixelBounds {
     var x0: Int
     var y0: Int
     var x1: Int
     var y1: Int
 }
-
 private struct RasterColor {
     var red: Float
     var green: Float
@@ -536,15 +574,16 @@ private struct RasterColor {
         RasterColor(red: red, green: green, blue: blue, alpha: alpha * multiplier)
     }
 }
-
 private func clipRect(_ x: Float, _ y: Float, _ width: Float, _ height: Float) -> Rect? {
     guard width > 0, height > 0 else {
         return nil
     }
     return Rect(x: Double(x), y: Double(y), width: Double(width), height: Double(height))
 }
-
-private func applyRasterColorEffect(_ color: RasterColor, effectType: Float, intensity: Float, param1: Float = 0, param2: Float = 0, param3: Float = 0, param4: Float = 0) -> RasterColor {
+private func applyRasterColorEffect(
+    _ color: RasterColor, effectType: Float, intensity: Float, param1: Float = 0, param2: Float = 0, param3: Float = 0,
+    param4: Float = 0
+) -> RasterColor {
     let t = Double(effectType)
     let i = Double(intensity)
 
@@ -553,7 +592,8 @@ private func applyRasterColorEffect(_ color: RasterColor, effectType: Float, int
 
     // 1 = brightness
     if t < 1.5 {
-        return RasterColor(red: color.red + Float(i), green: color.green + Float(i), blue: color.blue + Float(i), alpha: color.alpha)
+        return RasterColor(
+            red: color.red + Float(i), green: color.green + Float(i), blue: color.blue + Float(i), alpha: color.alpha)
     }
 
     // 2 = contrast
@@ -601,15 +641,22 @@ private func applyRasterColorEffect(_ color: RasterColor, effectType: Float, int
         let r = color.red
         let g = color.green
         let b = color.blue
-        let nr = Float(0.299 + cosA * 0.701 + sinA * 0.168) * r + Float(0.587 + cosA * (-0.587) + sinA * 0.330) * g + Float(0.114 + cosA * (-0.114) + sinA * (-0.497)) * b
-        let ng = Float(0.299 + cosA * (-0.299) + sinA * (-0.328)) * r + Float(0.587 + cosA * 0.413 + sinA * 0.035) * g + Float(0.114 + cosA * (-0.114) + sinA * 0.292) * b
-        let nb = Float(0.299 + cosA * (-0.300) + sinA * 1.250) * r + Float(0.587 + cosA * (-0.588) + sinA * (-1.050)) * g + Float(0.114 + cosA * 0.886 + sinA * (-0.203)) * b
+        let nr =
+            Float(0.299 + cosA * 0.701 + sinA * 0.168) * r + Float(0.587 + cosA * (-0.587) + sinA * 0.330) * g + Float(
+                0.114 + cosA * (-0.114) + sinA * (-0.497)) * b
+        let ng =
+            Float(0.299 + cosA * (-0.299) + sinA * (-0.328)) * r + Float(0.587 + cosA * 0.413 + sinA * 0.035) * g
+            + Float(0.114 + cosA * (-0.114) + sinA * 0.292) * b
+        let nb =
+            Float(0.299 + cosA * (-0.300) + sinA * 1.250) * r + Float(0.587 + cosA * (-0.588) + sinA * (-1.050)) * g
+            + Float(0.114 + cosA * 0.886 + sinA * (-0.203)) * b
         return RasterColor(red: nr, green: ng, blue: nb, alpha: color.alpha)
     }
 
     // 7 = colorMultiply
     if t < 7.5 {
-        return RasterColor(red: color.red * param1, green: color.green * param2, blue: color.blue * param3, alpha: color.alpha)
+        return RasterColor(
+            red: color.red * param1, green: color.green * param2, blue: color.blue * param3, alpha: color.alpha)
     }
 
     // 8 = luminanceToAlpha
@@ -620,7 +667,6 @@ private func applyRasterColorEffect(_ color: RasterColor, effectType: Float, int
 
     return color
 }
-
 private func roundedRectCoverage(x: Double, y: Double, rect: Rect, radius: Double) -> Double {
     guard radius > 0 else {
         return rect.contains(Point(x: x, y: y)) ? 1 : 0
@@ -636,22 +682,16 @@ private func roundedRectCoverage(x: Double, y: Double, rect: Rect, radius: Doubl
     let distance = ((x - closestX) * (x - closestX) + (y - closestY) * (y - closestY)).squareRoot()
     return clamp(clampedRadius + 0.5 - distance, lower: 0, upper: 1)
 }
-
 private func byte(_ value: Float) -> UInt8 {
     UInt8((clamp(value, lower: 0, upper: 1) * 255).rounded())
 }
-
 private func clamp<T: Comparable>(_ value: T, lower: T, upper: T) -> T {
     min(max(value, lower), upper)
 }
-
-// MARK: - Path Flattening & Scanline Fill
-
 private struct FlattenedSegment {
     var start: Point
     var end: Point
 }
-
 private struct FlattenedPath {
     var segments: [FlattenedSegment]
 
@@ -688,11 +728,15 @@ private struct FlattenedPath {
                 current = end
             case .cubicCurveTo(let control1, let control2, let end):
                 if !needsMove {
-                    segs.append(contentsOf: flattenCubic(start: current, control1: control1, control2: control2, end: end))
+                    segs.append(
+                        contentsOf: flattenCubic(start: current, control1: control1, control2: control2, end: end))
                 }
                 current = end
             case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                segs.append(contentsOf: flattenArc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
+                segs.append(
+                    contentsOf: flattenArc(
+                        center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise
+                    ))
                 let finalAngle = clockwise ? endAngle : startAngle
                 current = Point(x: center.x + radius * cos(finalAngle), y: center.y + radius * sin(finalAngle))
             case .close:
@@ -723,7 +767,6 @@ private struct FlattenedPath {
         return xs
     }
 }
-
 private func flattenQuadratic(start: Point, control: Point, end: Point) -> [FlattenedSegment] {
     let flatness: Double = 0.25
     let dx = end.x - start.x
@@ -740,7 +783,6 @@ private func flattenQuadratic(start: Point, control: Point, end: Point) -> [Flat
     left.append(contentsOf: right)
     return left
 }
-
 private func flattenCubic(start: Point, control1: Point, control2: Point, end: Point) -> [FlattenedSegment] {
     let flatness: Double = 0.25
     let dx = end.x - start.x
@@ -761,8 +803,9 @@ private func flattenCubic(start: Point, control1: Point, control2: Point, end: P
     left.append(contentsOf: right)
     return left
 }
-
-private func flattenArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool) -> [FlattenedSegment] {
+private func flattenArc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
+    -> [FlattenedSegment]
+{
     var start = startAngle
     var end = endAngle
     if clockwise {

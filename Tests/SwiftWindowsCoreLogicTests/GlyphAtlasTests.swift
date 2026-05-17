@@ -1,6 +1,9 @@
-import XCTest
 import Foundation
+
 import SwiftWindowsGraphics
+
+import XCTest
+
 @testable import SwiftWindowsUI
 
 final class GlyphAtlasTests: XCTestCase {
@@ -126,11 +129,23 @@ final class GlyphAtlasTests: XCTestCase {
             // Pixel (0,1) = red (0,0,255,255), Pixel (1,1) = white (255,255,255,255)
             var glyphPixels = Data(count: 16)
             // Row 0
-            glyphPixels[0] = 255; glyphPixels[1] = 0; glyphPixels[2] = 0; glyphPixels[3] = 255
-            glyphPixels[4] = 0; glyphPixels[5] = 255; glyphPixels[6] = 0; glyphPixels[7] = 255
+            glyphPixels[0] = 255
+            glyphPixels[1] = 0
+            glyphPixels[2] = 0
+            glyphPixels[3] = 255
+            glyphPixels[4] = 0
+            glyphPixels[5] = 255
+            glyphPixels[6] = 0
+            glyphPixels[7] = 255
             // Row 1
-            glyphPixels[8] = 0; glyphPixels[9] = 0; glyphPixels[10] = 255; glyphPixels[11] = 255
-            glyphPixels[12] = 255; glyphPixels[13] = 255; glyphPixels[14] = 255; glyphPixels[15] = 255
+            glyphPixels[8] = 0
+            glyphPixels[9] = 0
+            glyphPixels[10] = 255
+            glyphPixels[11] = 255
+            glyphPixels[12] = 255
+            glyphPixels[13] = 255
+            glyphPixels[14] = 255
+            glyphPixels[15] = 255
 
             atlas.writePixels(glyphPixels, at: pos.x, y: pos.y, width: 2, height: 2)
 
@@ -273,7 +288,8 @@ final class GlyphAtlasTests: XCTestCase {
         let result = await MainActor.run { () -> GlyphEntry? in
             let key = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 16.0, weight: .regular)
             let pixels = Data(count: 10 * 12 * 4)
-            _ = cache.insert(key: key, pixels: pixels, width: 10, height: 12, bearingX: 1.0, bearingY: 10.0, advance: 11.0)
+            _ = cache.insert(
+                key: key, pixels: pixels, width: 10, height: 12, bearingX: 1.0, bearingY: 10.0, advance: 11.0)
             return cache.lookup(key)
         }
 
@@ -321,25 +337,35 @@ final class GlyphAtlasTests: XCTestCase {
             let otherFamilyKey = GlyphKey(character: "A", fontFamily: "Arial", fontSize: 16, weight: .regular)
             let otherSizeKey = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 20, weight: .regular)
             let otherWeightKey = GlyphKey(character: "A", fontFamily: "Segoe UI", fontSize: 16, weight: .bold)
-            let faceOneKey = GlyphKey(glyphID: 77, fontFaceID: 1, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
-            let faceTwoKey = GlyphKey(glyphID: 77, fontFaceID: 2, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+            let faceOneKey = GlyphKey(
+                glyphID: 77, fontFaceID: 1, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
+            let faceTwoKey = GlyphKey(
+                glyphID: 77, fontFaceID: 2, fontFamily: "Segoe UI", fontSize: 16, weight: .regular)
 
             let entries = [
-                cache.insert(key: characterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: otherCharacterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: otherFamilyKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: otherSizeKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: otherWeightKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: faceOneKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
-                cache.insert(key: faceTwoKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: characterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: otherCharacterKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: otherFamilyKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: otherSizeKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: otherWeightKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: faceOneKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
+                cache.insert(
+                    key: faceTwoKey, pixels: pixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4),
             ]
 
             XCTAssertEqual(entries.count, 7)
             XCTAssertFalse(entries.contains(where: { $0 == nil }))
 
-            let atlasPositions = Set(entries.compactMap { entry in
-                entry.map { "\($0.atlasX),\($0.atlasY)" }
-            })
+            let atlasPositions = Set(
+                entries.compactMap { entry in
+                    entry.map { "\($0.atlasX),\($0.atlasY)" }
+                })
             XCTAssertEqual(atlasPositions.count, 7)
             XCTAssertEqual(cache.lookup(characterKey), entries[0])
         }
@@ -413,7 +439,9 @@ final class GlyphAtlasTests: XCTestCase {
             let firstKey = GlyphKey(character: "A", fontFamily: "F", fontSize: 16, weight: .regular)
             let secondKey = GlyphKey(character: "B", fontFamily: "F", fontSize: 16, weight: .regular)
 
-            XCTAssertNotNil(cache.insert(key: firstKey, pixels: fullAtlasPixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4))
+            XCTAssertNotNil(
+                cache.insert(
+                    key: firstKey, pixels: fullAtlasPixels, width: 4, height: 4, bearingX: 0, bearingY: 0, advance: 4))
             atlas.markClean()
 
             let recoveredEntry = cache.insert(
@@ -427,7 +455,8 @@ final class GlyphAtlasTests: XCTestCase {
             )
 
             XCTAssertNotNil(recoveredEntry, "Atlas exhaustion should recover so new glyphs are not dropped")
-            XCTAssertNil(cache.lookup(firstKey), "Recovery should clear stale atlas-backed entries that no longer exist")
+            XCTAssertNil(
+                cache.lookup(firstKey), "Recovery should clear stale atlas-backed entries that no longer exist")
             XCTAssertNotNil(cache.lookup(secondKey))
             XCTAssertEqual(atlas.dirtyRegion, GlyphAtlasRegion(x: 0, y: 0, width: 4, height: 4))
         }
@@ -485,7 +514,8 @@ final class GlyphAtlasTests: XCTestCase {
         await MainActor.run {
             let pixels = Data(count: 4)
             for i: UInt32 in 0..<5 {
-                let key = GlyphKey(character: Character(Unicode.Scalar(65 + i)!), fontFamily: "F", fontSize: 16, weight: .regular)
+                let key = GlyphKey(
+                    character: Character(Unicode.Scalar(65 + i)!), fontFamily: "F", fontSize: 16, weight: .regular)
                 _ = cache.insert(key: key, pixels: pixels, width: 1, height: 1, bearingX: 0, bearingY: 0, advance: 1)
             }
 

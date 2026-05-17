@@ -1,4 +1,5 @@
 import SwiftWindowsCore
+
 import WinSDK
 
 private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?, _: UInt8) {
@@ -9,7 +10,6 @@ private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?,
     let hwndValue = HWND(bitPattern: Int(bitPattern: param))
     PostMessageW(hwndValue, UINT(WM_TIMER), WPARAM(1), 0)
 }
-
 @MainActor
 public protocol WindowDelegate: AnyObject {
     func windowDidCreate(_ window: Win32Window)
@@ -41,38 +41,36 @@ public protocol WindowDelegate: AnyObject {
     func window(_ window: Win32Window, touchMoved points: [Point])
     func window(_ window: Win32Window, touchEnded points: [Point])
 }
-
-public extension WindowDelegate {
-    func windowDidCreate(_ window: Win32Window) {}
-    func window(_ window: Win32Window, didResizeTo size: IntSize) {}
-    func windowNeedsDisplay(_ window: Win32Window) {}
-    func window(_ window: Win32Window, animationFrameAt timestamp: Double) {}
-    func window(_ window: Win32Window, pointerMovedTo point: Point) {}
-    func windowPointerDidLeave(_ window: Win32Window) {}
-    func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {}
-    func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
-    func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
-    func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
-    func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
-    func windowWillClose(_ window: Win32Window) {}
-    func windowDidChangeDisplay(_ window: Win32Window) {}
-    func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {}
-    func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {}
-    func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent) {}
-    func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {}
-    func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {}
-    func windowDidChangeSystemSettings(_ window: Win32Window) {}
-    func window(_ window: Win32Window, middleMouseDownAt point: Point) {}
-    func window(_ window: Win32Window, middleMouseUpAt point: Point) {}
-    func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool) {}
-    func window(_ window: Win32Window, imeCompositionString text: String) {}
-    func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool) {}
-    func window(_ window: Win32Window, imeChar character: UInt32) {}
-    func window(_ window: Win32Window, touchBegan points: [Point]) {}
-    func window(_ window: Win32Window, touchMoved points: [Point]) {}
-    func window(_ window: Win32Window, touchEnded points: [Point]) {}
+extension WindowDelegate {
+    public func windowDidCreate(_ window: Win32Window) {}
+    public func window(_ window: Win32Window, didResizeTo size: IntSize) {}
+    public func windowNeedsDisplay(_ window: Win32Window) {}
+    public func window(_ window: Win32Window, animationFrameAt timestamp: Double) {}
+    public func window(_ window: Win32Window, pointerMovedTo point: Point) {}
+    public func windowPointerDidLeave(_ window: Win32Window) {}
+    public func window(_ window: Win32Window, mouseWheelAt point: Point, delta: Double) {}
+    public func window(_ window: Win32Window, leftMouseDownAt point: Point) {}
+    public func window(_ window: Win32Window, leftMouseUpAt point: Point) {}
+    public func window(_ window: Win32Window, keyDown event: KeyboardEvent) {}
+    public func windowDidLoseKeyboardFocus(_ window: Win32Window) {}
+    public func windowWillClose(_ window: Win32Window) {}
+    public func windowDidChangeDisplay(_ window: Win32Window) {}
+    public func windowDidChangeActiveState(_ window: Win32Window, isActive: Bool) {}
+    public func windowDidReceiveRightClick(_ window: Win32Window, event: MouseEvent) {}
+    public func windowDidReceiveDoubleClick(_ window: Win32Window, event: MouseEvent) {}
+    public func window(_ window: Win32Window, horizontalScrollAt point: Point, delta: Double) {}
+    public func windowDidChangeVisibility(_ window: Win32Window, isVisible: Bool) {}
+    public func windowDidChangeSystemSettings(_ window: Win32Window) {}
+    public func window(_ window: Win32Window, middleMouseDownAt point: Point) {}
+    public func window(_ window: Win32Window, middleMouseUpAt point: Point) {}
+    public func window(_ window: Win32Window, imeCompositionStarted placeholder: Bool) {}
+    public func window(_ window: Win32Window, imeCompositionString text: String) {}
+    public func window(_ window: Win32Window, imeCompositionEnded placeholder: Bool) {}
+    public func window(_ window: Win32Window, imeChar character: UInt32) {}
+    public func window(_ window: Win32Window, touchBegan points: [Point]) {}
+    public func window(_ window: Win32Window, touchMoved points: [Point]) {}
+    public func window(_ window: Win32Window, touchEnded points: [Point]) {}
 }
-
 public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
     public let operation: String
     public let code: DWORD
@@ -86,7 +84,6 @@ public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
         "\(operation) failed with Win32 error code \(code)."
     }
 }
-
 @MainActor
 public final class Win32Window {
     public weak var delegate: WindowDelegate?
@@ -260,8 +257,8 @@ public final class Win32Window {
         if enabled {
             let configuration = animationTimerConfiguration(requestedInterval: intervalMilliseconds)
             if isAnimationTimerRunning,
-               animationTimerIntervalMilliseconds == configuration.intervalMilliseconds,
-               animationTimerUsesHighResolution == configuration.useHighResolution
+                animationTimerIntervalMilliseconds == configuration.intervalMilliseconds,
+                animationTimerUsesHighResolution == configuration.useHighResolution
             {
                 return
             }
@@ -344,11 +341,15 @@ public final class Win32Window {
         var monitorInfoEx = MONITORINFOEXW()
         monitorInfoEx.cbSize = DWORD(MemoryLayout<MONITORINFOEXW>.size)
 
-        guard withUnsafeMutablePointer(to: &monitorInfoEx, {
-            $0.withMemoryRebound(to: MONITORINFO.self, capacity: 1) {
-                GetMonitorInfoW(monitor, $0)
-            }
-        }) else {
+        guard
+            withUnsafeMutablePointer(
+                to: &monitorInfoEx,
+                {
+                    $0.withMemoryRebound(to: MONITORINFO.self, capacity: 1) {
+                        GetMonitorInfoW(monitor, $0)
+                    }
+                })
+        else {
             return 60
         }
 
@@ -467,7 +468,8 @@ public final class Win32Window {
             return 0
 
         case UINT(WM_DPICHANGED):
-            if let suggestedRect = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: RECT.self) {
+            if let suggestedRect = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: RECT.self)
+            {
                 SetWindowPos(
                     hwnd,
                     nil,
@@ -866,7 +868,7 @@ public final class Win32Window {
         KeyboardEvent(
             keyCode: UInt32(truncatingIfNeeded: wParam),
             modifiers: currentKeyboardModifiers(),
-            isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x40000000) != 0
+            isRepeat: (UInt(truncatingIfNeeded: lParam) & 0x4000_0000) != 0
         )
     }
 
@@ -916,9 +918,11 @@ public final class Win32Window {
         }
     }
 
-    private static let windowProc: WNDPROC = { (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
+    private static let windowProc: WNDPROC = {
+        (hwnd: HWND?, message: UINT, wParam: WPARAM, lParam: LPARAM) -> LRESULT in
         if message == UINT(WM_NCCREATE) {
-            let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(to: CREATESTRUCTW.self)
+            let createStructure = UnsafeMutableRawPointer(bitPattern: Int(lParam))?.assumingMemoryBound(
+                to: CREATESTRUCTW.self)
             let rawSelf = createStructure?.pointee.lpCreateParams
 
             if let rawSelf {
@@ -935,7 +939,6 @@ public final class Win32Window {
         return DefWindowProcW(hwnd, message, wParam, lParam)
     }
 }
-
 @MainActor
 public enum Win32Application {
     @discardableResult
@@ -958,7 +961,6 @@ public enum Win32Application {
         return Int32(truncatingIfNeeded: message.wParam)
     }
 }
-
 @MainActor
 private enum Win32HighDpiSupport {
     private static var didConfigure = false
@@ -1011,7 +1013,7 @@ private enum Win32HighDpiSupport {
         typealias Proc = @convention(c) (Int32) -> HRESULT
         let function = unsafeBitCast(symbol, to: Proc.self)
         let result = function(perMonitorAware)
-        return result >= 0 || result == HRESULT(bitPattern: 0x80070005)
+        return result >= 0 || result == HRESULT(bitPattern: 0x8007_0005)
     }
 
     private static func setProcessDPIAware() -> Bool {
@@ -1037,9 +1039,8 @@ private enum Win32HighDpiSupport {
         }
     }
 }
-
-private extension String {
-    func withWideChars<Result>(_ body: (UnsafePointer<WCHAR>) throws -> Result) rethrows -> Result {
+extension String {
+    fileprivate func withWideChars<Result>(_ body: (UnsafePointer<WCHAR>) throws -> Result) rethrows -> Result {
         var characters = Array(utf16)
         characters.append(0)
 

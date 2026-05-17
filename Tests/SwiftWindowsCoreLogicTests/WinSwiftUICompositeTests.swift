@@ -1,7 +1,8 @@
-import XCTest
 import Foundation
 import SwiftWindowsCore
 import SwiftWindowsGraphics
+import XCTest
+
 @testable import SwiftWindowsUI
 @testable import WinSwiftUI
 

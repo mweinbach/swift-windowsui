@@ -1,9 +1,13 @@
 // Gap 13: Image/asset loading -- loads WIC-supported files to BitmapSurface.
 
 import CDirect2DInterop
+
 import Foundation
+
 import SwiftWindowsCore
+
 import SwiftWindowsGraphics
+
 import WinSDK
 
 @MainActor

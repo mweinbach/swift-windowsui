@@ -43,11 +43,11 @@ struct BitmapPNGTests {
         // Build a 2x2 BGRA bitmap: red, green, blue, white
         var pixels: [UInt8] = []
         // Row 0: red (BGRA = 00 00 FF FF), green (00 FF 00 FF)
-        pixels.append(contentsOf: [0x00, 0x00, 0xFF, 0xFF]) // red
-        pixels.append(contentsOf: [0x00, 0xFF, 0x00, 0xFF]) // green
+        pixels.append(contentsOf: [0x00, 0x00, 0xFF, 0xFF])  // red
+        pixels.append(contentsOf: [0x00, 0xFF, 0x00, 0xFF])  // green
         // Row 1: blue (FF 00 00 FF), white (FF FF FF FF)
-        pixels.append(contentsOf: [0xFF, 0x00, 0x00, 0xFF]) // blue
-        pixels.append(contentsOf: [0xFF, 0xFF, 0xFF, 0xFF]) // white
+        pixels.append(contentsOf: [0xFF, 0x00, 0x00, 0xFF])  // blue
+        pixels.append(contentsOf: [0xFF, 0xFF, 0xFF, 0xFF])  // white
 
         let bitmap = BitmapSurface(
             width: 2,

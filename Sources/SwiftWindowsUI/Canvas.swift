@@ -135,7 +135,10 @@ extension Path {
             case .cubicCurveTo(let c1, let c2, let end):
                 segments.append(.cubicCurveTo(control1: c1, control2: c2, end: end))
             case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                segments.append(.arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
+                segments.append(
+                    .arc(
+                        center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise
+                    ))
             case .close:
                 segments.append(.close)
             }
@@ -164,32 +167,38 @@ extension CanvasGraphicsContext {
             case .fillPath(let path, let color):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
-                commands.append(.fillPath(FillPathCommand(
-                    path: path.translated(by: origin),
-                    color: effectiveColor,
-                    clipRect: currentClip
-                )))
+                commands.append(
+                    .fillPath(
+                        FillPathCommand(
+                            path: path.translated(by: origin),
+                            color: effectiveColor,
+                            clipRect: currentClip
+                        )))
 
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
-                commands.append(.strokePath(StrokePathCommand(
-                    path: path.translated(by: origin),
-                    color: effectiveColor,
-                    style: style,
-                    clipRect: currentClip
-                )))
+                commands.append(
+                    .strokePath(
+                        StrokePathCommand(
+                            path: path.translated(by: origin),
+                            color: effectiveColor,
+                            style: style,
+                            clipRect: currentClip
+                        )))
 
             case .fillRect(let rect, let color):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0 else { continue }
                 if baseClipAllowsDrawing(baseClip: currentClip, rect: effectiveRect) {
-                    commands.append(.fillRect(FillRectCommand(
-                        rect: effectiveRect,
-                        color: effectiveColor,
-                        clipRect: currentClip
-                    )))
+                    commands.append(
+                        .fillRect(
+                            FillRectCommand(
+                                rect: effectiveRect,
+                                color: effectiveColor,
+                                clipRect: currentClip
+                            )))
                 }
 
             case .strokeRect(let rect, let color, let lineWidth):
@@ -197,11 +206,13 @@ extension CanvasGraphicsContext {
                 let effectiveColor = color.multipliedAlpha(by: opacity)
                 guard effectiveColor.alpha > 0, lineWidth > 0 else { continue }
                 if baseClipAllowsDrawing(baseClip: currentClip, rect: effectiveRect) {
-                    commands.append(.fillRect(FillRectCommand(
-                        rect: effectiveRect,
-                        color: effectiveColor,
-                        clipRect: currentClip
-                    )))
+                    commands.append(
+                        .fillRect(
+                            FillRectCommand(
+                                rect: effectiveRect,
+                                color: effectiveColor,
+                                clipRect: currentClip
+                            )))
                 }
 
             case .drawText(let text, let rect, let style):
@@ -224,12 +235,14 @@ extension CanvasGraphicsContext {
                 let effectiveOpacity = opacity * imageOpacity
                 guard effectiveOpacity > 0 else { continue }
                 if baseClipAllowsDrawing(baseClip: currentClip, rect: effectiveRect) {
-                    commands.append(.drawBitmap(DrawBitmapCommand(
-                        rect: effectiveRect,
-                        bitmap: bitmap,
-                        opacity: effectiveOpacity,
-                        clipRect: currentClip
-                    )))
+                    commands.append(
+                        .drawBitmap(
+                            DrawBitmapCommand(
+                                rect: effectiveRect,
+                                bitmap: bitmap,
+                                opacity: effectiveOpacity,
+                                clipRect: currentClip
+                            )))
                 }
 
             case .pushClip(let rect):

@@ -1,3 +1,15 @@
+// MARK: - Affine Matrix
+
+/// A 3x2 affine transformation matrix representing:
+///   | a  b  0 |
+///   | c  d  0 |
+///   | tx ty 1 |
+
+// MARK: - Transform2D
+
+// MARK: - Math Helpers
+
+// Wrappers to call C math functions available via the Swift runtime.
 public struct IntSize: Equatable, Sendable {
     public var width: Int32
     public var height: Int32
@@ -9,9 +21,7 @@ public struct IntSize: Equatable, Sendable {
 
     public static let zero = IntSize(width: 0, height: 0)
 }
-
 public typealias CGSize = Size
-
 public struct Point: Equatable, Sendable {
     public var x: Double
     public var y: Double
@@ -55,7 +65,6 @@ public struct Point: Equatable, Sendable {
 
     public static let zero = Point(x: 0, y: 0)
 }
-
 public struct Size: Equatable, Sendable {
     public var width: Double
     public var height: Double
@@ -79,7 +88,6 @@ public struct Size: Equatable, Sendable {
 
     public static let zero = Size(width: 0, height: 0)
 }
-
 public struct Rect: Equatable, Sendable {
     public var origin: Point
     public var size: Size
@@ -179,8 +187,6 @@ public struct Rect: Equatable, Sendable {
 
     public static let zero = Rect(origin: .zero, size: .zero)
 }
-
-
 public enum Edge: Sendable, Equatable, Hashable {
     case top
     case leading
@@ -199,7 +205,6 @@ public enum Edge: Sendable, Equatable, Hashable {
         public static let vertical: Set = [.top, .bottom]
     }
 }
-
 public struct EdgeInsets: Equatable, Sendable {
     public var top: Double
     public var leading: Double
@@ -215,7 +220,6 @@ public struct EdgeInsets: Equatable, Sendable {
 
     public static let zero = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
 }
-
 public struct Color: Equatable, Sendable {
     public var red: Float
     public var green: Float
@@ -248,6 +252,7 @@ public struct Color: Equatable, Sendable {
     public static let primary = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let secondary = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
     public static let highContrastSecondary = Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
+    // swift-format-ignore: DontRepeatTypeInStaticProperties
     public static let accentColor = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
 
     public init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1) {
@@ -257,14 +262,34 @@ public struct Color: Equatable, Sendable {
         let c = brightness * saturation
         let x = c * (1 - abs((hueDegrees / 60).truncatingRemainder(dividingBy: 2) - 1))
         let m = brightness - c
-        var r: Double = 0, g: Double = 0, b: Double = 0
+        var r: Double = 0
+        var g: Double = 0
+        var b: Double = 0
         switch hueDegrees {
-        case 0..<60: r = c; g = x; b = 0
-        case 60..<120: r = x; g = c; b = 0
-        case 120..<180: r = 0; g = c; b = x
-        case 180..<240: r = 0; g = x; b = c
-        case 240..<300: r = x; g = 0; b = c
-        default: r = c; g = 0; b = x
+        case 0..<60:
+            r = c
+            g = x
+            b = 0
+        case 60..<120:
+            r = x
+            g = c
+            b = 0
+        case 120..<180:
+            r = 0
+            g = c
+            b = x
+        case 180..<240:
+            r = 0
+            g = x
+            b = c
+        case 240..<300:
+            r = x
+            g = 0
+            b = c
+        default:
+            r = c
+            g = 0
+            b = x
         }
         self.init(red: Float(r + m), green: Float(g + m), blue: Float(b + m), alpha: Float(opacity))
     }
@@ -342,11 +367,9 @@ public struct Color: Equatable, Sendable {
         Resolved(red: red, green: green, blue: blue, opacity: alpha)
     }
 }
-
 public struct CGColor: Sendable, Equatable {
     public init() {}
 }
-
 public struct NativeWindowHandle: Equatable, Sendable {
     public let rawValue: UInt
 
@@ -362,7 +385,6 @@ public struct NativeWindowHandle: Equatable, Sendable {
         UnsafeMutableRawPointer(bitPattern: rawValue)
     }
 }
-
 public struct SurfaceDescriptor: Equatable, Sendable {
     public var windowHandle: NativeWindowHandle
     public var pixelSize: IntSize
@@ -374,13 +396,6 @@ public struct SurfaceDescriptor: Equatable, Sendable {
         self.scaleFactor = scaleFactor
     }
 }
-
-// MARK: - Affine Matrix
-
-/// A 3x2 affine transformation matrix representing:
-///   | a  b  0 |
-///   | c  d  0 |
-///   | tx ty 1 |
 public struct AffineMatrix: Equatable, Sendable {
     public var a: Double
     public var b: Double
@@ -425,9 +440,6 @@ public struct AffineMatrix: Equatable, Sendable {
         )
     }
 }
-
-// MARK: - Transform2D
-
 private func _snapDecomposedValue(_ value: Double) -> Double {
     let rounded = value.rounded()
     if abs(value - rounded) < 1e-12 {
@@ -438,7 +450,6 @@ private func _snapDecomposedValue(_ value: Double) -> Double {
     }
     return value
 }
-
 public struct Transform2D: Equatable, Sendable {
     public var translationX: Double
     public var translationY: Double
@@ -605,36 +616,36 @@ public struct Transform2D: Equatable, Sendable {
     }
 }
 
-// MARK: - Math Helpers
-
-// Wrappers to call C math functions available via the Swift runtime.
 #if canImport(Darwin)
-import Darwin
+    import Darwin
 #elseif canImport(Glibc)
-import Glibc
+    import Glibc
 #elseif canImport(ucrt)
-import ucrt
+    import ucrt
 #elseif canImport(CRT)
-import CRT
+    import CRT
 #endif
-
-@usableFromInline
-internal func _sin(_ x: Double) -> Double { sin(x) }
-
-@usableFromInline
-internal func _cos(_ x: Double) -> Double { cos(x) }
-
-@usableFromInline
-internal func _tan(_ x: Double) -> Double { tan(x) }
-
-@usableFromInline
-internal func _atan2(_ y: Double, _ x: Double) -> Double { atan2(y, x) }
-
-@usableFromInline
-internal func _acos(_ x: Double) -> Double { acos(x) }
 
 // MARK: - Path
 
+// MARK: - Path Builder (Functional)
+
+// MARK: - Angle
+
+// MARK: - FillStyle
+
+// MARK: - StrokeStyle
+
+@usableFromInline
+internal func _sin(_ x: Double) -> Double { sin(x) }
+@usableFromInline
+internal func _cos(_ x: Double) -> Double { cos(x) }
+@usableFromInline
+internal func _tan(_ x: Double) -> Double { tan(x) }
+@usableFromInline
+internal func _atan2(_ y: Double, _ x: Double) -> Double { atan2(y, x) }
+@usableFromInline
+internal func _acos(_ x: Double) -> Double { acos(x) }
 public enum PathElement: Equatable, Sendable {
     case moveTo(Point)
     case lineTo(Point)
@@ -643,7 +654,6 @@ public enum PathElement: Equatable, Sendable {
     case arc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool)
     case close
 }
-
 public struct Path: Equatable, Sendable {
     public typealias Element = PathElement
     public private(set) var elements: [PathElement]
@@ -701,8 +711,11 @@ public struct Path: Equatable, Sendable {
     }
 
     @discardableResult
-    public mutating func arc(center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool = false) -> Path {
-        elements.append(.arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
+    public mutating func arc(
+        center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool = false
+    ) -> Path {
+        elements.append(
+            .arc(center: center, radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise))
         return self
     }
 
@@ -838,7 +851,9 @@ public struct Path: Equatable, Sendable {
     }
 
     public mutating func addRelativeArc(center: Point, radius: Double, startAngle: Angle, delta: Angle) {
-        arc(center: center, radius: radius, startAngle: startAngle.radians, endAngle: startAngle.radians + delta.radians)
+        arc(
+            center: center, radius: radius, startAngle: startAngle.radians, endAngle: startAngle.radians + delta.radians
+        )
     }
 
     public mutating func addArc(tangent1End: Point, tangent2End: Point, radius: Double) {
@@ -906,7 +921,9 @@ public struct Path: Equatable, Sendable {
                 case .cubicCurveTo(let c1, let c2, let p):
                     path.addCurve(to: transform.apply(p), control1: transform.apply(c1), control2: transform.apply(c2))
                 case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                    path.arc(center: transform.apply(center), radius: radius, startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
+                    path.arc(
+                        center: transform.apply(center), radius: radius, startAngle: startAngle, endAngle: endAngle,
+                        clockwise: clockwise)
                 case .close:
                     path.closeSubpath()
                 }
@@ -918,7 +935,6 @@ public struct Path: Equatable, Sendable {
         CGPath()
     }
 }
-
 public struct CGAffineTransform: Sendable, Equatable {
     public var a: Double
     public var b: Double
@@ -983,30 +999,26 @@ public struct CGAffineTransform: Sendable, Equatable {
         Point(x: a * point.x + c * point.y + tx, y: b * point.x + d * point.y + ty)
     }
 }
-
 extension Transform2D {
     public init(_ cgTransform: CGAffineTransform) {
-        self.init(fromMatrix: AffineMatrix(
-            a: cgTransform.a,
-            b: cgTransform.b,
-            c: cgTransform.c,
-            d: cgTransform.d,
-            tx: cgTransform.tx,
-            ty: cgTransform.ty
-        ))
+        self.init(
+            fromMatrix: AffineMatrix(
+                a: cgTransform.a,
+                b: cgTransform.b,
+                c: cgTransform.c,
+                d: cgTransform.d,
+                tx: cgTransform.tx,
+                ty: cgTransform.ty
+            ))
     }
 
     public func concatenating(_ other: CGAffineTransform) -> Transform2D {
         concatenating(Transform2D(other))
     }
 }
-
 public struct CGPath: Sendable, Equatable {
     public init() {}
 }
-
-// MARK: - Path Builder (Functional)
-
 extension Path {
     public static func build(_ builder: (inout Path) -> Void) -> Path {
         var path = Path()
@@ -1014,9 +1026,6 @@ extension Path {
         return path
     }
 }
-
-// MARK: - Angle
-
 public struct Angle: Sendable, Equatable {
     public var radians: Double
 
@@ -1042,9 +1051,6 @@ public struct Angle: Sendable, Equatable {
 
     public static let zero = Angle(radians: 0)
 }
-
-// MARK: - FillStyle
-
 public struct FillStyle: Sendable, Equatable {
     public var isEOFilled: Bool
     public var isAntialiased: Bool
@@ -1054,9 +1060,6 @@ public struct FillStyle: Sendable, Equatable {
         self.isAntialiased = antialiased
     }
 }
-
-// MARK: - StrokeStyle
-
 public struct StrokeStyle: Equatable, Sendable {
     public var lineWidth: Double
     public var dashPattern: [Double]
@@ -1094,7 +1097,6 @@ public struct StrokeStyle: Equatable, Sendable {
         case bevel
     }
 }
-
 public struct WindowTitleBarVisibility: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         case visible

@@ -79,12 +79,14 @@ public struct GPUILayerBatchIterator: IteratorProtocol, Sendable {
             heads.append((pathOrderings[pathsStart].order, .path))
         }
 
-        guard let current = heads.min(by: {
-            if $0.order != $1.order {
-                return $0.order < $1.order
-            }
-            return $0.kind.sortRank < $1.kind.sortRank
-        }) else {
+        guard
+            let current = heads.min(by: {
+                if $0.order != $1.order {
+                    return $0.order < $1.order
+                }
+                return $0.kind.sortRank < $1.kind.sortRank
+            })
+        else {
             return nil
         }
 
@@ -231,11 +233,12 @@ struct GPUIBoundsTree: Sendable {
             let rootOrder = nodes[root].maxOrder
             let children = orderedChildren(first: root, firstOrder: rootOrder, second: newLeafIndex, secondOrder: order)
             let newRootIndex = nodes.count
-            nodes.append(Node(
-                bounds: rootBounds.union(bounds),
-                maxOrder: max(rootOrder, order),
-                kind: .internalNode(children: children)
-            ))
+            nodes.append(
+                Node(
+                    bounds: rootBounds.union(bounds),
+                    maxOrder: max(rootOrder, order),
+                    kind: .internalNode(children: children)
+                ))
             self.root = newRootIndex
             return newLeafIndex
         }
@@ -278,16 +281,18 @@ struct GPUIBoundsTree: Sendable {
                 let siblingBounds = nodes[bestChildIndex].bounds
                 let siblingOrder = nodes[bestChildIndex].maxOrder
                 let newInternalIndex = nodes.count
-                nodes.append(Node(
-                    bounds: siblingBounds.union(bounds),
-                    maxOrder: max(siblingOrder, order),
-                    kind: .internalNode(children: orderedChildren(
-                        first: bestChildIndex,
-                        firstOrder: siblingOrder,
-                        second: newLeafIndex,
-                        secondOrder: order
+                nodes.append(
+                    Node(
+                        bounds: siblingBounds.union(bounds),
+                        maxOrder: max(siblingOrder, order),
+                        kind: .internalNode(
+                            children: orderedChildren(
+                                first: bestChildIndex,
+                                firstOrder: siblingOrder,
+                                second: newLeafIndex,
+                                secondOrder: order
+                            ))
                     ))
-                ))
 
                 var updatedChildren = children
                 updatedChildren[bestChildPosition] = newInternalIndex
@@ -355,12 +360,12 @@ struct GPUIBoundsTree: Sendable {
     }
 }
 
-private extension Rect {
-    func intersects(_ other: Rect) -> Bool {
+extension Rect {
+    fileprivate func intersects(_ other: Rect) -> Bool {
         intersected(with: other) != nil
     }
 
-    func union(_ other: Rect) -> Rect {
+    fileprivate func union(_ other: Rect) -> Rect {
         guard !isEmpty else { return other }
         guard !other.isEmpty else { return self }
         let left = min(minX, other.minX)
@@ -370,7 +375,7 @@ private extension Rect {
         return Rect(x: left, y: top, width: right - left, height: bottom - top)
     }
 
-    var halfPerimeter: Double {
+    fileprivate var halfPerimeter: Double {
         size.width + size.height
     }
 }

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+
 @testable import SwiftWindowsCore
 @testable import SwiftWindowsGraphics
 @testable import SwiftWindowsUI
@@ -99,7 +100,7 @@ struct ScenePainterTests {
         let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
 
         let totalQuads = scene.layers.reduce(0) { $0 + $1.quads.count }
-        #expect(totalQuads == 4) // parent + 3 children
+        #expect(totalQuads == 4)  // parent + 3 children
     }
 
     // MARK: - Z-index layering
@@ -206,7 +207,7 @@ struct ScenePainterTests {
         let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
 
         let totalQuads = scene.layers.reduce(0) { $0 + $1.quads.count }
-        #expect(totalQuads == 2) // parent + child
+        #expect(totalQuads == 2)  // parent + child
 
         // The child quad's clip should be constrained to the intersection of
         // the parent frame and the surface clip (i.e., the parent frame).
@@ -289,12 +290,10 @@ struct ScenePainterTests {
         #expect(quads[0].height == 2)
         #expect(!quads.contains { $0.x == 0 && $0.y == 0 && $0.width == 20 && $0.height == 10 })
 
-        #expect(quads.contains { quad in
-            quad.x == 2 &&
-                quad.y == 2 &&
-                quad.width == 16 &&
-                quad.height == 6
-        })
+        #expect(
+            quads.contains { quad in
+                quad.x == 2 && quad.y == 2 && quad.width == 16 && quad.height == 6
+            })
     }
 
     @Test("Dashed square border maps round line caps onto segment corner radius")
@@ -669,9 +668,10 @@ struct ScenePainterTests {
 
         #expect(scene.pixelGlyphAtlas != nil)
         #expect(scene.layers[0].glyphs.count + scene.layers[0].pixelGlyphs.count >= 3)
-        #expect(scene.layers[0].pixelGlyphs.contains(where: {
-            $0.atlasU0 == uv.u0 && $0.atlasV0 == uv.v0 && $0.atlasU1 == uv.u1 && $0.atlasV1 == uv.v1
-        }))
+        #expect(
+            scene.layers[0].pixelGlyphs.contains(where: {
+                $0.atlasU0 == uv.u0 && $0.atlasV0 == uv.v0 && $0.atlasU1 == uv.u1 && $0.atlasV1 == uv.v1
+            }))
     }
 
     @Test("Native text layout failure falls back to pixel glyphs without dropping scene text - VAL-TEXT-009")
@@ -711,7 +711,9 @@ struct ScenePainterTests {
         expectAtlasSilent(scene)
     }
 
-    @Test("Fully clipped native text, including padding-only clip intersections, does not dirty or attach the native atlas - VAL-TEXT-010")
+    @Test(
+        "Fully clipped native text, including padding-only clip intersections, does not dirty or attach the native atlas - VAL-TEXT-010"
+    )
     func fullyClippedNativeTextStaysAtlasSilent() {
         defer {
             NativeTextRenderer.resetTestingOverrides()
@@ -798,7 +800,7 @@ struct ScenePainterTests {
                                 weight: style.weight,
                                 fontSize: style.nativeFontPixelSize,
                                 sourceIndex: nil
-                            )
+                            ),
                         ]
                     )
                 ],
@@ -1128,7 +1130,7 @@ struct ScenePainterTests {
         let initialQuadRects = sceneFillRects(in: initialScene)
         _ = sceneQuadColors(in: initialScene)
 
-        #expect(initialQuadRects.count >= 4) // left content, right content, 2 indicators
+        #expect(initialQuadRects.count >= 4)  // left content, right content, 2 indicators
 
         // Mutate right content to trigger replay of left subtree
         rightContent.backgroundColor = Color(red: 0.2, green: 0.5, blue: 0.8, alpha: 1)
@@ -1295,5 +1297,155 @@ struct ScenePainterTests {
             bearingY: 0,
             advance: 1
         )
+    }
+
+    // MARK: - Canvas custom drawing
+
+    @Test("Canvas fillRect operations emit scene quads in the node's local space")
+    func canvasFillRectEmitsQuads() {
+        let node = ViewNode(
+            frame: Rect(x: 30, y: 40, width: 200, height: 100),
+            canvasDraw: { ctx, size in
+                ctx.fill(
+                    Rect(x: 10, y: 20, width: 50, height: 25),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+                _ = size
+            }
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].quads.count == 1)
+        let quad = scene.layers[0].quads[0]
+        // Canvas-local (10, 20) translated by node frame origin (30, 40)
+        #expect(quad.x == 40)
+        #expect(quad.y == 60)
+        #expect(quad.width == 50)
+        #expect(quad.height == 25)
+        #expect(quad.startR == 1)
+        #expect(quad.startG == 0)
+        #expect(quad.startB == 0)
+        #expect(quad.startA == 1)
+    }
+
+    @Test("Canvas fillPath emits a scene path primitive in the node's local space")
+    func canvasFillPathEmitsScenePath() {
+        let node = ViewNode(
+            frame: Rect(x: 100, y: 50, width: 200, height: 200),
+            canvasDraw: { ctx, _ in
+                var path = Path()
+                path.moveTo(Point(x: 10, y: 10))
+                path.lineTo(Point(x: 60, y: 10))
+                path.lineTo(Point(x: 60, y: 60))
+                path.lineTo(Point(x: 10, y: 60))
+                path.close()
+                ctx.fill(path, with: .color(Color(red: 0, green: 1, blue: 0, alpha: 1)))
+            }
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].paths.count == 1)
+        let path = scene.layers[0].paths[0]
+        #expect(path.fillColor.red == 0)
+        #expect(path.fillColor.green == 1)
+        #expect(path.fillColor.blue == 0)
+        #expect(path.fillColor.alpha == 1)
+        #expect(path.strokeColor.alpha == 0)
+        // Bounds translated from canvas-local (10, 10, 50, 50) by frame origin (100, 50)
+        #expect(path.bounds.minX == 110)
+        #expect(path.bounds.minY == 60)
+        #expect(path.bounds.width == 50)
+        #expect(path.bounds.height == 50)
+
+        // First element should be a moveTo at translated coords (110, 60).
+        guard case .moveTo(let firstPoint) = path.elements.first else {
+            Issue.record("Expected first path element to be moveTo")
+            return
+        }
+        #expect(firstPoint.x == 110)
+        #expect(firstPoint.y == 60)
+    }
+
+    @Test("Canvas strokePath emits a scene path with stroke color and width")
+    func canvasStrokePathEmitsStrokedScenePath() {
+        let node = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 200),
+            canvasDraw: { ctx, _ in
+                var path = Path()
+                path.moveTo(Point(x: 10, y: 10))
+                path.lineTo(Point(x: 100, y: 10))
+                ctx.stroke(
+                    path,
+                    with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)),
+                    style: StrokeStyle(lineWidth: 4)
+                )
+            }
+        )
+
+        let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].paths.count == 1)
+        let path = scene.layers[0].paths[0]
+        #expect(path.strokeColor.blue == 1)
+        #expect(path.strokeColor.alpha == 1)
+        #expect(path.fillColor.alpha == 0)
+        #expect(path.lineWidth == 4)
+    }
+
+    @Test("Canvas clip stack intersects with inherited scene clip")
+    func canvasClipStackIntersectsParentClip() {
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 200),
+            clipsToBounds: true
+        )
+        let canvas = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 200),
+            canvasDraw: { ctx, _ in
+                ctx.clip(to: Rect(x: 25, y: 25, width: 60, height: 60))
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 200, height: 200),
+                    with: .color(Color(red: 1, green: 1, blue: 1, alpha: 1))
+                )
+                ctx.popClip()
+            }
+        )
+        parent.addChild(canvas)
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].quads.count == 1)
+        let quad = scene.layers[0].quads[0]
+        // The clip rect should be the canvas pushClip rect, since parent clip
+        // (0,0,200,200) fully contains it.
+        #expect(quad.clipX == 25)
+        #expect(quad.clipY == 25)
+        #expect(quad.clipWidth == 60)
+        #expect(quad.clipHeight == 60)
+    }
+
+    @Test("Canvas drawing inherits parent opacity through scene path")
+    func canvasFillRectInheritsOpacity() {
+        let parent = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 200),
+            opacity: 0.5
+        )
+        let canvas = ViewNode(
+            frame: Rect(x: 0, y: 0, width: 200, height: 200),
+            canvasDraw: { ctx, _ in
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 100, height: 100),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+            }
+        )
+        parent.addChild(canvas)
+
+        let scene = ScenePainter.paint(root: parent, clearColor: .black, surfaceSize: surfaceSize)
+
+        #expect(scene.layers[0].quads.count == 1)
+        let quad = scene.layers[0].quads[0]
+        #expect(quad.startA == 0.5)
     }
 }

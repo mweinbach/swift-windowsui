@@ -7,7 +7,9 @@ import SwiftWindowsGraphics
 @MainActor
 public enum ScenePainter {
 
-    public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0) -> GPUIScene {
+    public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0)
+        -> GPUIScene
+    {
         var replayCount = 0
         var deferredReplayCount = 0
         var deferredDraws: [DeferredDrawState] = []
@@ -98,8 +100,9 @@ public enum ScenePainter {
             )
 
             if usedNativeGlyphs,
-               NativeGlyphAtlas.shared.consumeRecoveryRequest(),
-               attempt == 0 {
+                NativeGlyphAtlas.shared.consumeRecoveryRequest(),
+                attempt == 0
+            {
                 // Atlas recovery invalidates every native glyph UV captured earlier in the pass,
                 // including replayed text ranges. Rebuild once without replay so text rerasterizes
                 // against the recovered atlas before we return the scene.
@@ -273,8 +276,7 @@ public enum ScenePainter {
             return
         }
 
-        if
-            !skipCacheUpdates,
+        if !skipCacheUpdates,
             let previousScene,
             !node.hasDirtySubtree,
             node.cachedSceneKey == cacheKey,
@@ -304,31 +306,33 @@ public enum ScenePainter {
         // Shadow
         let effectiveShadowColor = node.shadowColor.multipliedAlpha(by: opacity)
         if effectiveShadowColor.alpha > 0 {
-            let shadowRect = paintFrame
+            let shadowRect =
+                paintFrame
                 .outset(by: max(0, node.shadowSpread))
                 .offsetBy(dx: node.shadowOffset.x, dy: node.shadowOffset.y)
 
             if clipAllowsDrawing(clip: inheritedClip, rect: shadowRect) {
                 let scaledShadowRect = scaleRect(shadowRect, by: displayScale)
                 let shadowClip = clipRectFloats(inheritedClip, surfaceSize: surfaceSize, displayScale: displayScale)
-                scene.addShadow(ShadowPrimitive(
-                    x: Float(scaledShadowRect.origin.x),
-                    y: Float(scaledShadowRect.origin.y),
-                    width: Float(scaledShadowRect.size.width),
-                    height: Float(scaledShadowRect.size.height),
-                    cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
-                    colorR: effectiveShadowColor.red,
-                    colorG: effectiveShadowColor.green,
-                    colorB: effectiveShadowColor.blue,
-                    colorA: effectiveShadowColor.alpha,
-                    blurRadius: Float(node.shadowSpread * displayScale),
-                    offsetX: Float(node.shadowOffset.x * displayScale),
-                    offsetY: Float(node.shadowOffset.y * displayScale),
-                    clipX: shadowClip.0,
-                    clipY: shadowClip.1,
-                    clipWidth: shadowClip.2,
-                    clipHeight: shadowClip.3
-                ), toLayer: layerIndex)
+                scene.addShadow(
+                    ShadowPrimitive(
+                        x: Float(scaledShadowRect.origin.x),
+                        y: Float(scaledShadowRect.origin.y),
+                        width: Float(scaledShadowRect.size.width),
+                        height: Float(scaledShadowRect.size.height),
+                        cornerRadius: Float((node.cornerRadius + max(0, node.shadowSpread)) * displayScale),
+                        colorR: effectiveShadowColor.red,
+                        colorG: effectiveShadowColor.green,
+                        colorB: effectiveShadowColor.blue,
+                        colorA: effectiveShadowColor.alpha,
+                        blurRadius: Float(node.shadowSpread * displayScale),
+                        offsetX: Float(node.shadowOffset.x * displayScale),
+                        offsetY: Float(node.shadowOffset.y * displayScale),
+                        clipX: shadowClip.0,
+                        clipY: shadowClip.1,
+                        clipWidth: shadowClip.2,
+                        clipHeight: shadowClip.3
+                    ), toLayer: layerIndex)
             }
         }
 
@@ -347,16 +351,17 @@ public enum ScenePainter {
         if node.outlineColor.alpha > 0, node.outlineWidth > 0 {
             let outlineRect = paintFrame.outset(by: node.outlineWidth)
             if clipAllowsDrawing(clip: inheritedClip, rect: outlineRect) {
-                scene.addQuad(solidQuad(
-                rect: outlineRect,
-                cornerRadius: node.cornerRadius + node.outlineWidth,
-                color: node.outlineColor,
-                opacity: opacity,
-                clip: inheritedClip,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                colorEffects: colorEffects
-            ), toLayer: layerIndex)
+                scene.addQuad(
+                    solidQuad(
+                        rect: outlineRect,
+                        cornerRadius: node.cornerRadius + node.outlineWidth,
+                        color: node.outlineColor,
+                        opacity: opacity,
+                        clip: inheritedClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        colorEffects: colorEffects
+                    ), toLayer: layerIndex)
             }
         }
 
@@ -364,8 +369,8 @@ public enum ScenePainter {
         // inset fill leaves the border ring visible).
         let borderColor = node.borderGradient?.startColor ?? node.borderColor
         if borderColor.alpha > 0, node.borderWidth > 0,
-           node.backgroundPath == nil,
-           clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
+            node.backgroundPath == nil,
+            clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
         {
             if let borderSegments = BorderSegments.dashedSegments(
                 frame: paintFrame,
@@ -374,9 +379,26 @@ public enum ScenePainter {
                 strokeStyle: node.borderStrokeStyle
             ) {
                 for segment in borderSegments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
-                    scene.addQuad(fillQuad(
-                        rect: segment.rect,
-                        cornerRadius: segment.cornerRadius,
+                    scene.addQuad(
+                        fillQuad(
+                            rect: segment.rect,
+                            cornerRadius: segment.cornerRadius,
+                            color: borderColor,
+                            gradient: node.borderGradient,
+                            opacity: opacity,
+                            clip: effectiveClip,
+                            surfaceSize: surfaceSize,
+                            displayScale: displayScale,
+                            colorEffects: colorEffects,
+                            clipCornerRadius: effectiveClipCornerRadius,
+                            blendMode: effectiveBlendMode
+                        ), toLayer: layerIndex)
+                }
+            } else {
+                scene.addQuad(
+                    fillQuad(
+                        rect: paintFrame,
+                        cornerRadius: node.cornerRadius,
                         color: borderColor,
                         gradient: node.borderGradient,
                         opacity: opacity,
@@ -387,21 +409,6 @@ public enum ScenePainter {
                         clipCornerRadius: effectiveClipCornerRadius,
                         blendMode: effectiveBlendMode
                     ), toLayer: layerIndex)
-                }
-            } else {
-                scene.addQuad(fillQuad(
-                    rect: paintFrame,
-                    cornerRadius: node.cornerRadius,
-                    color: borderColor,
-                    gradient: node.borderGradient,
-                    opacity: opacity,
-                    clip: effectiveClip,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    colorEffects: colorEffects,
-                    clipCornerRadius: effectiveClipCornerRadius,
-                    blendMode: effectiveBlendMode
-                ), toLayer: layerIndex)
             }
         }
 
@@ -411,9 +418,9 @@ public enum ScenePainter {
 
         let resolvedBGColor = node.backgroundColor ?? node.backgroundGradient?.startColor
         if let bg = resolvedBGColor, bg.alpha > 0,
-           fillRect.size.width > 0, fillRect.size.height > 0,
-           clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
-           node.backgroundPath == nil
+            fillRect.size.width > 0, fillRect.size.height > 0,
+            clipAllowsDrawing(clip: effectiveClip, rect: fillRect),
+            node.backgroundPath == nil
         {
             scene.addQuad(
                 fillQuad(
@@ -436,46 +443,52 @@ public enum ScenePainter {
         }
 
         if let path = node.backgroundPath, fillRect.size.width > 0, fillRect.size.height > 0,
-           clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
             let scaledPath = path.scaled(to: fillRect)
             let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
             let pathBounds = scaledPath.segments.boundingRect ?? fillRect
             if let bg = resolvedBGColor, bg.alpha > 0 {
-                scene.addPath(PathPrimitive(
-                    elements: scaledPath.segments.map { segment in
-                        switch segment {
-                        case .moveTo(let p): return .moveTo(p)
-                        case .lineTo(let p): return .lineTo(p)
-                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                        case .close: return .close
-                        }
-                    },
-                    bounds: pathBounds,
-                    fillColor: bg,
-                    clipBounds: effectiveClip
-                ), toLayer: layerIndex)
+                scene.addPath(
+                    PathPrimitive(
+                        elements: scaledPath.segments.map { segment in
+                            switch segment {
+                            case .moveTo(let p): return .moveTo(p)
+                            case .lineTo(let p): return .lineTo(p)
+                            case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                            case .cubicCurveTo(let c1, let c2, let e):
+                                return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                            case .arc(let c, let r, let s, let e, let cw):
+                                return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                            case .close: return .close
+                            }
+                        },
+                        bounds: pathBounds,
+                        fillColor: bg,
+                        clipBounds: effectiveClip
+                    ), toLayer: layerIndex)
             }
             let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
             if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
-                scene.addPath(PathPrimitive(
-                    elements: scaledPath.segments.map { segment in
-                        switch segment {
-                        case .moveTo(let p): return .moveTo(p)
-                        case .lineTo(let p): return .lineTo(p)
-                        case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
-                        case .cubicCurveTo(let c1, let c2, let e): return .cubicCurveTo(control1: c1, control2: c2, end: e)
-                        case .arc(let c, let r, let s, let e, let cw): return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
-                        case .close: return .close
-                        }
-                    },
-                    bounds: pathBounds,
-                    strokeColor: effectiveStrokeColor,
-                    lineWidth: node.borderWidth,
-                    clipBounds: effectiveClip
-                ), toLayer: layerIndex)
+                scene.addPath(
+                    PathPrimitive(
+                        elements: scaledPath.segments.map { segment in
+                            switch segment {
+                            case .moveTo(let p): return .moveTo(p)
+                            case .lineTo(let p): return .lineTo(p)
+                            case .quadCurveTo(let c, let e): return .quadraticCurveTo(control: c, end: e)
+                            case .cubicCurveTo(let c1, let c2, let e):
+                                return .cubicCurveTo(control1: c1, control2: c2, end: e)
+                            case .arc(let c, let r, let s, let e, let cw):
+                                return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+                            case .close: return .close
+                            }
+                        },
+                        bounds: pathBounds,
+                        strokeColor: effectiveStrokeColor,
+                        lineWidth: node.borderWidth,
+                        clipBounds: effectiveClip
+                    ), toLayer: layerIndex)
             }
         }
 
@@ -491,49 +504,52 @@ public enum ScenePainter {
             )
         }
 
-        let drawsRedactionPlaceholder = node.redactionReasons.contains(.placeholder)
+        let drawsRedactionPlaceholder =
+            node.redactionReasons.contains(.placeholder)
             && (node.bitmapSurface != nil || (node.text?.isEmpty == false))
             && fillRect.size.width > 0
             && fillRect.size.height > 0
             && clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
 
         if drawsRedactionPlaceholder {
-            scene.addQuad(solidQuad(
-                rect: fillRect,
-                cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
-                color: retainedRedactionPlaceholderBaseColor,
-                opacity: opacity,
-                clip: effectiveClip,
-                surfaceSize: surfaceSize,
-                displayScale: displayScale,
-                clipCornerRadius: effectiveClipCornerRadius,
-                blendMode: effectiveBlendMode
-            ), toLayer: layerIndex)
+            scene.addQuad(
+                solidQuad(
+                    rect: fillRect,
+                    cornerRadius: retainedRedactionPlaceholderCornerRadius(for: fillRect),
+                    color: retainedRedactionPlaceholderBaseColor,
+                    opacity: opacity,
+                    clip: effectiveClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    clipCornerRadius: effectiveClipCornerRadius,
+                    blendMode: effectiveBlendMode
+                ), toLayer: layerIndex)
         } else if let bitmapSurface = node.bitmapSurface,
-                  fillRect.size.width > 0, fillRect.size.height > 0,
-                  clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            fillRect.size.width > 0, fillRect.size.height > 0,
+            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
             let scaledFillRect = scaleRect(fillRect, by: displayScale)
             let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
             let textureID = scene.registerImageResource(bitmapSurface)
-            scene.addImage(ImagePrimitive(
-                screenX: Float(scaledFillRect.origin.x),
-                screenY: Float(scaledFillRect.origin.y),
-                screenW: Float(scaledFillRect.size.width),
-                screenH: Float(scaledFillRect.size.height),
-                opacity: opacity,
-                clipX: clipR.0,
-                clipY: clipR.1,
-                clipWidth: clipR.2,
-                clipHeight: clipR.3,
-                textureID: textureID
-            ), toLayer: layerIndex)
+            scene.addImage(
+                ImagePrimitive(
+                    screenX: Float(scaledFillRect.origin.x),
+                    screenY: Float(scaledFillRect.origin.y),
+                    screenW: Float(scaledFillRect.size.width),
+                    screenH: Float(scaledFillRect.size.height),
+                    opacity: opacity,
+                    clipX: clipR.0,
+                    clipY: clipR.1,
+                    clipWidth: clipR.2,
+                    clipHeight: clipR.3,
+                    textureID: textureID
+                ), toLayer: layerIndex)
         }
 
         if !drawsRedactionPlaceholder,
-           let text = node.text, !text.isEmpty,
-           fillRect.size.width > 0, fillRect.size.height > 0,
-           clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+            let text = node.text, !text.isEmpty,
+            fillRect.size.width > 0, fillRect.size.height > 0,
+            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
             let effectiveTextStyle = node.textStyle.multipliedOpacity(by: opacity)
             var nativeGlyphs: [GlyphPrimitive] = []
@@ -563,6 +579,30 @@ public enum ScenePainter {
             }
             usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
             usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
+        }
+
+        // Canvas custom drawing -- mirror the RenderFrame canvasDraw path
+        // (see Runtime.swift) so `Canvas { ctx, size in ... }` content renders
+        // through the default GPUIScene/D3D11 path, not only the frame fallback.
+        if let canvasDraw = node.canvasDraw,
+            fillRect.size.width > 0, fillRect.size.height > 0,
+            clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
+        {
+            var canvasContext = CanvasGraphicsContext()
+            canvasDraw(&canvasContext, fillRect.size)
+            appendCanvasOperations(
+                canvasContext.operations,
+                into: &scene,
+                origin: fillRect.origin,
+                baseClip: effectiveClip,
+                opacity: opacity,
+                layerIndex: layerIndex,
+                surfaceSize: surfaceSize,
+                displayScale: displayScale,
+                textSystem: textSystem,
+                usedNativeGlyphs: &usedNativeGlyphs,
+                usedPixelGlyphs: &usedPixelGlyphs
+            )
         }
 
         // Children -- sort by zIndex (stable) and rely on scene draw orders
@@ -644,18 +684,19 @@ public enum ScenePainter {
             let scaledFrame = scaleRect(paintFrame, by: displayScale)
             let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
             let imageOpacity = primitiveOpacity * Float(node.opacity)
-            scene.addImage(ImagePrimitive(
-                screenX: Float(scaledFrame.origin.x),
-                screenY: Float(scaledFrame.origin.y),
-                screenW: Float(scaledFrame.size.width),
-                screenH: Float(scaledFrame.size.height),
-                opacity: imageOpacity,
-                clipX: clipR.0,
-                clipY: clipR.1,
-                clipWidth: clipR.2,
-                clipHeight: clipR.3,
-                textureID: textureID
-            ), toLayer: layerIndex)
+            scene.addImage(
+                ImagePrimitive(
+                    screenX: Float(scaledFrame.origin.x),
+                    screenY: Float(scaledFrame.origin.y),
+                    screenW: Float(scaledFrame.size.width),
+                    screenH: Float(scaledFrame.size.height),
+                    opacity: imageOpacity,
+                    clipX: clipR.0,
+                    clipY: clipR.1,
+                    clipWidth: clipR.2,
+                    clipHeight: clipR.3,
+                    textureID: textureID
+                ), toLayer: layerIndex)
         } else {
             for child in sortedChildren {
                 if child.paintsInDeferredPhase {
@@ -690,9 +731,9 @@ public enum ScenePainter {
         // the border ring remains visible when child content fills the frame.
         // Uses thin edge segments instead of a full-rect fill.
         if !sortedChildren.isEmpty,
-           borderColor.alpha > 0, node.borderWidth > 0,
-           node.backgroundPath == nil,
-           clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
+            borderColor.alpha > 0, node.borderWidth > 0,
+            node.backgroundPath == nil,
+            clipAllowsDrawing(clip: effectiveClip, rect: paintFrame)
         {
             let segments: [BorderSegment]
             if let dashed = BorderSegments.dashedSegments(
@@ -710,19 +751,20 @@ public enum ScenePainter {
                 )
             }
             for segment in segments where clipAllowsDrawing(clip: effectiveClip, rect: segment.rect) {
-                scene.addQuad(fillQuad(
-                    rect: segment.rect,
-                    cornerRadius: segment.cornerRadius,
-                    color: borderColor,
-                    gradient: node.borderGradient,
-                    opacity: opacity,
-                    clip: effectiveClip,
-                    surfaceSize: surfaceSize,
-                    displayScale: displayScale,
-                    colorEffects: colorEffects,
-                    clipCornerRadius: effectiveClipCornerRadius,
-                    blendMode: effectiveBlendMode
-                ), toLayer: layerIndex)
+                scene.addQuad(
+                    fillQuad(
+                        rect: segment.rect,
+                        cornerRadius: segment.cornerRadius,
+                        color: borderColor,
+                        gradient: node.borderGradient,
+                        opacity: opacity,
+                        clip: effectiveClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale,
+                        colorEffects: colorEffects,
+                        clipCornerRadius: effectiveClipCornerRadius,
+                        blendMode: effectiveBlendMode
+                    ), toLayer: layerIndex)
             }
         }
 
@@ -841,12 +883,200 @@ public enum ScenePainter {
         )
     }
 
+    // MARK: - Canvas
+
+    /// Translate ``CanvasGraphicsContext`` operations recorded by a
+    /// `Canvas { ctx, size in ... }` renderer into scene primitives.  Mirrors
+    /// the ``CanvasGraphicsContext.appendCommands`` path used by
+    /// ``RenderFrame``, so canvas content paints in both the default scene
+    /// pipeline and the legacy frame fallback.
+    private static func appendCanvasOperations(
+        _ operations: [CanvasGraphicsContext.Operation],
+        into scene: inout GPUIScene,
+        origin: Point,
+        baseClip: Rect?,
+        opacity: Float,
+        layerIndex: Int,
+        surfaceSize: Size,
+        displayScale: Double,
+        textSystem: WindowTextSystem,
+        usedNativeGlyphs: inout Bool,
+        usedPixelGlyphs: inout Bool
+    ) {
+        var clipStack: [Rect?] = []
+        var currentClip = baseClip
+
+        for operation in operations {
+            switch operation {
+            case .fillPath(let path, let color):
+                let effectiveColor = color.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0 else { continue }
+                let translated = path.translated(by: origin)
+                guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
+                guard clipAllowsDrawing(clip: currentClip, rect: bounds) else { continue }
+                scene.addPath(
+                    PathPrimitive(
+                        elements: pathElements(from: translated.segments),
+                        bounds: bounds,
+                        fillColor: effectiveColor,
+                        clipBounds: currentClip
+                    ), toLayer: layerIndex)
+
+            case .strokePath(let path, let color, let style):
+                let effectiveColor = color.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0, style.lineWidth > 0 else { continue }
+                let translated = path.translated(by: origin)
+                // Strokes can have a zero-thickness path bounds (e.g. a
+                // single horizontal line), so outset before the empty check
+                // and use the inflated rect for clip/visibility tests.
+                guard let pathBounds = translated.segments.boundingRect else { continue }
+                let strokeBounds = pathBounds.outset(by: style.lineWidth / 2)
+                guard !strokeBounds.isEmpty else { continue }
+                guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
+                scene.addPath(
+                    PathPrimitive(
+                        elements: pathElements(from: translated.segments),
+                        bounds: strokeBounds,
+                        strokeColor: effectiveColor,
+                        lineWidth: style.lineWidth,
+                        clipBounds: currentClip
+                    ), toLayer: layerIndex)
+
+            case .fillRect(let rect, let color):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let effectiveColor = color.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0 else { continue }
+                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                scene.addQuad(
+                    solidQuad(
+                        rect: effectiveRect,
+                        cornerRadius: 0,
+                        color: effectiveColor,
+                        opacity: 1,
+                        clip: currentClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale
+                    ), toLayer: layerIndex)
+
+            case .strokeRect(let rect, let color, let lineWidth):
+                let effectiveColor = color.multipliedAlpha(by: opacity)
+                guard effectiveColor.alpha > 0, lineWidth > 0 else { continue }
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let strokeBounds = effectiveRect.outset(by: lineWidth / 2)
+                guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
+                let outline: [RenderPath.Segment] = [
+                    .moveTo(Point(x: effectiveRect.minX, y: effectiveRect.minY)),
+                    .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.minY)),
+                    .lineTo(Point(x: effectiveRect.maxX, y: effectiveRect.maxY)),
+                    .lineTo(Point(x: effectiveRect.minX, y: effectiveRect.maxY)),
+                    .close,
+                ]
+                scene.addPath(
+                    PathPrimitive(
+                        elements: pathElements(from: outline),
+                        bounds: strokeBounds,
+                        strokeColor: effectiveColor,
+                        lineWidth: lineWidth,
+                        clipBounds: currentClip
+                    ), toLayer: layerIndex)
+
+            case .drawText(let text, let rect, let style):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let effectiveStyle = style.multipliedOpacity(by: opacity)
+                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                var nativeGlyphs: [GlyphPrimitive] = []
+                var pixelGlyphs: [GlyphPrimitive] = []
+                var decorationQuads: [QuadPrimitive] = []
+                appendTextGlyphs(
+                    for: text,
+                    style: effectiveStyle,
+                    in: effectiveRect,
+                    opacity: 1,
+                    clip: currentClip,
+                    surfaceSize: surfaceSize,
+                    displayScale: displayScale,
+                    textSystem: textSystem,
+                    into: &nativeGlyphs,
+                    pixelGlyphs: &pixelGlyphs,
+                    decorationQuads: &decorationQuads
+                )
+                for glyph in nativeGlyphs {
+                    scene.addGlyph(glyph, toLayer: layerIndex)
+                }
+                for glyph in pixelGlyphs {
+                    scene.addPixelGlyph(glyph, toLayer: layerIndex)
+                }
+                for quad in decorationQuads {
+                    scene.addQuad(quad, toLayer: layerIndex)
+                }
+                usedNativeGlyphs = usedNativeGlyphs || !nativeGlyphs.isEmpty
+                usedPixelGlyphs = usedPixelGlyphs || !pixelGlyphs.isEmpty
+
+            case .drawImage(let bitmap, let rect, let imageOpacity):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let effectiveOpacity = opacity * imageOpacity
+                guard effectiveOpacity > 0 else { continue }
+                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                let scaledRect = scaleRect(effectiveRect, by: displayScale)
+                let clipR = clipRectFloats(currentClip, surfaceSize: surfaceSize, displayScale: displayScale)
+                let textureID = scene.registerImageResource(bitmap)
+                scene.addImage(
+                    ImagePrimitive(
+                        screenX: Float(scaledRect.origin.x),
+                        screenY: Float(scaledRect.origin.y),
+                        screenW: Float(scaledRect.size.width),
+                        screenH: Float(scaledRect.size.height),
+                        opacity: effectiveOpacity,
+                        clipX: clipR.0,
+                        clipY: clipR.1,
+                        clipWidth: clipR.2,
+                        clipHeight: clipR.3,
+                        textureID: textureID
+                    ), toLayer: layerIndex)
+
+            case .pushClip(let rect):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                clipStack.append(currentClip)
+                if let existing = currentClip {
+                    currentClip = existing.intersected(with: effectiveRect)
+                } else {
+                    currentClip = effectiveRect
+                }
+
+            case .popClip:
+                currentClip = clipStack.popLast() ?? baseClip
+            }
+        }
+    }
+
+    private static func pathElements(from segments: [RenderPath.Segment]) -> [PathElement] {
+        segments.map { segment in
+            switch segment {
+            case .moveTo(let p):
+                return .moveTo(p)
+            case .lineTo(let p):
+                return .lineTo(p)
+            case .quadCurveTo(let c, let e):
+                return .quadraticCurveTo(control: c, end: e)
+            case .cubicCurveTo(let c1, let c2, let e):
+                return .cubicCurveTo(control1: c1, control2: c2, end: e)
+            case .arc(let c, let r, let s, let e, let cw):
+                return .arc(center: c, radius: r, startAngle: s, endAngle: e, clockwise: cw)
+            case .close:
+                return .close
+            }
+        }
+    }
+
     // MARK: - Color Effects
 
     /// Encode the first supported ``RetainedColorEffect`` into primitive
     /// shader fields.  Only one effect per primitive is supported today;
     /// additional effects are dropped.
-    internal static func encodeColorEffects(_ effects: [RetainedColorEffect]) -> (effectType: Float, effectIntensity: Float, effectParam1: Float, effectParam2: Float, effectParam3: Float, effectParam4: Float) {
+    internal static func encodeColorEffects(_ effects: [RetainedColorEffect]) -> (
+        effectType: Float, effectIntensity: Float, effectParam1: Float, effectParam2: Float, effectParam3: Float,
+        effectParam4: Float
+    ) {
         guard let first = effects.first else {
             return (0, 0, 0, 0, 0, 0)
         }
@@ -876,7 +1106,9 @@ public enum ScenePainter {
     }
 
     /// Converts an optional clip Rect into four Float values for primitive clip fields.
-    private static func clipRectFloats(_ clip: Rect?, surfaceSize: Size, displayScale: Double) -> (Float, Float, Float, Float) {
+    private static func clipRectFloats(_ clip: Rect?, surfaceSize: Size, displayScale: Double) -> (
+        Float, Float, Float, Float
+    ) {
         if let c = clip {
             let scaledClip = scaleRect(c, by: displayScale)
             return (
@@ -1051,7 +1283,9 @@ public enum ScenePainter {
         let effectiveStyle = style.resolvingMinimumScaleFactor(
             for: text,
             maxContentWidth: max(0, contentRect.size.width),
-            measureLine: { line in PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01) }
+            measureLine: { line in
+                PixelFont.rawLineWidth(line, letterSpacing: style.letterSpacing) * max(style.scale, 0.01)
+            }
         )
         let scale = max(effectiveStyle.scale, 0.01)
         let layout = resolveTextLayout(
@@ -1082,8 +1316,10 @@ public enum ScenePainter {
         let scaledVisibleClip = clip.map { scaleRect($0, by: displayScale) }
         let glyphWidth = Double(PixelFontAtlas.glyphWidth) * scale * displayScale
         let glyphHeight = Double(PixelFontAtlas.glyphHeight) * scale * displayScale
-        let horizontalAdvance = (Double(PixelFontAtlas.glyphWidth) + effectiveStyle.letterSpacing) * scale * displayScale
-        let verticalAdvance = (Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale) * displayScale
+        let horizontalAdvance =
+            (Double(PixelFontAtlas.glyphWidth) + effectiveStyle.letterSpacing) * scale * displayScale
+        let verticalAdvance =
+            (Double(PixelFontAtlas.glyphHeight) * scale + effectiveStyle.lineSpacing * scale) * displayScale
         var cursorY = startY * displayScale
 
         for line in layout.lines {
@@ -1181,7 +1417,10 @@ public enum ScenePainter {
         guard contentRect.size.width > 0, contentRect.size.height > 0 else {
             return false
         }
-        guard let layout = textSystem.layout(text, style: style, maxWidth: contentRect.size.width, scaleFactor: displayScale) else {
+        guard
+            let layout = textSystem.layout(
+                text, style: style, maxWidth: contentRect.size.width, scaleFactor: displayScale)
+        else {
             return false
         }
 
@@ -1218,17 +1457,20 @@ public enum ScenePainter {
                     y: (lineOriginY + glyph.origin.y) * displayScale
                 )
                 if let scaledVisibleClip,
-                   let preflightRect = nativeGlyphPreflightRect(
-                    for: glyph,
-                    origin: glyphLayoutOrigin,
-                    scaleFactor: displayScale
-                   ),
-                   scaledVisibleClip.intersected(with: preflightRect) == nil {
+                    let preflightRect = nativeGlyphPreflightRect(
+                        for: glyph,
+                        origin: glyphLayoutOrigin,
+                        scaleFactor: displayScale
+                    ),
+                    scaledVisibleClip.intersected(with: preflightRect) == nil
+                {
                     continue
                 }
 
-                guard let preparedGlyph = NativeGlyphAtlas.shared.prepareGlyph(for: glyph, style: style, scaleFactor: displayScale),
-                      let previewEntry = preparedGlyph.previewEntry
+                guard
+                    let preparedGlyph = NativeGlyphAtlas.shared.prepareGlyph(
+                        for: glyph, style: style, scaleFactor: displayScale),
+                    let previewEntry = preparedGlyph.previewEntry
                 else {
                     continue
                 }
@@ -1415,7 +1657,9 @@ public enum ScenePainter {
         return segments
     }
 
-    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(draw: Bool, length: Double)] {
+    private static func decorationSequence(for pattern: TextDecorationPattern, unit: Double) -> [(
+        draw: Bool, length: Double
+    )] {
         switch pattern {
         case .solid:
             return [(true, Double.greatestFiniteMagnitude)]
@@ -1432,7 +1676,7 @@ public enum ScenePainter {
                 (true, unit),
                 (false, unit * 1.5),
                 (true, unit),
-                (false, unit * 1.5)
+                (false, unit * 1.5),
             ]
         }
     }

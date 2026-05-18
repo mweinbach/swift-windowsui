@@ -341,6 +341,40 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
+    // MARK: - Gradient stops
+
+    func testGradientInitWithStopsPreservesCustomLocations() async {
+        await MainActor.run {
+            let gradient = Gradient(stops: [
+                Gradient.Stop(color: Color(red: 1, green: 0, blue: 0, alpha: 1), location: 0),
+                Gradient.Stop(color: Color(red: 0, green: 1, blue: 0, alpha: 1), location: 0.25),
+                Gradient.Stop(color: Color(red: 0, green: 0, blue: 1, alpha: 1), location: 1),
+            ])
+
+            let recovered = gradient.swiftUIStops
+            XCTAssertEqual(recovered.count, 3)
+            XCTAssertEqual(recovered[0].location, 0, accuracy: 0.001)
+            XCTAssertEqual(recovered[1].location, 0.25, accuracy: 0.001)
+            XCTAssertEqual(recovered[2].location, 1, accuracy: 0.001)
+
+            // Same locations should be visible in the runtime-shaped stops too.
+            let runtimeStops = gradient.stops
+            XCTAssertEqual(Float(runtimeStops[1].position), 0.25, accuracy: 0.001)
+        }
+    }
+
+    func testGradientInitWithColorsDistributesLocationsEvenly() async {
+        await MainActor.run {
+            let gradient = Gradient(colors: [.red, .green, .blue, .white])
+            let stops = gradient.swiftUIStops
+            XCTAssertEqual(stops.count, 4)
+            XCTAssertEqual(stops[0].location, 0, accuracy: 0.001)
+            XCTAssertEqual(stops[1].location, 1.0 / 3.0, accuracy: 0.001)
+            XCTAssertEqual(stops[2].location, 2.0 / 3.0, accuracy: 0.001)
+            XCTAssertEqual(stops[3].location, 1, accuracy: 0.001)
+        }
+    }
+
     // MARK: - drawLayer
 
     func testCanvasDrawLayerDoesNotLeakTransformBackToParent() async {

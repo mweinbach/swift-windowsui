@@ -2564,16 +2564,6 @@ public struct MatchedViewConfiguration: Sendable, Equatable {
     public init() {}
 }
 public struct Gradient: Sendable, Equatable {
-    public var colors: [Color]
-
-    public init(colors: [Color]) {
-        self.colors = colors
-    }
-
-    public init(stops: [GradientStop]) {
-        self.colors = stops.map { $0.color }
-    }
-
     public struct Stop: Sendable, Equatable {
         public var color: Color
         public var location: Double
@@ -2583,14 +2573,50 @@ public struct Gradient: Sendable, Equatable {
         }
     }
 
-    public var stops: [GradientStop] {
-        colors.enumerated().map { index, color in
-            GradientStop(
-                color: color,
-                position: colors.count > 1 ? Float(index) / Float(colors.count - 1) : 0
-            )
+    /// Storage of record. SwiftUI's `Gradient.init(colors:)` distributes
+    /// evenly, but `init(stops:)` keeps the caller's locations so subsequent
+    /// reads of `.stops` return what was passed in.
+    private var storedStops: [Stop]
+
+    public init(colors: [Color]) {
+        if colors.isEmpty {
+            self.storedStops = []
+        } else if colors.count == 1 {
+            self.storedStops = [Stop(color: colors[0], location: 0)]
+        } else {
+            let denom = Double(colors.count - 1)
+            self.storedStops = colors.enumerated().map { index, color in
+                Stop(color: color, location: Double(index) / denom)
+            }
         }
     }
+
+    public init(stops: [Stop]) {
+        self.storedStops = stops
+    }
+
+    /// Compatibility overload: build a Gradient from the runtime
+    /// ``SwiftWindowsGraphics.GradientStop`` (used internally when bridging
+    /// gradients to/from the runtime).
+    public init(stops: [GradientStop]) {
+        self.storedStops = stops.map { Stop(color: $0.color, location: Double($0.position)) }
+    }
+
+    public var colors: [Color] {
+        storedStops.map(\.color)
+    }
+
+    /// Stops as the runtime ``SwiftWindowsGraphics.GradientStop`` type so the
+    /// renderer pipeline can consume them.  Preserves the caller's locations
+    /// from `init(stops:)`.
+    public var stops: [GradientStop] {
+        storedStops.map { stop in
+            GradientStop(color: stop.color, position: Float(stop.location))
+        }
+    }
+
+    /// SwiftUI-shaped stop accessor with `Double` locations.
+    public var swiftUIStops: [Stop] { storedStops }
 }
 public struct LinearGradient: View, Sendable, Equatable {
     public typealias Body = Never

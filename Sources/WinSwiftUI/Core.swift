@@ -8702,7 +8702,7 @@ public struct ViewBuildContext {
         isEnabledProvider: @escaping () -> Bool = { true },
         foregroundColorProvider: @escaping () -> Color = { .white },
         tintProvider: @escaping () -> Color = { ViewBuildContext.defaultTint },
-        fontProvider: @escaping () -> Font = { .system(size: 2) },
+        fontProvider: @escaping () -> Font = { .body },
         fontDesignProvider: @escaping () -> Font.Design? = { nil },
         fontWeightProvider: @escaping () -> Font.Weight? = { nil },
         textAlignmentProvider: @escaping () -> TextAlignment = { .center },

@@ -578,7 +578,10 @@ Compatibility helpers:
 - `TextRenderer`
 - `TextAttribute`
 - `TextProxy`
-- `GraphicsContext`
+- `GraphicsContext` (SwiftUI-shape Canvas drawing context: `Shading.color(_:)` and `Shading.linearGradient(_:startPoint:endPoint:)` with `CGPoint` endpoints; `fill`/`stroke` for `Path` and `CGRect`; `draw` for `BitmapSurface`, `Text`, `String`; mutable `opacity`; mutable `transform` with `translateBy`/`scaleBy`/`rotate`/`concatenate` (CG-style pre-multiply); `clip(to:)`/`popClip()`; `drawLayer { sub in ... }` for parent-transform-inheriting sub-contexts)
+- `Canvas { ctx, size in ... }` paints through the default GPUIScene path
+- `Path.contains(_:eoFill:)` (ray-cast hit testing, non-zero and even-odd fill rules)
+- `Gradient.init(stops: [Gradient.Stop])` preserves custom `Double` `location` values
 - `ProposedViewSize`
 - `ViewSpacing`
 - `LayoutProperties`

@@ -144,6 +144,85 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
+    // MARK: - Opacity
+
+    func testCanvasOpacityMultipliesIntoSubsequentColorFills() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.opacity = 0.5
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 40, height: 20),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            let quads = scene.layers[0].quads.filter {
+                $0.width == 40 && $0.height == 20
+            }
+            XCTAssertEqual(quads.count, 1)
+            XCTAssertEqual(quads[0].startA, 0.5, accuracy: 0.001)
+        }
+    }
+
+    func testCanvasOpacityAppliesPerOperation() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.opacity = 0.25
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 30, height: 30),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+                ctx.opacity = 1.0
+                ctx.fill(
+                    Rect(x: 40, y: 0, width: 30, height: 30),
+                    with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            let quads = scene.layers[0].quads.filter {
+                $0.width == 30 && $0.height == 30
+            }.sorted { $0.x < $1.x }
+            XCTAssertEqual(quads.count, 2)
+            XCTAssertEqual(quads[0].startR, 1)
+            XCTAssertEqual(quads[0].startA, 0.25, accuracy: 0.001)
+            XCTAssertEqual(quads[1].startB, 1)
+            XCTAssertEqual(quads[1].startA, 1.0, accuracy: 0.001)
+        }
+    }
+
+    func testCanvasOpacityFoldsIntoGradientStops() async {
+        await MainActor.run {
+            let gradient = Gradient(colors: [
+                Color(red: 1.0, green: 0.0, blue: 0.0, alpha: 1.0),
+                Color(red: 0.0, green: 1.0, blue: 0.0, alpha: 1.0),
+            ])
+            let view = Canvas { ctx, _ in
+                ctx.opacity = 0.5
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 40, height: 20),
+                    with: .linearGradient(
+                        gradient: gradient,
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            let quads = scene.layers[0].quads.filter {
+                $0.width == 40 && $0.height == 20
+            }
+            XCTAssertEqual(quads.count, 1)
+            XCTAssertEqual(quads[0].startA, 0.5, accuracy: 0.001)
+            XCTAssertEqual(quads[0].endA, 0.5, accuracy: 0.001)
+        }
+    }
+
     // MARK: - Clip stack
 
     func testCanvasPushedClipNarrowsEmittedQuadClip() async {

@@ -161,7 +161,7 @@ extension PixelTextStyle {
         return copy
     }
 
-    func multipliedOpacity(by opacity: Float) -> PixelTextStyle {
+    public func multipliedOpacity(by opacity: Float) -> PixelTextStyle {
         guard opacity != 1 else {
             return self
         }

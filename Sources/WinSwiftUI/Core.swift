@@ -1429,6 +1429,11 @@ public struct GraphicsContext {
     /// it back to the retained ``canvasDraw`` closure.
     internal var underlying: SwiftWindowsUI.CanvasGraphicsContext
 
+    /// Multiplied into the alpha of subsequent fill/stroke/draw operations,
+    /// matching SwiftUI's ``GraphicsContext.opacity``.  Operations recorded
+    /// before this property is set keep their original opacity.
+    public var opacity: Double = 1.0
+
     public init() {
         self.underlying = SwiftWindowsUI.CanvasGraphicsContext()
     }
@@ -1437,51 +1442,59 @@ public struct GraphicsContext {
 
     public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
         _ = style
-        underlying.fill(path, with: shading.asRuntimeShading())
+        underlying.fill(path, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
     }
 
     public mutating func fill(_ rect: CGRect, with shading: Shading) {
-        underlying.fill(rect, with: shading.asRuntimeShading())
+        underlying.fill(rect, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
     }
 
     // MARK: Path / rect stroke
 
     public mutating func stroke(_ path: Path, with shading: Shading, lineWidth: Double = 1) {
-        underlying.stroke(path, with: shading.asRuntimeShading(), style: StrokeStyle(lineWidth: lineWidth))
+        underlying.stroke(
+            path,
+            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+            style: StrokeStyle(lineWidth: lineWidth)
+        )
     }
 
     public mutating func stroke(_ path: Path, with shading: Shading, style: StrokeStyle) {
-        underlying.stroke(path, with: shading.asRuntimeShading(), style: style)
+        underlying.stroke(path, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier), style: style)
     }
 
     public mutating func stroke(_ rect: CGRect, with shading: Shading, lineWidth: Double = 1) {
-        underlying.stroke(rect, with: shading.asRuntimeShading(), lineWidth: lineWidth)
+        underlying.stroke(
+            rect,
+            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+            lineWidth: lineWidth
+        )
     }
 
     // MARK: Image / text
 
     public mutating func draw(_ image: BitmapSurface, in rect: CGRect, opacity: Float = 1) {
-        underlying.draw(image, in: rect, opacity: opacity)
+        underlying.draw(image, in: rect, opacity: opacity * Float(currentOpacityMultiplier))
     }
 
     public mutating func draw(_ text: Text, at point: CGPoint) {
         let resolved = text.plainContent
         guard !resolved.isEmpty else { return }
-        underlying.draw(resolved, at: point, style: PixelTextStyle(color: .white))
+        underlying.draw(resolved, at: point, style: textPixelStyle())
     }
 
     public mutating func draw(_ text: Text, in rect: CGRect) {
         let resolved = text.plainContent
         guard !resolved.isEmpty else { return }
-        underlying.draw(resolved, in: rect, style: PixelTextStyle(color: .white))
+        underlying.draw(resolved, in: rect, style: textPixelStyle())
     }
 
     public mutating func draw(_ string: String, at point: CGPoint, style: PixelTextStyle) {
-        underlying.draw(string, at: point, style: style)
+        underlying.draw(string, at: point, style: style.multipliedOpacity(by: Float(currentOpacityMultiplier)))
     }
 
     public mutating func draw(_ string: String, in rect: CGRect, style: PixelTextStyle) {
-        underlying.draw(string, in: rect, style: style)
+        underlying.draw(string, in: rect, style: style.multipliedOpacity(by: Float(currentOpacityMultiplier)))
     }
 
     // MARK: Clip stack
@@ -1493,16 +1506,28 @@ public struct GraphicsContext {
     public mutating func popClip() {
         underlying.popClip()
     }
+
+    // MARK: Helpers
+
+    private var currentOpacityMultiplier: Double {
+        max(0, min(1, opacity))
+    }
+
+    private func textPixelStyle() -> PixelTextStyle {
+        PixelTextStyle(color: .white).multipliedOpacity(by: Float(currentOpacityMultiplier))
+    }
 }
 
 extension GraphicsContext.Shading {
     /// Convert a SwiftUI-shaped Shading into the runtime's
     /// ``CanvasGraphicsContext.Shading`` enum that the scene/frame paths can
-    /// consume.
-    internal func asRuntimeShading() -> SwiftWindowsUI.CanvasGraphicsContext.Shading {
+    /// consume.  `opacity` is folded into the shading's alpha so the runtime
+    /// does not need to know about the wrapping GraphicsContext.opacity.
+    internal func asRuntimeShading(opacity: Double = 1.0) -> SwiftWindowsUI.CanvasGraphicsContext.Shading {
+        let alpha = Float(max(0, min(1, opacity)))
         switch self {
         case .color(let color):
-            return .color(color)
+            return .color(color.multipliedAlpha(by: alpha))
         case .linearGradient(let gradient, let startPoint, let endPoint):
             let axis: SwiftWindowsGraphics.GradientAxis = {
                 let dx = abs(endPoint.x - startPoint.x)
@@ -1510,7 +1535,10 @@ extension GraphicsContext.Shading {
                 return dx >= dy ? .horizontal : .vertical
             }()
             let stops = gradient.stops.map { stop in
-                SwiftWindowsGraphics.GradientStop(color: stop.color, position: stop.position)
+                SwiftWindowsGraphics.GradientStop(
+                    color: stop.color.multipliedAlpha(by: alpha),
+                    position: stop.position
+                )
             }
             let runtimeGradient: SwiftWindowsGraphics.LinearGradient
             if stops.isEmpty {

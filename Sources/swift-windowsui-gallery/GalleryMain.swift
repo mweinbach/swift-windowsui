@@ -447,12 +447,12 @@ struct SwiftWindowsUIGalleryTool {
                         ctx.fill(
                             Rect(x: 10, y: 10, width: size.width - 20, height: size.height - 20),
                             with: .linearGradient(
-                                gradient: Gradient(colors: [
+                                Gradient(colors: [
                                     Color(red: 0.20, green: 0.30, blue: 0.95, alpha: 1),
                                     Color(red: 0.80, green: 0.40, blue: 0.55, alpha: 1),
                                 ]),
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
+                                startPoint: CGPoint(x: 10, y: 10),
+                                endPoint: CGPoint(x: size.width - 10, y: size.height - 10)
                             )
                         )
                     }

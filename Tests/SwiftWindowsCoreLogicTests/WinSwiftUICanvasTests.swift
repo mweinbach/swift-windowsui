@@ -102,7 +102,11 @@ final class WinSwiftUICanvasTests: XCTestCase {
             let view = Canvas { ctx, _ in
                 ctx.fill(
                     Rect(x: 0, y: 0, width: 50, height: 30),
-                    with: .linearGradient(gradient: gradient, startPoint: .leading, endPoint: .trailing)
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 0, y: 15),
+                        endPoint: CGPoint(x: 50, y: 15)
+                    )
                 )
             }
             .frame(width: 120, height: 80)
@@ -130,7 +134,11 @@ final class WinSwiftUICanvasTests: XCTestCase {
             let view = Canvas { ctx, _ in
                 ctx.fill(
                     Rect(x: 0, y: 0, width: 40, height: 60),
-                    with: .linearGradient(gradient: gradient, startPoint: .top, endPoint: .bottom)
+                    with: .linearGradient(
+                        gradient,
+                        startPoint: CGPoint(x: 20, y: 0),
+                        endPoint: CGPoint(x: 20, y: 60)
+                    )
                 )
             }
             .frame(width: 120, height: 80)
@@ -205,9 +213,9 @@ final class WinSwiftUICanvasTests: XCTestCase {
                 ctx.fill(
                     Rect(x: 0, y: 0, width: 40, height: 20),
                     with: .linearGradient(
-                        gradient: gradient,
-                        startPoint: .leading,
-                        endPoint: .trailing
+                        gradient,
+                        startPoint: CGPoint(x: 0, y: 10),
+                        endPoint: CGPoint(x: 40, y: 10)
                     )
                 )
             }

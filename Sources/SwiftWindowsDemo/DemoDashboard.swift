@@ -281,6 +281,16 @@ struct DemoCenterPane: View {
                 DemoHeroCard(model: model, layout: layout)
                     .frame(width: layout.contentInnerWidth, alignment: .leading)
 
+                DemoPanel {
+                    VStack(alignment: .leading, spacing: 10) {
+                        DemoSectionTitle("RENDER PIPELINE")
+
+                        DemoRenderPipelineChart(model: model)
+                            .frame(width: layout.contentInnerWidth - 32, height: 80)
+                    }
+                }
+                .frame(width: layout.contentInnerWidth, alignment: .leading)
+
                 if layout.compact {
                     VStack(alignment: .leading, spacing: 14) {
                         DemoMetricCard(
@@ -337,6 +347,88 @@ struct DemoCenterPane: View {
                 .frame(width: layout.contentInnerWidth, alignment: .leading)
             }
             .padding(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 6))
+        }
+    }
+}
+
+/// Canvas-driven mini bar chart embedded in the dashboard's center pane.
+/// Demonstrates the SwiftUI-shape `GraphicsContext` API (fillRect with color
+/// and linear-gradient shading, `drawLayer`, `translateBy`) against the same
+/// shared demo source compatible with macOS SwiftUI.
+struct DemoRenderPipelineChart: View {
+    let model: DemoDashboardModel
+
+    var body: some View {
+        let glow = model.selectedModule.glowColor
+        let stripe = model.selectedModule.stripeColor
+        let interactions = max(1, model.interactionCount)
+        // A deterministic, seed-style bar series so the screenshot stays
+        // stable across runs but still varies with interaction count + module.
+        let bars = Self.bars(interactions: interactions, glow: glow, stripe: stripe)
+
+        return Canvas { ctx, size in
+            // Backing tint so the chart panel reads as one block.
+            ctx.fill(
+                Rect(x: 0, y: 0, width: size.width, height: size.height),
+                with: .linearGradient(
+                    Gradient(colors: [
+                        Color(red: 0.96, green: 0.97, blue: 1.00, opacity: 0.55),
+                        Color(red: 0.90, green: 0.93, blue: 0.98, opacity: 0.30),
+                    ]),
+                    startPoint: CGPoint(x: size.width / 2, y: 0),
+                    endPoint: CGPoint(x: size.width / 2, y: size.height)
+                )
+            )
+
+            let count = bars.count
+            guard count > 0 else { return }
+            let gap: CGFloat = 6
+            let barWidth = max(2, (size.width - gap * CGFloat(count - 1)) / CGFloat(count))
+            let baselineY: CGFloat = size.height - 8
+
+            var index = 0
+            while index < count {
+                let bar = bars[index]
+                let x = CGFloat(index) * (barWidth + gap)
+                let barHeight = max(2, bar.value * (size.height - 18))
+
+                ctx.drawLayer { sub in
+                    sub.translateBy(x: x, y: baselineY - barHeight)
+                    sub.opacity = 0.85 + bar.emphasis * 0.15
+                    sub.fill(
+                        Rect(x: 0, y: 0, width: barWidth, height: barHeight),
+                        with: .linearGradient(
+                            Gradient(colors: [bar.top, bar.bottom]),
+                            startPoint: CGPoint(x: barWidth / 2, y: 0),
+                            endPoint: CGPoint(x: barWidth / 2, y: barHeight)
+                        )
+                    )
+                }
+
+                index += 1
+            }
+        }
+    }
+
+    private struct Bar {
+        let value: CGFloat
+        let emphasis: CGFloat
+        let top: Color
+        let bottom: Color
+    }
+
+    private static func bars(interactions: Int, glow: Color, stripe: Color) -> [Bar] {
+        let pattern: [CGFloat] = [0.35, 0.52, 0.40, 0.68, 0.56, 0.82, 0.64, 0.94, 0.72, 0.58]
+        return pattern.enumerated().map { index, base in
+            let phase = (Double(index) + Double(interactions) * 0.13).truncatingRemainder(dividingBy: 1)
+            let value = min(1, max(0.10, base + CGFloat(phase) * 0.10))
+            let emphasis = CGFloat(phase)
+            return Bar(
+                value: value,
+                emphasis: emphasis,
+                top: glow,
+                bottom: stripe.opacity(0.75)
+            )
         }
     }
 }

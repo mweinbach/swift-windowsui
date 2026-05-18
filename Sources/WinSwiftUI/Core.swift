@@ -1422,7 +1422,18 @@ public struct GraphicsContext {
     /// `GraphicsContext.Shading` API surface for same-source compatibility.
     public enum Shading: Sendable {
         case color(Color)
-        case linearGradient(gradient: Gradient, startPoint: UnitPoint, endPoint: UnitPoint)
+        case linearGradient(gradient: Gradient, startPoint: CGPoint, endPoint: CGPoint)
+
+        /// SwiftUI-compatible factory: matches the
+        /// `GraphicsContext.Shading.linearGradient(_:startPoint:endPoint:)`
+        /// shape used in shared demo code.
+        public static func linearGradient(
+            _ gradient: Gradient,
+            startPoint: CGPoint,
+            endPoint: CGPoint
+        ) -> Shading {
+            .linearGradient(gradient: gradient, startPoint: startPoint, endPoint: endPoint)
+        }
     }
 
     /// Bridge into the runtime accumulator. Internal so ``Canvas`` can hand
@@ -1665,6 +1676,10 @@ extension GraphicsContext.Shading {
         case .color(let color):
             return .color(color.multipliedAlpha(by: alpha))
         case .linearGradient(let gradient, let startPoint, let endPoint):
+            // Map a SwiftUI-style endpoint pair to the runtime gradient's
+            // axis. The runtime backend only renders axis-aligned linear
+            // gradients today; degenerate orientations bucket to whichever
+            // axis has the larger delta.
             let axis: SwiftWindowsGraphics.GradientAxis = {
                 let dx = abs(endPoint.x - startPoint.x)
                 let dy = abs(endPoint.y - startPoint.y)

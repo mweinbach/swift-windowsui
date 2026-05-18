@@ -1603,38 +1603,12 @@ public struct GraphicsContext {
 
     private func transformedPath(_ path: Path) -> Path {
         guard !isTransformIdentity else { return path }
-        var copy = Path()
-        for element in path.elements {
-            switch element {
-            case .moveTo(let p):
-                copy.moveTo(transform.apply(p))
-            case .lineTo(let p):
-                copy.lineTo(transform.apply(p))
-            case .quadraticCurveTo(let c, let e):
-                copy.quadraticCurveTo(control: transform.apply(c), end: transform.apply(e))
-            case .cubicCurveTo(let c1, let c2, let e):
-                copy.cubicCurveTo(
-                    control1: transform.apply(c1),
-                    control2: transform.apply(c2),
-                    end: transform.apply(e)
-                )
-            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
-                // CGAffineTransform applied to an arc requires sampling for
-                // non-uniform scale or rotation.  Approximate by flattening
-                // the arc into cubic curves first, then transforming the
-                // resulting control points.
-                copy.arc(
-                    center: transform.apply(center),
-                    radius: radius,
-                    startAngle: startAngle,
-                    endAngle: endAngle,
-                    clockwise: clockwise
-                )
-            case .close:
-                copy.close()
-            }
-        }
-        return copy
+        // SwiftWindowsCore's `Path.applying(_:)` already walks every element
+        // and runs control + endpoint coords through the affine transform.
+        // Arc radii are kept as-is — non-uniform scale/rotation of arcs is a
+        // future improvement that would require sampling them into cubics
+        // first.
+        return path.applying(transform)
     }
 
     private func rectAsTransformedPath(_ rect: CGRect) -> Path {

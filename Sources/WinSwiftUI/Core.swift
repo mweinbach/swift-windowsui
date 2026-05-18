@@ -1434,47 +1434,100 @@ public struct GraphicsContext {
     /// before this property is set keep their original opacity.
     public var opacity: Double = 1.0
 
+    /// Current transformation matrix applied to subsequent fill/stroke/draw
+    /// operations, matching SwiftUI's ``GraphicsContext.transform``.  A non-
+    /// identity transform converts rect-shaped fills into transformed path
+    /// fills so rotation/shear remain visible.
+    public var transform: CGAffineTransform = .identity
+
     public init() {
         self.underlying = SwiftWindowsUI.CanvasGraphicsContext()
+    }
+
+    // MARK: Transform stack
+
+    // SwiftUI's translateBy/scaleBy/rotate match CGContext semantics: the new
+    // matrix is pre-multiplied so subsequent drawing is transformed FIRST by
+    // the new operation, then by any prior transform. That keeps the user
+    // mental model intuitive — `translateBy(x: 60); rotate(90°); fill(rect)`
+    // draws the rect rotated around the new (60, 0) origin.
+
+    public mutating func translateBy(x: Double, y: Double) {
+        transform = CGAffineTransform(translationX: x, y: y).concatenating(transform)
+    }
+
+    public mutating func scaleBy(x: Double, y: Double) {
+        transform = CGAffineTransform(scaleX: x, y: y).concatenating(transform)
+    }
+
+    public mutating func rotate(by angle: Angle) {
+        transform = CGAffineTransform(rotationAngle: angle.radians).concatenating(transform)
+    }
+
+    public mutating func concatenate(_ matrix: CGAffineTransform) {
+        transform = matrix.concatenating(transform)
     }
 
     // MARK: Path / rect fill
 
     public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
         _ = style
-        underlying.fill(path, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
+        let transformed = transformedPath(path)
+        underlying.fill(transformed, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
     }
 
     public mutating func fill(_ rect: CGRect, with shading: Shading) {
-        underlying.fill(rect, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
+        if isTransformIdentity {
+            underlying.fill(rect, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier))
+        } else {
+            underlying.fill(
+                rectAsTransformedPath(rect),
+                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier)
+            )
+        }
     }
 
     // MARK: Path / rect stroke
 
     public mutating func stroke(_ path: Path, with shading: Shading, lineWidth: Double = 1) {
         underlying.stroke(
-            path,
+            transformedPath(path),
             with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
             style: StrokeStyle(lineWidth: lineWidth)
         )
     }
 
     public mutating func stroke(_ path: Path, with shading: Shading, style: StrokeStyle) {
-        underlying.stroke(path, with: shading.asRuntimeShading(opacity: currentOpacityMultiplier), style: style)
+        underlying.stroke(
+            transformedPath(path),
+            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+            style: style
+        )
     }
 
     public mutating func stroke(_ rect: CGRect, with shading: Shading, lineWidth: Double = 1) {
-        underlying.stroke(
-            rect,
-            with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
-            lineWidth: lineWidth
-        )
+        if isTransformIdentity {
+            underlying.stroke(
+                rect,
+                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+                lineWidth: lineWidth
+            )
+        } else {
+            underlying.stroke(
+                rectAsTransformedPath(rect),
+                with: shading.asRuntimeShading(opacity: currentOpacityMultiplier),
+                style: StrokeStyle(lineWidth: lineWidth)
+            )
+        }
     }
 
     // MARK: Image / text
 
     public mutating func draw(_ image: BitmapSurface, in rect: CGRect, opacity: Float = 1) {
-        underlying.draw(image, in: rect, opacity: opacity * Float(currentOpacityMultiplier))
+        // Images can only be drawn into axis-aligned rects today; degenerate
+        // transforms collapse to the transformed bounding rect.
+        let drawRect = transformedAxisAlignedRect(rect)
+        underlying.draw(image, in: drawRect, opacity: opacity * Float(currentOpacityMultiplier))
     }
 
     public mutating func draw(_ text: Text, at point: CGPoint) {
@@ -1513,8 +1566,75 @@ public struct GraphicsContext {
         max(0, min(1, opacity))
     }
 
+    private var isTransformIdentity: Bool {
+        transform == .identity
+    }
+
     private func textPixelStyle() -> PixelTextStyle {
         PixelTextStyle(color: .white).multipliedOpacity(by: Float(currentOpacityMultiplier))
+    }
+
+    private func transformedPath(_ path: Path) -> Path {
+        guard !isTransformIdentity else { return path }
+        var copy = Path()
+        for element in path.elements {
+            switch element {
+            case .moveTo(let p):
+                copy.moveTo(transform.apply(p))
+            case .lineTo(let p):
+                copy.lineTo(transform.apply(p))
+            case .quadraticCurveTo(let c, let e):
+                copy.quadraticCurveTo(control: transform.apply(c), end: transform.apply(e))
+            case .cubicCurveTo(let c1, let c2, let e):
+                copy.cubicCurveTo(
+                    control1: transform.apply(c1),
+                    control2: transform.apply(c2),
+                    end: transform.apply(e)
+                )
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                // CGAffineTransform applied to an arc requires sampling for
+                // non-uniform scale or rotation.  Approximate by flattening
+                // the arc into cubic curves first, then transforming the
+                // resulting control points.
+                copy.arc(
+                    center: transform.apply(center),
+                    radius: radius,
+                    startAngle: startAngle,
+                    endAngle: endAngle,
+                    clockwise: clockwise
+                )
+            case .close:
+                copy.close()
+            }
+        }
+        return copy
+    }
+
+    private func rectAsTransformedPath(_ rect: CGRect) -> Path {
+        var path = Path()
+        let p0 = transform.apply(Point(x: rect.minX, y: rect.minY))
+        let p1 = transform.apply(Point(x: rect.maxX, y: rect.minY))
+        let p2 = transform.apply(Point(x: rect.maxX, y: rect.maxY))
+        let p3 = transform.apply(Point(x: rect.minX, y: rect.maxY))
+        path.moveTo(p0)
+        path.lineTo(p1)
+        path.lineTo(p2)
+        path.lineTo(p3)
+        path.close()
+        return path
+    }
+
+    private func transformedAxisAlignedRect(_ rect: CGRect) -> CGRect {
+        guard !isTransformIdentity else { return rect }
+        let p0 = transform.apply(Point(x: rect.minX, y: rect.minY))
+        let p1 = transform.apply(Point(x: rect.maxX, y: rect.minY))
+        let p2 = transform.apply(Point(x: rect.maxX, y: rect.maxY))
+        let p3 = transform.apply(Point(x: rect.minX, y: rect.maxY))
+        let minX = min(p0.x, p1.x, p2.x, p3.x)
+        let maxX = max(p0.x, p1.x, p2.x, p3.x)
+        let minY = min(p0.y, p1.y, p2.y, p3.y)
+        let maxY = max(p0.y, p1.y, p2.y, p3.y)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 

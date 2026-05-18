@@ -223,6 +223,116 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
+    // MARK: - Transform
+
+    func testCanvasIdentityTransformKeepsRectAxisAligned() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 40, height: 20),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            // No transform applied: identity path stays a fillRect (quad), no
+            // PathPrimitive emitted.
+            let quads = scene.layers[0].quads.filter {
+                $0.width == 40 && $0.height == 20
+            }
+            XCTAssertEqual(quads.count, 1)
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+        }
+    }
+
+    func testCanvasTranslateByOffsetsSubsequentFill() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.translateBy(x: 25, y: 15)
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 40, height: 20),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            // Translation degenerates fillRect into a transformed-corner path
+            // primitive (axis-aligned but emitted via the path API).
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let path = scene.layers[0].paths[0]
+            XCTAssertEqual(path.bounds.minX, 25)
+            XCTAssertEqual(path.bounds.minY, 15)
+            XCTAssertEqual(path.bounds.width, 40)
+            XCTAssertEqual(path.bounds.height, 20)
+            XCTAssertEqual(path.fillColor.red, 1)
+        }
+    }
+
+    func testCanvasScaleByEnlargesSubsequentFill() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.scaleBy(x: 2, y: 2)
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 20, height: 10),
+                    with: .color(Color(red: 0, green: 1, blue: 0, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let path = scene.layers[0].paths[0]
+            XCTAssertEqual(path.bounds.width, 40)
+            XCTAssertEqual(path.bounds.height, 20)
+        }
+    }
+
+    func testCanvasRotateProducesRotatedPathBounds() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.translateBy(x: 60, y: 40)
+                ctx.rotate(by: .degrees(90))
+                ctx.fill(
+                    Rect(x: -10, y: -5, width: 20, height: 10),
+                    with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let path = scene.layers[0].paths[0]
+            // 90° rotation swaps width/height of the original 20x10 rect.
+            XCTAssertEqual(path.bounds.width, 10, accuracy: 0.001)
+            XCTAssertEqual(path.bounds.height, 20, accuracy: 0.001)
+        }
+    }
+
+    func testCanvasTranslateByOffsetsPathFill() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.translateBy(x: 30, y: 20)
+                var path = Path()
+                path.moveTo(Point(x: 0, y: 0))
+                path.lineTo(Point(x: 10, y: 0))
+                path.lineTo(Point(x: 10, y: 10))
+                path.close()
+                ctx.fill(path, with: .color(Color(red: 1, green: 1, blue: 0, alpha: 1)))
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let primitive = scene.layers[0].paths[0]
+            XCTAssertEqual(primitive.bounds.minX, 30)
+            XCTAssertEqual(primitive.bounds.minY, 20)
+            XCTAssertEqual(primitive.bounds.width, 10)
+            XCTAssertEqual(primitive.bounds.height, 10)
+        }
+    }
+
     // MARK: - Clip stack
 
     func testCanvasPushedClipNarrowsEmittedQuadClip() async {

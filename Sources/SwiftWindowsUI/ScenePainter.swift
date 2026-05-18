@@ -1492,9 +1492,14 @@ public enum ScenePainter {
                     continue
                 }
 
+                // Snap glyph destination to integer device pixels.  Without
+                // this, the rasterizer's tx/ty mapping reads the same atlas
+                // pixel from two adjacent destination pixels when the origin
+                // is fractional, producing the classic doubled-letter smear
+                // pattern.  Pixel-aligned glyphs render crisp 1:1 from atlas.
                 let destinationOrigin = Point(
-                    x: glyphLayoutOrigin.x + Double(previewEntry.bearingX),
-                    y: glyphLayoutOrigin.y + Double(previewEntry.bearingY)
+                    x: (glyphLayoutOrigin.x + Double(previewEntry.bearingX)).rounded(),
+                    y: (glyphLayoutOrigin.y + Double(previewEntry.bearingY)).rounded()
                 )
                 guard destinationOrigin.x.isFinite, destinationOrigin.y.isFinite else {
                     continue

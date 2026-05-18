@@ -385,8 +385,9 @@ final class WinSwiftUICompositeTests: XCTestCase {
             struct CanvasView: View {
                 var body: some View {
                     Canvas { context, size in
-                        let rect = Rect(origin: .zero, size: size)
-                        context.fill(rect, with: .red)
+                        let rect = CGRect(origin: .zero, size: size)
+                        let shading: GraphicsContext.Shading = .color(Color.red)
+                        context.fill(rect, with: shading)
                     }
                     .frame(width: 100, height: 100)
                 }

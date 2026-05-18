@@ -1413,22 +1413,120 @@ public struct TextProxy: Sendable {
         CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
     }
 }
-public struct GraphicsContext: Sendable {
-    public init() {}
+/// SwiftUI-shaped drawing context for `Canvas` renderers. Wraps the runtime
+/// ``SwiftWindowsUI.CanvasGraphicsContext`` so operations flow through the
+/// retained scene path (see ``ScenePainter``).
+@MainActor
+public struct GraphicsContext {
+    /// Paint source for fill and stroke operations. Mirrors the SwiftUI
+    /// `GraphicsContext.Shading` API surface for same-source compatibility.
+    public enum Shading: Sendable {
+        case color(Color)
+        case linearGradient(gradient: Gradient, startPoint: UnitPoint, endPoint: UnitPoint)
+    }
+
+    /// Bridge into the runtime accumulator. Internal so ``Canvas`` can hand
+    /// it back to the retained ``canvasDraw`` closure.
+    internal var underlying: SwiftWindowsUI.CanvasGraphicsContext
+
+    public init() {
+        self.underlying = SwiftWindowsUI.CanvasGraphicsContext()
+    }
+
+    // MARK: Path / rect fill
+
+    public mutating func fill(_ path: Path, with shading: Shading, style: FillStyle = FillStyle()) {
+        _ = style
+        underlying.fill(path, with: shading.asRuntimeShading())
+    }
+
+    public mutating func fill(_ rect: CGRect, with shading: Shading) {
+        underlying.fill(rect, with: shading.asRuntimeShading())
+    }
+
+    // MARK: Path / rect stroke
+
+    public mutating func stroke(_ path: Path, with shading: Shading, lineWidth: Double = 1) {
+        underlying.stroke(path, with: shading.asRuntimeShading(), style: StrokeStyle(lineWidth: lineWidth))
+    }
+
+    public mutating func stroke(_ path: Path, with shading: Shading, style: StrokeStyle) {
+        underlying.stroke(path, with: shading.asRuntimeShading(), style: style)
+    }
+
+    public mutating func stroke(_ rect: CGRect, with shading: Shading, lineWidth: Double = 1) {
+        underlying.stroke(rect, with: shading.asRuntimeShading(), lineWidth: lineWidth)
+    }
+
+    // MARK: Image / text
+
+    public mutating func draw(_ image: BitmapSurface, in rect: CGRect, opacity: Float = 1) {
+        underlying.draw(image, in: rect, opacity: opacity)
+    }
 
     public mutating func draw(_ text: Text, at point: CGPoint) {
-        _ = text
-        _ = point
+        let resolved = text.plainContent
+        guard !resolved.isEmpty else { return }
+        underlying.draw(resolved, at: point, style: PixelTextStyle(color: .white))
     }
 
     public mutating func draw(_ text: Text, in rect: CGRect) {
-        _ = text
-        _ = rect
+        let resolved = text.plainContent
+        guard !resolved.isEmpty else { return }
+        underlying.draw(resolved, in: rect, style: PixelTextStyle(color: .white))
+    }
+
+    public mutating func draw(_ string: String, at point: CGPoint, style: PixelTextStyle) {
+        underlying.draw(string, at: point, style: style)
+    }
+
+    public mutating func draw(_ string: String, in rect: CGRect, style: PixelTextStyle) {
+        underlying.draw(string, in: rect, style: style)
+    }
+
+    // MARK: Clip stack
+
+    public mutating func clip(to rect: CGRect) {
+        underlying.clip(to: rect)
+    }
+
+    public mutating func popClip() {
+        underlying.popClip()
     }
 }
+
+extension GraphicsContext.Shading {
+    /// Convert a SwiftUI-shaped Shading into the runtime's
+    /// ``CanvasGraphicsContext.Shading`` enum that the scene/frame paths can
+    /// consume.
+    internal func asRuntimeShading() -> SwiftWindowsUI.CanvasGraphicsContext.Shading {
+        switch self {
+        case .color(let color):
+            return .color(color)
+        case .linearGradient(let gradient, let startPoint, let endPoint):
+            let axis: SwiftWindowsGraphics.GradientAxis = {
+                let dx = abs(endPoint.x - startPoint.x)
+                let dy = abs(endPoint.y - startPoint.y)
+                return dx >= dy ? .horizontal : .vertical
+            }()
+            let stops = gradient.stops.map { stop in
+                SwiftWindowsGraphics.GradientStop(color: stop.color, position: stop.position)
+            }
+            let runtimeGradient: SwiftWindowsGraphics.LinearGradient
+            if stops.isEmpty {
+                runtimeGradient = SwiftWindowsGraphics.LinearGradient(
+                    startColor: .clear, endColor: .clear, axis: axis)
+            } else {
+                runtimeGradient = SwiftWindowsGraphics.LinearGradient(stops: stops, axis: axis)
+            }
+            return .gradient(runtimeGradient)
+        }
+    }
+}
+
 public protocol TextRenderer: Animatable {
     var displayPadding: EdgeInsets { get }
-    func draw(layout: Text.Layout, in ctx: inout GraphicsContext)
+    @MainActor func draw(layout: Text.Layout, in ctx: inout GraphicsContext)
     func sizeThatFits(proposal: ProposedViewSize, text: TextProxy) -> CGSize
 }
 extension TextRenderer {

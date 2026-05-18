@@ -446,7 +446,6 @@ public enum ScenePainter {
             clipAllowsDrawing(clip: effectiveClip, rect: fillRect)
         {
             let scaledPath = path.scaled(to: fillRect)
-            let clipR = clipRectFloats(effectiveClip, surfaceSize: surfaceSize, displayScale: displayScale)
             let pathBounds = scaledPath.segments.boundingRect ?? fillRect
             if let bg = resolvedBGColor, bg.alpha > 0 {
                 scene.addPath(
@@ -953,6 +952,21 @@ public enum ScenePainter {
                         cornerRadius: 0,
                         color: effectiveColor,
                         opacity: 1,
+                        clip: currentClip,
+                        surfaceSize: surfaceSize,
+                        displayScale: displayScale
+                    ), toLayer: layerIndex)
+
+            case .fillRectGradient(let rect, let gradient):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                guard clipAllowsDrawing(clip: currentClip, rect: effectiveRect) else { continue }
+                scene.addQuad(
+                    fillQuad(
+                        rect: effectiveRect,
+                        cornerRadius: 0,
+                        color: gradient.startColor,
+                        gradient: .linear(gradient),
+                        opacity: opacity,
                         clip: currentClip,
                         surfaceSize: surfaceSize,
                         displayScale: displayScale

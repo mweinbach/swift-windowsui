@@ -17417,60 +17417,14 @@ private func shouldCapitalizeSentenceInsertion(after text: String) -> Bool {
 public struct Canvas: View {
     public typealias Body = Never
 
-    /// Drawing context for Canvas operations.
-    @MainActor
-    public struct GraphicsContext {
-        internal var context: SwiftWindowsUI.CanvasGraphicsContext
+    private let renderer: @MainActor (inout GraphicsContext, CGSize) -> Void
 
-        internal init() {
-            self.context = SwiftWindowsUI.CanvasGraphicsContext()
-        }
-
-        public mutating func fill(_ path: Path, with color: Color) {
-            context.fill(path, with: .color(color))
-        }
-
-        public mutating func stroke(_ path: Path, with color: Color, style: StrokeStyle = StrokeStyle(lineWidth: 1)) {
-            context.stroke(path, with: .color(color), style: style)
-        }
-
-        public mutating func fill(_ rect: Rect, with color: Color) {
-            context.fill(rect, with: .color(color))
-        }
-
-        public mutating func stroke(_ rect: Rect, with color: Color, lineWidth: Double = 1) {
-            context.stroke(rect, with: .color(color), lineWidth: lineWidth)
-        }
-
-        public mutating func draw(_ text: String, at point: Point, style: PixelTextStyle) {
-            context.draw(text, at: point, style: style)
-        }
-
-        public mutating func draw(_ text: String, in rect: Rect, style: PixelTextStyle) {
-            context.draw(text, in: rect, style: style)
-        }
-
-        public mutating func draw(_ image: BitmapSurface, in rect: Rect, opacity: Float = 1) {
-            context.draw(image, in: rect, opacity: opacity)
-        }
-
-        public mutating func clip(to rect: Rect) {
-            context.clip(to: rect)
-        }
-
-        public mutating func popClip() {
-            context.popClip()
-        }
-    }
-
-    private let renderer: @MainActor (inout GraphicsContext, Size) -> Void
-
-    public init(renderer: @escaping @MainActor (inout GraphicsContext, Size) -> Void) {
+    public init(renderer: @escaping @MainActor (inout GraphicsContext, CGSize) -> Void) {
         self.renderer = renderer
     }
 
     public init<F: View>(
-        renderer: @escaping @MainActor (inout GraphicsContext, Size) -> Void,
+        renderer: @escaping @MainActor (inout GraphicsContext, CGSize) -> Void,
         symbols: @escaping () -> F
     ) {
         self.renderer = renderer
@@ -17483,9 +17437,9 @@ public struct Canvas: View {
     public func makeComponent(context: ViewBuildContext) -> Component {
         SwiftWindowsUI.UI.canvas { runtimeContext, size in
             var graphicsContext = GraphicsContext()
-            graphicsContext.context = runtimeContext
+            graphicsContext.underlying = runtimeContext
             self.renderer(&graphicsContext, size)
-            runtimeContext = graphicsContext.context
+            runtimeContext = graphicsContext.underlying
         }
     }
 }

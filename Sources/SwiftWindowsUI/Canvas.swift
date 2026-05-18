@@ -18,6 +18,7 @@ public struct CanvasGraphicsContext {
         case fillPath(RenderPath, Color)
         case strokePath(RenderPath, Color, StrokeStyle)
         case fillRect(Rect, Color)
+        case fillRectGradient(Rect, LinearGradient)
         case strokeRect(Rect, Color, Double)
         case drawText(String, Rect, PixelTextStyle)
         case drawImage(BitmapSurface, Rect, Float)
@@ -61,7 +62,7 @@ public struct CanvasGraphicsContext {
         case .color(let color):
             operations.append(.fillRect(rect, color))
         case .gradient(let gradient):
-            operations.append(.fillRect(rect, gradient.stops.first?.color ?? .clear))
+            operations.append(.fillRectGradient(rect, gradient))
         }
     }
 
@@ -198,6 +199,28 @@ extension CanvasGraphicsContext {
                                 rect: effectiveRect,
                                 color: effectiveColor,
                                 clipRect: currentClip
+                            )))
+                }
+
+            case .fillRectGradient(let rect, let gradient):
+                let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
+                let startColor = gradient.startColor.multipliedAlpha(by: opacity)
+                let endColor = gradient.endColor.multipliedAlpha(by: opacity)
+                guard startColor.alpha > 0 || endColor.alpha > 0 else { continue }
+                if baseClipAllowsDrawing(baseClip: currentClip, rect: effectiveRect) {
+                    let scaledGradient = LinearGradient(
+                        stops: gradient.stops.map {
+                            GradientStop(color: $0.color.multipliedAlpha(by: opacity), position: $0.position)
+                        },
+                        axis: gradient.axis
+                    )
+                    commands.append(
+                        .fillRect(
+                            FillRectCommand(
+                                rect: effectiveRect,
+                                color: startColor,
+                                clipRect: currentClip,
+                                gradient: scaledGradient
                             )))
                 }
 

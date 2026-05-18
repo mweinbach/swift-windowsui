@@ -17218,26 +17218,39 @@ private func resolvedSymbolIcon(for systemName: String, variants: SymbolVariants
     switch resolvedName {
     case "magnifyingglass":
         return .search
-    case "folder":
+    case "folder", "folder.fill":
         return .folder
     case "gear", "gear.fill", "gearshape", "gearshape.fill":
         return .settings
     case "bolt", "bolt.fill":
         return .lightning
-    case "rectangle.3.group", "square.grid.3x1.folder.badge.plus":
+    case "rectangle.3.group", "rectangle.3.group.fill", "square.grid.3x1.folder.badge.plus",
+        "square.grid.2x2", "square.grid.2x2.fill", "rectangle.grid.3x2", "rectangle.grid.3x2.fill":
         return .layout
-    case "keyboard":
+    case "keyboard", "keyboard.fill":
         return .keyboard
-    case "sparkles":
+    case "sparkles", "sparkle":
         return .sparkle
     case "info", "info.fill", "info.circle", "info.circle.fill":
         return .info
-    case "waveform.path.ecg", "waveform.path.ecg.fill", "chart.line.uptrend.xyaxis", "chart.line.uptrend.xyaxis.fill":
+    case "waveform.path.ecg", "waveform.path.ecg.fill", "chart.line.uptrend.xyaxis",
+        "chart.line.uptrend.xyaxis.fill", "waveform":
         return .activity
-    case "doc", "doc.fill", "doc.text", "doc.text.fill":
+    case "doc", "doc.fill", "doc.text", "doc.text.fill", "textformat", "textformat.fill",
+        "text.alignleft", "text.alignright", "text.aligncenter":
         return .document
-    case "rectangle.split.3x1", "rectangle.split.3x1.fill":
+    case "rectangle.split.3x1", "rectangle.split.3x1.fill", "rectangle.split.2x1",
+        "rectangle.split.2x1.fill", "square.split.2x1", "square.split.2x1.fill":
         return .split
+    case "switch.2", "switch.2.fill", "togglepower", "power", "power.circle",
+        "slider.horizontal.3", "switch.programmable", "switch.programmable.fill":
+        return .settings
+    case "checkmark", "checkmark.circle", "checkmark.circle.fill", "checkmark.square",
+        "checkmark.square.fill":
+        return .checkmark
+    case "chevron.down", "chevron.down.circle", "chevron.down.circle.fill", "arrowtriangle.down",
+        "arrowtriangle.down.fill":
+        return .chevronDown
     default:
         return .sparkle
     }

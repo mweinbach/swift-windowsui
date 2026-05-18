@@ -2646,8 +2646,74 @@ extension LinearGradient {
         self.init(gradient: Gradient(stops: gradient.stops), startPoint: startPoint, endPoint: endPoint)
     }
 }
+/// Type-erased gradient that paints as a subtle vertical light->dark sweep
+/// of a single base color. Matches SwiftUI's `Color.red.gradient` shorthand
+/// which produces a soft "material" look without needing explicit stops.
 public struct AnyGradient: Sendable, Equatable {
-    public init() {}
+    private let baseColor: Color?
+
+    public init() {
+        self.baseColor = nil
+    }
+
+    /// Build an `AnyGradient` whose `retainedLinearGradient` is a subtle
+    /// vertical sweep around the supplied color.
+    public init(color: Color) {
+        self.baseColor = color
+    }
+
+    /// Resolve to a concrete vertical `LinearGradient`.  Falls back to a
+    /// transparent->black ramp when no base color was set.
+    public var retainedLinearGradient: LinearGradient {
+        guard let baseColor else {
+            return LinearGradient(
+                colors: [Color(red: 0, green: 0, blue: 0, alpha: 0), .black],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+        let top = baseColor.lightened(by: 0.12)
+        let bottom = baseColor.darkened(by: 0.18)
+        return LinearGradient(
+            colors: [top, bottom],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+}
+
+extension AnyGradient: ShapeStyle {
+    public var retainedForegroundStyle: ForegroundStyle {
+        .linearGradient(retainedLinearGradient)
+    }
+}
+
+extension Color {
+    /// SwiftUI-shape `Color.gradient` shorthand — returns a subtle vertical
+    /// gradient sweep tied to this color.
+    public var gradient: AnyGradient {
+        AnyGradient(color: self)
+    }
+
+    fileprivate func lightened(by amount: Float) -> Color {
+        let clamped = max(0, min(1, amount))
+        return Color(
+            red: red + (1 - red) * clamped,
+            green: green + (1 - green) * clamped,
+            blue: blue + (1 - blue) * clamped,
+            alpha: alpha
+        )
+    }
+
+    fileprivate func darkened(by amount: Float) -> Color {
+        let clamped = max(0, min(1, amount))
+        return Color(
+            red: red * (1 - clamped),
+            green: green * (1 - clamped),
+            blue: blue * (1 - clamped),
+            alpha: alpha
+        )
+    }
 }
 public struct StrokeShapeStyle: ShapeStyle, Sendable, Equatable {
     public var retainedForegroundStyle: ForegroundStyle {

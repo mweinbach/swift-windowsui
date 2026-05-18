@@ -341,6 +341,36 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
+    // MARK: - Color.gradient
+
+    func testColorGradientProducesVerticalAnyGradient() async {
+        await MainActor.run {
+            let base = Color(red: 0.50, green: 0.30, blue: 0.70, alpha: 1)
+            let anyGradient = base.gradient
+            let linear = anyGradient.retainedLinearGradient
+
+            // SwiftUI's Color.gradient is a top-bright / bottom-dim vertical
+            // sweep.  Verify both endpoints are derived from the base color
+            // and that the start is lighter than the end.
+            XCTAssertTrue(linear.startColor.red > base.red)
+            XCTAssertTrue(linear.endColor.red < base.red)
+            XCTAssertEqual(linear.axis, .vertical)
+        }
+    }
+
+    func testColorGradientShapeStyleConformanceProducesLinearForegroundStyle() async {
+        await MainActor.run {
+            let base = Color(red: 0.2, green: 0.6, blue: 0.9, alpha: 1)
+            let foreground = base.gradient.retainedForegroundStyle
+            switch foreground {
+            case .linearGradient(let gradient):
+                XCTAssertEqual(gradient.axis, .vertical)
+            default:
+                XCTFail("Color.gradient should resolve to a linearGradient foreground style")
+            }
+        }
+    }
+
     // MARK: - Gradient stops
 
     func testGradientInitWithStopsPreservesCustomLocations() async {

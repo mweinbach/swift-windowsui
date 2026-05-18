@@ -465,14 +465,15 @@ struct SwiftWindowsUIGalleryTool {
                         let cx = size.width / 2
                         let cy = size.height / 2
                         for index in 0..<8 {
-                            ctx.transform = .identity
-                            ctx.translateBy(x: cx, y: cy)
-                            ctx.rotate(by: .degrees(Double(index) * 45))
-                            ctx.opacity = 1.0 - Double(index) * 0.08
-                            ctx.fill(
-                                Rect(x: -10, y: -45, width: 20, height: 30),
-                                with: .color(Color(red: 0.95, green: 0.55, blue: 0.20, alpha: 1))
-                            )
+                            ctx.drawLayer { sub in
+                                sub.translateBy(x: cx, y: cy)
+                                sub.rotate(by: .degrees(Double(index) * 45))
+                                sub.opacity = 1.0 - Double(index) * 0.08
+                                sub.fill(
+                                    Rect(x: -10, y: -45, width: 20, height: 30),
+                                    with: .color(Color(red: 0.95, green: 0.55, blue: 0.20, alpha: 1))
+                                )
+                            }
                         }
                     }
                     .frame(width: 160, height: 140)

@@ -113,6 +113,15 @@ public struct CanvasGraphicsContext {
         currentClip = nil
     }
 
+    // MARK: - Layer scope
+
+    /// Append all operations recorded in `other` onto this context.  Used by
+    /// SwiftUI-shape ``GraphicsContext.drawLayer`` helpers in the WinSwiftUI
+    /// module to composite a sub-context's operations back into the parent.
+    public mutating func append(contentsOf other: CanvasGraphicsContext) {
+        operations.append(contentsOf: other.operations)
+    }
+
     // MARK: - Internal helpers
 
     private func textSizeThatFits(_ text: String, style: PixelTextStyle) -> Size {

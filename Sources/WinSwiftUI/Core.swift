@@ -1560,6 +1560,22 @@ public struct GraphicsContext {
         underlying.popClip()
     }
 
+    // MARK: Layer scope
+
+    /// Run `content` with a sub-context that inherits this context's
+    /// transform and opacity but accumulates its own operations.  When the
+    /// closure returns, the sub-context's operations are appended to this
+    /// context, so transient mutations to transform/opacity inside the
+    /// closure don't leak back out.  Mirrors SwiftUI's
+    /// ``GraphicsContext.drawLayer(content:)``.
+    public mutating func drawLayer(content: (inout GraphicsContext) -> Void) {
+        var sub = GraphicsContext()
+        sub.transform = transform
+        sub.opacity = opacity
+        content(&sub)
+        underlying.append(contentsOf: sub.underlying)
+    }
+
     // MARK: Helpers
 
     private var currentOpacityMultiplier: Double {

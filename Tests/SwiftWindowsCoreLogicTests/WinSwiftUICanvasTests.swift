@@ -333,6 +333,98 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
+    // MARK: - drawLayer
+
+    func testCanvasDrawLayerDoesNotLeakTransformBackToParent() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.drawLayer { sub in
+                    sub.translateBy(x: 50, y: 30)
+                    sub.fill(
+                        Rect(x: 0, y: 0, width: 20, height: 20),
+                        with: .color(Color(red: 0, green: 1, blue: 0, alpha: 1))
+                    )
+                }
+                // Parent ctx.transform should still be identity here.
+                ctx.fill(
+                    Rect(x: 0, y: 0, width: 20, height: 20),
+                    with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            // Sub-context fill is a translated-corner path; outer fill stays
+            // a quad because the parent's transform stayed identity.
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let path = scene.layers[0].paths[0]
+            XCTAssertEqual(path.bounds.minX, 50)
+            XCTAssertEqual(path.bounds.minY, 30)
+            XCTAssertEqual(path.fillColor.green, 1)
+
+            let outerQuads = scene.layers[0].quads.filter {
+                $0.width == 20 && $0.height == 20 && $0.startR == 1
+            }
+            XCTAssertEqual(outerQuads.count, 1)
+            XCTAssertEqual(outerQuads[0].x, 0)
+            XCTAssertEqual(outerQuads[0].y, 0)
+        }
+    }
+
+    func testCanvasDrawLayerInheritsParentTransform() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.translateBy(x: 20, y: 10)
+                ctx.drawLayer { sub in
+                    sub.fill(
+                        Rect(x: 0, y: 0, width: 30, height: 30),
+                        with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1))
+                    )
+                }
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            XCTAssertEqual(scene.layers[0].paths.count, 1)
+            let path = scene.layers[0].paths[0]
+            // Sub-context inherited parent's translation, so the path lands
+            // at (20, 10).
+            XCTAssertEqual(path.bounds.minX, 20)
+            XCTAssertEqual(path.bounds.minY, 10)
+            XCTAssertEqual(path.fillColor.blue, 1)
+        }
+    }
+
+    func testCanvasDrawLayerOpacityDoesNotLeakOutward() async {
+        await MainActor.run {
+            let view = Canvas { ctx, _ in
+                ctx.drawLayer { sub in
+                    sub.opacity = 0.25
+                    sub.fill(
+                        Rect(x: 0, y: 0, width: 20, height: 20),
+                        with: .color(Color(red: 1, green: 0, blue: 0, alpha: 1))
+                    )
+                }
+                ctx.fill(
+                    Rect(x: 30, y: 0, width: 20, height: 20),
+                    with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1))
+                )
+            }
+            .frame(width: 120, height: 80)
+
+            let scene = snapshot(view)
+            // Inside the layer: red fill with alpha 0.25. Outside: blue at full
+            // alpha, since the parent's opacity stayed at 1.0.
+            let reds = scene.layers[0].quads.filter { $0.startR == 1 }
+            XCTAssertEqual(reds.count, 1)
+            XCTAssertEqual(reds[0].startA, 0.25, accuracy: 0.001)
+
+            let blues = scene.layers[0].quads.filter { $0.startB == 1 }
+            XCTAssertEqual(blues.count, 1)
+            XCTAssertEqual(blues[0].startA, 1.0, accuracy: 0.001)
+        }
+    }
+
     // MARK: - Clip stack
 
     func testCanvasPushedClipNarrowsEmittedQuadClip() async {

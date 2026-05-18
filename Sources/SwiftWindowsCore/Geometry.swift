@@ -904,8 +904,158 @@ public struct Path: Equatable, Sendable {
         return Rect(origin: Point(x: minX, y: minY), size: CGSize(width: maxX - minX, height: maxY - minY))
     }
 
+    /// Returns true when `point` lies inside the path's interior under the
+    /// chosen fill rule.  Curves are flattened into short line segments before
+    /// the ray-casting test runs, so the result is an approximation: accuracy
+    /// improves with smaller curves and degrades for very long bezier
+    /// segments.
     public func contains(_ point: Point, eoFill: Bool = false) -> Bool {
-        false
+        let edges = flattenedEdges()
+        guard !edges.isEmpty else { return false }
+        if eoFill {
+            return crossingsCount(at: point, edges: edges) % 2 == 1
+        }
+        return windingNumber(at: point, edges: edges) != 0
+    }
+
+    private struct Edge {
+        let start: Point
+        let end: Point
+    }
+
+    private func flattenedEdges(segmentsPerCurve: Int = 16) -> [Edge] {
+        var edges: [Edge] = []
+        var current = Point.zero
+        var subpathStart = Point.zero
+        var hasCurrent = false
+
+        func addLine(to end: Point) {
+            if hasCurrent {
+                edges.append(Edge(start: current, end: end))
+            }
+            current = end
+            hasCurrent = true
+        }
+
+        for element in elements {
+            switch element {
+            case .moveTo(let p):
+                current = p
+                subpathStart = p
+                hasCurrent = true
+            case .lineTo(let p):
+                addLine(to: p)
+            case .quadraticCurveTo(let c, let p):
+                guard hasCurrent else {
+                    current = p
+                    hasCurrent = true
+                    continue
+                }
+                var step = 1
+                let start = current
+                while step <= segmentsPerCurve {
+                    let t = Double(step) / Double(segmentsPerCurve)
+                    let oneMinusT = 1 - t
+                    let x = oneMinusT * oneMinusT * start.x + 2 * oneMinusT * t * c.x + t * t * p.x
+                    let y = oneMinusT * oneMinusT * start.y + 2 * oneMinusT * t * c.y + t * t * p.y
+                    addLine(to: Point(x: x, y: y))
+                    step += 1
+                }
+            case .cubicCurveTo(let c1, let c2, let p):
+                guard hasCurrent else {
+                    current = p
+                    hasCurrent = true
+                    continue
+                }
+                var step = 1
+                let start = current
+                while step <= segmentsPerCurve {
+                    let t = Double(step) / Double(segmentsPerCurve)
+                    let oneMinusT = 1 - t
+                    let x =
+                        oneMinusT * oneMinusT * oneMinusT * start.x
+                        + 3 * oneMinusT * oneMinusT * t * c1.x
+                        + 3 * oneMinusT * t * t * c2.x
+                        + t * t * t * p.x
+                    let y =
+                        oneMinusT * oneMinusT * oneMinusT * start.y
+                        + 3 * oneMinusT * oneMinusT * t * c1.y
+                        + 3 * oneMinusT * t * t * c2.y
+                        + t * t * t * p.y
+                    addLine(to: Point(x: x, y: y))
+                    step += 1
+                }
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                let sweep: Double
+                if clockwise {
+                    sweep = endAngle >= startAngle ? endAngle - startAngle - 2 * .pi : endAngle - startAngle
+                } else {
+                    sweep = endAngle <= startAngle ? endAngle - startAngle + 2 * .pi : endAngle - startAngle
+                }
+                let steps = max(4, Int((abs(sweep) / (.pi / 8)).rounded(.up)))
+                if !hasCurrent {
+                    let startPoint = Point(
+                        x: center.x + radius * cos(startAngle),
+                        y: center.y + radius * sin(startAngle)
+                    )
+                    current = startPoint
+                    subpathStart = startPoint
+                    hasCurrent = true
+                }
+                var step = 1
+                while step <= steps {
+                    let t = Double(step) / Double(steps)
+                    let angle = startAngle + sweep * t
+                    let p = Point(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
+                    addLine(to: p)
+                    step += 1
+                }
+            case .close:
+                if hasCurrent, current != subpathStart {
+                    edges.append(Edge(start: current, end: subpathStart))
+                    current = subpathStart
+                }
+            }
+        }
+        return edges
+    }
+
+    private func crossingsCount(at point: Point, edges: [Edge]) -> Int {
+        var count = 0
+        for edge in edges {
+            let a = edge.start
+            let b = edge.end
+            let crossesY = (a.y > point.y) != (b.y > point.y)
+            guard crossesY else { continue }
+            let t = (point.y - a.y) / (b.y - a.y)
+            let xIntersect = a.x + t * (b.x - a.x)
+            if xIntersect > point.x {
+                count += 1
+            }
+        }
+        return count
+    }
+
+    private func windingNumber(at point: Point, edges: [Edge]) -> Int {
+        var winding = 0
+        for edge in edges {
+            let a = edge.start
+            let b = edge.end
+            if a.y <= point.y {
+                if b.y > point.y, edgeSide(a: a, b: b, point: point) > 0 {
+                    winding += 1
+                }
+            } else {
+                if b.y <= point.y, edgeSide(a: a, b: b, point: point) < 0 {
+                    winding -= 1
+                }
+            }
+        }
+        return winding
+    }
+
+    private func edgeSide(a: Point, b: Point, point: Point) -> Double {
+        (b.x - a.x) * (point.y - a.y) - (point.x - a.x) * (b.y - a.y)
     }
 
     public func applying(_ transform: CGAffineTransform) -> Path {

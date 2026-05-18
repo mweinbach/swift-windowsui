@@ -407,6 +407,57 @@ struct SwiftWindowsUIGalleryTool {
                         .frame(width: 80, height: 80)
                         .animation(.easeInOut, value: 1)
                 )),
+            GallerySpec(
+                id: "canvas-fill-color", title: "Canvas (color fill)",
+                view: AnyView(
+                    Canvas { ctx, size in
+                        var path = Path()
+                        path.moveTo(Point(x: size.width / 2, y: 10))
+                        path.lineTo(Point(x: size.width - 10, y: size.height - 10))
+                        path.lineTo(Point(x: 10, y: size.height - 10))
+                        path.close()
+                        ctx.fill(path, with: .color(Color(red: 0.95, green: 0.55, blue: 0.20, alpha: 1)))
+                    }
+                    .frame(width: 160, height: 140)
+                )),
+            GallerySpec(
+                id: "canvas-stroke", title: "Canvas (stroke)",
+                view: AnyView(
+                    Canvas { ctx, size in
+                        var path = Path()
+                        path.moveTo(Point(x: 10, y: size.height / 2))
+                        let step = (size.width - 20) / 10
+                        for index in 1...10 {
+                            let x = 10 + Double(index) * step
+                            let y = size.height / 2 + (index % 2 == 0 ? -30.0 : 30.0)
+                            path.lineTo(Point(x: x, y: y))
+                        }
+                        ctx.stroke(
+                            path,
+                            with: .color(Color(red: 0.42, green: 0.78, blue: 0.92, alpha: 1)),
+                            lineWidth: 3
+                        )
+                    }
+                    .frame(width: 160, height: 140)
+                )),
+            GallerySpec(
+                id: "canvas-gradient", title: "Canvas (gradient)",
+                view: AnyView(
+                    Canvas { ctx, size in
+                        ctx.fill(
+                            Rect(x: 10, y: 10, width: size.width - 20, height: size.height - 20),
+                            with: .linearGradient(
+                                gradient: Gradient(colors: [
+                                    Color(red: 0.20, green: 0.30, blue: 0.95, alpha: 1),
+                                    Color(red: 0.80, green: 0.40, blue: 0.55, alpha: 1),
+                                ]),
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    }
+                    .frame(width: 160, height: 140)
+                )),
         ]
 
         var entries: [GalleryEntry] = []

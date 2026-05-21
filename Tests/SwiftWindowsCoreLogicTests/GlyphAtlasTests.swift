@@ -505,6 +505,44 @@ final class GlyphAtlasTests: XCTestCase {
         }
     }
 
+    // MARK: - Sustained Exhaustion
+
+    /// Stress test: feed many distinct glyphs through a tiny atlas and assert
+    /// the cache never starts dropping inserts. Mirrors the worst-case
+    /// rendering condition where every frame brings a new glyph (e.g.
+    /// scrolling through a long document with many different characters).
+    func testSustainedExhaustionAlwaysRecoversAndNeverDropsInserts() async {
+        let atlas = await MainActor.run { GlyphAtlas(width: 32, height: 32) }
+        let cache = await MainActor.run { GlyphAtlasCache(atlas: atlas, maxEntries: 32) }
+
+        await MainActor.run {
+            // 6×6 atlas slot per glyph plus padding means we can fit a few
+            // before exhausting. Insert 200 distinct glyphs and verify every
+            // single insert returns a valid entry.
+            let pixels = Data(count: 6 * 6 * 4)
+            var droppedInserts = 0
+            for i: UInt32 in 0..<200 {
+                let key = GlyphKey(
+                    character: Character(Unicode.Scalar(0x4E00 + Int(i))!),
+                    fontFamily: "F", fontSize: 12, weight: .regular
+                )
+                if cache.insert(key: key, pixels: pixels, width: 6, height: 6, bearingX: 0, bearingY: 0, advance: 6)
+                    == nil
+                {
+                    droppedInserts += 1
+                }
+                cache.nextFrame()
+            }
+            XCTAssertEqual(
+                droppedInserts, 0,
+                "Glyph atlas exhaustion must always recover; otherwise sustained scroll through new glyphs would silently drop rendering"
+            )
+            // After 200 inserts on a tiny atlas the cache must still hold no
+            // more entries than its maxEntries cap.
+            XCTAssertLessThanOrEqual(cache.count, 32)
+        }
+    }
+
     // MARK: - Explicit Evict
 
     func testExplicitEvictLRU() async {

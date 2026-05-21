@@ -11,6 +11,10 @@ public struct ControlAnimationStyle: Sendable {
     public var pressDuration: Double
     public var activationDuration: Double
 
+    // macOS Big Sur buttons scale to ~0.97 on press. Centralised so all
+    // controls that adopt the standard animation get the same affordance.
+    public static let pressedScale: Double = 0.97
+
     public init(focusDuration: Double = 0.18, pressDuration: Double = 0.14, activationDuration: Double = 0.18) {
         self.focusDuration = focusDuration
         self.pressDuration = pressDuration
@@ -281,11 +285,12 @@ public enum Controls {
         shadowSpread: Double = 0,
         cornerRadius: Double = 0,
         clipsToBounds: Bool = false,
+        blurRadius: Double = 0,
         stackLayout: StackLayout,
         isHitTestVisible: Bool = true,
         children: [ViewNode] = []
     ) -> ViewNode {
-        panel(
+        let node = panel(
             frame: frame,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
@@ -305,6 +310,10 @@ public enum Controls {
             isHitTestVisible: isHitTestVisible,
             children: children
         )
+        if blurRadius > 0 {
+            node.blurRadius = blurRadius
+        }
+        return node
     }
 
     public static func scrollPanel(
@@ -747,23 +756,28 @@ public enum Controls {
             applySurfaceState(duration: animation.focusDuration)
             animate(.outline, node, in: runtime, to: .clear, duration: animation.focusDuration)
         }
-        node.onPointerDown = {
+        node.onPointerDown = { [weak node] in
             interactionState.isPressed = true
             applySurfaceState(duration: animation.pressDuration)
+            // Subtle press-down scale matches the macOS Big Sur button feel.
+            animateScale(node, to: ControlAnimationStyle.pressedScale, duration: animation.pressDuration)
         }
-        node.onPointerUpInside = {
+        node.onPointerUpInside = { [weak node] in
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
+            animateScale(node, to: 1.0, duration: animation.focusDuration)
         }
-        node.onPointerUpOutside = {
+        node.onPointerUpOutside = { [weak node] in
             interactionState.isPressed = false
             applySurfaceState(duration: animation.focusDuration)
+            animateScale(node, to: 1.0, duration: animation.focusDuration)
         }
         node.onActivate = { [weak node] in
             interactionState.isPressed = false
             animate(.background, node, in: runtime, to: palette.activated, duration: animation.activationDuration)
             animate(.border, node, in: runtime, to: chrome.borderActivatedColor, duration: animation.activationDuration)
             animate(.shadow, node, in: runtime, to: chrome.shadowActivatedColor, duration: animation.activationDuration)
+            animateScale(node, to: 1.0, duration: animation.activationDuration)
             action?()
         }
         node.onRepeatActivate = {
@@ -1570,6 +1584,33 @@ public enum Controls {
             to: color,
             duration: duration,
             at: Win32Window.currentTimestampSeconds()
+        )
+    }
+
+    /// Animates a node's uniform scale toward `targetScale` over `duration`
+    /// seconds with ease-out. Used to give buttons and other tappables a
+    /// subtle "press down" affordance matching macOS Big Sur+ controls.
+    fileprivate static func animateScale(
+        _ node: ViewNode?,
+        to targetScale: Double,
+        duration: Double,
+        easing: AnimationEasing = .easeOut
+    ) {
+        guard let node else { return }
+        let now = Win32Window.currentTimestampSeconds()
+        let startX = node.transform.scaleX
+        let startY = node.transform.scaleY
+        // Mark transform as the steady-state target so the runtime knows
+        // where to interpolate to once the animation completes.
+        node.transform.scaleX = targetScale
+        node.transform.scaleY = targetScale
+        node.animationStates[.transformScaleX] = AnimationState(
+            startValue: startX, endValue: targetScale,
+            startTime: now, duration: duration, easing: easing
+        )
+        node.animationStates[.transformScaleY] = AnimationState(
+            startValue: startY, endValue: targetScale,
+            startTime: now, duration: duration, easing: easing
         )
     }
 }

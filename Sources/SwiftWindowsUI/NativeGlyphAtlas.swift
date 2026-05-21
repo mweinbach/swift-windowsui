@@ -51,15 +51,23 @@ final class NativeGlyphAtlas {
     }
 
     func snapshotIfUsedInCurrentFrame() -> GlyphAtlasSnapshot? {
-        guard wasUsedInCurrentFrame, atlas.isDirty else {
+        guard wasUsedInCurrentFrame else {
             return nil
         }
 
+        // Consumers without their own atlas-texture cache (CPU rasterizer,
+        // snapshot tools) need to read pixels every frame, even when no new
+        // glyphs were uploaded. Provide the full pixel buffer always; GPU
+        // backends can still skip texture uploads when dirtyRegion is empty.
+        let dirtyRegion =
+            atlas.isDirty
+            ? atlas.dirtyRegion
+            : GlyphAtlasRegion(x: 0, y: 0, width: 0, height: 0)
         let snapshot = GlyphAtlasSnapshot(
             width: atlas.width,
             height: atlas.height,
             pixels: atlas.pixels,
-            dirtyRegion: atlas.dirtyRegion
+            dirtyRegion: dirtyRegion
         )
         atlas.markClean()
         return snapshot

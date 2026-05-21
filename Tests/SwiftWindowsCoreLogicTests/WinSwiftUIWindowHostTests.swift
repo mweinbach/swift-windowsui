@@ -426,6 +426,62 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
+    /// Post-fallback invariant: once the host downgrades to the frame renderer,
+    /// subsequent renders MUST NOT invoke the batch backend again (otherwise
+    /// every frame pays a failing render call before falling back, multiplying
+    /// latency). Locks in the "one-way" property of the current fallback chain.
+    func testBatchRendererIsNotCalledAgainAfterDowngrade() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            let frameRenderer = FakeRenderBackend()
+            let surface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+
+            let config = WindowGroupConfiguration(
+                title: "Test",
+                size: IntSize(width: 320, height: 200),
+                clearColor: .black,
+                content: []
+            )
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in surface }
+            )
+            let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            XCTAssertEqual(batchRenderer.renderedScenes.count, 1)
+            let batchSuccessCountBeforeFailure = batchRenderer.renderedScenes.count
+
+            batchRenderer.setRenderShouldFail(true)
+            host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertFalse(host.isUsingBatchPresentationBackend, "Downgrade should have happened")
+            let framesAfterDowngrade = frameRenderer.renderedFrames.count
+            XCTAssertGreaterThanOrEqual(framesAfterDowngrade, 1, "Frame must render the downgrade-triggering frame")
+
+            // Stop the batch from failing — we want to prove that even if the
+            // batch starts working again, the host doesn't go back to it.
+            batchRenderer.setRenderShouldFail(false)
+            for _ in 0..<5 {
+                host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
+                host.windowNeedsDisplay(fakeWindow)
+            }
+
+            XCTAssertEqual(
+                batchRenderer.renderedScenes.count, batchSuccessCountBeforeFailure,
+                "Batch renderer must not be invoked again after downgrade — even render attempts that would throw add latency, so the host's downgrade should bypass batch entirely")
+            XCTAssertGreaterThan(
+                frameRenderer.renderedFrames.count, framesAfterDowngrade,
+                "Subsequent renders should keep flowing through the frame renderer")
+        }
+    }
+
     /// VAL-CROSS-007: If the host downgrades from scene to frame after a
     /// localized mutation, deferred ordering stays correct, the incompatible
     /// scene-backed deferred payload reruns on the triggering fallback frame,

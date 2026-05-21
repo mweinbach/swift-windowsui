@@ -82,6 +82,31 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
     private var imageResources: [Int32: ImageResourceEntry] = [:]
 
+    // Path rasterization is CPU-bound (we don't yet have a real GPU
+    // tessellator), so caching the resulting bitmap + GPU texture across
+    // frames is the difference between "redo every frame" and "upload once
+    // per path shape". Keys are normalized to a (0,0) origin so translating
+    // the path doesn't bust the cache; the draw call still positions the
+    // resulting texture at the original bounds.origin.
+    private struct CachedPathRender {
+        let key: PathPrimitive
+        var texture: UnsafeMutablePointer<ID3D11Texture2D>
+        var srv: UnsafeMutablePointer<ID3D11ShaderResourceView>
+        var bitmapSize: IntSize
+        var lastUsedFrame: UInt64
+    }
+
+    private var pathRenderCache: [CachedPathRender] = []
+    private var frameCounter: UInt64 = 0
+    private static let pathCacheStaleFrames: UInt64 = 60
+    private static let pathCacheMaxEntries = 256
+    // Test-observable counters so we can verify the cache is actually being
+    // hit across frames.
+    internal private(set) var pathCacheHits: UInt64 = 0
+    internal private(set) var pathCacheMisses: UInt64 = 0
+
+    internal var pathCacheEntryCountForTesting: Int { pathRenderCache.count }
+
     // MARK: - Surface State
 
     private var surface: SurfaceDescriptor?
@@ -281,6 +306,11 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
             throw BatchRendererError(operation: "Resolve HWND", hresult: batchHresultHandle)
         }
 
+        // Drop any cached textures from a prior device — they belong to a
+        // ID3D11Device we may be about to recreate, so reusing their SRVs
+        // would be undefined behaviour after a device-loss reattach.
+        releaseAllCachedPaths()
+
         self.surface = surface
         self.hwnd = hwnd
 
@@ -325,6 +355,15 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
         }
 
         if surface.pixelSize.width <= 0 || surface.pixelSize.height <= 0 {
+            return
+        }
+
+        frameCounter &+= 1
+        evictStaleCachedPaths()
+        // Re-fetch the swapchain/surface guards: the eviction call above is
+        // pure local work but a future hook (e.g. device-loss recovery) might
+        // teardown the swapchain mid-frame and we want to fail safe.
+        guard isAttached else {
             return
         }
 
@@ -1320,23 +1359,23 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
 
         for index in range {
             let path = instances[index]
-            guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(path) else {
-                continue
-            }
-            let (texture, srv) = try createImageTextureResource(for: bitmap)
-            defer {
-                var releasableSRV: UnsafeMutablePointer<ID3D11ShaderResourceView>? = srv
-                releaseCOMPointer(&releasableSRV)
-                var releasableTexture: UnsafeMutablePointer<ID3D11Texture2D>? = texture
-                releaseCOMPointer(&releasableTexture)
-            }
-
             let bounds = path.contentMaskedBounds ?? path.bounds
+            // Normalize the path to its own origin so the cache key is
+            // translation-invariant. A static path that simply moves with
+            // its parent view stays a cache hit.
+            let translation = Point(x: -path.bounds.origin.x, y: -path.bounds.origin.y)
+            let normalizedPath = path.translated(by: translation)
+
+            let (srv, bitmapSize) = try ensureCachedPathTexture(for: normalizedPath, fallbackBounds: bounds)
+            guard let srv else { continue }
+
+            let drawWidth = max(Float(bounds.size.width), Float(bitmapSize.width))
+            let drawHeight = max(Float(bounds.size.height), Float(bitmapSize.height))
             let syntheticImage = ImagePrimitive(
                 screenX: Float(bounds.origin.x),
                 screenY: Float(bounds.origin.y),
-                screenW: Float(bounds.size.width),
-                screenH: Float(bounds.size.height),
+                screenW: drawWidth,
+                screenH: drawHeight,
                 uvX: 0, uvY: 0, uvW: 1, uvH: 1,
                 opacity: 1,
                 clipX: 0, clipY: 0, clipWidth: 0, clipHeight: 0,
@@ -1349,6 +1388,78 @@ public final class D3D11BatchRenderer: BatchRenderBackend {
                 deviceContext: deviceContext,
                 textureSRV: srv
             )
+        }
+    }
+
+    /// Returns a GPU texture for `normalizedPath`. The path is normalized to
+    /// origin (0, 0); the caller is responsible for placing the resulting
+    /// quad at the original screen coordinates. Reuses cached textures when
+    /// the path shape/colors/stroke match an entry from a recent frame.
+    private func ensureCachedPathTexture(
+        for normalizedPath: PathPrimitive,
+        fallbackBounds: Rect
+    ) throws -> (srv: UnsafeMutablePointer<ID3D11ShaderResourceView>?, bitmapSize: IntSize) {
+        if let hitIndex = pathRenderCache.firstIndex(where: { $0.key == normalizedPath }) {
+            pathRenderCache[hitIndex].lastUsedFrame = frameCounter
+            pathCacheHits &+= 1
+            return (pathRenderCache[hitIndex].srv, pathRenderCache[hitIndex].bitmapSize)
+        }
+
+        pathCacheMisses &+= 1
+        guard let bitmap = GPUIRawSceneRasterizer.rasterizePath(normalizedPath) else {
+            return (nil, IntSize.zero)
+        }
+        let (texture, srv) = try createImageTextureResource(for: bitmap)
+        // Bound the cache so unbounded canvas content doesn't accumulate
+        // textures forever. Evict the oldest entry when full.
+        if pathRenderCache.count >= Self.pathCacheMaxEntries {
+            evictOldestCachedPathEntry()
+        }
+        let entry = CachedPathRender(
+            key: normalizedPath,
+            texture: texture,
+            srv: srv,
+            bitmapSize: IntSize(width: Int32(bitmap.width), height: Int32(bitmap.height)),
+            lastUsedFrame: frameCounter
+        )
+        pathRenderCache.append(entry)
+        _ = fallbackBounds  // currently unused; kept for future debug instrumentation
+        return (srv, entry.bitmapSize)
+    }
+
+    private func evictStaleCachedPaths() {
+        guard frameCounter > Self.pathCacheStaleFrames else { return }
+        let staleThreshold = frameCounter - Self.pathCacheStaleFrames
+        var index = 0
+        while index < pathRenderCache.count {
+            if pathRenderCache[index].lastUsedFrame < staleThreshold {
+                releaseCachedPathEntry(at: index)
+            } else {
+                index += 1
+            }
+        }
+    }
+
+    private func evictOldestCachedPathEntry() {
+        guard
+            let oldestIndex = pathRenderCache.indices.min(by: {
+                pathRenderCache[$0].lastUsedFrame < pathRenderCache[$1].lastUsedFrame
+            })
+        else { return }
+        releaseCachedPathEntry(at: oldestIndex)
+    }
+
+    private func releaseCachedPathEntry(at index: Int) {
+        let entry = pathRenderCache.remove(at: index)
+        var srvOpt: UnsafeMutablePointer<ID3D11ShaderResourceView>? = entry.srv
+        releaseCOMPointer(&srvOpt)
+        var textureOpt: UnsafeMutablePointer<ID3D11Texture2D>? = entry.texture
+        releaseCOMPointer(&textureOpt)
+    }
+
+    private func releaseAllCachedPaths() {
+        while !pathRenderCache.isEmpty {
+            releaseCachedPathEntry(at: pathRenderCache.count - 1)
         }
     }
 

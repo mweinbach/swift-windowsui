@@ -2930,6 +2930,7 @@ public struct TrimmedShape<Content: Shape>: Shape, RetainedClipShape, RetainedCo
         case .linearGradient(let g): fillColor = g.startColor
         case .radialGradient(let g): fillColor = g.stops.first?.color ?? .clear
         case .conicGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        case .materialFill(let tint, _): fillColor = tint
         }
         let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
         return Component { _ in
@@ -3490,6 +3491,8 @@ private func resolvedFill(from style: ForegroundStyle) -> (color: Color, gradien
         return (gradient.stops.first?.color ?? .clear, .radial(.init(gradient)))
     case .conicGradient(let gradient):
         return (gradient.stops.first?.color ?? .clear, .conic(.init(gradient)))
+    case .materialFill(let tint, _):
+        return (tint, nil)
     }
 }
 @MainActor

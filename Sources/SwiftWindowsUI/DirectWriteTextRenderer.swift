@@ -556,6 +556,14 @@ private final class DirectWriteSystem {
     private func layoutLine(_ text: String, style: PixelTextStyle) -> NativeTextLineLayout? {
         var lineStyle = style
         lineStyle.verticalAlignment = .top
+        // Force leading alignment so glyph origins come back relative to the
+        // line's natural starting x. The caller (ScenePainter) handles the
+        // actual horizontal alignment of the line within the visible rect via
+        // its own startX computation. Without this override, DirectWrite
+        // centers (or right-aligns) glyphs inside our 4096px layout box,
+        // producing wildly off-screen origin.x values that fail the painter's
+        // preflight visibility check and fall back to PixelText.
+        lineStyle.alignment = .leading
 
         guard !text.isEmpty else {
             let lineHeight = max(lineStyle.nativeFontPixelSize, 1)

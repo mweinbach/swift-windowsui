@@ -3947,7 +3947,14 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(Material.thick.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.58))
             XCTAssertEqual(Material.ultraThick.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.72))
             XCTAssertEqual(Material.bar.retainedFallbackColor, Color(red: 1, green: 1, blue: 1, alpha: 0.64))
-            XCTAssertEqual(ForegroundStyle(Material.regular), .color(Material.regular.retainedFallbackColor))
+            // Material's foreground style now carries its backdrop blur
+            // radius alongside the fallback tint. Solid-color comparison
+            // here was the pre-blur behaviour; with the blur path wired,
+            // Material returns `.materialFill(tint:blurRadius:)`.
+            XCTAssertEqual(
+                ForegroundStyle(Material.regular),
+                .materialFill(tint: Material.regular.retainedFallbackColor, blurRadius: Material.regular.retainedBlurRadius)
+            )
 
             let backgroundNode = makeNode(Text("MATERIAL").background(.regularMaterial))
             let overlayNode = renderedNode(

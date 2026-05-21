@@ -8130,6 +8130,11 @@ public struct ViewBuildContext {
                 contrast: colorSchemeContrast,
                 backgroundProminence: backgroundProminence
             ) ?? .clear
+        case .materialFill(let tint, _):
+            return tint.resolvedForVisualEnvironment(
+                contrast: colorSchemeContrast,
+                backgroundProminence: backgroundProminence
+            )
         case nil:
             return foregroundColorProvider().resolvedForVisualEnvironment(
                 contrast: colorSchemeContrast,
@@ -9858,6 +9863,7 @@ extension Shape {
         case .linearGradient(let g): fillColor = g.startColor
         case .radialGradient(let g): fillColor = g.stops.first?.color ?? .clear
         case .conicGradient(let g): fillColor = g.stops.first?.color ?? .clear
+        case .materialFill(let tint, _): fillColor = tint
         }
         let unitPath = self.path(in: Rect(x: 0, y: 0, width: 1, height: 1))
         return Component { _ in
@@ -14449,6 +14455,10 @@ public enum ForegroundStyle: Sendable, Equatable {
     case linearGradient(LinearGradient)
     case radialGradient(RadialGradient)
     case conicGradient(ConicGradient)
+    // Translucent tint + backdrop-blur radius. Used by `.regularMaterial` and
+    // siblings; the renderer paints the tint as a fill quad with the encoded
+    // blur radius applied to the underlying pixels.
+    case materialFill(tint: Color, blurRadius: Double)
 
     public init(_ color: Color) {
         self = .color(color)
@@ -14711,7 +14721,7 @@ public struct Material: ShapeStyle, Sendable, Equatable {
     public static let bar = Material(kind: .bar)
 
     public var retainedForegroundStyle: ForegroundStyle {
-        .color(retainedFallbackColor)
+        .materialFill(tint: retainedFallbackColor, blurRadius: retainedBlurRadius)
     }
 
     var retainedFallbackColor: Color {
@@ -14728,6 +14738,26 @@ public struct Material: ShapeStyle, Sendable, Equatable {
             return Color(red: 1, green: 1, blue: 1, alpha: 0.72)
         case .bar:
             return Color(red: 1, green: 1, blue: 1, alpha: 0.64)
+        }
+    }
+
+    /// Backdrop blur radius in logical pixels per material kind. Calibrated
+    /// to feel close to macOS Big Sur+ defaults: thicker materials use a
+    /// larger blur so the obscured content is genuinely indistinct.
+    var retainedBlurRadius: Double {
+        switch kind {
+        case .ultraThin:
+            return 8
+        case .thin:
+            return 14
+        case .regular:
+            return 22
+        case .thick:
+            return 30
+        case .ultraThick:
+            return 40
+        case .bar:
+            return 18
         }
     }
 }
@@ -17159,6 +17189,8 @@ extension ForegroundStyle {
             return .radialGradient(gradient.retainedWithMultipliedOpacity(opacity))
         case .conicGradient(let gradient):
             return .conicGradient(gradient.retainedWithMultipliedOpacity(opacity))
+        case .materialFill(let tint, let blurRadius):
+            return .materialFill(tint: tint.retainedWithMultipliedOpacity(opacity), blurRadius: blurRadius)
         }
     }
 
@@ -17172,6 +17204,8 @@ extension ForegroundStyle {
             return .radialGradient(gradient.resolvedForContrast(contrast))
         case .conicGradient(let gradient):
             return .conicGradient(gradient.resolvedForContrast(contrast))
+        case .materialFill(let tint, let blurRadius):
+            return .materialFill(tint: tint.resolvedForContrast(contrast), blurRadius: blurRadius)
         }
     }
 
@@ -17207,6 +17241,14 @@ extension ForegroundStyle {
                     contrast: contrast,
                     backgroundProminence: backgroundProminence
                 )
+            )
+        case .materialFill(let tint, let blurRadius):
+            return .materialFill(
+                tint: tint.resolvedForVisualEnvironment(
+                    contrast: contrast,
+                    backgroundProminence: backgroundProminence
+                ),
+                blurRadius: blurRadius
             )
         }
     }
@@ -17550,6 +17592,8 @@ private func resolvedStyleFill(from style: ForegroundStyle) -> (color: Color?, g
         return (nil, .radial(.init(gradient)))
     case .conicGradient(let gradient):
         return (nil, .conic(.init(gradient)))
+    case .materialFill(let tint, _):
+        return (tint, nil)
     }
 }
 extension BadgeProminence {
@@ -17665,6 +17709,8 @@ private func resolvedStyleColor(from style: ForegroundStyle) -> Color {
         return gradient.stops.first?.color ?? .clear
     case .conicGradient(let gradient):
         return gradient.stops.first?.color ?? .clear
+    case .materialFill(let tint, _):
+        return tint
     }
 }
 private func resolvedBorderFill(from style: ForegroundStyle) -> (color: Color, gradient: LinearGradient?) {
@@ -17677,6 +17723,8 @@ private func resolvedBorderFill(from style: ForegroundStyle) -> (color: Color, g
         return (gradient.stops.first?.color ?? .clear, nil)
     case .conicGradient(let gradient):
         return (gradient.stops.first?.color ?? .clear, nil)
+    case .materialFill(let tint, _):
+        return (tint, nil)
     }
 }
 extension SwiftWindowsGraphics.LinearGradient {
@@ -21364,8 +21412,31 @@ extension View {
 
     public func background(_ style: ForegroundStyle, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
         _ = edges
+        // Material backgrounds carry their own backdrop-blur radius; route
+        // them through a panel that sets the ViewNode's `blurRadius` so the
+        // existing scene-painter / rasterizer blur path renders a real
+        // backdrop-blurred translucent panel (not just a flat tint).
+        if case .materialFill(let tint, let blurRadius) = style, blurRadius > 0 {
+            return AnyView(materialBackground(tint: tint, blurRadius: blurRadius))
+        }
         let fill = resolvedStyleFill(from: style)
-        return backgroundStyle(color: fill.color, gradient: fill.gradient)
+        return AnyView(backgroundStyle(color: fill.color, gradient: fill.gradient))
+    }
+
+    fileprivate func materialBackground(tint: Color, blurRadius: Double) -> some View {
+        ModifiedView(content: self) { content, context in
+            let child = content.makeComponent(context: context)
+            return Component { runtime in
+                let childNode = child.makeNode(runtime: runtime)
+                return Controls.stackPanel(
+                    backgroundColor: tint,
+                    blurRadius: blurRadius,
+                    stackLayout: .vertical(alignment: .stretch),
+                    isHitTestVisible: false,
+                    children: [childNode]
+                )
+            }
+        }
     }
 
     public func background<S: ShapeStyle>(_ style: S, ignoresSafeAreaEdges edges: Edge.Set = .all) -> some View {
@@ -21974,7 +22045,7 @@ extension View {
             switch style {
             case .color(let color):
                 content.makeComponent(context: context.withForegroundColor(color))
-            case .linearGradient, .radialGradient, .conicGradient:
+            case .linearGradient, .radialGradient, .conicGradient, .materialFill:
                 content.makeComponent(context: context.withEnvironmentValue(\.foregroundStyle, style))
             }
         }

@@ -825,6 +825,227 @@ final class RetainedViewRuntimeTests: XCTestCase {
         }
     }
 
+    func testMouseWheelSeedsScrollMomentumThatDecaysToStop() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 200))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 200))
+            let itemC = ViewNode(
+                backgroundColor: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                preferredSize: Size(width: 60, height: 200))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                layoutMode: .stack(
+                    .vertical(spacing: 10, padding: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10))),
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                isHitTestVisible: false,
+                children: [itemA, itemB, itemC]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            XCTAssertFalse(runtime.hasActiveAnimations)
+
+            // Wheel impulse: immediate jump + seeded momentum.
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            let offsetAfterWheel = scrollPanel.scrollOffset
+            XCTAssertEqual(offsetAfterWheel, 60)
+            XCTAssertTrue(runtime.hasActiveAnimations, "Wheel impulse should seed momentum")
+
+            // First tick after seeding just records time; no glide yet.
+            let t0 = Win32Window.currentTimestampSeconds()
+            _ = runtime.tickAnimations(at: t0)
+            XCTAssertEqual(scrollPanel.scrollOffset, offsetAfterWheel)
+
+            // Subsequent ticks glide further in the direction of the wheel.
+            _ = runtime.tickAnimations(at: t0 + 0.016)
+            let offsetMid = scrollPanel.scrollOffset
+            XCTAssertGreaterThan(offsetMid, offsetAfterWheel, "Momentum should keep advancing offset")
+
+            // After enough simulated frames, momentum decays below threshold and stops.
+            var tickTime = t0 + 0.016
+            var ticks = 0
+            while runtime.hasActiveAnimations, ticks < 240 {
+                tickTime += 0.016
+                _ = runtime.tickAnimations(at: tickTime)
+                ticks += 1
+            }
+            XCTAssertFalse(runtime.hasActiveAnimations, "Momentum should decay to a stop after enough ticks")
+            let offsetFinal = scrollPanel.scrollOffset
+            XCTAssertGreaterThanOrEqual(offsetFinal, offsetMid)
+        }
+    }
+
+    func testMomentumOvershootsAndRubberBandsBackAtTopEdge() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 200))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 200))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                layoutMode: .stack(.vertical(spacing: 10)),
+                scrollAxis: .vertical,
+                scrollOffset: 10,
+                scrollStep: 20,
+                isHitTestVisible: false,
+                children: [itemA, itemB]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            XCTAssertEqual(scrollPanel.scrollOffset, 10)
+            XCTAssertEqual(scrollPanel.scrollOvershoot, 0)
+
+            // Scroll up hard (positive delta = toward 0). Velocity points
+            // toward the top edge.
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: 5)
+            XCTAssertEqual(scrollPanel.scrollOffset, 0, "Wheel clamps logical offset at top")
+
+            let t0 = Win32Window.currentTimestampSeconds()
+            // Drive ticks; momentum can't move offset further but should push
+            // into rubber-band overshoot (negative since we're at the top).
+            var t = t0
+            var sawOvershoot = false
+            for _ in 0..<10 {
+                t += 0.016
+                _ = runtime.tickAnimations(at: t)
+                if scrollPanel.scrollOvershoot < 0 {
+                    sawOvershoot = true
+                }
+            }
+            XCTAssertTrue(sawOvershoot, "Momentum past the top edge should produce negative overshoot")
+
+            // After enough simulated frames, overshoot springs back to 0.
+            var ticks = 0
+            while runtime.hasActiveAnimations, ticks < 240 {
+                t += 0.016
+                _ = runtime.tickAnimations(at: t)
+                ticks += 1
+            }
+            XCTAssertEqual(scrollPanel.scrollOvershoot, 0, "Rubber-band must settle to 0")
+            XCTAssertEqual(scrollPanel.scrollOffset, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testButtonPressAnimatesScaleDownAndBack() async {
+        await MainActor.run {
+            let palette = SurfacePalette(
+                idle: Color(red: 0.1, green: 0.2, blue: 0.3, alpha: 1),
+                focused: Color(red: 0.3, green: 0.4, blue: 0.5, alpha: 1),
+                pressed: Color(red: 0.5, green: 0.6, blue: 0.7, alpha: 1)
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 50), isHitTestVisible: false)
+            let runtime = RetainedViewRuntime(root: root)
+            let button = Controls.button(
+                runtime: runtime,
+                frame: Rect(x: 10, y: 8, width: 40, height: 24),
+                cornerRadius: 4,
+                palette: palette,
+                chrome: SurfaceChrome(),
+                animation: ControlAnimationStyle(focusDuration: 0.12, pressDuration: 0.1, activationDuration: 0.12),
+                action: {}
+            )
+            root.addChild(button)
+            XCTAssertEqual(button.transform.scaleX, 1.0)
+
+            runtime.pointerDown(at: Point(x: 20, y: 16))
+            // Animation target is the pressed scale; runtime tween-interpolates
+            // visible scale toward it.
+            XCTAssertEqual(button.transform.scaleX, ControlAnimationStyle.pressedScale, accuracy: 0.001)
+            XCTAssertEqual(button.transform.scaleY, ControlAnimationStyle.pressedScale, accuracy: 0.001)
+            XCTAssertNotNil(button.animationStates[.transformScaleX])
+
+            // After activate the button springs back to 1.0.
+            runtime.pointerUp(at: Point(x: 20, y: 16))
+            XCTAssertEqual(button.transform.scaleX, 1.0, accuracy: 0.001)
+            XCTAssertEqual(button.transform.scaleY, 1.0, accuracy: 0.001)
+        }
+    }
+
+    func testKeyboardScrollAnimatesViewportLag() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 200))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 200))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                layoutMode: .stack(.vertical(spacing: 10)),
+                scrollAxis: .vertical,
+                scrollOffset: 0,
+                scrollStep: 30,
+                isFocusable: true,
+                isHitTestVisible: false,
+                children: [itemA, itemB]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            runtime.pointerMoved(to: Point(x: 30, y: 30))
+            XCTAssertEqual(scrollPanel.scrollPresentedDelta, 0)
+
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            // Logical offset jumps immediately so callers observing
+            // `scrollOffset` see the new value.
+            XCTAssertEqual(scrollPanel.scrollOffset, 30)
+            // Visual lag delta starts at -30 (rendered position lags behind).
+            XCTAssertEqual(scrollPanel.scrollPresentedDelta, -30, accuracy: 0.001)
+            XCTAssertTrue(runtime.hasActiveAnimations)
+
+            // After the tween duration, delta is fully resolved.
+            var t = Win32Window.currentTimestampSeconds()
+            var ticks = 0
+            while runtime.hasActiveAnimations, ticks < 120 {
+                t += 0.016
+                _ = runtime.tickAnimations(at: t)
+                ticks += 1
+            }
+            XCTAssertEqual(scrollPanel.scrollPresentedDelta, 0)
+            XCTAssertFalse(runtime.hasActiveAnimations)
+        }
+    }
+
+    func testKeyboardScrollCancelsActiveMomentum() async {
+        await MainActor.run {
+            let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 200))
+            let itemB = ViewNode(backgroundColor: .black, preferredSize: Size(width: 60, height: 200))
+
+            let scrollPanel = ViewNode(
+                frame: Rect(x: 10, y: 10, width: 80, height: 80),
+                layoutMode: .stack(.vertical(spacing: 10)),
+                scrollAxis: .vertical,
+                scrollStep: 20,
+                isFocusable: true,
+                isHitTestVisible: false,
+                children: [itemA, itemB]
+            )
+            let root = ViewNode(
+                frame: Rect(x: 0, y: 0, width: 100, height: 100), isHitTestVisible: false, children: [scrollPanel])
+            let runtime = RetainedViewRuntime(root: root)
+
+            _ = runtime.renderFrame()
+            runtime.pointerMoved(to: Point(x: 30, y: 30))
+            runtime.mouseWheel(at: Point(x: 30, y: 30), delta: -3)
+            let offsetAfterWheel = scrollPanel.scrollOffset
+
+            runtime.keyDown(KeyboardEvent(keyCode: KeyboardKey.downArrow.rawValue))
+            // Logical offset advanced by exactly one scrollStep — the wheel
+            // momentum from the prior input was cancelled, otherwise the
+            // ongoing decay would have nudged offset further between events.
+            XCTAssertEqual(
+                scrollPanel.scrollOffset, offsetAfterWheel + scrollPanel.scrollStep,
+                "Keyboard scroll should cancel wheel momentum and produce exactly one step of motion")
+        }
+    }
+
     func testHorizontalMouseWheelTargetsHorizontalScrollableAncestor() async {
         await MainActor.run {
             let itemA = ViewNode(backgroundColor: .white, preferredSize: Size(width: 60, height: 30))

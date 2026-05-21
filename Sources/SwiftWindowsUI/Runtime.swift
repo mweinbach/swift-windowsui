@@ -2470,6 +2470,18 @@ public final class ViewNode {
     internal var resolvedFrame: Rect
     internal var resolvedContentSize: Size
     internal var resolvedScrollOffset: Double
+    // Signed pixel offset applied on top of the clamped scrollOffset during
+    // rubber-band animations. Zero outside of edge-overshoot states. Painter
+    // and child positioning consume this via `effectiveScrollOffset`; the
+    // logical `scrollOffset` itself stays clamped so tests and external
+    // callers see the unsurprising value.
+    internal var scrollOvershoot: Double = 0
+    // Signed pixel offset that visually lags the logical scrollOffset during
+    // animated keyboard scrolls. Starts at (oldOffset - newOffset) when the
+    // user triggers an instantaneous offset change, then tweens to 0 over a
+    // short duration so the viewport glides instead of snapping. Painter
+    // adds this to resolvedScrollOffset before applying child positioning.
+    internal var scrollPresentedDelta: Double = 0
     internal private(set) var subtreeDirtyFlags: DirtyFlags = .all
     internal var cachedMeasureKey: ViewMeasureCacheKey?
     internal var cachedMeasuredSize: Size?
@@ -3206,7 +3218,7 @@ public final class ViewNode {
         let layoutDirtyFlags = subtreeDirtyFlags.intersection([.layout, .children])
         if layoutDirtyFlags.isEmpty, cachedLayoutKey == layoutKey {
             runtime?.recordLayoutReuse()
-            resolvedScrollOffset = clampedScrollOffset(for: scrollOffset)
+            resolvedScrollOffset = clampedScrollOffset(for: scrollOffset) + scrollOvershoot + scrollPresentedDelta
 
             if hasDirtySubtree {
                 for child in children where child.hasDirtySubtree {
@@ -4960,18 +4972,21 @@ public final class ViewNode {
         }
     }
 
-    fileprivate func applyMouseWheelDelta(_ delta: Double) -> Bool {
+    /// Applies a wheel impulse to scrollOffset and returns the signed offset
+    /// change that was actually applied (0 when no movement happened).
+    fileprivate func applyMouseWheelDelta(_ delta: Double) -> Double {
         guard isScrollable else {
-            return false
+            return 0
         }
 
+        let previousOffset = scrollOffset
         let nextOffset = clampedScrollOffset(for: scrollOffset - delta * scrollStep)
-        guard nextOffset != scrollOffset else {
-            return false
+        guard nextOffset != previousOffset else {
+            return 0
         }
 
         scrollOffset = nextOffset
-        return true
+        return nextOffset - previousOffset
     }
 
     fileprivate func applyKeyboardScroll(_ key: KeyboardKey) -> Bool {
@@ -5033,7 +5048,10 @@ public final class ViewNode {
                 0.08, absoluteFrame.size.height / max(resolvedContentSize.height, absoluteFrame.size.height))
             let indicatorHeight = max(24, trackHeight * visibleRatio)
             let travel = max(0, trackHeight - indicatorHeight)
-            let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
+            // Rubber-band overshoot may push resolvedScrollOffset outside
+            // [0, maxScrollOffset]; the indicator stays pinned at its bound
+            // while content overscrolls, matching macOS behaviour.
+            let progress = maxScrollOffset > 0 ? min(1, max(0, resolvedScrollOffset / maxScrollOffset)) : 0
             return Rect(
                 x: absoluteFrame.maxX - indicatorInsets.trailing - indicatorThickness,
                 y: absoluteFrame.origin.y + indicatorInsets.top + travel * progress,
@@ -5048,7 +5066,7 @@ public final class ViewNode {
                 0.08, absoluteFrame.size.width / max(resolvedContentSize.width, absoluteFrame.size.width))
             let indicatorWidth = max(24, trackWidth * visibleRatio)
             let travel = max(0, trackWidth - indicatorWidth)
-            let progress = maxScrollOffset > 0 ? resolvedScrollOffset / maxScrollOffset : 0
+            let progress = maxScrollOffset > 0 ? min(1, max(0, resolvedScrollOffset / maxScrollOffset)) : 0
             return Rect(
                 x: absoluteFrame.origin.x + indicatorInsets.leading + travel * progress,
                 y: absoluteFrame.maxY - indicatorInsets.bottom - indicatorThickness,
@@ -5089,7 +5107,7 @@ public final class ViewNode {
         }
     }
 
-    private func clampedScrollOffset(for value: Double) -> Double {
+    fileprivate func clampedScrollOffset(for value: Double) -> Double {
         min(max(value, 0), maxScrollOffset)
     }
 
@@ -5539,7 +5557,8 @@ public final class RetainedViewRuntime {
     }
 
     public var hasActiveAnimations: Bool {
-        !colorAnimations.isEmpty || buttonRepeatState != nil
+        !colorAnimations.isEmpty || buttonRepeatState != nil || !scrollMomenta.isEmpty
+            || !scrollPresentedTweens.isEmpty
     }
 
     // Gap/Fix: Granular dirty tracking — DirtyFlags replaces single boolean.
@@ -5570,6 +5589,47 @@ public final class RetainedViewRuntime {
     private var buttonRepeatState: ButtonRepeatState?
     private var scrollDragState: ScrollDragState?
     private var nodeDragState: NodeDragState?
+
+    // Wheel-driven scroll momentum: each entry tracks a node whose scroll
+    // offset is gliding to a stop after recent wheel impulses. Velocity is in
+    // logical pixels per second along the node's scroll axis (sign matches
+    // scrollOffset's direction of change).
+    fileprivate struct ScrollMomentumState {
+        weak var node: ViewNode?
+        var velocity: Double
+        var lastTime: Double
+    }
+    private var scrollMomenta: [ObjectIdentifier: ScrollMomentumState] = [:]
+
+    // Decay rate (per second) for wheel momentum. exp(-decay * dt) per frame;
+    // 6.0 gives a ~0.115s half-life so a flick fades in under half a second.
+    private static let scrollMomentumDecay: Double = 6.0
+    // Translate a wheel notch into peak velocity. delta * scrollStep is the
+    // immediate offset jump; multiplying by this factor adds a brief glide
+    // proportional to how hard the user spun the wheel.
+    private static let scrollMomentumImpulseFactor: Double = 5.0
+    // Below this speed, momentum is considered finished.
+    private static let scrollMomentumEpsilon: Double = 6.0
+    // Spring constants for the rubber-band return when scroll over-shoots an
+    // edge. Tuned to feel like a snappy macOS bounce (~150ms to settle).
+    private static let scrollRubberBandStiffness: Double = 180
+    private static let scrollRubberBandDamping: Double = 27
+    // Cap on rubber-band excursion so a fast flick doesn't yank the content
+    // far beyond the viewport.
+    private static let scrollRubberBandMax: Double = 80
+
+    // Keyboard scroll (PageUp/Down, Home, End, arrow keys) jumps `scrollOffset`
+    // to its new target synchronously so external observers see the value
+    // immediately, but visually we keep a lag delta that tweens to 0 over
+    // ~220ms with ease-out so the viewport feels animated.
+    fileprivate struct ScrollPresentedTween {
+        weak var node: ViewNode?
+        var startDelta: Double
+        var startTime: Double
+        var duration: Double
+    }
+    private var scrollPresentedTweens: [ObjectIdentifier: ScrollPresentedTween] = [:]
+    private static let scrollKeyboardTweenDuration: Double = 0.22
 
     /// Nodes that have been removed from the view tree but are still animating
     /// out via their removal transition. Rendered after the main tree each frame.
@@ -5792,13 +5852,18 @@ public final class RetainedViewRuntime {
             return
         }
 
-        if scrollableNode.applyMouseWheelDelta(delta) {
+        cancelScrollPresentedTween(for: scrollableNode)
+        let appliedDelta = scrollableNode.applyMouseWheelDelta(delta)
+        if appliedDelta != 0 {
             updateHoverTarget(to: hitTest(at: point))
+            seedScrollMomentum(for: scrollableNode, wheelDelta: delta, appliedOffsetDelta: appliedDelta)
         }
     }
 
     public func pointerDown(at point: Point) {
         if let scrollIndicatorHit = scrollIndicatorHit(at: point) {
+            cancelScrollMomentum(for: scrollIndicatorHit.node)
+            cancelScrollPresentedTween(for: scrollIndicatorHit.node)
             scrollDragState = ScrollDragState(
                 node: scrollIndicatorHit.node, axis: scrollIndicatorHit.track.axis, startPoint: point,
                 startOffset: scrollIndicatorHit.node.scrollOffset, track: scrollIndicatorHit.track)
@@ -6037,6 +6102,8 @@ public final class RetainedViewRuntime {
     @discardableResult
     public func tickAnimations(at timestamp: Double) -> Bool {
         let didAdvanceButtonRepeat = advanceButtonRepeat(at: timestamp)
+        let didAdvanceScrollMomenta = tickScrollMomenta(at: timestamp)
+        let didAdvanceScrollPresentedTweens = tickScrollPresentedTweens(at: timestamp)
         let didAdvancePropertyAnimations = tickPropertyAnimations(node: root, at: timestamp)
 
         var didAdvanceOverlayAnimations = false
@@ -6061,8 +6128,8 @@ public final class RetainedViewRuntime {
         }
 
         guard !colorAnimations.isEmpty else {
-            return didAdvanceButtonRepeat || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
-                || !completedOverlays.isEmpty
+            return didAdvanceButtonRepeat || didAdvanceScrollMomenta || didAdvanceScrollPresentedTweens
+                || didAdvancePropertyAnimations || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
         }
 
         var didUpdateAnyAnimation = false
@@ -6089,8 +6156,148 @@ public final class RetainedViewRuntime {
             }
         }
 
-        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvancePropertyAnimations
-            || didAdvanceOverlayAnimations || !completedOverlays.isEmpty
+        return didUpdateAnyAnimation || didAdvanceButtonRepeat || didAdvanceScrollMomenta
+            || didAdvanceScrollPresentedTweens || didAdvancePropertyAnimations || didAdvanceOverlayAnimations
+            || !completedOverlays.isEmpty
+    }
+
+    // MARK: - Scroll Momentum
+
+    /// Seeds (or boosts) wheel-driven scroll momentum on `node` after an
+    /// immediate offset jump of `appliedOffsetDelta`. `wheelDelta` is the raw
+    /// notch count from the platform; we map that to a velocity in offset
+    /// units per second so subsequent ticks can glide the scroll to a stop.
+    fileprivate func seedScrollMomentum(for node: ViewNode, wheelDelta: Double, appliedOffsetDelta: Double) {
+        guard node.isScrollable, appliedOffsetDelta != 0 else {
+            return
+        }
+
+        // Sign: applyMouseWheelDelta moves offset by `-wheelDelta * scrollStep`,
+        // so positive wheelDelta produces a negative velocity (offset shrinks).
+        // Use the actual applied delta so we don't accumulate velocity against
+        // a clamped edge.
+        let impulse = appliedOffsetDelta * Self.scrollMomentumImpulseFactor
+        let key = ObjectIdentifier(node)
+        var state = scrollMomenta[key] ?? ScrollMomentumState(node: node, velocity: 0, lastTime: 0)
+
+        // If the new impulse opposes existing velocity, replace rather than
+        // sum — feels more natural when the user reverses direction.
+        if state.velocity != 0, (state.velocity > 0) != (impulse > 0) {
+            state.velocity = impulse
+        } else {
+            state.velocity += impulse
+        }
+        state.node = node
+        state.lastTime = Win32Window.currentTimestampSeconds()
+        scrollMomenta[key] = state
+        invalidate()
+    }
+
+    /// Cancels any pending wheel momentum on `node`. Called when the user
+    /// takes manual control (keyboard scroll, indicator drag) so momentum
+    /// doesn't fight the user input. Also zeros any rubber-band overshoot so
+    /// content snaps back to the clamped offset instead of staying overscrolled.
+    fileprivate func cancelScrollMomentum(for node: ViewNode) {
+        scrollMomenta.removeValue(forKey: ObjectIdentifier(node))
+        if node.scrollOvershoot != 0 {
+            node.scrollOvershoot = 0
+            invalidate()
+        }
+    }
+
+    /// Drops any in-flight keyboard-scroll tween for `node` so the next
+    /// imperative offset change isn't double-counted with stale lag.
+    fileprivate func cancelScrollPresentedTween(for node: ViewNode) {
+        if scrollPresentedTweens.removeValue(forKey: ObjectIdentifier(node)) != nil {
+            node.scrollPresentedDelta = 0
+            invalidate()
+        }
+    }
+
+    private func tickScrollMomenta(at timestamp: Double) -> Bool {
+        guard !scrollMomenta.isEmpty else { return false }
+
+        var didUpdate = false
+        for key in Array(scrollMomenta.keys) {
+            guard var state = scrollMomenta[key] else { continue }
+            guard let node = state.node, node.isScrollable else {
+                scrollMomenta.removeValue(forKey: key)
+                continue
+            }
+
+            let dt = max(0, timestamp - state.lastTime)
+            // Clamp very long gaps (window inactive, etc.) so momentum doesn't
+            // jump forward by a huge amount on the next active frame.
+            let effectiveDt = min(dt, 0.05)
+            guard effectiveDt > 0 else {
+                state.lastTime = timestamp
+                scrollMomenta[key] = state
+                continue
+            }
+
+            if node.scrollOvershoot != 0 {
+                // Rubber-band phase: critically-damped spring pulls overshoot
+                // back to 0. F = -k*x - c*v with k ≈ 180, c ≈ 27 (just below
+                // critical damping so the return feels lively but doesn't
+                // visibly oscillate).
+                let stiffness = Self.scrollRubberBandStiffness
+                let damping = Self.scrollRubberBandDamping
+                let force = -stiffness * node.scrollOvershoot - damping * state.velocity
+                state.velocity += force * effectiveDt
+                let nextOvershoot = node.scrollOvershoot + state.velocity * effectiveDt
+                // Snap to zero once the spring has settled and would otherwise
+                // oscillate across the bound.
+                let crossedZero = (nextOvershoot > 0) != (node.scrollOvershoot > 0)
+                if crossedZero
+                    || (abs(nextOvershoot) < Self.scrollMomentumEpsilon * 0.1
+                        && abs(state.velocity) < Self.scrollMomentumEpsilon)
+                {
+                    node.scrollOvershoot = 0
+                    scrollMomenta.removeValue(forKey: key)
+                    didUpdate = true
+                    continue
+                }
+                node.scrollOvershoot = nextOvershoot
+                state.lastTime = timestamp
+                scrollMomenta[key] = state
+                didUpdate = true
+                continue
+            }
+
+            let previousOffset = node.scrollOffset
+            let proposedOffset = previousOffset + state.velocity * effectiveDt
+            let nextOffset = node.clampedScrollOffset(for: proposedOffset)
+            if nextOffset != previousOffset {
+                node.scrollOffset = nextOffset
+                didUpdate = true
+            }
+
+            // If clamping ate the proposed movement (hit an edge), convert
+            // the leftover travel into overshoot and let the rubber-band
+            // branch above spring it back next tick.
+            if proposedOffset != nextOffset {
+                let excess = proposedOffset - nextOffset
+                let cappedExcess = max(min(excess, Self.scrollRubberBandMax), -Self.scrollRubberBandMax)
+                node.scrollOvershoot = cappedExcess
+                state.lastTime = timestamp
+                scrollMomenta[key] = state
+                didUpdate = true
+                continue
+            }
+
+            state.velocity *= exp(-Self.scrollMomentumDecay * effectiveDt)
+            state.lastTime = timestamp
+            if abs(state.velocity) < Self.scrollMomentumEpsilon {
+                scrollMomenta.removeValue(forKey: key)
+            } else {
+                scrollMomenta[key] = state
+            }
+        }
+
+        if didUpdate {
+            invalidate()
+        }
+        return didUpdate
     }
 
     // MARK: - Matched Geometry Effect
@@ -6567,7 +6774,69 @@ public final class RetainedViewRuntime {
             return false
         }
 
-        return scrollableNode.applyKeyboardScroll(key)
+        let previousOffset = scrollableNode.scrollOffset
+        let didScroll = scrollableNode.applyKeyboardScroll(key)
+        if didScroll {
+            cancelScrollMomentum(for: scrollableNode)
+            seedKeyboardScrollTween(for: scrollableNode, previousOffset: previousOffset)
+        }
+        return didScroll
+    }
+
+    /// After an instantaneous keyboard scroll, capture the offset jump as a
+    /// negative presented delta so the viewport visually starts where it was
+    /// and tweens forward to the new offset over ~220ms.
+    fileprivate func seedKeyboardScrollTween(for node: ViewNode, previousOffset: Double) {
+        let delta = previousOffset - node.scrollOffset
+        guard abs(delta) >= 0.5 else {
+            return
+        }
+
+        let key = ObjectIdentifier(node)
+        // Combine with any in-flight presented delta so rapid key presses
+        // accumulate without snapping.
+        let combinedStart = node.scrollPresentedDelta + delta
+        node.scrollPresentedDelta = combinedStart
+        scrollPresentedTweens[key] = ScrollPresentedTween(
+            node: node,
+            startDelta: combinedStart,
+            startTime: Win32Window.currentTimestampSeconds(),
+            duration: Self.scrollKeyboardTweenDuration
+        )
+        invalidate()
+    }
+
+    private func tickScrollPresentedTweens(at timestamp: Double) -> Bool {
+        guard !scrollPresentedTweens.isEmpty else { return false }
+
+        var didUpdate = false
+        for key in Array(scrollPresentedTweens.keys) {
+            guard let tween = scrollPresentedTweens[key] else { continue }
+            guard let node = tween.node else {
+                scrollPresentedTweens.removeValue(forKey: key)
+                continue
+            }
+
+            let elapsed = max(0, timestamp - tween.startTime)
+            let progress = tween.duration > 0 ? min(1, elapsed / tween.duration) : 1
+            // Ease-out (1 - (1 - t)^3) so the viewport decelerates into the
+            // target like macOS keyboard scrolling.
+            let eased = 1 - pow(1 - progress, 3)
+            let nextDelta = tween.startDelta * (1 - eased)
+            if node.scrollPresentedDelta != nextDelta {
+                node.scrollPresentedDelta = nextDelta
+                didUpdate = true
+            }
+            if progress >= 1 {
+                node.scrollPresentedDelta = 0
+                scrollPresentedTweens.removeValue(forKey: key)
+            }
+        }
+
+        if didUpdate {
+            invalidate()
+        }
+        return didUpdate
     }
 
     private func updateResolvedLayout() {

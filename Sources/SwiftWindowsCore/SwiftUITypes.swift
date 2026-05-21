@@ -63,11 +63,14 @@ public struct Animation: Sendable {
     public var duration: Double
     public var easing: AnimationEasing
 
-    public init(duration: Double = 0.25, easing: AnimationEasing = .easeInOut) {
+    public init(duration: Double = 0.35, easing: AnimationEasing = .easeInOut) {
         self.duration = duration
         self.easing = easing
     }
 
+    // SwiftUI's `.default` is roughly `easeInOut` over ~0.35s. The
+    // shorthand built-in easings share that duration so they feel like
+    // SwiftUI on macOS.
     public static let `default` = Animation()
     public static let linear = Animation(easing: .linear)
     public static let easeIn = Animation(easing: .easeIn)
@@ -120,16 +123,31 @@ public struct Animation: Sendable {
         spring(response: response, dampingRatio: dampingFraction, blendDuration: blendDuration)
     }
 
+    // Match SwiftUI's iOS 17/macOS 14 named springs, which are all
+    // `spring(duration: 0.5, extraBounce:)` with `extraBounce` of 0, 0.15,
+    // and 0.3 respectively (so damping fraction = 1 − extraBounce).
     public static var smooth: Animation {
-        spring(response: 0.55, dampingRatio: 0.825, blendDuration: 0)
+        spring(response: 0.5, dampingRatio: 1.0, blendDuration: 0)
     }
 
     public static var snappy: Animation {
-        spring(response: 0.35, dampingRatio: 0.7, blendDuration: 0)
+        spring(response: 0.5, dampingRatio: 0.85, blendDuration: 0)
     }
 
     public static var bouncy: Animation {
-        spring(response: 0.5, dampingRatio: 0.4, blendDuration: 0)
+        spring(response: 0.5, dampingRatio: 0.7, blendDuration: 0)
+    }
+
+    public static func smooth(duration: Double = 0.5, extraBounce: Double = 0) -> Animation {
+        spring(duration: duration, bounce: extraBounce)
+    }
+
+    public static func snappy(duration: Double = 0.5, extraBounce: Double = 0) -> Animation {
+        spring(duration: duration, bounce: 0.15 + extraBounce)
+    }
+
+    public static func bouncy(duration: Double = 0.5, extraBounce: Double = 0) -> Animation {
+        spring(duration: duration, bounce: 0.3 + extraBounce)
     }
 
     public static func spring(duration: Double, bounce: Double = 0) -> Animation {

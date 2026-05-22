@@ -1,6 +1,7 @@
 import Foundation
 
 import SwiftWindowsCore
+import SwiftWindowsGraphics
 
 /// Read-only snapshot of the rendering pipeline's current state. Apps that
 /// want to log or surface pipeline health (e.g. "we downgraded to the frame
@@ -34,6 +35,11 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
     /// Name string from the active backend (e.g. "D3D11 BATCH",
     /// "FAKE FRAME"). Same as what the user sees in diagnostics overlays.
     public var activeBackendDisplayName: String?
+    /// Paint metrics from the most recent scene render. Use
+    /// `.gpuPromotionRate` to observe what fraction of paths take the
+    /// tessellator's GPU fast lane vs falling through to CPU
+    /// rasterization.
+    public var lastScenePaintMetrics: ScenePaintMetrics
 
     public init(
         activeBackend: PresentationBackendKind,
@@ -43,7 +49,8 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         recoveryPolicyEnabled: Bool,
         nextBatchRecoveryInSeconds: Double?,
         lastBackendSelectionReason: PresentationSelectionReason?,
-        activeBackendDisplayName: String?
+        activeBackendDisplayName: String?,
+        lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics()
     ) {
         self.activeBackend = activeBackend
         self.displayScale = displayScale
@@ -53,5 +60,6 @@ public struct RendererHealthSnapshot: Equatable, Sendable {
         self.nextBatchRecoveryInSeconds = nextBatchRecoveryInSeconds
         self.lastBackendSelectionReason = lastBackendSelectionReason
         self.activeBackendDisplayName = activeBackendDisplayName
+        self.lastScenePaintMetrics = lastScenePaintMetrics
     }
 }

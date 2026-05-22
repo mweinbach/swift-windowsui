@@ -401,6 +401,31 @@ public struct GPUILayer: Equatable, Sendable {
             && lhs.paintOperations == rhs.paintOperations
     }
 }
+/// Per-scene paint metrics. Tracks GPU-vs-CPU rendering decisions made
+/// during scene painting so apps can observe how often paths take the
+/// GPU fast lane (PathToQuadTessellator promotion) vs the CPU
+/// rasterization fallback. Updated by the scene painter as it emits
+/// primitives.
+public struct ScenePaintMetrics: Equatable, Sendable {
+    /// Path primitives that fell through to the CPU rasterizer.
+    public var pathsRasterizedOnCPU: Int = 0
+    /// Path primitives that the tessellator promoted to GPU quads.
+    public var pathsPromotedToGPU: Int = 0
+    /// Total quad instances emitted by GPU-promoted paths (one path can
+    /// produce multiple quads — e.g. a closed stroked rect emits 4).
+    public var quadInstancesFromPromotedPaths: Int = 0
+
+    public init() {}
+
+    /// GPU promotion rate in [0, 1]. Returns 1.0 when there were no
+    /// paths in the scene (nothing to demote).
+    public var gpuPromotionRate: Double {
+        let total = pathsRasterizedOnCPU + pathsPromotedToGPU
+        guard total > 0 else { return 1.0 }
+        return Double(pathsPromotedToGPU) / Double(total)
+    }
+}
+
 public struct GPUIScene: Equatable, Sendable {
     public var clearColor: Color
     public var layers: [GPUILayer]
@@ -408,6 +433,8 @@ public struct GPUIScene: Equatable, Sendable {
     public var glyphAtlas: GlyphAtlasSnapshot?
     public var pixelGlyphAtlas: GlyphAtlasSnapshot?
     public var imageResources: [ImageResourceBinding]
+    /// Paint-time observability counters (CPU vs GPU path routing).
+    public var paintMetrics: ScenePaintMetrics = ScenePaintMetrics()
     private var isFinished = false
 
     public init(

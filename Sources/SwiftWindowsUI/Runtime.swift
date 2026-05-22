@@ -5573,6 +5573,10 @@ public final class RetainedViewRuntime {
     internal var currentPrepaintState: RuntimePrepaintState { prepaintState }
     internal private(set) var lastFrameReplayCount = 0
     internal private(set) var lastSceneReplayCount = 0
+    /// Public read-only paint metrics for the most recently rendered scene.
+    /// Captures GPU-vs-CPU path routing decisions so callers can observe
+    /// the GPU promotion rate (see `ScenePaintMetrics.gpuPromotionRate`).
+    public private(set) var lastScenePaintMetrics: ScenePaintMetrics = ScenePaintMetrics()
     internal private(set) var lastLayoutReuseCount = 0
     internal private(set) var lastMeasureReuseCount = 0
     internal private(set) var lastPrepaintReplayCount = 0
@@ -5797,6 +5801,7 @@ public final class RetainedViewRuntime {
         lastSceneReplayCount = replayCount
         lastDeferredDrawSceneReplayCount = deferredDrawReplayCount
         lastDeferredDrawFrameReplayCount = 0
+        lastScenePaintMetrics = scene.paintMetrics
         cachedScene = cachedSceneCopy
         cachedFrame = nil
         dirtyFlags = []

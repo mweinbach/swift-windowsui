@@ -2101,7 +2101,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             recoveryPolicyEnabled: recoveryPolicy.isEnabled,
             nextBatchRecoveryInSeconds: nextRecoveryInSeconds,
             lastBackendSelectionReason: currentPresentationSelection?.reason,
-            activeBackendDisplayName: activeBackendName
+            activeBackendDisplayName: activeBackendName,
+            lastScenePaintMetrics: runtime.lastScenePaintMetrics
         )
     }
 

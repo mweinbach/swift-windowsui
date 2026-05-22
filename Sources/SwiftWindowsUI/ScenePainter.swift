@@ -12,14 +12,19 @@ public enum ScenePainter {
     /// bypassing CPU rasterization) or as a `PathPrimitive` (the historic
     /// CPU-rasterized-then-blit path). The choice happens here so every
     /// path-emitting site picks the GPU-only fast lane when it qualifies.
+    /// Updates `scene.paintMetrics` so apps and tests can observe the GPU
+    /// promotion rate at the frame boundary.
     internal static func emit(path: PathPrimitive, into scene: inout GPUIScene, layerIndex: Int) {
         if let quads = PathToQuadTessellator.tessellate(path) {
             for quad in quads {
                 scene.addQuad(quad, toLayer: layerIndex)
             }
+            scene.paintMetrics.pathsPromotedToGPU += 1
+            scene.paintMetrics.quadInstancesFromPromotedPaths += quads.count
             return
         }
         scene.addPath(path, toLayer: layerIndex)
+        scene.paintMetrics.pathsRasterizedOnCPU += 1
     }
 
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0)

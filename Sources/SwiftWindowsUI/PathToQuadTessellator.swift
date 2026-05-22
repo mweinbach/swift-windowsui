@@ -63,6 +63,13 @@ enum PathToQuadTessellator {
     /// CPU. Returns nil when the input contributes nothing tessellatable
     /// at all (so the caller falls back to a single CPU path primitive).
     static func tessellateMixed(_ path: PathPrimitive) -> Result? {
+        // Reject any path whose vertex stream contains a non-finite
+        // coordinate. Downstream we do `Int(floor(y))` on vertex y for
+        // scanline strip allocation, which traps on Inf/NaN. Bailing
+        // here keeps the renderer crash-free when an app feeds garbage
+        // through Path APIs.
+        guard pathHasFiniteCoordinates(path) else { return nil }
+
         // Fill-only path: try rect → triangle → convex polygon (fan
         // triangulated) → concave polygon (ear-clipped). Only
         // self-intersecting or otherwise pathological paths still
@@ -277,6 +284,34 @@ enum PathToQuadTessellator {
         let u = (dot11 * dot02 - dot01 * dot12) * invDenom
         let v = (dot00 * dot12 - dot01 * dot02) * invDenom
         return u >= -0.0001 && v >= -0.0001 && (u + v) <= 1.0001
+    }
+
+    /// Returns false if any point in `path.elements` has a non-finite
+    /// coordinate. Apps occasionally feed `Path` infinities or NaNs
+    /// (division by zero, log of negative, etc.), and the scanline
+    /// fillers convert vertex y values to `Int` for row allocation
+    /// which traps on non-finite Doubles.
+    private static func pathHasFiniteCoordinates(_ path: PathPrimitive) -> Bool {
+        func isFinitePoint(_ p: Point) -> Bool { p.x.isFinite && p.y.isFinite }
+        for element in path.elements {
+            switch element {
+            case .moveTo(let p), .lineTo(let p):
+                if !isFinitePoint(p) { return false }
+            case .quadraticCurveTo(let c, let e):
+                if !isFinitePoint(c) || !isFinitePoint(e) { return false }
+            case .cubicCurveTo(let c1, let c2, let e):
+                if !isFinitePoint(c1) || !isFinitePoint(c2) || !isFinitePoint(e) {
+                    return false
+                }
+            case .arc(let center, let r, let s, let en, _):
+                if !isFinitePoint(center) || !r.isFinite || !s.isFinite || !en.isFinite {
+                    return false
+                }
+            case .close:
+                break
+            }
+        }
+        return true
     }
 
     /// Walks the path's elements producing the polygon's boundary as a

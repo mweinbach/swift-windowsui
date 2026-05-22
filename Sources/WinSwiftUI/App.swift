@@ -2077,6 +2077,34 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         activeBackend == .scene
     }
 
+    /// Read-only health snapshot of the rendering pipeline. Cheap to fetch;
+    /// safe to log periodically or display in a diagnostics overlay. The
+    /// snapshot is computed on demand from the host's current state so it
+    /// always reflects the latest backend selection and recovery schedule.
+    public var rendererHealthSnapshot: RendererHealthSnapshot {
+        let nextRecoveryInSeconds: Double? = {
+            guard let dueAt = nextBatchRecoveryAttemptAt else { return nil }
+            return max(0, dueAt - recoveryClock())
+        }()
+        let activeBackendName: String?
+        switch activeBackend {
+        case .scene:
+            activeBackendName = batchRenderer?.backendDisplayName
+        case .frame:
+            activeBackendName = renderer.backendDisplayName
+        }
+        return RendererHealthSnapshot(
+            activeBackend: activeBackend == .scene ? .scene : .frame,
+            displayScale: runtime.displayScale,
+            minimumFrameInterval: runtime.minimumFrameInterval,
+            hasActiveAnimations: runtime.hasActiveAnimations,
+            recoveryPolicyEnabled: recoveryPolicy.isEnabled,
+            nextBatchRecoveryInSeconds: nextRecoveryInSeconds,
+            lastBackendSelectionReason: currentPresentationSelection?.reason,
+            activeBackendDisplayName: activeBackendName
+        )
+    }
+
     /// Schedule a batched reload.  Multiple rapid @Published changes within
     /// the same run-loop turn are coalesced into a single rebuild.
     ///

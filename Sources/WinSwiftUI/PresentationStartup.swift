@@ -12,11 +12,11 @@ enum StartupPresentationMode: Equatable {
         environment["SWIFT_WINDOWSUI_FRAME_DEBUG"].isTruthyEnvironmentValue ? .frameDebug : .automatic
     }
 }
-enum PresentationBackendKind: String, Equatable {
+public enum PresentationBackendKind: String, Equatable, Sendable {
     case frame
     case scene
 }
-enum PresentationSelectionReason: Equatable {
+public enum PresentationSelectionReason: Equatable, Sendable {
     case defaultScene
     case frameDebugOverride
     case batchRendererUnavailable
@@ -25,7 +25,7 @@ enum PresentationSelectionReason: Equatable {
     case batchRenderFailure(String)
     case batchBackendRecovered
 
-    var probeCode: String {
+    public var probeCode: String {
         switch self {
         case .defaultScene:
             return "default-scene"
@@ -44,7 +44,7 @@ enum PresentationSelectionReason: Equatable {
         }
     }
 
-    var detail: String? {
+    public var detail: String? {
         switch self {
         case .batchAttachFailure(let detail),
             .batchResizeFailure(let detail),

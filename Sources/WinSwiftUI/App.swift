@@ -1631,6 +1631,19 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private var isRendererReady = false
     private var activeBackend: PresentationBackend = .frame
     private var surfaceDescriptor: SurfaceDescriptor?
+
+    /// Configured at init. When `isEnabled`, the host periodically tries to
+    /// re-attach the batch backend after a downgrade.
+    private let recoveryPolicy: BatchBackendRecoveryPolicy
+    /// Wall-clock timestamp (seconds) of the next batch-recovery attempt, or
+    /// `nil` while batch is the active backend.
+    private var nextBatchRecoveryAttemptAt: Double?
+    /// Current backoff interval; doubles on each failed attempt, capped at
+    /// `recoveryPolicy.maxRetryInterval`.
+    private var currentBatchRecoveryInterval: Double = 0
+    /// Test seam: lets unit tests inject a fake wall clock without touching
+    /// `Win32Window.currentTimestampSeconds`.
+    var recoveryClock: @MainActor () -> Double = { Win32Window.currentTimestampSeconds() }
     private var pendingPresentation = false
     private var startupProbeCompleted = false
     private var isWindowActive = true
@@ -1717,7 +1730,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             .defaultSurfaceDescriptor,
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
         startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
-        startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment()
+        startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment(),
+        recoveryPolicy: BatchBackendRecoveryPolicy = .disabled
     ) {
         self.configuration = configuration
         self.window = Win32Window(
@@ -1734,6 +1748,8 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             }
         self.startupPresentationMode = startupPresentationMode
         self.startupProbeConfiguration = startupProbeConfiguration
+        self.recoveryPolicy = recoveryPolicy
+        self.currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
 
         runtime.setRootSize(configuration.size)
         componentHost.setComponents { [weak self] in
@@ -2147,6 +2163,11 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return false
         }
 
+        // Opportunistic recovery: if we previously downgraded and the
+        // configured policy permits, try re-attaching the batch backend
+        // before this frame's render path picks a backend.
+        attemptBatchBackendRecoveryIfDue(in: window)
+
         guard runtime.isDirty || pendingPresentation || runtime.hasActiveAnimations || inputRateTracker.isHighRate
         else {
             syncAnimationDriver(for: window)
@@ -2305,6 +2326,63 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         activeBackend = .frame
         isRendererReady = true
         updatePresentationSelection(reason: reason)
+        scheduleBatchBackendRecoveryIfNeeded()
+    }
+
+    /// After a downgrade, if the recovery policy is enabled, set the next
+    /// attempt timestamp. Resets backoff so the first retry happens after
+    /// `initialRetryInterval`.
+    private func scheduleBatchBackendRecoveryIfNeeded() {
+        guard recoveryPolicy.isEnabled, batchRenderer != nil else {
+            nextBatchRecoveryAttemptAt = nil
+            return
+        }
+        currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+        nextBatchRecoveryAttemptAt = recoveryClock() + currentBatchRecoveryInterval
+    }
+
+    /// Tries to re-attach the batch backend if we're currently on frame, the
+    /// policy is enabled, and the next-attempt timestamp has passed. Success
+    /// promotes us back to the scene backend; failure extends the backoff.
+    private func attemptBatchBackendRecoveryIfDue(in window: Win32Window) {
+        guard recoveryPolicy.isEnabled,
+            activeBackend == .frame,
+            let batchRenderer,
+            let dueAt = nextBatchRecoveryAttemptAt
+        else {
+            return
+        }
+        let now = recoveryClock()
+        guard now >= dueAt else { return }
+
+        let surface = surfaceDescriptor ?? surfaceDescriptorProvider(window)
+        guard let surface else {
+            // No surface available — schedule the next attempt and bail.
+            extendBatchRecoveryBackoff(now: now)
+            return
+        }
+
+        do {
+            try batchRenderer.attach(to: surface)
+            try batchRenderer.resize(to: surface.pixelSize)
+            activeBackend = .scene
+            nextBatchRecoveryAttemptAt = nil
+            currentBatchRecoveryInterval = recoveryPolicy.initialRetryInterval
+            report("Batch renderer recovered after fallback.")
+            updatePresentationSelection(reason: .batchBackendRecovered)
+        } catch {
+            extendBatchRecoveryBackoff(now: now)
+            report("Batch renderer recovery attempt failed: \(error). Will retry in \(currentBatchRecoveryInterval)s.")
+        }
+    }
+
+    private func extendBatchRecoveryBackoff(now: Double) {
+        let nextInterval = min(
+            currentBatchRecoveryInterval * recoveryPolicy.backoffMultiplier,
+            recoveryPolicy.maxRetryInterval
+        )
+        currentBatchRecoveryInterval = nextInterval
+        nextBatchRecoveryAttemptAt = now + nextInterval
     }
 
     private func updatePresentationSelection(reason: PresentationSelectionReason) {

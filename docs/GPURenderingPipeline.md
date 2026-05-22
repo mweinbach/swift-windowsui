@@ -195,8 +195,29 @@ Beyond the per-step invariants:
 - A GPU path tessellator (Loop-Blinn, stencil-and-cover, or libtess2)
   would let `PathPrimitive` skip CPU rasterization entirely; today the
   cache mitigates but does not eliminate the cost.
-- Two-way fallback (resume on batch backend after a transient failure)
-  is intentionally not supported; revisiting requires a fresh design.
+
+## Two-way fallback recovery (opt-in)
+
+The default fallback chain pins the host on the frame backend after a
+downgrade (see "Backend dispatch + fallback chain" above). Callers that
+prefer attempting recovery — e.g. apps tolerating transient driver
+glitches — can pass an enabled `BatchBackendRecoveryPolicy` to
+`WinSwiftUIWindowHost.init`. The policy fields:
+
+| Field                  | Default | Notes                                                      |
+|------------------------|---------|------------------------------------------------------------|
+| `isEnabled`            | `false` | Off by default to preserve the one-way pin behaviour.      |
+| `initialRetryInterval` | 5s      | Wait before the first recovery attempt after a downgrade.  |
+| `maxRetryInterval`     | 60s     | Cap on exponential backoff.                                |
+| `backoffMultiplier`    | 2.0     | Each failed attempt doubles the wait (up to the cap).      |
+
+The host attempts a re-attach during the next `renderCurrentFrame` whose
+clock is past the scheduled time. On success: `activeBackend = .scene`,
+backoff resets, presentation selection reports
+`.batchBackendRecovered`. On failure: backoff doubles, next attempt
+scheduled. Locked in by
+`WinSwiftUIWindowHostTests.testRecoveryPolicyDisabledKeepsOneWayPinBehaviour`
+and `…testRecoveryPolicyEnabledRestoresBatchBackendAfterTransientFailure`.
 
 ## Materials (`.regularMaterial`, `.thinMaterial`, etc.)
 

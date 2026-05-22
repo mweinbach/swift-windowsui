@@ -474,11 +474,123 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             }
 
             XCTAssertEqual(
-                batchRenderer.renderedScenes.count, batchSuccessCountBeforeFailure,
-                "Batch renderer must not be invoked again after downgrade — even render attempts that would throw add latency, so the host's downgrade should bypass batch entirely")
+                batchRenderer.renderedScenes.count,
+                batchSuccessCountBeforeFailure,
+                "Batch renderer must not be invoked again after downgrade — even render attempts that would throw add latency, so the host's downgrade should bypass batch entirely"
+            )
             XCTAssertGreaterThan(
                 frameRenderer.renderedFrames.count, framesAfterDowngrade,
                 "Subsequent renders should keep flowing through the frame renderer")
+        }
+    }
+
+    /// With recovery policy disabled (the default), the one-way pin still
+    /// holds — a follow-up render must not retry the batch backend.
+    func testRecoveryPolicyDisabledKeepsOneWayPinBehaviour() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            let frameRenderer = FakeRenderBackend()
+            let surface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+            let config = WindowGroupConfiguration(
+                title: "Test", size: surface.pixelSize, clearColor: .black, content: []
+            )
+            // Default recovery policy is `.disabled`.
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in surface }
+            )
+            var fakeNow = 1_000.0
+            host.recoveryClock = { fakeNow }
+            let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            batchRenderer.setRenderShouldFail(true)
+            host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertFalse(host.isUsingBatchPresentationBackend)
+            let batchAttachesBeforeWait = batchRenderer.attachedSurfaces.count
+
+            // Stop failing and wait an hour of simulated time. The default
+            // policy must not attempt batch recovery.
+            batchRenderer.setRenderShouldFail(false)
+            fakeNow += 3600
+            for _ in 0..<5 {
+                host.windowNeedsDisplay(fakeWindow)
+            }
+            XCTAssertEqual(
+                batchRenderer.attachedSurfaces.count, batchAttachesBeforeWait,
+                "Disabled recovery policy must not re-attach batch backend")
+            XCTAssertFalse(host.isUsingBatchPresentationBackend)
+        }
+    }
+
+    /// With recovery enabled, once the batch backend stops failing the host
+    /// re-attaches it after the retry interval elapses.
+    func testRecoveryPolicyEnabledRestoresBatchBackendAfterTransientFailure() async {
+        await MainActor.run {
+            let batchRenderer = FakeBatchRenderBackend()
+            let frameRenderer = FakeRenderBackend()
+            let surface = SurfaceDescriptor(
+                windowHandle: NativeWindowHandle(rawPointer: UnsafeMutableRawPointer(bitPattern: 0x1))!,
+                pixelSize: IntSize(width: 320, height: 200),
+                scaleFactor: 1.0
+            )
+            let config = WindowGroupConfiguration(
+                title: "Test", size: surface.pixelSize, clearColor: .black, content: []
+            )
+            let host = WinSwiftUIWindowHost(
+                configuration: config,
+                renderer: frameRenderer,
+                batchRenderer: batchRenderer,
+                surfaceDescriptorProvider: { _ in surface },
+                recoveryPolicy: BatchBackendRecoveryPolicy(
+                    isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2)
+            )
+            var fakeNow = 10_000.0
+            host.recoveryClock = { fakeNow }
+            let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
+            host.windowDidCreate(fakeWindow)
+
+            // Trigger a downgrade.
+            batchRenderer.setRenderShouldFail(true)
+            host.window(fakeWindow, didResizeTo: IntSize(width: 640, height: 480))
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertFalse(host.isUsingBatchPresentationBackend)
+            let batchAttachesAtDowngrade = batchRenderer.attachedSurfaces.count
+
+            // Within the retry interval no recovery attempt should fire.
+            fakeNow += 2
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertEqual(batchRenderer.attachedSurfaces.count, batchAttachesAtDowngrade)
+            XCTAssertFalse(host.isUsingBatchPresentationBackend)
+
+            // Past the retry interval, batch is still failing — attempt
+            // fires, fails, and backoff doubles.
+            fakeNow += 4  // total elapsed: 6s after downgrade
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertGreaterThan(
+                batchRenderer.attachedSurfaces.count, batchAttachesAtDowngrade,
+                "Recovery attempt should have fired now that the retry interval elapsed")
+            // Still on frame because attach succeeded but render still fails.
+            // (Our fake reports attach without re-asserting renderShouldFail;
+            // we exercise that path separately below.)
+
+            // Healing the batch — now a recovery attempt should fully succeed.
+            batchRenderer.setRenderShouldFail(false)
+            fakeNow += 30  // past the doubled backoff
+            host.windowNeedsDisplay(fakeWindow)
+            XCTAssertTrue(
+                host.isUsingBatchPresentationBackend,
+                "Host should swap back to batch backend once recovery attempt succeeds")
+            XCTAssertEqual(
+                host.currentPresentationSelection?.reason, .batchBackendRecovered,
+                "Presentation selection should report the recovery as the reason")
         }
     }
 

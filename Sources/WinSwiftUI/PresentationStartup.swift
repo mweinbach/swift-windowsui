@@ -23,6 +23,7 @@ enum PresentationSelectionReason: Equatable {
     case batchAttachFailure(String)
     case batchResizeFailure(String)
     case batchRenderFailure(String)
+    case batchBackendRecovered
 
     var probeCode: String {
         switch self {
@@ -38,6 +39,8 @@ enum PresentationSelectionReason: Equatable {
             return "batch-resize-failure"
         case .batchRenderFailure:
             return "batch-render-failure"
+        case .batchBackendRecovered:
+            return "batch-backend-recovered"
         }
     }
 
@@ -49,10 +52,41 @@ enum PresentationSelectionReason: Equatable {
             return detail
         case .defaultScene,
             .frameDebugOverride,
-            .batchRendererUnavailable:
+            .batchRendererUnavailable,
+            .batchBackendRecovered:
             return nil
         }
     }
+}
+
+/// Opt-in policy that lets the host re-attempt the batch backend after a
+/// downgrade. Disabled by default so the one-way pin remains the standard
+/// behaviour; callers that prefer recovery (e.g. apps tolerating transient
+/// driver glitches) can flip this on.
+public struct BatchBackendRecoveryPolicy: Equatable, Sendable {
+    public var isEnabled: Bool
+    public var initialRetryInterval: Double
+    public var maxRetryInterval: Double
+    public var backoffMultiplier: Double
+
+    public init(
+        isEnabled: Bool = false,
+        initialRetryInterval: Double = 5.0,
+        maxRetryInterval: Double = 60.0,
+        backoffMultiplier: Double = 2.0
+    ) {
+        self.isEnabled = isEnabled
+        self.initialRetryInterval = max(0.1, initialRetryInterval)
+        self.maxRetryInterval = max(initialRetryInterval, maxRetryInterval)
+        self.backoffMultiplier = max(1.0, backoffMultiplier)
+    }
+
+    /// Default: one-way fallback (no recovery attempts).
+    public static let disabled = BatchBackendRecoveryPolicy(isEnabled: false)
+
+    /// Aggressive: try every 5s, doubling up to 60s.
+    public static let standard = BatchBackendRecoveryPolicy(
+        isEnabled: true, initialRetryInterval: 5, maxRetryInterval: 60, backoffMultiplier: 2)
 }
 struct PresentationSelection: Equatable {
     var presenter: PresentationBackendKind

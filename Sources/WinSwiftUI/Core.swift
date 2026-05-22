@@ -8752,7 +8752,7 @@ public struct ViewBuildContext {
         self.navigationPresentedDestinationsProvider = navigationPresentedDestinationsProvider
     }
 
-    public static let defaultTint = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+    public static let defaultTint = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1.0)
 
     func invalidate() {
         invalidateHandler()

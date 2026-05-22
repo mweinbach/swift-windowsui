@@ -198,21 +198,67 @@ private struct IdentityModifier: ViewModifier {
 final class WinSwiftUITests: XCTestCase {
     func testSwiftUIColorConstantsMapToCoreColors() async {
         await MainActor.run {
-            XCTAssertEqual(Color.red, Color(red: 1, green: 0, blue: 0, alpha: 1))
-            XCTAssertEqual(Color.orange, Color(red: 1, green: 0.5, blue: 0, alpha: 1))
-            XCTAssertEqual(Color.yellow, Color(red: 1, green: 1, blue: 0, alpha: 1))
-            XCTAssertEqual(Color.green, Color(red: 0, green: 1, blue: 0, alpha: 1))
-            XCTAssertEqual(Color.mint, Color(red: 0, green: 0.78, blue: 0.75, alpha: 1))
-            XCTAssertEqual(Color.teal, Color(red: 0, green: 0.5, blue: 0.5, alpha: 1))
-            XCTAssertEqual(Color.cyan, Color(red: 0, green: 1, blue: 1, alpha: 1))
-            XCTAssertEqual(Color.blue, Color(red: 0, green: 0, blue: 1, alpha: 1))
-            XCTAssertEqual(Color.indigo, Color(red: 0.29, green: 0, blue: 0.51, alpha: 1))
-            XCTAssertEqual(Color.purple, Color(red: 0.5, green: 0, blue: 0.5, alpha: 1))
-            XCTAssertEqual(Color.pink, Color(red: 1, green: 0.41, blue: 0.71, alpha: 1))
-            XCTAssertEqual(Color.brown, Color(red: 0.6, green: 0.4, blue: 0.2, alpha: 1))
-            XCTAssertEqual(Color.gray, Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1))
+            // Values match Apple's documented macOS / SF Symbols system
+            // colors — see docs/MacOSDesignParity.md for the canonical
+            // table and provenance. Use an accuracy tolerance to absorb
+            // Float rounding from the 3-decimal hex conversions.
+            XCTAssertEqual(Color.red.red, 1.0, accuracy: 0.005)
+            XCTAssertEqual(Color.red.green, 0.231, accuracy: 0.005)
+            XCTAssertEqual(Color.red.blue, 0.188, accuracy: 0.005)
+
+            XCTAssertEqual(Color.orange.red, 1.0, accuracy: 0.005)
+            XCTAssertEqual(Color.orange.green, 0.584, accuracy: 0.005)
+            XCTAssertEqual(Color.orange.blue, 0.0, accuracy: 0.005)
+
+            XCTAssertEqual(Color.yellow.red, 1.0, accuracy: 0.005)
+            XCTAssertEqual(Color.yellow.green, 0.8, accuracy: 0.005)
+            XCTAssertEqual(Color.yellow.blue, 0.0, accuracy: 0.005)
+
+            XCTAssertEqual(Color.green.red, 0.204, accuracy: 0.005)
+            XCTAssertEqual(Color.green.green, 0.78, accuracy: 0.005)
+            XCTAssertEqual(Color.green.blue, 0.349, accuracy: 0.005)
+
+            XCTAssertEqual(Color.blue.red, 0.0, accuracy: 0.005)
+            XCTAssertEqual(Color.blue.green, 0.478, accuracy: 0.005)
+            XCTAssertEqual(Color.blue.blue, 1.0, accuracy: 0.005)
+
+            XCTAssertEqual(Color.mint.red, 0.0, accuracy: 0.005)
+            XCTAssertEqual(Color.mint.green, 0.78, accuracy: 0.005)
+            XCTAssertEqual(Color.mint.blue, 0.745, accuracy: 0.005)
+
+            XCTAssertEqual(Color.teal.red, 0.188, accuracy: 0.005)
+            XCTAssertEqual(Color.teal.green, 0.69, accuracy: 0.005)
+            XCTAssertEqual(Color.teal.blue, 0.78, accuracy: 0.005)
+
+            XCTAssertEqual(Color.cyan.red, 0.196, accuracy: 0.005)
+            XCTAssertEqual(Color.cyan.green, 0.678, accuracy: 0.005)
+            XCTAssertEqual(Color.cyan.blue, 0.902, accuracy: 0.005)
+
+            XCTAssertEqual(Color.indigo.red, 0.345, accuracy: 0.005)
+            XCTAssertEqual(Color.indigo.green, 0.337, accuracy: 0.005)
+            XCTAssertEqual(Color.indigo.blue, 0.839, accuracy: 0.005)
+
+            XCTAssertEqual(Color.purple.red, 0.686, accuracy: 0.005)
+            XCTAssertEqual(Color.purple.green, 0.322, accuracy: 0.005)
+            XCTAssertEqual(Color.purple.blue, 0.871, accuracy: 0.005)
+
+            XCTAssertEqual(Color.pink.red, 1.0, accuracy: 0.005)
+            XCTAssertEqual(Color.pink.green, 0.176, accuracy: 0.005)
+            XCTAssertEqual(Color.pink.blue, 0.333, accuracy: 0.005)
+
+            XCTAssertEqual(Color.brown.red, 0.635, accuracy: 0.005)
+            XCTAssertEqual(Color.brown.green, 0.518, accuracy: 0.005)
+            XCTAssertEqual(Color.brown.blue, 0.369, accuracy: 0.005)
+
+            XCTAssertEqual(Color.gray.red, 0.557, accuracy: 0.005)
+            XCTAssertEqual(Color.gray.green, 0.557, accuracy: 0.005)
+            XCTAssertEqual(Color.gray.blue, 0.576, accuracy: 0.005)
+
             XCTAssertEqual(Color.primary, .white)
             XCTAssertEqual(Color.secondary, Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1))
+            XCTAssertEqual(
+                Color.accentColor, Color.blue,
+                "macOS controlAccentColor default is the system blue")
             XCTAssertEqual(Color.accentColor, ViewBuildContext.defaultTint)
         }
     }
@@ -3953,7 +3999,9 @@ final class WinSwiftUITests: XCTestCase {
             // Material returns `.materialFill(tint:blurRadius:)`.
             XCTAssertEqual(
                 ForegroundStyle(Material.regular),
-                .materialFill(tint: Material.regular.retainedFallbackColor, blurRadius: Material.regular.retainedBlurRadius)
+                .materialFill(
+                    tint: Material.regular.retainedFallbackColor,
+                    blurRadius: Material.regular.retainedBlurRadius)
             )
 
             let backgroundNode = makeNode(Text("MATERIAL").background(.regularMaterial))

@@ -108,4 +108,81 @@ final class MacOSDesignParityTests: XCTestCase {
         XCTAssertEqual(Material.ultraThick.retainedBlurRadius, 40, accuracy: 0.001)
         XCTAssertEqual(Material.bar.retainedBlurRadius, 18, accuracy: 0.001)
     }
+
+    // MARK: - System colors
+
+    private func assertColor(
+        _ color: Color, red: Float, green: Float, blue: Float,
+        accuracy: Float = 0.005, name: String, file: StaticString = #file,
+        line: UInt = #line
+    ) {
+        XCTAssertEqual(color.red, red, accuracy: accuracy, "\(name).red", file: file, line: line)
+        XCTAssertEqual(
+            color.green, green, accuracy: accuracy, "\(name).green", file: file, line: line)
+        XCTAssertEqual(color.blue, blue, accuracy: accuracy, "\(name).blue", file: file, line: line)
+        XCTAssertEqual(color.alpha, 1.0, accuracy: 0.001, "\(name).alpha", file: file, line: line)
+    }
+
+    func testSystemRedMatchesAppleHIG() async {
+        assertColor(.red, red: 1.0, green: 0.231, blue: 0.188, name: "red")
+    }
+
+    func testSystemOrangeMatchesAppleHIG() async {
+        assertColor(.orange, red: 1.0, green: 0.584, blue: 0.0, name: "orange")
+    }
+
+    func testSystemYellowMatchesAppleHIG() async {
+        assertColor(.yellow, red: 1.0, green: 0.8, blue: 0.0, name: "yellow")
+    }
+
+    func testSystemGreenMatchesAppleHIG() async {
+        assertColor(.green, red: 0.204, green: 0.78, blue: 0.349, name: "green")
+    }
+
+    func testSystemMintMatchesAppleHIG() async {
+        assertColor(.mint, red: 0.0, green: 0.78, blue: 0.745, name: "mint")
+    }
+
+    func testSystemTealMatchesAppleHIG() async {
+        assertColor(.teal, red: 0.188, green: 0.69, blue: 0.78, name: "teal")
+    }
+
+    func testSystemCyanMatchesAppleHIG() async {
+        assertColor(.cyan, red: 0.196, green: 0.678, blue: 0.902, name: "cyan")
+    }
+
+    func testSystemBlueMatchesAppleHIG() async {
+        assertColor(.blue, red: 0.0, green: 0.478, blue: 1.0, name: "blue")
+    }
+
+    func testSystemIndigoMatchesAppleHIG() async {
+        assertColor(.indigo, red: 0.345, green: 0.337, blue: 0.839, name: "indigo")
+    }
+
+    func testSystemPurpleMatchesAppleHIG() async {
+        assertColor(.purple, red: 0.686, green: 0.322, blue: 0.871, name: "purple")
+    }
+
+    func testSystemPinkMatchesAppleHIG() async {
+        assertColor(.pink, red: 1.0, green: 0.176, blue: 0.333, name: "pink")
+    }
+
+    func testSystemBrownMatchesAppleHIG() async {
+        assertColor(.brown, red: 0.635, green: 0.518, blue: 0.369, name: "brown")
+    }
+
+    func testSystemGrayMatchesAppleHIG() async {
+        assertColor(.gray, red: 0.557, green: 0.557, blue: 0.576, name: "gray")
+    }
+
+    func testAccentColorMatchesMacOSDefaultControlAccentBlue() async {
+        // macOS controlAccentColor's "Blue" (default) is #007AFF — the
+        // same as Color.blue. WinSwiftUI's defaultTint must agree.
+        XCTAssertEqual(
+            Color.accentColor, Color.blue,
+            "Color.accentColor should equal Color.blue (#007AFF) by default")
+        XCTAssertEqual(
+            Color.accentColor, ViewBuildContext.defaultTint,
+            "ViewBuildContext.defaultTint should track Color.accentColor")
+    }
 }

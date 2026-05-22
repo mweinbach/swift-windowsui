@@ -53,6 +53,33 @@ to macOS visual effects views.
 | `ultraThick`  | 0.72       | 40                       |
 | `bar`         | 0.64       | 18                       |
 
+## System colors
+
+RGB values match Apple's documented macOS / SF Symbols system color
+palette (Human Interface Guidelines → Color → System colors). These
+are the exact hex codes Apple publishes as the "Multicolor" defaults
+for `Color.red`, `Color.blue`, etc. on macOS.
+
+| Color           | macOS hex | sRGB (3 dp)           |
+|-----------------|-----------|-----------------------|
+| `Color.red`     | `#FF3B30` | (1.000, 0.231, 0.188) |
+| `Color.orange`  | `#FF9500` | (1.000, 0.584, 0.000) |
+| `Color.yellow`  | `#FFCC00` | (1.000, 0.800, 0.000) |
+| `Color.green`   | `#34C759` | (0.204, 0.780, 0.349) |
+| `Color.mint`    | `#00C7BE` | (0.000, 0.780, 0.745) |
+| `Color.teal`    | `#30B0C7` | (0.188, 0.690, 0.780) |
+| `Color.cyan`    | `#32ADE6` | (0.196, 0.678, 0.902) |
+| `Color.blue`    | `#007AFF` | (0.000, 0.478, 1.000) |
+| `Color.indigo`  | `#5856D6` | (0.345, 0.337, 0.839) |
+| `Color.purple`  | `#AF52DE` | (0.686, 0.322, 0.871) |
+| `Color.pink`    | `#FF2D55` | (1.000, 0.176, 0.333) |
+| `Color.brown`   | `#A2845E` | (0.635, 0.518, 0.369) |
+| `Color.gray`    | `#8E8E93` | (0.557, 0.557, 0.576) |
+
+`Color.accentColor` and `ViewBuildContext.defaultTint` both resolve
+to `Color.blue` (`#007AFF`), matching macOS's default
+controlAccentColor when the user hasn't picked a custom accent.
+
 ## What's deliberately NOT pinned here
 
 - **Pixel-level visual match** against macOS rendered output. WinSwiftUI

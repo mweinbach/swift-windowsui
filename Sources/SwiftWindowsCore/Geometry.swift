@@ -236,24 +236,29 @@ public struct Color: Equatable, Sendable {
     public static let black = Color(red: 0, green: 0, blue: 0, alpha: 1)
     public static let white = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let clear = Color(red: 0, green: 0, blue: 0, alpha: 0)
-    public static let red = Color(red: 1, green: 0, blue: 0, alpha: 1)
-    public static let green = Color(red: 0, green: 1, blue: 0, alpha: 1)
-    public static let blue = Color(red: 0, green: 0, blue: 1, alpha: 1)
-    public static let orange = Color(red: 1, green: 0.5, blue: 0, alpha: 1)
-    public static let yellow = Color(red: 1, green: 1, blue: 0, alpha: 1)
-    public static let purple = Color(red: 0.5, green: 0, blue: 0.5, alpha: 1)
-    public static let pink = Color(red: 1, green: 0.41, blue: 0.71, alpha: 1)
-    public static let cyan = Color(red: 0, green: 1, blue: 1, alpha: 1)
-    public static let brown = Color(red: 0.6, green: 0.4, blue: 0.2, alpha: 1)
-    public static let indigo = Color(red: 0.29, green: 0, blue: 0.51, alpha: 1)
-    public static let mint = Color(red: 0, green: 0.78, blue: 0.75, alpha: 1)
-    public static let teal = Color(red: 0, green: 0.5, blue: 0.5, alpha: 1)
-    public static let gray = Color(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)
+    // System colors match Apple's documented macOS / SF Symbols values
+    // (HIG → System colors). Pinned in docs/MacOSDesignParity.md so a
+    // change here without a doc/test update fails CI.
+    public static let red = Color(red: 1.0, green: 0.231, blue: 0.188, alpha: 1)
+    public static let green = Color(red: 0.204, green: 0.780, blue: 0.349, alpha: 1)
+    public static let blue = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1)
+    public static let orange = Color(red: 1.0, green: 0.584, blue: 0.0, alpha: 1)
+    public static let yellow = Color(red: 1.0, green: 0.800, blue: 0.0, alpha: 1)
+    public static let purple = Color(red: 0.686, green: 0.322, blue: 0.871, alpha: 1)
+    public static let pink = Color(red: 1.0, green: 0.176, blue: 0.333, alpha: 1)
+    public static let cyan = Color(red: 0.196, green: 0.678, blue: 0.902, alpha: 1)
+    public static let brown = Color(red: 0.635, green: 0.518, blue: 0.369, alpha: 1)
+    public static let indigo = Color(red: 0.345, green: 0.337, blue: 0.839, alpha: 1)
+    public static let mint = Color(red: 0.0, green: 0.780, blue: 0.745, alpha: 1)
+    public static let teal = Color(red: 0.188, green: 0.690, blue: 0.780, alpha: 1)
+    public static let gray = Color(red: 0.557, green: 0.557, blue: 0.576, alpha: 1)
     public static let primary = Color(red: 1, green: 1, blue: 1, alpha: 1)
     public static let secondary = Color(red: 0.70, green: 0.74, blue: 0.80, alpha: 1)
     public static let highContrastSecondary = Color(red: 0.88, green: 0.92, blue: 0.98, alpha: 1)
+    // macOS controlAccentColor default ("Multicolor → Blue") matches
+    // Color.blue at #007AFF.
     // swift-format-ignore: DontRepeatTypeInStaticProperties
-    public static let accentColor = Color(red: 0.20, green: 0.60, blue: 1.0, alpha: 1.0)
+    public static let accentColor = Color(red: 0.0, green: 0.478, blue: 1.0, alpha: 1)
 
     public init(hue: Double, saturation: Double, brightness: Double, opacity: Double = 1) {
         var normalizedHue = hue.truncatingRemainder(dividingBy: 1)

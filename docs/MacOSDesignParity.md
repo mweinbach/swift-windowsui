@@ -80,6 +80,44 @@ for `Color.red`, `Color.blue`, etc. on macOS.
 to `Color.blue` (`#007AFF`), matching macOS's default
 controlAccentColor when the user hasn't picked a custom accent.
 
+## Control dimension reference
+
+Apple HIG-published target dimensions for standard macOS controls.
+These live as inert `public static let` constants in
+`MacOSControlMetrics` (Sources/WinSwiftUI/MacOSControlMetrics.swift)
+and are the *visual-parity target* WinSwiftUI converges toward.
+They are the documentation half of the contract — pinned by
+`MacOSControlReferenceTests` so changing the constants here without
+updating the doc fails CI.
+
+| Control                      | Constant                                  | Value     |
+|------------------------------|-------------------------------------------|-----------|
+| Push button (.regular)       | `Button.regularHeight`                    | 22 pt     |
+| Push button (.large)         | `Button.largeHeight`                      | 32 pt     |
+| Toggle switch (.regular)     | `Toggle.regularSize`                      | 38×22 pt  |
+| Slider track thickness       | `Slider.trackThickness`                   | 4 pt      |
+| Slider thumb diameter        | `Slider.thumbDiameter`                    | 16 pt     |
+| Stepper button               | `Stepper.buttonSize`                      | 19×11 pt  |
+| Pop-up button (.regular)     | `PopUpButton.regularHeight`               | 22 pt     |
+| Progress bar (.regular)      | `ProgressBar.regularHeight`               | 6 pt      |
+| Progress spinner (.regular)  | `ProgressSpinner.regularDiameter`         | 16 pt     |
+| Text field (.regular)        | `TextField.regularHeight`                 | 21 pt     |
+| List row (plain)             | `List.plainRowHeight`                     | 24 pt     |
+| List row (sidebar)           | `List.sidebarRowHeight`                   | 28 pt     |
+| Toolbar (regular)            | `Toolbar.regularHeight`                   | 52 pt     |
+| Window corner radius         | `Window.cornerRadius`                     | 10 pt     |
+| Sheet corner radius          | `Window.sheetCornerRadius`                | 12 pt     |
+| Focus ring stroke            | `FocusRing.strokeWidth`                   | 4 pt      |
+| Default stack spacing        | `Layout.defaultStackSpacing`              | 8 pt      |
+| Default `.padding()`         | `Layout.defaultPadding`                   | 16 pt     |
+
+WinSwiftUI's `ControlSize` extensions in Views.swift use larger
+values for several controls (toggle 52×32, slider 200×28, stepper
+34×30) to give Windows pointer / touch targets enough size. These
+deliberate divergences are not "drift" — they are recorded here as
+explicit Windows-side ergonomic choices. The reference constants
+remain the documented macOS target.
+
 ## What's deliberately NOT pinned here
 
 - **Pixel-level visual match** against macOS rendered output. WinSwiftUI

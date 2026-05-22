@@ -186,6 +186,88 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertEqual(quads?.count, 4, "Closed stroked rect should emit four side quads")
     }
 
+    // MARK: - Curve subdivision
+
+    /// A degenerate horizontal quadratic curve (control point on the
+    /// line from start to end) traces a flat horizontal stroke. After
+    /// subdivision every line segment is horizontal, so the tessellator
+    /// emits per-segment quads on the GPU instead of CPU-rasterising.
+    func testHorizontalDegenerateQuadraticCurveTessellates() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 30)),
+                .quadraticCurveTo(control: Point(x: 50, y: 30), end: Point(x: 90, y: 30)),
+            ],
+            lineWidth: 2
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(
+            quads,
+            "Horizontal degenerate quadratic curve must subdivide into axis-aligned quads")
+        XCTAssertEqual(
+            quads?.count, 16,
+            "Expected one quad per curve subdivision sample")
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.height - 2) < 0.001 },
+            "Every subdivided quad must be the line-width tall horizontal strip")
+    }
+
+    /// A degenerate vertical cubic Bezier — both control points on the
+    /// vertical axis — also tessellates to axis-aligned quads.
+    func testVerticalDegenerateCubicCurveTessellates() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 50, y: 10)),
+                .cubicCurveTo(
+                    control1: Point(x: 50, y: 30),
+                    control2: Point(x: 50, y: 70),
+                    end: Point(x: 50, y: 90)),
+            ],
+            lineWidth: 3
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads)
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.width - 3) < 0.001 },
+            "Every subdivided quad must be the line-width wide vertical strip")
+    }
+
+    /// A genuinely diagonal Bezier curve produces subdivisions that
+    /// aren't axis-aligned; the tessellator falls through.
+    func testDiagonalQuadraticCurveFallsThrough() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .quadraticCurveTo(control: Point(x: 40, y: 80), end: Point(x: 90, y: 10)),
+            ],
+            lineWidth: 2
+        )
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Diagonal curve subdivisions are not axis-aligned and must fall through")
+    }
+
+    /// Genuinely curved arcs (semi-circles, partial circles) produce
+    /// diagonal subdivisions and fall through. Documents the boundary
+    /// where the tessellator stops winning.
+    func testCurvedArcFallsThrough() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 50, y: 50)),
+                .arc(
+                    center: Point(x: 50, y: 50),
+                    radius: 20,
+                    startAngle: 0,
+                    endAngle: .pi,
+                    clockwise: false),
+            ],
+            lineWidth: 2
+        )
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Genuinely curved arcs produce diagonal subdivisions and fall through to CPU rasterization")
+    }
+
     // MARK: - Edge cases
 
     func testEmptyPathReturnsNil() {

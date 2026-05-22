@@ -1,3 +1,5 @@
+import Foundation
+
 import SwiftWindowsCore
 import SwiftWindowsGraphics
 
@@ -7,20 +9,31 @@ import SwiftWindowsGraphics
 /// `GPUIRawSceneRasterizer.rasterizePath` (CPU rasterization +
 /// texture-per-frame upload).
 ///
-/// This is a deliberately narrow first step in the GPU path tessellator
-/// roadmap. We only handle:
+/// Coverage:
 ///
-/// - **Stroked paths** consisting entirely of `.moveTo` + `.lineTo` + `.close`
-///   segments, where every line segment is axis-aligned (purely horizontal
-///   or purely vertical). Each axis-aligned segment becomes one quad.
+/// - **Stroked paths** consisting of `.moveTo` + `.lineTo` + `.close` plus
+///   `.quadraticCurveTo` / `.cubicCurveTo` / `.arc`. Curves and arcs are
+///   adaptively subdivided into short line segments; if every resulting
+///   line segment is axis-aligned (purely horizontal or vertical) the
+///   path is emitted as one quad per segment. Curves whose subdivisions
+///   produce diagonal pieces fall through to CPU.
 /// - **Filled paths** that describe exactly one axis-aligned rectangle
-///   (`moveTo + 3×lineTo + close` forming a closed rect). The rect becomes
-///   a single quad.
+///   (`moveTo + 3×lineTo + close` forming a closed rect). The rect
+///   becomes a single quad.
 ///
-/// Anything else — diagonal strokes, curved segments, arcs, multi-region
-/// filled paths — returns `nil` and falls back to the CPU rasterization
-/// path. Curved-path tessellation will follow in a future change.
+/// Anything else — diagonal strokes, non-axis-aligned curved geometry,
+/// arbitrary filled shapes, paths that combine fill + stroke — returns
+/// `nil` and falls back to the CPU rasterization path. Rotated-quad
+/// support and full convex polygon triangulation remain on the
+/// roadmap.
 enum PathToQuadTessellator {
+
+    /// Number of line segments produced when sampling a curve or arc.
+    /// 16 is enough to detect axis-alignment for the common cases
+    /// (degenerate beziers, axis-aligned arcs) without flooding the
+    /// quad buffer for genuinely curved geometry that's going to fail
+    /// the axis-aligned check anyway.
+    private static let curveSubdivisions = 16
 
     /// Returns axis-aligned quads that cover `path`, or `nil` if the path
     /// can't be tessellated by this pass.
@@ -92,37 +105,114 @@ enum PathToQuadTessellator {
         var subpathStart: Point?
         var quads: [QuadPrimitive] = []
 
+        func appendStraightSegments(through points: [Point]) -> Bool {
+            guard let start = cursor else { return false }
+            var previous = start
+            for next in points {
+                if previous == next { continue }
+                guard
+                    let segment = strokedSegmentQuad(
+                        from: previous, to: next, lineWidth: path.lineWidth,
+                        color: path.strokeColor, clip: path.clipBounds)
+                else { return false }
+                quads.append(segment)
+                previous = next
+            }
+            cursor = previous
+            return true
+        }
+
         for element in path.elements {
             switch element {
             case .moveTo(let p):
                 cursor = p
                 subpathStart = p
             case .lineTo(let p):
-                guard let from = cursor else { return nil }
-                guard
-                    let segment = strokedSegmentQuad(
-                        from: from, to: p, lineWidth: path.lineWidth,
-                        color: path.strokeColor, clip: path.clipBounds)
-                else { return nil }
-                quads.append(segment)
-                cursor = p
+                guard appendStraightSegments(through: [p]) else { return nil }
             case .close:
                 guard let from = cursor, let start = subpathStart, from != start else {
                     continue
                 }
-                guard
-                    let segment = strokedSegmentQuad(
-                        from: from, to: start, lineWidth: path.lineWidth,
-                        color: path.strokeColor, clip: path.clipBounds)
-                else { return nil }
-                quads.append(segment)
-                cursor = start
-            case .quadraticCurveTo, .cubicCurveTo, .arc:
-                return nil
+                guard appendStraightSegments(through: [start]) else { return nil }
+            case .quadraticCurveTo(let control, let end):
+                guard let from = cursor else { return nil }
+                let samples = sampleQuadratic(from: from, control: control, end: end)
+                guard appendStraightSegments(through: samples) else { return nil }
+            case .cubicCurveTo(let c1, let c2, let end):
+                guard let from = cursor else { return nil }
+                let samples = sampleCubic(from: from, control1: c1, control2: c2, end: end)
+                guard appendStraightSegments(through: samples) else { return nil }
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                let samples = sampleArc(
+                    center: center, radius: radius,
+                    startAngle: startAngle, endAngle: endAngle,
+                    clockwise: clockwise)
+                // Arcs implicitly start at the first sample point even
+                // without a preceding moveTo — match CG/SwiftUI behaviour.
+                if cursor == nil, let first = samples.first {
+                    cursor = first
+                    subpathStart = first
+                }
+                guard appendStraightSegments(through: samples) else { return nil }
             }
         }
 
         return quads.isEmpty ? nil : quads
+    }
+
+    // MARK: - Curve sampling
+
+    private static func sampleQuadratic(from: Point, control: Point, end: Point) -> [Point] {
+        var points: [Point] = []
+        points.reserveCapacity(curveSubdivisions)
+        let n = curveSubdivisions
+        for step in 1...n {
+            let t = Double(step) / Double(n)
+            let mt = 1 - t
+            let x = mt * mt * from.x + 2 * mt * t * control.x + t * t * end.x
+            let y = mt * mt * from.y + 2 * mt * t * control.y + t * t * end.y
+            points.append(Point(x: x, y: y))
+        }
+        return points
+    }
+
+    private static func sampleCubic(from: Point, control1: Point, control2: Point, end: Point) -> [Point] {
+        var points: [Point] = []
+        points.reserveCapacity(curveSubdivisions)
+        let n = curveSubdivisions
+        for step in 1...n {
+            let t = Double(step) / Double(n)
+            let mt = 1 - t
+            let mt2 = mt * mt
+            let t2 = t * t
+            let x = mt2 * mt * from.x + 3 * mt2 * t * control1.x + 3 * mt * t2 * control2.x + t2 * t * end.x
+            let y = mt2 * mt * from.y + 3 * mt2 * t * control1.y + 3 * mt * t2 * control2.y + t2 * t * end.y
+            points.append(Point(x: x, y: y))
+        }
+        return points
+    }
+
+    private static func sampleArc(
+        center: Point, radius: Double, startAngle: Double, endAngle: Double, clockwise: Bool
+    ) -> [Point] {
+        var sweep = endAngle - startAngle
+        if clockwise {
+            if sweep > 0 { sweep -= 2 * .pi }
+        } else {
+            if sweep < 0 { sweep += 2 * .pi }
+        }
+        var points: [Point] = []
+        points.reserveCapacity(curveSubdivisions + 1)
+        // Include the start point so the very first segment of the arc
+        // has a fromPoint relative to the actual arc curve, not an
+        // arbitrary prior cursor.
+        let totalSamples = curveSubdivisions
+        for step in 0...totalSamples {
+            let t = Double(step) / Double(totalSamples)
+            let angle = startAngle + sweep * t
+            points.append(Point(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle)))
+        }
+        return points
     }
 
     private static func strokedSegmentQuad(

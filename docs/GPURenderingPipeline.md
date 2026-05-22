@@ -109,8 +109,13 @@ whether the path can be expressed as one or more axis-aligned
 fills (with or without intervening Canvas transforms) and horizontal /
 vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
-Anything diagonal, curved, or filled-and-stroked falls through to the
-CPU path. The tessellator's decision table is locked by
+
+Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
+are adaptively subdivided into 16 line segments first; if every segment
+ends up axis-aligned (degenerate Beziers tracing horizontal/vertical
+lines), the curve takes the GPU fast lane too. Genuinely curved or
+diagonal subdivisions fall through to CPU. The tessellator's decision
+table — including the curve cases — is locked by
 `PathToQuadTessellatorTests`.
 
 For paths that still take the CPU route, `PathPrimitive` is rasterized

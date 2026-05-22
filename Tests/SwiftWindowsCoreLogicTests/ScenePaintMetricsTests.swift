@@ -42,21 +42,19 @@ final class ScenePaintMetricsTests: XCTestCase {
         }
     }
 
-    func testGpuPromotionRateDropsWhenPolygonFillsAppear() async {
+    func testGpuPromotionRateDropsWhenConcavePolygonFillsAppear() async {
         await MainActor.run {
-            // A 5-vertex polygon (pentagon) — non-rectangular, more than
-            // three vertices, so neither rectFill nor triangleFill
-            // promote it. Triangles and rects now ride the GPU
-            // (rotated-quad and scanline tessellation), so we need a
-            // genuinely uncovered case to verify the CPU fallback path
-            // still trips the metrics.
+            // Convex polygons (incl. curved-but-convex fills) now ride
+            // the GPU via fan triangulation. To verify the CPU
+            // fallback metrics still trip we need a concave shape —
+            // here an arrowhead with one inward notch.
             let view = Canvas { ctx, size in
                 var path = Path()
-                path.moveTo(Point(x: 40, y: 10))
-                path.lineTo(Point(x: 70, y: 30))
-                path.lineTo(Point(x: 60, y: 70))
-                path.lineTo(Point(x: 20, y: 70))
-                path.lineTo(Point(x: 10, y: 30))
+                path.moveTo(Point(x: 10, y: 10))
+                path.lineTo(Point(x: 80, y: 10))
+                path.lineTo(Point(x: 50, y: 40))  // notch — concave point
+                path.lineTo(Point(x: 80, y: 70))
+                path.lineTo(Point(x: 10, y: 70))
                 path.close()
                 ctx.fill(path, with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)))
             }
@@ -66,7 +64,7 @@ final class ScenePaintMetricsTests: XCTestCase {
             let metrics = snap.scene.paintMetrics
             XCTAssertEqual(
                 metrics.pathsRasterizedOnCPU, 1,
-                "5-vertex polygon fill should fall through to CPU rasterization")
+                "Concave polygon must still fall through to CPU rasterization")
             XCTAssertEqual(metrics.pathsPromotedToGPU, 0)
             XCTAssertLessThan(
                 metrics.gpuPromotionRate, 1.0,

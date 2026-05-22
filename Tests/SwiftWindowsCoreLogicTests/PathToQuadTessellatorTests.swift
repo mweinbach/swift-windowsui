@@ -67,9 +67,9 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertEqual(quads?.count, 1)
     }
 
-    func testNonAxisAlignedQuadFillFallsThrough() {
-        // A skewed quad — not an axis-aligned rect. Must fall back to
-        // CPU rasterization.
+    func testNonAxisAlignedConvexQuadFillTessellatesViaFanTriangulation() {
+        // A skewed but convex quadrilateral — no longer falls through;
+        // fan-triangulated and emitted as scanline strips.
         let path = makeFilledPath(elements: [
             .moveTo(Point(x: 10, y: 20)),
             .lineTo(Point(x: 60, y: 18)),
@@ -77,9 +77,12 @@ final class PathToQuadTessellatorTests: XCTestCase {
             .lineTo(Point(x: 8, y: 78)),
             .close,
         ])
-        XCTAssertNil(
-            PathToQuadTessellator.tessellate(path),
-            "Non-axis-aligned quad must fall through to PathPrimitive")
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads, "Convex 4-vertex polygon must tessellate via fan triangulation")
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.height - 1.0) < 0.001 },
+            "Fan-triangulated polygon emits 1-px scanline strips"
+        )
     }
 
     func testTriangleFillScanlineTessellatesToStripQuads() {
@@ -131,15 +134,60 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(quads?.count ?? 0, 5)
     }
 
-    func testCurvedPathFillFallsThrough() {
+    func testCurvedConvexFillTessellatesViaFanTriangulation() {
+        // A closed convex curved path — quadratic curve bulging
+        // outward then back along a straight line — fans into many
+        // scanline strip quads. RoundedRectangle / Circle / Capsule
+        // exercise this lane.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 20)),
+            .quadraticCurveTo(control: Point(x: 30, y: -10), end: Point(x: 60, y: 20)),
+            .lineTo(Point(x: 0, y: 20)),
+            .close,
+        ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(
+            quads,
+            "Convex curved fill must tessellate via fan triangulation + scanline strips"
+        )
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.height - 1.0) < 0.001 },
+            "Every emitted quad is a 1-pixel-tall scanline strip"
+        )
+    }
+
+    func testConcavePolygonFillFallsThrough() {
+        // An arrowhead-shaped polygon — concave (the notch creates an
+        // interior angle > 180°). Fan triangulation would emit invalid
+        // quads, so the tessellator must refuse.
         let path = makeFilledPath(elements: [
             .moveTo(Point(x: 0, y: 0)),
-            .quadraticCurveTo(control: Point(x: 10, y: 10), end: Point(x: 20, y: 0)),
+            .lineTo(Point(x: 40, y: 0)),
+            .lineTo(Point(x: 30, y: 20)),  // notch — concave point
+            .lineTo(Point(x: 40, y: 40)),
+            .lineTo(Point(x: 0, y: 40)),
             .close,
         ])
         XCTAssertNil(
             PathToQuadTessellator.tessellate(path),
-            "Quadratic curve segments must fall through")
+            "Concave polygons must fall through to CPU rasterization"
+        )
+    }
+
+    func testConvexFiveVertexPolygonTessellates() {
+        // Regular-ish pentagon. Each fan triangle (3 of them) becomes
+        // a scanline strip.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 30, y: 0)),
+            .lineTo(Point(x: 60, y: 22)),
+            .lineTo(Point(x: 48, y: 60)),
+            .lineTo(Point(x: 12, y: 60)),
+            .lineTo(Point(x: 0, y: 22)),
+            .close,
+        ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads, "Convex pentagon must tessellate via fan triangulation")
+        XCTAssertGreaterThan(quads?.count ?? 0, 20)
     }
 
     // MARK: - Stroked-line promotion

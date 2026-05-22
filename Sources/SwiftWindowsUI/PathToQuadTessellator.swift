@@ -64,14 +64,18 @@ enum PathToQuadTessellator {
     /// at all (so the caller falls back to a single CPU path primitive).
     static func tessellateMixed(_ path: PathPrimitive) -> Result? {
         // Fill-only path: try rect first (single quad), then triangle
-        // scanline (many strip quads). Other fills (quads, curves,
-        // polygons) still need a real triangulator and fall through.
+        // scanline (many strip quads), then general convex polygon /
+        // curved fill (fan-triangulated, each triangle scanline-stripped).
+        // Concave or non-simple polygons still fall through.
         if path.fillColor.alpha > 0, path.strokeColor.alpha == 0 || path.lineWidth <= 0 {
             if let rectQuads = rectFill(for: path) {
                 return Result(quads: rectQuads, residualPath: nil)
             }
             if let triQuads = triangleFill(for: path) {
                 return Result(quads: triQuads, residualPath: nil)
+            }
+            if let polyQuads = convexPolygonFill(for: path) {
+                return Result(quads: polyQuads, residualPath: nil)
             }
             return nil
         }
@@ -126,10 +130,118 @@ enum PathToQuadTessellator {
         let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
         guard abs(area2) > 0.001 else { return nil }
 
-        // Scanlines from minY..maxY. For each row we walk the three
-        // triangle edges and collect the x-coordinates where the row
-        // y = scanY intersects them; the in-range pair defines the
-        // strip's left and right edges.
+        let quads = scanlineFillTriangle(
+            v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds)
+        return quads.isEmpty ? nil : quads
+    }
+
+    /// Fans the polygon's vertices from vertex 0 into N-2 triangles and
+    /// scanline-tessellates each. Curves in the path are first
+    /// subdivided into line segments so RoundedRectangle, Circle,
+    /// Capsule, and other curved closed shapes also qualify. Returns
+    /// nil if the path can't be expressed as a simple convex polygon
+    /// (concave, self-intersecting, or non-closed).
+    private static func convexPolygonFill(for path: PathPrimitive) -> [QuadPrimitive]? {
+        guard let polygonVertices = sampleClosedFillBoundary(elements: path.elements) else {
+            return nil
+        }
+        guard polygonVertices.count >= 4 else { return nil }
+        guard isConvex(polygonVertices) else { return nil }
+
+        var quads: [QuadPrimitive] = []
+        let v0 = polygonVertices[0]
+        for i in 1..<(polygonVertices.count - 1) {
+            let v1 = polygonVertices[i]
+            let v2 = polygonVertices[i + 1]
+            quads.append(
+                contentsOf: scanlineFillTriangle(
+                    v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds))
+        }
+        return quads.isEmpty ? nil : quads
+    }
+
+    /// Walks the path's elements producing the polygon's boundary as a
+    /// flat list of points. Curves are adaptively subdivided into line
+    /// segments. Returns nil for paths that aren't a single closed
+    /// subpath.
+    private static func sampleClosedFillBoundary(elements: [PathElement]) -> [Point]? {
+        var points: [Point] = []
+        var didMove = false
+        var subpathStart: Point?
+        for element in elements {
+            switch element {
+            case .moveTo(let p):
+                guard !didMove else { return nil }
+                didMove = true
+                subpathStart = p
+                points.append(p)
+            case .lineTo(let p):
+                guard didMove else { return nil }
+                points.append(p)
+            case .quadraticCurveTo(let control, let end):
+                guard let from = points.last else { return nil }
+                points.append(contentsOf: sampleQuadratic(from: from, control: control, end: end))
+            case .cubicCurveTo(let c1, let c2, let end):
+                guard let from = points.last else { return nil }
+                points.append(contentsOf: sampleCubic(from: from, control1: c1, control2: c2, end: end))
+            case .arc(let center, let radius, let startAngle, let endAngle, let clockwise):
+                let samples = sampleArc(
+                    center: center, radius: radius,
+                    startAngle: startAngle, endAngle: endAngle, clockwise: clockwise)
+                if !didMove, let first = samples.first {
+                    didMove = true
+                    subpathStart = first
+                    points.append(first)
+                    points.append(contentsOf: samples.dropFirst())
+                } else {
+                    points.append(contentsOf: samples)
+                }
+            case .close:
+                break
+            }
+        }
+        // Drop a trailing duplicate of the start point (the path
+        // explicitly closes by repeating vertex 0); subsequent
+        // convexity / scanline checks expect distinct vertices.
+        if points.count >= 2, points.first == points.last {
+            points.removeLast()
+        }
+        _ = subpathStart
+        return points.isEmpty ? nil : points
+    }
+
+    /// Returns true if the polygon vertices form a convex shape. Tests
+    /// that every adjacent-edge cross product has the same sign — for
+    /// a convex polygon (in either winding) all signs agree.
+    private static func isConvex(_ vertices: [Point]) -> Bool {
+        guard vertices.count >= 3 else { return false }
+        var sign: Double = 0
+        let n = vertices.count
+        for i in 0..<n {
+            let a = vertices[i]
+            let b = vertices[(i + 1) % n]
+            let c = vertices[(i + 2) % n]
+            let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+            if abs(cross) < 0.0001 {
+                continue  // colinear triple — fine, doesn't violate convexity
+            }
+            if sign == 0 {
+                sign = cross > 0 ? 1 : -1
+            } else if (cross > 0 ? 1.0 : -1.0) != sign {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Produces axis-aligned scanline strip quads covering the
+    /// triangle (v0, v1, v2). Shared by triangleFill and convex-polygon
+    /// fan triangulation.
+    private static func scanlineFillTriangle(
+        v0: Point, v1: Point, v2: Point, color: Color, clip: Rect?
+    ) -> [QuadPrimitive] {
+        let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
+        if abs(area2) < 0.001 { return [] }
         let minY = floor(min(v0.y, v1.y, v2.y))
         let maxY = ceil(max(v0.y, v1.y, v2.y))
         let edges = [(v0, v1), (v1, v2), (v2, v0)]
@@ -140,21 +252,18 @@ enum PathToQuadTessellator {
             let scanY = y + 0.5
             var hits: [Double] = []
             for (a, b) in edges {
-                guard let xAtY = intersectX(edgeStart: a, edgeEnd: b, atY: scanY) else { continue }
-                hits.append(xAtY)
+                if let xAtY = intersectX(edgeStart: a, edgeEnd: b, atY: scanY) {
+                    hits.append(xAtY)
+                }
             }
-            // Need at least two intersection points for a strip; if a
-            // scanline only grazes a vertex we deduplicate.
             hits.sort()
             if hits.count >= 2, abs(hits[0] - hits[1]) > 0.5 {
-                let left = hits[0]
-                let right = hits[1]
-                let rect = Rect(x: left, y: y, width: right - left, height: 1)
-                quads.append(quad(for: rect, color: path.fillColor, clip: path.clipBounds))
+                let rect = Rect(x: hits[0], y: y, width: hits[1] - hits[0], height: 1)
+                quads.append(quad(for: rect, color: color, clip: clip))
             }
             y += 1
         }
-        return quads.isEmpty ? nil : quads
+        return quads
     }
 
     /// Returns the x value where the line through `(edgeStart, edgeEnd)`

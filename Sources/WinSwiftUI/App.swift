@@ -1731,7 +1731,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         sceneRenderer: (@MainActor (RetainedViewRuntime, Double) -> GPUIScene)? = nil,
         startupPresentationMode: StartupPresentationMode = .fromEnvironment(),
         startupProbeConfiguration: StartupProbeConfiguration? = .fromEnvironment(),
-        recoveryPolicy: BatchBackendRecoveryPolicy = .disabled
+        recoveryPolicy: BatchBackendRecoveryPolicy = .standard
     ) {
         self.configuration = configuration
         self.window = Win32Window(

@@ -59,10 +59,11 @@ public enum PresentationSelectionReason: Equatable, Sendable {
     }
 }
 
-/// Opt-in policy that lets the host re-attempt the batch backend after a
-/// downgrade. Disabled by default so the one-way pin remains the standard
-/// behaviour; callers that prefer recovery (e.g. apps tolerating transient
-/// driver glitches) can flip this on.
+/// Policy that controls whether the host attempts to re-attach the batch
+/// backend after a downgrade. The framework now defaults to `.standard`
+/// (recovery enabled, 5s → 60s backoff) so transient driver glitches don't
+/// permanently strand apps on the slower frame backend. Tests and callers
+/// that need the historical one-way pin can pass `.disabled` explicitly.
 public struct BatchBackendRecoveryPolicy: Equatable, Sendable {
     public var isEnabled: Bool
     public var initialRetryInterval: Double

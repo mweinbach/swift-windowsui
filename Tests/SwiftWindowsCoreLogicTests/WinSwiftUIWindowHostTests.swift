@@ -426,10 +426,11 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
-    /// Post-fallback invariant: once the host downgrades to the frame renderer,
-    /// subsequent renders MUST NOT invoke the batch backend again (otherwise
-    /// every frame pays a failing render call before falling back, multiplying
-    /// latency). Locks in the "one-way" property of the current fallback chain.
+    /// Post-fallback invariant when the recovery policy is explicitly
+    /// disabled: once the host downgrades to the frame renderer, subsequent
+    /// renders MUST NOT invoke the batch backend again. Locks in the
+    /// one-way pin path so callers that opt out of recovery still get the
+    /// guaranteed-stable behaviour.
     func testBatchRendererIsNotCalledAgainAfterDowngrade() async {
         await MainActor.run {
             let batchRenderer = FakeBatchRenderBackend()
@@ -450,7 +451,8 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
                 configuration: config,
                 renderer: frameRenderer,
                 batchRenderer: batchRenderer,
-                surfaceDescriptorProvider: { _ in surface }
+                surfaceDescriptorProvider: { _ in surface },
+                recoveryPolicy: .disabled
             )
             let fakeWindow = Win32Window(title: "Test", clientSize: surface.pixelSize)
             host.windowDidCreate(fakeWindow)
@@ -484,8 +486,9 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
         }
     }
 
-    /// With recovery policy disabled (the default), the one-way pin still
-    /// holds — a follow-up render must not retry the batch backend.
+    /// With recovery policy explicitly disabled, the one-way pin still
+    /// holds — a follow-up render must not retry the batch backend. Apps
+    /// that need the guaranteed-stable behaviour pass `.disabled`.
     func testRecoveryPolicyDisabledKeepsOneWayPinBehaviour() async {
         await MainActor.run {
             let batchRenderer = FakeBatchRenderBackend()
@@ -498,12 +501,12 @@ final class WinSwiftUIWindowHostTests: XCTestCase {
             let config = WindowGroupConfiguration(
                 title: "Test", size: surface.pixelSize, clearColor: .black, content: []
             )
-            // Default recovery policy is `.disabled`.
             let host = WinSwiftUIWindowHost(
                 configuration: config,
                 renderer: frameRenderer,
                 batchRenderer: batchRenderer,
-                surfaceDescriptorProvider: { _ in surface }
+                surfaceDescriptorProvider: { _ in surface },
+                recoveryPolicy: .disabled
             )
             var fakeNow = 1_000.0
             host.recoveryClock = { fakeNow }

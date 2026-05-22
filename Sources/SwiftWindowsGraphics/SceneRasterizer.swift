@@ -33,6 +33,13 @@ public func gaussianBlurKernel(radius: Int) -> [Float] {
 
 // MARK: - Path Flattening & Scanline Fill
 
+/// Rotates the offset `(dx, dy)` from the centre by `(cosR, sinR)` and
+/// returns the resulting world-space point. Used by the rasterizer's
+/// rotated-quad path to compute the bounding box of a rotated rect.
+private func rotatedCorner(_ dx: Double, _ dy: Double, cosR: Double, sinR: Double, centre: Point) -> Point {
+    Point(x: centre.x + cosR * dx - sinR * dy, y: centre.y + sinR * dx + cosR * dy)
+}
+
 public enum GPUIRawSceneRasterizer {
     public static func rasterize(_ scene: GPUIScene, size: IntSize) -> BitmapSurface {
         let width = max(1, Int(size.width))
@@ -158,11 +165,52 @@ private struct RasterTarget {
             width: Double(quad.width),
             height: Double(quad.height)
         )
-        guard
-            let bounds = clippedPixelBounds(
-                rect, clip: clipRect(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight))
-        else {
-            return
+        let rotation = Double(quad.rotationRadians)
+        // Choose pixel-scan bounds and the (x, y) → local-coords mapping
+        // based on whether the quad is rotated. For rotation == 0 the
+        // local coords are the pixel center, preserving byte-identical
+        // output with the historic axis-aligned fast path.
+        let bounds: PixelBounds
+        let localOf: (Double, Double) -> (Double, Double)
+        let clipForScan = clipRect(quad.clipX, quad.clipY, quad.clipWidth, quad.clipHeight)
+        if rotation == 0 {
+            guard let unrotatedBounds = clippedPixelBounds(rect, clip: clipForScan) else { return }
+            bounds = unrotatedBounds
+            localOf = { ($0, $1) }
+        } else {
+            // Bounding box of the rotated rect, used as the pixel scan
+            // window. Inverse rotation maps each world pixel back into
+            // the un-rotated rect's coordinate space; the existing
+            // coverage / gradient / corner-radius math then applies
+            // unchanged in local space.
+            let centre = Point(x: rect.midX, y: rect.midY)
+            let cosR = cos(rotation)
+            let sinR = sin(rotation)
+            let halfW = rect.size.width * 0.5
+            let halfH = rect.size.height * 0.5
+            let corners = [
+                rotatedCorner(-halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
+                rotatedCorner(halfW, -halfH, cosR: cosR, sinR: sinR, centre: centre),
+                rotatedCorner(halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
+                rotatedCorner(-halfW, halfH, cosR: cosR, sinR: sinR, centre: centre),
+            ]
+            let minX = corners.map(\.x).min() ?? rect.minX
+            let maxX = corners.map(\.x).max() ?? rect.maxX
+            let minY = corners.map(\.y).min() ?? rect.minY
+            let maxY = corners.map(\.y).max() ?? rect.maxY
+            let aabb = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+            guard let rotatedBounds = clippedPixelBounds(aabb, clip: clipForScan) else { return }
+            bounds = rotatedBounds
+            // Pre-compute inverse-rotation values for the closure.
+            let invCos = cos(-rotation)
+            let invSin = sin(-rotation)
+            localOf = { (worldX, worldY) in
+                let dx = worldX - centre.x
+                let dy = worldY - centre.y
+                let lx = invCos * dx - invSin * dy + halfW + rect.origin.x
+                let ly = invSin * dx + invCos * dy + halfH + rect.origin.y
+                return (lx, ly)
+            }
         }
 
         let radius = max(0, Double(quad.cornerRadius))
@@ -177,9 +225,10 @@ private struct RasterTarget {
         let clipRadius = max(0, Double(quad.clipCornerRadius))
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
-                let centerX = Double(x) + 0.5
-                let centerY = Double(y) + 0.5
-                let coverage = roundedRectCoverage(x: centerX, y: centerY, rect: rect, radius: radius)
+                let pixelCenterX = Double(x) + 0.5
+                let pixelCenterY = Double(y) + 0.5
+                let (localX, localY) = localOf(pixelCenterX, pixelCenterY)
+                let coverage = roundedRectCoverage(x: localX, y: localY, rect: rect, radius: radius)
                 guard coverage > 0 else {
                     continue
                 }
@@ -191,7 +240,10 @@ private struct RasterTarget {
                         width: Double(quad.clipWidth),
                         height: Double(quad.clipHeight)
                     )
-                    let clipCoverage = roundedRectCoverage(x: centerX, y: centerY, rect: clipRect, radius: clipRadius)
+                    // Clip is in world (pre-rotation) coordinates; use
+                    // the world pixel center, not the local-rotated one.
+                    let clipCoverage = roundedRectCoverage(
+                        x: pixelCenterX, y: pixelCenterY, rect: clipRect, radius: clipRadius)
                     guard clipCoverage > 0 else {
                         continue
                     }
@@ -199,9 +251,9 @@ private struct RasterTarget {
 
                 let progress: Float
                 if quad.gradientAxis >= 0.5 {
-                    progress = Float(clamp((centerX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
+                    progress = Float(clamp((localX - rect.minX) / max(rect.size.width, 1), lower: 0, upper: 1))
                 } else {
-                    progress = Float(clamp((centerY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
+                    progress = Float(clamp((localY - rect.minY) / max(rect.size.height, 1), lower: 0, upper: 1))
                 }
                 var color = start.interpolated(to: end, progress: progress).withAlphaMultiplier(Float(coverage))
                 color = applyRasterColorEffect(

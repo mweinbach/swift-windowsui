@@ -291,37 +291,58 @@ enum PathToQuadTessellator {
     ) -> QuadPrimitive? {
         let dx = to.x - from.x
         let dy = to.y - from.y
-        let isHorizontal = abs(dy) < 0.001 && abs(dx) >= 0.001
-        let isVertical = abs(dx) < 0.001 && abs(dy) >= 0.001
-        guard isHorizontal || isVertical else {
+        let length = (dx * dx + dy * dy).squareRoot()
+        guard length > 0.001 else {
             return nil
         }
 
+        let isHorizontal = abs(dy) < 0.001 && abs(dx) >= 0.001
+        let isVertical = abs(dx) < 0.001 && abs(dy) >= 0.001
+
         let halfWidth = lineWidth / 2
-        let rect: Rect
         if isHorizontal {
             let minX = min(from.x, to.x)
             let maxX = max(from.x, to.x)
-            rect = Rect(
+            let rect = Rect(
                 x: minX - halfWidth,
                 y: from.y - halfWidth,
                 width: (maxX - minX) + lineWidth,
                 height: lineWidth
             )
-        } else {
+            return quad(for: rect, color: color, clip: clip)
+        }
+        if isVertical {
             let minY = min(from.y, to.y)
             let maxY = max(from.y, to.y)
-            rect = Rect(
+            let rect = Rect(
                 x: from.x - halfWidth,
                 y: minY - halfWidth,
                 width: lineWidth,
                 height: (maxY - minY) + lineWidth
             )
+            return quad(for: rect, color: color, clip: clip)
         }
-        return quad(for: rect, color: color, clip: clip)
+
+        // Diagonal segment: emit a rotated quad. The unrotated rect
+        // covers `length + lineWidth` along the x-axis with `lineWidth`
+        // thickness; rotating around its centre by atan2(dy, dx) aligns
+        // it with the segment.
+        let midX = (from.x + to.x) * 0.5
+        let midY = (from.y + to.y) * 0.5
+        let extendedLength = length + lineWidth
+        let rect = Rect(
+            x: midX - extendedLength * 0.5,
+            y: midY - halfWidth,
+            width: extendedLength,
+            height: lineWidth
+        )
+        let angle = atan2(dy, dx)
+        return quad(for: rect, color: color, clip: clip, rotation: Float(angle))
     }
 
-    private static func quad(for rect: Rect, color: Color, clip: Rect?) -> QuadPrimitive {
+    private static func quad(
+        for rect: Rect, color: Color, clip: Rect?, rotation: Float = 0
+    ) -> QuadPrimitive {
         let clipRect = clip ?? Rect(x: 0, y: 0, width: 0, height: 0)
         return QuadPrimitive(
             x: Float(rect.origin.x),
@@ -345,7 +366,8 @@ enum PathToQuadTessellator {
             effectParam1: 0,
             effectParam2: 0,
             effectParam3: 0,
-            effectParam4: 0
+            effectParam4: 0,
+            rotationRadians: rotation
         )
     }
 }

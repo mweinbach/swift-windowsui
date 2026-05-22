@@ -42,17 +42,18 @@ final class ScenePaintMetricsTests: XCTestCase {
         }
     }
 
-    func testGpuPromotionRateDropsWhenDiagonalCurvedPathsAppear() async {
+    func testGpuPromotionRateDropsWhenNonRectangleFillsAppear() async {
         await MainActor.run {
-            // A canvas drawing a genuinely curved arc — that path will
-            // fall through to CPU rasterization.
+            // A triangle fill — non-rectangular, so PathToQuadTessellator's
+            // rectFill pass doesn't promote it and the path falls to CPU.
+            // (Diagonal STROKED lines now ride the GPU via rotated quads.)
             let view = Canvas { ctx, size in
                 var path = Path()
                 path.moveTo(Point(x: 10, y: 10))
-                path.lineTo(Point(x: 80, y: 80))  // diagonal
-                ctx.stroke(
-                    path, with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)),
-                    lineWidth: 2)
+                path.lineTo(Point(x: 80, y: 10))
+                path.lineTo(Point(x: 45, y: 80))
+                path.close()
+                ctx.fill(path, with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)))
             }
             .frame(width: 200, height: 160)
 
@@ -60,7 +61,7 @@ final class ScenePaintMetricsTests: XCTestCase {
             let metrics = snap.scene.paintMetrics
             XCTAssertEqual(
                 metrics.pathsRasterizedOnCPU, 1,
-                "Diagonal stroked line should fall through to CPU rasterization")
+                "Non-rectangular fill should fall through to CPU rasterization")
             XCTAssertEqual(metrics.pathsPromotedToGPU, 0)
             XCTAssertLessThan(
                 metrics.gpuPromotionRate, 1.0,

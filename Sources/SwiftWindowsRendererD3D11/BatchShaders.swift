@@ -32,6 +32,12 @@ struct QuadInstance
     float effectParam4;
     float clipCornerRadius;
     float blendMode;
+    float rotationRadians;
+    // 12 bytes of padding so structured-buffer stride stays 128 (multi
+    // of 16). HLSL requires 16-byte element alignment.
+    float _reserved0;
+    float _reserved1;
+    float _reserved2;
 };
 
 StructuredBuffer<QuadInstance> instances : register(t0);
@@ -73,7 +79,28 @@ VSOutput vsMain(uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID)
     float2 unit = quad[vertexID];
     float2 rectOrigin = float2(inst.x, inst.y);
     float2 rectSize = float2(inst.width, inst.height);
-    float2 pixelPosition = rectOrigin + unit * rectSize;
+    // Rotation: each vertex centred around the quad's middle, rotated by
+    // inst.rotationRadians, then re-translated. Local coordinates passed
+    // to the pixel shader stay unrotated so corner radius / gradient
+    // math still applies to the un-rotated rect.
+    float2 worldPosition;
+    if (inst.rotationRadians == 0.0)
+    {
+        worldPosition = rectOrigin + unit * rectSize;
+    }
+    else
+    {
+        float2 centre = rectOrigin + rectSize * 0.5;
+        float2 fromCentre = unit * rectSize - rectSize * 0.5;
+        float cosR = cos(inst.rotationRadians);
+        float sinR = sin(inst.rotationRadians);
+        float2 rotated = float2(
+            cosR * fromCentre.x - sinR * fromCentre.y,
+            sinR * fromCentre.x + cosR * fromCentre.y
+        );
+        worldPosition = centre + rotated;
+    }
+    float2 pixelPosition = worldPosition;
     float2 clipPosition = float2(
         (pixelPosition.x / surfaceSize.x) * 2.0 - 1.0,
         1.0 - (pixelPosition.y / surfaceSize.y) * 2.0

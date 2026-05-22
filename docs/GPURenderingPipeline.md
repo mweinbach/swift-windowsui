@@ -111,15 +111,20 @@ vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
 
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
-are adaptively subdivided into 16 line segments first. The tessellator
-then runs a **per-segment** check: axis-aligned segments (including
-curve subdivisions that come out flat) become individual GPU quads;
-diagonal/curved residue gets bundled into one residual `PathPrimitive`
-that the CPU rasterizer paints alongside. A path that's 80 % axis-
-aligned with one diagonal kink no longer pays the all-or-nothing CPU
-fallback — the 80 % rides the GPU pipeline and only the kink hits CPU.
-The tessellator's decision table — including the curve cases and the
-mixed-output behaviour — is locked by `PathToQuadTessellatorTests`.
+are adaptively subdivided into 16 line segments first. Each segment
+becomes a `QuadPrimitive`: axis-aligned segments emit unrotated quads
+(`rotationRadians = 0`, fast path in both the HLSL vertex shader and
+the CPU rasterizer); diagonal/curved segments emit **rotated quads**
+(`rotationRadians = atan2(dy, dx)`). The vertex shader rotates the
+on-screen footprint around the quad's centre while keeping interior
+coordinates (corner radius, gradient axis) computed in unrotated
+local space; the CPU rasterizer scans the rotated bounding box and
+inverse-rotates each pixel back to local space for the same coverage
+maths. Stroked paths of any shape — chart lines, hand-drawn Beziers,
+arc arms — now route through the GPU instance pipeline. The
+tessellator's decision table is locked by `PathToQuadTessellatorTests`
+and the rotated rasterization itself is locked by
+`RotatedQuadRasterTests`.
 
 For paths that still take the CPU route, `PathPrimitive` is rasterized
 into a `BitmapSurface` and reused across frames:
@@ -211,10 +216,13 @@ Beyond the per-step invariants:
 ## Open work
 
 - A full GPU path tessellator (Loop-Blinn, stencil-and-cover, or
-  libtess2) would let curved and diagonal paths also skip CPU
-  rasterization. `PathToQuadTessellator` already covers axis-aligned
-  rect fills and axis-aligned stroked lines; expanding to rotated
-  quads and triangle-fan convex polygons is the next increment.
+  libtess2) would let *filled* curved paths also skip CPU
+  rasterization. `PathToQuadTessellator` now covers axis-aligned
+  rect fills plus **all** stroked paths (axis-aligned or rotated, line
+  segments or subdivided curves) via the rotated-quad path. The
+  remaining CPU residue is non-rectangular *filled* shapes — triangle
+  fills, polygon fills, and curved fills — which need a real
+  convex-polygon triangulator to vector-fill on the GPU.
 
 ## Two-way fallback recovery
 

@@ -157,7 +157,7 @@ final class PathToQuadTessellatorTests: XCTestCase {
         XCTAssertEqual(quads?.count, 2)
     }
 
-    func testDiagonalStrokeFallsThrough() {
+    func testDiagonalStrokeProducesRotatedQuad() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
@@ -165,9 +165,12 @@ final class PathToQuadTessellatorTests: XCTestCase {
             ],
             lineWidth: 3
         )
-        XCTAssertNil(
-            PathToQuadTessellator.tessellate(path),
-            "Diagonal strokes must fall through (no rotation support yet)")
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 1, "Diagonal stroke should emit a single rotated quad")
+        XCTAssertGreaterThan(
+            Float(abs(quads?.first?.rotationRadians ?? 0)), 0.01,
+            "Diagonal segment must carry non-zero rotation"
+        )
     }
 
     func testClosedStrokedRectTessellatesToFourQuads() {
@@ -232,9 +235,9 @@ final class PathToQuadTessellatorTests: XCTestCase {
             "Every subdivided quad must be the line-width wide vertical strip")
     }
 
-    /// A genuinely diagonal Bezier curve produces subdivisions that
-    /// aren't axis-aligned; the tessellator falls through.
-    func testDiagonalQuadraticCurveFallsThrough() {
+    /// A genuinely diagonal Bezier curve subdivides into many small
+    /// rotated quad segments — every subdivision rides the GPU now.
+    func testDiagonalQuadraticCurveProducesRotatedQuadSegments() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
@@ -242,15 +245,16 @@ final class PathToQuadTessellatorTests: XCTestCase {
             ],
             lineWidth: 2
         )
-        XCTAssertNil(
-            PathToQuadTessellator.tessellate(path),
-            "Diagonal curve subdivisions are not axis-aligned and must fall through")
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 16, "Curve subdivides into 16 segments — each becomes a quad")
+        XCTAssertTrue(
+            quads?.contains(where: { abs($0.rotationRadians) > 0.01 }) == true,
+            "Curve segments must include rotated quads (the curve is not axis-aligned)")
     }
 
-    /// Genuinely curved arcs (semi-circles, partial circles) produce
-    /// diagonal subdivisions and fall through. Documents the boundary
-    /// where the tessellator stops winning.
-    func testCurvedArcFallsThrough() {
+    /// A semicircle arc subdivides into 16 rotated-quad segments
+    /// covering its sweep.
+    func testCurvedArcProducesRotatedQuadSegments() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 50, y: 50)),
@@ -263,40 +267,45 @@ final class PathToQuadTessellatorTests: XCTestCase {
             ],
             lineWidth: 2
         )
-        XCTAssertNil(
-            PathToQuadTessellator.tessellate(path),
-            "Genuinely curved arcs produce diagonal subdivisions and fall through to CPU rasterization")
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads)
+        XCTAssertGreaterThan(quads?.count ?? 0, 8,
+            "Arc should subdivide into many rotated quad segments")
+        XCTAssertTrue(
+            quads?.contains(where: { abs($0.rotationRadians) > 0.01 }) == true,
+            "Arc segments must carry non-zero rotation")
     }
 
     // MARK: - Mixed-output: partial GPU promotion
 
-    /// A polyline of mostly-axis-aligned segments with one diagonal
-    /// kink should put the axis-aligned segments on the GPU and bundle
-    /// the diagonal as a residual CPU path. Previously the entire
-    /// path fell through to CPU.
-    func testMixedAxisAlignedAndDiagonalSegmentsSplitBetweenGPUAndCPU() {
+    /// A polyline of mixed axis-aligned and diagonal segments now
+    /// puts every segment on the GPU — axis-aligned ones as fast-path
+    /// quads, diagonal ones as rotated quads. The CPU residual path
+    /// is empty.
+    func testMixedAxisAlignedAndDiagonalSegmentsAllReachGPU() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
-                .lineTo(Point(x: 50, y: 10)),  // horizontal — GPU
-                .lineTo(Point(x: 70, y: 30)),  // diagonal — CPU
-                .lineTo(Point(x: 70, y: 80)),  // vertical — GPU
+                .lineTo(Point(x: 50, y: 10)),  // horizontal — quad rotation 0
+                .lineTo(Point(x: 70, y: 30)),  // diagonal — rotated quad
+                .lineTo(Point(x: 70, y: 80)),  // vertical — quad rotation 0
             ],
             lineWidth: 2
         )
         guard let result = PathToQuadTessellator.tessellateMixed(path) else {
-            return XCTFail("Mixed result should be returned for a path with both axis-aligned and diagonal segments")
+            return XCTFail("Mixed result should be returned")
         }
-        XCTAssertEqual(result.quads.count, 2, "Two axis-aligned segments should each become a quad")
-        XCTAssertNotNil(
-            result.residualPath, "Diagonal segment should go to a CPU residual path")
-        XCTAssertEqual(
-            result.residualPath?.lineWidth, 2.0,
-            "Residual path must keep the original stroke style")
+        XCTAssertEqual(result.quads.count, 3, "Three segments → three GPU quads")
+        XCTAssertNil(
+            result.residualPath, "Rotated-quad support eliminates the CPU residual path")
+        // Exactly one segment is diagonal — exactly one quad must
+        // carry a non-zero rotation.
+        let rotated = result.quads.filter { abs($0.rotationRadians) > 0.01 }
+        XCTAssertEqual(rotated.count, 1)
     }
 
-    /// All axis-aligned: no residual, all quads.
-    func testAllAxisAlignedSegmentsProduceNoResidual() {
+    /// All axis-aligned: every quad has rotation 0.
+    func testAllAxisAlignedSegmentsProduceUnrotatedQuads() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
@@ -307,11 +316,15 @@ final class PathToQuadTessellatorTests: XCTestCase {
         )
         let result = PathToQuadTessellator.tessellateMixed(path)
         XCTAssertEqual(result?.quads.count, 2)
-        XCTAssertNil(result?.residualPath, "No diagonal segments → no residual")
+        XCTAssertTrue(
+            result?.quads.allSatisfy { $0.rotationRadians == 0 } == true,
+            "Axis-aligned segments must have zero rotation"
+        )
+        XCTAssertNil(result?.residualPath)
     }
 
-    /// All diagonal: residual covers everything, no quads.
-    func testAllDiagonalSegmentsProduceNoQuads() {
+    /// All diagonal: every quad is rotated.
+    func testAllDiagonalSegmentsProduceRotatedQuads() {
         let path = makeStrokedPath(
             elements: [
                 .moveTo(Point(x: 10, y: 10)),
@@ -321,8 +334,12 @@ final class PathToQuadTessellatorTests: XCTestCase {
             lineWidth: 2
         )
         let result = PathToQuadTessellator.tessellateMixed(path)
-        XCTAssertEqual(result?.quads.count, 0)
-        XCTAssertNotNil(result?.residualPath)
+        XCTAssertEqual(result?.quads.count, 2)
+        XCTAssertTrue(
+            result?.quads.allSatisfy { abs($0.rotationRadians) > 0.01 } == true,
+            "Diagonal segments must produce rotated quads"
+        )
+        XCTAssertNil(result?.residualPath)
     }
 
     // MARK: - Edge cases

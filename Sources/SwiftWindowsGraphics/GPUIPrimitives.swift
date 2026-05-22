@@ -56,6 +56,18 @@ public struct QuadPrimitive: Equatable, Sendable {
     public var effectParam4: Float
     public var clipCornerRadius: Float
     public var blendMode: Float
+    // Rotation in radians around the quad's centre. 0 = axis-aligned
+    // (the historic fast path). When non-zero, the GPU vertex shader
+    // and CPU rasterizer both rotate the rendered footprint while
+    // keeping interior coordinates (corner radius, gradient axis,
+    // local-space effects) computed in unrotated space.
+    public var rotationRadians: Float
+    // Reserved padding so the struct's byte stride stays a multiple of
+    // 16, which HLSL structured buffers require for their element
+    // alignment. Three floats of padding bring us from 116 to 128.
+    public var _reserved0: Float
+    public var _reserved1: Float
+    public var _reserved2: Float
 
     public init(
         x: Float = 0, y: Float = 0, width: Float = 0, height: Float = 0,
@@ -73,7 +85,8 @@ public struct QuadPrimitive: Equatable, Sendable {
         effectParam1: Float = 0,
         effectParam2: Float = 0,
         effectParam3: Float = 0,
-        effectParam4: Float = 0
+        effectParam4: Float = 0,
+        rotationRadians: Float = 0
     ) {
         self.x = x
         self.y = y
@@ -103,6 +116,10 @@ public struct QuadPrimitive: Equatable, Sendable {
         self.effectParam2 = effectParam2
         self.effectParam3 = effectParam3
         self.effectParam4 = effectParam4
+        self.rotationRadians = rotationRadians
+        self._reserved0 = 0
+        self._reserved1 = 0
+        self._reserved2 = 0
     }
 
     public static var byteSize: Int { MemoryLayout<Self>.size }

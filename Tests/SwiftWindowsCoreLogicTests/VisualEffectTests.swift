@@ -141,7 +141,9 @@ struct VisualEffectTests {
         #expect(quad.effectParam2 == 0.75)
         #expect(quad.effectParam3 == 0)
         #expect(quad.effectParam4 == 0)
-        #expect(QuadPrimitive.byteSize == 112)
+        // 128 after adding rotationRadians + 3 reserved padding floats
+        // for HLSL 16-byte structured-buffer alignment.
+        #expect(QuadPrimitive.byteSize == 128)
     }
 
     // MARK: - Scene Integration Test

@@ -63,12 +63,17 @@ enum PathToQuadTessellator {
     /// CPU. Returns nil when the input contributes nothing tessellatable
     /// at all (so the caller falls back to a single CPU path primitive).
     static func tessellateMixed(_ path: PathPrimitive) -> Result? {
-        // Fill-only path: rect-fill is the only fill case we handle, and
-        // it's all-or-nothing — a non-rectangular fill can't be partially
-        // promoted because the interior region matters.
+        // Fill-only path: try rect first (single quad), then triangle
+        // scanline (many strip quads). Other fills (quads, curves,
+        // polygons) still need a real triangulator and fall through.
         if path.fillColor.alpha > 0, path.strokeColor.alpha == 0 || path.lineWidth <= 0 {
-            guard let quads = rectFill(for: path) else { return nil }
-            return Result(quads: quads, residualPath: nil)
+            if let rectQuads = rectFill(for: path) {
+                return Result(quads: rectQuads, residualPath: nil)
+            }
+            if let triQuads = triangleFill(for: path) {
+                return Result(quads: triQuads, residualPath: nil)
+            }
+            return nil
         }
 
         // Stroke-only path: per-segment promotion. Axis-aligned segments
@@ -80,6 +85,92 @@ enum PathToQuadTessellator {
         }
 
         return nil
+    }
+
+    /// Scanline-tessellates a triangle fill into a series of 1-pixel-tall
+    /// axis-aligned `QuadPrimitive`s. Each scanline becomes a horizontal
+    /// strip running between the triangle's left and right edges at that
+    /// row. Returns nil if the path isn't a triangle (3 vertices + close
+    /// or 3 vertices + closing-point + close) or if all three vertices
+    /// are colinear (degenerate, zero area).
+    private static func triangleFill(for path: PathPrimitive) -> [QuadPrimitive]? {
+        // Extract the three vertices from a simple closed path.
+        var points: [Point] = []
+        var didMove = false
+        for element in path.elements {
+            switch element {
+            case .moveTo(let p):
+                guard !didMove else { return nil }
+                didMove = true
+                points.append(p)
+            case .lineTo(let p):
+                points.append(p)
+            case .close:
+                break
+            case .quadraticCurveTo, .cubicCurveTo, .arc:
+                return nil
+            }
+        }
+        // Accept "moveTo + 2 lineTo (+ close)" or
+        // "moveTo + 2 lineTo + closing-point (+ close)".
+        if points.count == 4, points.first == points.last {
+            points.removeLast()
+        }
+        guard points.count == 3 else { return nil }
+
+        let v0 = points[0]
+        let v1 = points[1]
+        let v2 = points[2]
+        // Twice the signed area; if zero the triangle is degenerate
+        // (vertices colinear).
+        let area2 = (v1.x - v0.x) * (v2.y - v0.y) - (v2.x - v0.x) * (v1.y - v0.y)
+        guard abs(area2) > 0.001 else { return nil }
+
+        // Scanlines from minY..maxY. For each row we walk the three
+        // triangle edges and collect the x-coordinates where the row
+        // y = scanY intersects them; the in-range pair defines the
+        // strip's left and right edges.
+        let minY = floor(min(v0.y, v1.y, v2.y))
+        let maxY = ceil(max(v0.y, v1.y, v2.y))
+        let edges = [(v0, v1), (v1, v2), (v2, v0)]
+        var quads: [QuadPrimitive] = []
+        quads.reserveCapacity(Int(maxY - minY) + 1)
+        var y = minY
+        while y < maxY {
+            let scanY = y + 0.5
+            var hits: [Double] = []
+            for (a, b) in edges {
+                guard let xAtY = intersectX(edgeStart: a, edgeEnd: b, atY: scanY) else { continue }
+                hits.append(xAtY)
+            }
+            // Need at least two intersection points for a strip; if a
+            // scanline only grazes a vertex we deduplicate.
+            hits.sort()
+            if hits.count >= 2, abs(hits[0] - hits[1]) > 0.5 {
+                let left = hits[0]
+                let right = hits[1]
+                let rect = Rect(x: left, y: y, width: right - left, height: 1)
+                quads.append(quad(for: rect, color: path.fillColor, clip: path.clipBounds))
+            }
+            y += 1
+        }
+        return quads.isEmpty ? nil : quads
+    }
+
+    /// Returns the x value where the line through `(edgeStart, edgeEnd)`
+    /// crosses the horizontal line `y = atY`, or nil when the edge is
+    /// horizontal (no clean intersection) or atY is outside the edge's
+    /// y-range.
+    private static func intersectX(edgeStart a: Point, edgeEnd b: Point, atY: Double) -> Double? {
+        let dy = b.y - a.y
+        if abs(dy) < 0.0001 {
+            return nil
+        }
+        let lo = min(a.y, b.y)
+        let hi = max(a.y, b.y)
+        guard atY >= lo && atY <= hi else { return nil }
+        let t = (atY - a.y) / dy
+        return a.x + t * (b.x - a.x)
     }
 
     private static func rectFill(for path: PathPrimitive) -> [QuadPrimitive]? {

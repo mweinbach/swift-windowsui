@@ -42,16 +42,21 @@ final class ScenePaintMetricsTests: XCTestCase {
         }
     }
 
-    func testGpuPromotionRateDropsWhenNonRectangleFillsAppear() async {
+    func testGpuPromotionRateDropsWhenPolygonFillsAppear() async {
         await MainActor.run {
-            // A triangle fill — non-rectangular, so PathToQuadTessellator's
-            // rectFill pass doesn't promote it and the path falls to CPU.
-            // (Diagonal STROKED lines now ride the GPU via rotated quads.)
+            // A 5-vertex polygon (pentagon) — non-rectangular, more than
+            // three vertices, so neither rectFill nor triangleFill
+            // promote it. Triangles and rects now ride the GPU
+            // (rotated-quad and scanline tessellation), so we need a
+            // genuinely uncovered case to verify the CPU fallback path
+            // still trips the metrics.
             let view = Canvas { ctx, size in
                 var path = Path()
-                path.moveTo(Point(x: 10, y: 10))
-                path.lineTo(Point(x: 80, y: 10))
-                path.lineTo(Point(x: 45, y: 80))
+                path.moveTo(Point(x: 40, y: 10))
+                path.lineTo(Point(x: 70, y: 30))
+                path.lineTo(Point(x: 60, y: 70))
+                path.lineTo(Point(x: 20, y: 70))
+                path.lineTo(Point(x: 10, y: 30))
                 path.close()
                 ctx.fill(path, with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)))
             }
@@ -61,7 +66,7 @@ final class ScenePaintMetricsTests: XCTestCase {
             let metrics = snap.scene.paintMetrics
             XCTAssertEqual(
                 metrics.pathsRasterizedOnCPU, 1,
-                "Non-rectangular fill should fall through to CPU rasterization")
+                "5-vertex polygon fill should fall through to CPU rasterization")
             XCTAssertEqual(metrics.pathsPromotedToGPU, 0)
             XCTAssertLessThan(
                 metrics.gpuPromotionRate, 1.0,

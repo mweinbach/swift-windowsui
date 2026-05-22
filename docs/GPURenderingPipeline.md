@@ -110,6 +110,18 @@ fills (with or without intervening Canvas transforms) and horizontal /
 vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
 
+**Fills** take three GPU lanes today:
+
+1. Axis-aligned rectangle fills become a single `QuadPrimitive` (the
+   existing fast path).
+2. Triangle fills (3-vertex closed paths) scanline-tessellate into a
+   stack of 1-pixel-tall axis-aligned `QuadPrimitive` strips. For each
+   integer row inside the triangle, the tessellator computes the left
+   and right edge intersections and emits one strip quad spanning that
+   range. Degenerate (colinear) triangles fall through.
+3. Everything else — polygons with ≥4 non-rectangular vertices and
+   filled curves — still falls through to CPU rasterization.
+
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
 are adaptively subdivided into 16 line segments first. Each segment
 becomes a `QuadPrimitive`: axis-aligned segments emit unrotated quads
@@ -216,13 +228,13 @@ Beyond the per-step invariants:
 ## Open work
 
 - A full GPU path tessellator (Loop-Blinn, stencil-and-cover, or
-  libtess2) would let *filled* curved paths also skip CPU
-  rasterization. `PathToQuadTessellator` now covers axis-aligned
-  rect fills plus **all** stroked paths (axis-aligned or rotated, line
-  segments or subdivided curves) via the rotated-quad path. The
-  remaining CPU residue is non-rectangular *filled* shapes — triangle
-  fills, polygon fills, and curved fills — which need a real
-  convex-polygon triangulator to vector-fill on the GPU.
+  libtess2) would let arbitrary *filled* paths skip CPU rasterization.
+  `PathToQuadTessellator` now covers axis-aligned rect fills,
+  **triangle fills** (via scanline-strip tessellation), and **all**
+  stroked paths (axis-aligned or rotated, line segments or subdivided
+  curves) via the rotated-quad path. The remaining CPU residue is
+  filled paths with four or more non-rectangular vertices and filled
+  curved paths.
 
 ## Two-way fallback recovery
 

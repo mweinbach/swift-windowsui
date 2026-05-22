@@ -82,16 +82,53 @@ final class PathToQuadTessellatorTests: XCTestCase {
             "Non-axis-aligned quad must fall through to PathPrimitive")
     }
 
-    func testTriangleFillFallsThrough() {
+    func testTriangleFillScanlineTessellatesToStripQuads() {
         let path = makeFilledPath(elements: [
             .moveTo(Point(x: 0, y: 0)),
             .lineTo(Point(x: 30, y: 0)),
             .lineTo(Point(x: 15, y: 25)),
             .close,
         ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads, "Triangle fill should scanline-tessellate into GPU strips")
+        // Approximately one strip per pixel row; allow for floor/ceil
+        // boundary variation.
+        XCTAssertGreaterThanOrEqual(quads?.count ?? 0, 24)
+        XCTAssertLessThanOrEqual(quads?.count ?? 0, 26)
+        // Each strip must be 1 pixel tall.
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.height - 1.0) < 0.001 },
+            "Every scanline strip must be exactly one pixel tall"
+        )
+    }
+
+    func testDegenerateColinearTriangleFallsThrough() {
+        // Three colinear points have zero area; the tessellator must
+        // refuse rather than emit zero strips.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 0)),
+            .lineTo(Point(x: 10, y: 0)),
+            .lineTo(Point(x: 20, y: 0)),
+            .close,
+        ])
         XCTAssertNil(
             PathToQuadTessellator.tessellate(path),
-            "Triangle (3 points) must fall through")
+            "Colinear triangle (zero area) must fall through")
+    }
+
+    func testTriangleScanlineCoversAllRows() {
+        // A 4-row-tall triangle should produce roughly 4 strips, each
+        // 1 pixel tall.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 0)),
+            .lineTo(Point(x: 20, y: 0)),
+            .lineTo(Point(x: 10, y: 4)),
+            .close,
+        ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(quads)
+        XCTAssertGreaterThanOrEqual(quads?.count ?? 0, 3)
+        XCTAssertLessThanOrEqual(quads?.count ?? 0, 5)
     }
 
     func testCurvedPathFillFallsThrough() {
@@ -269,8 +306,10 @@ final class PathToQuadTessellatorTests: XCTestCase {
         )
         let quads = PathToQuadTessellator.tessellate(path)
         XCTAssertNotNil(quads)
-        XCTAssertGreaterThan(quads?.count ?? 0, 8,
-            "Arc should subdivide into many rotated quad segments")
+        XCTAssertGreaterThan(
+            quads?.count ?? 0, 8,
+            "Arc should subdivide into many rotated quad segments"
+        )
         XCTAssertTrue(
             quads?.contains(where: { abs($0.rotationRadians) > 0.01 }) == true,
             "Arc segments must carry non-zero rotation")

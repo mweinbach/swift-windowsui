@@ -156,10 +156,11 @@ final class PathToQuadTessellatorTests: XCTestCase {
         )
     }
 
-    func testConcavePolygonFillFallsThrough() {
-        // An arrowhead-shaped polygon — concave (the notch creates an
-        // interior angle > 180°). Fan triangulation would emit invalid
-        // quads, so the tessellator must refuse.
+    func testConcavePolygonFillTessellatesViaEarClipping() {
+        // An arrowhead-shaped polygon — concave (interior notch).
+        // Ear-clipping triangulates simple concave polygons too, so
+        // this path now rides the GPU as scanline strips rather than
+        // falling through to CPU rasterization.
         let path = makeFilledPath(elements: [
             .moveTo(Point(x: 0, y: 0)),
             .lineTo(Point(x: 40, y: 0)),
@@ -168,9 +169,31 @@ final class PathToQuadTessellatorTests: XCTestCase {
             .lineTo(Point(x: 0, y: 40)),
             .close,
         ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertNotNil(
+            quads,
+            "Concave (but simple) polygons must tessellate via ear-clipping"
+        )
+        XCTAssertTrue(
+            quads!.allSatisfy { abs($0.height - 1.0) < 0.001 },
+            "Ear-clipped polygon emits 1-px scanline strips"
+        )
+    }
+
+    func testSelfIntersectingBowtieStillFallsThrough() {
+        // A bowtie (figure-8) — two triangles sharing a crossing
+        // interior edge. Ear-clipping can't triangulate non-simple
+        // polygons cleanly, so this must fall through.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 0)),
+            .lineTo(Point(x: 40, y: 0)),
+            .lineTo(Point(x: 0, y: 40)),  // crossing edge starts here
+            .lineTo(Point(x: 40, y: 40)),
+            .close,
+        ])
         XCTAssertNil(
             PathToQuadTessellator.tessellate(path),
-            "Concave polygons must fall through to CPU rasterization"
+            "Self-intersecting (non-simple) polygons must fall through to CPU"
         )
     }
 

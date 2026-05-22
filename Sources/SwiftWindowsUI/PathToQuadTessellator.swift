@@ -63,10 +63,10 @@ enum PathToQuadTessellator {
     /// CPU. Returns nil when the input contributes nothing tessellatable
     /// at all (so the caller falls back to a single CPU path primitive).
     static func tessellateMixed(_ path: PathPrimitive) -> Result? {
-        // Fill-only path: try rect first (single quad), then triangle
-        // scanline (many strip quads), then general convex polygon /
-        // curved fill (fan-triangulated, each triangle scanline-stripped).
-        // Concave or non-simple polygons still fall through.
+        // Fill-only path: try rect → triangle → convex polygon (fan
+        // triangulated) → concave polygon (ear-clipped). Only
+        // self-intersecting or otherwise pathological paths still
+        // fall through.
         if path.fillColor.alpha > 0, path.strokeColor.alpha == 0 || path.lineWidth <= 0 {
             if let rectQuads = rectFill(for: path) {
                 return Result(quads: rectQuads, residualPath: nil)
@@ -76,6 +76,9 @@ enum PathToQuadTessellator {
             }
             if let polyQuads = convexPolygonFill(for: path) {
                 return Result(quads: polyQuads, residualPath: nil)
+            }
+            if let earQuads = earClippedPolygonFill(for: path) {
+                return Result(quads: earQuads, residualPath: nil)
             }
             return nil
         }
@@ -158,6 +161,122 @@ enum PathToQuadTessellator {
                     v0: v0, v1: v1, v2: v2, color: path.fillColor, clip: path.clipBounds))
         }
         return quads.isEmpty ? nil : quads
+    }
+
+    /// Ear-clipping triangulation for **simple** concave polygons.
+    /// Repeatedly finds a "convex" vertex whose triangle (prev, v, next)
+    /// is entirely inside the polygon (i.e. doesn't contain any other
+    /// vertex), emits that triangle as scanline strips, and removes
+    /// the vertex. Continues until 3 vertices remain.
+    ///
+    /// Falls through when the polygon is degenerate, self-intersecting,
+    /// or the algorithm can't find an ear (which only happens for
+    /// non-simple polygons in this implementation).
+    private static func earClippedPolygonFill(for path: PathPrimitive) -> [QuadPrimitive]? {
+        guard let raw = sampleClosedFillBoundary(elements: path.elements) else {
+            return nil
+        }
+        guard raw.count >= 4 else { return nil }
+
+        // Polygon winding sign — used to identify "convex" (interior)
+        // vertices regardless of overall winding direction.
+        var indices = Array(raw.indices)
+        let windingSign = polygonWindingSign(raw)
+        guard windingSign != 0 else { return nil }
+
+        var quads: [QuadPrimitive] = []
+        // Cap iterations so a pathological polygon can't loop forever;
+        // each successful ear removal shrinks the polygon by one vertex,
+        // so 4×N rounds is plenty.
+        let maxIterations = raw.count * 4
+        var iteration = 0
+        while indices.count > 3, iteration < maxIterations {
+            iteration += 1
+            var clipped = false
+            for i in 0..<indices.count {
+                let prevIndex = indices[(i + indices.count - 1) % indices.count]
+                let currIndex = indices[i]
+                let nextIndex = indices[(i + 1) % indices.count]
+                let prev = raw[prevIndex]
+                let curr = raw[currIndex]
+                let next = raw[nextIndex]
+
+                // Convex check: cross product sign must agree with the
+                // polygon's winding.
+                let cross = (curr.x - prev.x) * (next.y - curr.y) - (curr.y - prev.y) * (next.x - curr.x)
+                if (cross > 0 ? 1.0 : -1.0) != windingSign {
+                    continue
+                }
+
+                // Containment: no other vertex must be inside the
+                // candidate triangle (prev, curr, next).
+                var containsOther = false
+                for j in indices where j != prevIndex && j != currIndex && j != nextIndex {
+                    if pointInTriangle(raw[j], a: prev, b: curr, c: next) {
+                        containsOther = true
+                        break
+                    }
+                }
+                if containsOther { continue }
+
+                // Valid ear. Emit and remove.
+                quads.append(
+                    contentsOf: scanlineFillTriangle(
+                        v0: prev, v1: curr, v2: next,
+                        color: path.fillColor, clip: path.clipBounds))
+                indices.remove(at: i)
+                clipped = true
+                break
+            }
+            if !clipped {
+                // No ear found — polygon is likely self-intersecting.
+                return nil
+            }
+        }
+        // Final triangle.
+        if indices.count == 3 {
+            quads.append(
+                contentsOf: scanlineFillTriangle(
+                    v0: raw[indices[0]], v1: raw[indices[1]], v2: raw[indices[2]],
+                    color: path.fillColor, clip: path.clipBounds))
+        }
+        return quads.isEmpty ? nil : quads
+    }
+
+    /// Returns +1 for counter-clockwise winding, -1 for clockwise, 0
+    /// for a degenerate (zero-area) polygon.
+    private static func polygonWindingSign(_ vertices: [Point]) -> Double {
+        var area2: Double = 0
+        let n = vertices.count
+        for i in 0..<n {
+            let a = vertices[i]
+            let b = vertices[(i + 1) % n]
+            area2 += (b.x - a.x) * (b.y + a.y)
+        }
+        if abs(area2) < 0.0001 { return 0 }
+        return area2 > 0 ? -1 : 1  // y-axis points down in screen space
+    }
+
+    /// Barycentric-style point-in-triangle test. Returns true when `p`
+    /// lies strictly inside (or on the edge of) triangle `(a, b, c)`.
+    private static func pointInTriangle(_ p: Point, a: Point, b: Point, c: Point) -> Bool {
+        let v0x = c.x - a.x
+        let v0y = c.y - a.y
+        let v1x = b.x - a.x
+        let v1y = b.y - a.y
+        let v2x = p.x - a.x
+        let v2y = p.y - a.y
+        let dot00 = v0x * v0x + v0y * v0y
+        let dot01 = v0x * v1x + v0y * v1y
+        let dot02 = v0x * v2x + v0y * v2y
+        let dot11 = v1x * v1x + v1y * v1y
+        let dot12 = v1x * v2x + v1y * v2y
+        let denom = dot00 * dot11 - dot01 * dot01
+        guard abs(denom) > 0.000001 else { return false }
+        let invDenom = 1.0 / denom
+        let u = (dot11 * dot02 - dot01 * dot12) * invDenom
+        let v = (dot00 * dot12 - dot01 * dot02) * invDenom
+        return u >= -0.0001 && v >= -0.0001 && (u + v) <= 1.0001
     }
 
     /// Walks the path's elements producing the polygon's boundary as a
@@ -323,6 +442,21 @@ enum PathToQuadTessellator {
             uniqueX.contains(minX), uniqueX.contains(maxX),
             uniqueY.contains(minY), uniqueY.contains(maxY)
         else { return nil }
+
+        // Adjacency check: every consecutive pair of vertices must share
+        // exactly one coordinate (i.e. form a horizontal or vertical
+        // edge). A bowtie / figure-8 has the same four corner points
+        // but its diagonal edges differ on both coordinates, so this
+        // rejects it cleanly.
+        for i in 0..<points.count {
+            let a = points[i]
+            let b = points[(i + 1) % points.count]
+            let sharesX = abs(a.x - b.x) < 0.0001
+            let sharesY = abs(a.y - b.y) < 0.0001
+            guard sharesX != sharesY else {
+                return nil
+            }
+        }
 
         let rect = Rect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
         return [quad(for: rect, color: path.fillColor, clip: path.clipBounds)]

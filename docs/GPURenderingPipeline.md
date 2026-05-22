@@ -110,10 +110,11 @@ fills (with or without intervening Canvas transforms) and horizontal /
 vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
 
-**Fills** take four GPU lanes today:
+**Fills** take five GPU lanes today:
 
 1. Axis-aligned rectangle fills become a single `QuadPrimitive` (the
-   existing fast path).
+   existing fast path). The check rejects bowties / figure-8s whose
+   four corner points match a rect but whose edges cross.
 2. Triangle fills (3-vertex closed paths) scanline-tessellate into a
    stack of 1-pixel-tall axis-aligned `QuadPrimitive` strips. For each
    integer row inside the triangle, the tessellator computes the left
@@ -124,10 +125,14 @@ bypassing CPU rasterization and the per-frame texture upload entirely.
    triangulate from vertex 0: each of the N-2 fan triangles is
    scanline-stripped via the same algorithm as (2). Curved closed
    shapes like RoundedRectangle, Circle, and Capsule take this lane.
-4. Concave polygons (interior reflex vertices) still fall through to
-   CPU rasterization — fan triangulation would emit incorrect strips
-   for concave geometry, so the tessellator refuses via a cross-product
-   sign check on adjacent edges.
+4. **Concave simple polygons** triangulate via **ear-clipping**:
+   repeatedly find a convex vertex whose triangle is empty of other
+   vertices, emit its scanline strips, remove the vertex, repeat.
+   Arrow-heads, star-fragments, L-shapes, and other concave-but-simple
+   shapes ride this lane.
+5. Self-intersecting (non-simple) polygons still fall through to CPU
+   rasterization — ear-clipping can't produce a valid triangulation
+   without the cleaner topology of a simple polygon.
 
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
 are adaptively subdivided into 16 line segments first. Each segment
@@ -235,12 +240,13 @@ Beyond the per-step invariants:
 ## Open work
 
 - A full GPU path tessellator (Loop-Blinn, stencil-and-cover, or
-  libtess2) would let **concave** filled paths skip CPU rasterization.
-  `PathToQuadTessellator` now covers axis-aligned rect fills, triangle
-  fills, convex polygons (any vertex count, with curves subdivided
-  inline), and **all** stroked paths (axis-aligned or rotated, line
-  segments or subdivided curves). The remaining CPU residue is
-  concave/self-intersecting fills.
+  libtess2) would let **self-intersecting** filled paths skip CPU
+  rasterization. `PathToQuadTessellator` now covers axis-aligned rect
+  fills, triangle fills, convex polygons, concave-but-simple polygons
+  (via ear-clipping, curves subdivided inline), and all stroked paths
+  (axis-aligned or rotated, line segments or subdivided curves). The
+  remaining CPU residue is non-simple polygons (bowties, figure-8s) —
+  rare in practice.
 
 ## Two-way fallback recovery
 

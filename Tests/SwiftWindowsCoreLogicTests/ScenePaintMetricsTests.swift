@@ -42,19 +42,18 @@ final class ScenePaintMetricsTests: XCTestCase {
         }
     }
 
-    func testGpuPromotionRateDropsWhenConcavePolygonFillsAppear() async {
+    func testGpuPromotionRateDropsWhenSelfIntersectingPolygonFillsAppear() async {
         await MainActor.run {
-            // Convex polygons (incl. curved-but-convex fills) now ride
-            // the GPU via fan triangulation. To verify the CPU
-            // fallback metrics still trip we need a concave shape —
-            // here an arrowhead with one inward notch.
+            // Concave simple polygons now tessellate via ear-clipping,
+            // so only **self-intersecting** (non-simple) polygons still
+            // fall through. A bowtie / figure-8 is the canonical case:
+            // two triangles sharing a crossing interior edge.
             let view = Canvas { ctx, size in
                 var path = Path()
                 path.moveTo(Point(x: 10, y: 10))
-                path.lineTo(Point(x: 80, y: 10))
-                path.lineTo(Point(x: 50, y: 40))  // notch — concave point
-                path.lineTo(Point(x: 80, y: 70))
-                path.lineTo(Point(x: 10, y: 70))
+                path.lineTo(Point(x: 70, y: 10))
+                path.lineTo(Point(x: 10, y: 70))  // crossing edge
+                path.lineTo(Point(x: 70, y: 70))
                 path.close()
                 ctx.fill(path, with: .color(Color(red: 0, green: 0, blue: 1, alpha: 1)))
             }
@@ -64,7 +63,7 @@ final class ScenePaintMetricsTests: XCTestCase {
             let metrics = snap.scene.paintMetrics
             XCTAssertEqual(
                 metrics.pathsRasterizedOnCPU, 1,
-                "Concave polygon must still fall through to CPU rasterization")
+                "Self-intersecting polygon must still fall through to CPU rasterization")
             XCTAssertEqual(metrics.pathsPromotedToGPU, 0)
             XCTAssertLessThan(
                 metrics.gpuPromotionRate, 1.0,

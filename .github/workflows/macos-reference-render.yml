@@ -1,0 +1,50 @@
+name: macOS reference render
+
+# Renders canonical SwiftUI reference scenes on a macOS GitHub Actions
+# runner. Uploads the resulting PNGs as a workflow artifact so the
+# Windows CI / local developers can pull them down and run pixel /
+# structural-similarity comparisons against WinSwiftUI's output.
+#
+# This is the macOS-side test infrastructure half of the cross-
+# platform visual-parity contract documented in
+# docs/MacOSReferenceParityWorkflow.md.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "Sources/macos-reference-renderer/**"
+      - ".github/workflows/macos-reference-render.yml"
+  schedule:
+    # Weekly refresh so the reference tracks toolchain / SDK drift.
+    - cron: "0 6 * * 1"
+
+jobs:
+  render:
+    name: Render reference PNGs on macOS
+    runs-on: macos-15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Select Xcode toolchain
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Print Swift version
+        run: swift --version
+
+      - name: Build macos-reference-renderer
+        run: swift build --product macos-reference-renderer -c release
+
+      - name: Render reference scenes
+        run: swift run -c release macos-reference-renderer
+
+      - name: List output
+        run: ls -la artifacts/macos-reference
+
+      - name: Upload PNG artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-reference-png
+          path: artifacts/macos-reference/*.png
+          retention-days: 30

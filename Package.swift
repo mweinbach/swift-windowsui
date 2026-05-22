@@ -34,6 +34,10 @@ let package = Package(
             name: "swift-windowsui-gallery",
             targets: ["swift-windowsui-gallery"]
         ),
+        .executable(
+            name: "macos-reference-renderer",
+            targets: ["macos-reference-renderer"]
+        ),
     ],
     targets: [
         .target(
@@ -130,6 +134,14 @@ let package = Package(
                 "SwiftWindowsGraphics",
                 "WinSwiftUI",
             ]
+        ),
+        // macOS-only reference renderer — produces PNG snapshots of
+        // canonical SwiftUI views for cross-platform parity comparison.
+        // No Windows-module dependencies so this builds on a clean
+        // macOS toolchain; on Windows the source file compiles to a
+        // stub that explains it's macOS-only.
+        .executableTarget(
+            name: "macos-reference-renderer"
         ),
         .testTarget(
             name: "SwiftWindowsCoreLogicTests",

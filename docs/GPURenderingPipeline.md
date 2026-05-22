@@ -111,12 +111,15 @@ vertical stroked-line segments — the path is emitted as quads instead,
 bypassing CPU rasterization and the per-frame texture upload entirely.
 
 Curves (`quadraticCurveTo`, `cubicCurveTo`, `arc`) inside stroked paths
-are adaptively subdivided into 16 line segments first; if every segment
-ends up axis-aligned (degenerate Beziers tracing horizontal/vertical
-lines), the curve takes the GPU fast lane too. Genuinely curved or
-diagonal subdivisions fall through to CPU. The tessellator's decision
-table — including the curve cases — is locked by
-`PathToQuadTessellatorTests`.
+are adaptively subdivided into 16 line segments first. The tessellator
+then runs a **per-segment** check: axis-aligned segments (including
+curve subdivisions that come out flat) become individual GPU quads;
+diagonal/curved residue gets bundled into one residual `PathPrimitive`
+that the CPU rasterizer paints alongside. A path that's 80 % axis-
+aligned with one diagonal kink no longer pays the all-or-nothing CPU
+fallback — the 80 % rides the GPU pipeline and only the kink hits CPU.
+The tessellator's decision table — including the curve cases and the
+mixed-output behaviour — is locked by `PathToQuadTessellatorTests`.
 
 For paths that still take the CPU route, `PathPrimitive` is rasterized
 into a `BitmapSurface` and reused across frames:

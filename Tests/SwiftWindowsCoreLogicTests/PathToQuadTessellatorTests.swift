@@ -268,6 +268,63 @@ final class PathToQuadTessellatorTests: XCTestCase {
             "Genuinely curved arcs produce diagonal subdivisions and fall through to CPU rasterization")
     }
 
+    // MARK: - Mixed-output: partial GPU promotion
+
+    /// A polyline of mostly-axis-aligned segments with one diagonal
+    /// kink should put the axis-aligned segments on the GPU and bundle
+    /// the diagonal as a residual CPU path. Previously the entire
+    /// path fell through to CPU.
+    func testMixedAxisAlignedAndDiagonalSegmentsSplitBetweenGPUAndCPU() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 50, y: 10)),  // horizontal — GPU
+                .lineTo(Point(x: 70, y: 30)),  // diagonal — CPU
+                .lineTo(Point(x: 70, y: 80)),  // vertical — GPU
+            ],
+            lineWidth: 2
+        )
+        guard let result = PathToQuadTessellator.tessellateMixed(path) else {
+            return XCTFail("Mixed result should be returned for a path with both axis-aligned and diagonal segments")
+        }
+        XCTAssertEqual(result.quads.count, 2, "Two axis-aligned segments should each become a quad")
+        XCTAssertNotNil(
+            result.residualPath, "Diagonal segment should go to a CPU residual path")
+        XCTAssertEqual(
+            result.residualPath?.lineWidth, 2.0,
+            "Residual path must keep the original stroke style")
+    }
+
+    /// All axis-aligned: no residual, all quads.
+    func testAllAxisAlignedSegmentsProduceNoResidual() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 50, y: 10)),
+                .lineTo(Point(x: 50, y: 30)),
+            ],
+            lineWidth: 2
+        )
+        let result = PathToQuadTessellator.tessellateMixed(path)
+        XCTAssertEqual(result?.quads.count, 2)
+        XCTAssertNil(result?.residualPath, "No diagonal segments → no residual")
+    }
+
+    /// All diagonal: residual covers everything, no quads.
+    func testAllDiagonalSegmentsProduceNoQuads() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 40, y: 50)),
+                .lineTo(Point(x: 70, y: 20)),
+            ],
+            lineWidth: 2
+        )
+        let result = PathToQuadTessellator.tessellateMixed(path)
+        XCTAssertEqual(result?.quads.count, 0)
+        XCTAssertNotNil(result?.residualPath)
+    }
+
     // MARK: - Edge cases
 
     func testEmptyPathReturnsNil() {

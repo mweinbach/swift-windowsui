@@ -7,6 +7,21 @@ import SwiftWindowsGraphics
 @MainActor
 public enum ScenePainter {
 
+    /// Emits `path` either as a series of `QuadPrimitive`s (when
+    /// `PathToQuadTessellator` can express the path as axis-aligned quads,
+    /// bypassing CPU rasterization) or as a `PathPrimitive` (the historic
+    /// CPU-rasterized-then-blit path). The choice happens here so every
+    /// path-emitting site picks the GPU-only fast lane when it qualifies.
+    internal static func emit(path: PathPrimitive, into scene: inout GPUIScene, layerIndex: Int) {
+        if let quads = PathToQuadTessellator.tessellate(path) {
+            for quad in quads {
+                scene.addQuad(quad, toLayer: layerIndex)
+            }
+            return
+        }
+        scene.addPath(path, toLayer: layerIndex)
+    }
+
     public static func paint(root: ViewNode, clearColor: Color, surfaceSize: Size, displayScale: Double = 1.0)
         -> GPUIScene
     {
@@ -448,8 +463,8 @@ public enum ScenePainter {
             let scaledPath = path.scaled(to: fillRect)
             let pathBounds = scaledPath.segments.boundingRect ?? fillRect
             if let bg = resolvedBGColor, bg.alpha > 0 {
-                scene.addPath(
-                    PathPrimitive(
+                Self.emit(
+                    path: PathPrimitive(
                         elements: scaledPath.segments.map { segment in
                             switch segment {
                             case .moveTo(let p): return .moveTo(p)
@@ -465,12 +480,12 @@ public enum ScenePainter {
                         bounds: pathBounds,
                         fillColor: bg,
                         clipBounds: effectiveClip
-                    ), toLayer: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex)
             }
             let effectiveStrokeColor = node.borderColor.multipliedAlpha(by: opacity)
             if effectiveStrokeColor.alpha > 0, node.borderWidth > 0 {
-                scene.addPath(
-                    PathPrimitive(
+                Self.emit(
+                    path: PathPrimitive(
                         elements: scaledPath.segments.map { segment in
                             switch segment {
                             case .moveTo(let p): return .moveTo(p)
@@ -487,7 +502,7 @@ public enum ScenePainter {
                         strokeColor: effectiveStrokeColor,
                         lineWidth: node.borderWidth,
                         clipBounds: effectiveClip
-                    ), toLayer: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex)
             }
         }
 
@@ -913,13 +928,13 @@ public enum ScenePainter {
                 let translated = path.translated(by: origin)
                 guard let bounds = translated.segments.boundingRect, !bounds.isEmpty else { continue }
                 guard clipAllowsDrawing(clip: currentClip, rect: bounds) else { continue }
-                scene.addPath(
-                    PathPrimitive(
+                Self.emit(
+                    path: PathPrimitive(
                         elements: pathElements(from: translated.segments),
                         bounds: bounds,
                         fillColor: effectiveColor,
                         clipBounds: currentClip
-                    ), toLayer: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex)
 
             case .strokePath(let path, let color, let style):
                 let effectiveColor = color.multipliedAlpha(by: opacity)
@@ -932,14 +947,14 @@ public enum ScenePainter {
                 let strokeBounds = pathBounds.outset(by: style.lineWidth / 2)
                 guard !strokeBounds.isEmpty else { continue }
                 guard clipAllowsDrawing(clip: currentClip, rect: strokeBounds) else { continue }
-                scene.addPath(
-                    PathPrimitive(
+                Self.emit(
+                    path: PathPrimitive(
                         elements: pathElements(from: translated.segments),
                         bounds: strokeBounds,
                         strokeColor: effectiveColor,
                         lineWidth: style.lineWidth,
                         clipBounds: currentClip
-                    ), toLayer: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex)
 
             case .fillRect(let rect, let color):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)
@@ -985,14 +1000,14 @@ public enum ScenePainter {
                     .lineTo(Point(x: effectiveRect.minX, y: effectiveRect.maxY)),
                     .close,
                 ]
-                scene.addPath(
-                    PathPrimitive(
+                Self.emit(
+                    path: PathPrimitive(
                         elements: pathElements(from: outline),
                         bounds: strokeBounds,
                         strokeColor: effectiveColor,
                         lineWidth: lineWidth,
                         clipBounds: currentClip
-                    ), toLayer: layerIndex)
+                    ), into: &scene, layerIndex: layerIndex)
 
             case .drawText(let text, let rect, let style):
                 let effectiveRect = rect.offsetBy(dx: origin.x, dy: origin.y)

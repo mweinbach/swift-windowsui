@@ -46,7 +46,7 @@ final class WinSwiftUICanvasTests: XCTestCase {
         }
     }
 
-    func testCanvasFillPathColorShadingEmitsScenePath() async {
+    func testCanvasFillPathColorShadingEmitsSceneQuadForAxisAlignedRect() async {
         await MainActor.run {
             let view = Canvas { ctx, _ in
                 var path = Path()
@@ -60,16 +60,21 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            XCTAssertEqual(path.fillColor.red, 0)
-            XCTAssertEqual(path.fillColor.green, 1)
-            XCTAssertEqual(path.fillColor.blue, 0)
-            XCTAssertEqual(path.fillColor.alpha, 1)
+            // An axis-aligned rectangle path now short-circuits to a
+            // GPU quad via PathToQuadTessellator — no CPU-rasterized
+            // PathPrimitive emitted.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let greenQuads = scene.layers[0].quads.filter {
+                $0.width == 30 && $0.height == 30 && $0.startG == 1
+            }
+            XCTAssertEqual(greenQuads.count, 1)
+            XCTAssertEqual(greenQuads[0].startR, 0)
+            XCTAssertEqual(greenQuads[0].startB, 0)
+            XCTAssertEqual(greenQuads[0].startA, 1)
         }
     }
 
-    func testCanvasStrokePathColorShadingProducesStrokedScenePath() async {
+    func testCanvasStrokePathColorShadingProducesGPUQuadForAxisAlignedSegment() async {
         await MainActor.run {
             let view = Canvas { ctx, _ in
                 var path = Path()
@@ -84,10 +89,18 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            XCTAssertEqual(path.strokeColor.blue, 1)
-            XCTAssertEqual(path.lineWidth, 3)
+            // A purely horizontal stroked line now bypasses CPU
+            // rasterization via PathToQuadTessellator. The emitted
+            // quad covers the segment plus half-lineWidth on each end.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let blueQuads = scene.layers[0].quads.filter {
+                $0.startB == 1 && $0.startR == 0 && $0.startG == 0
+            }
+            XCTAssertEqual(blueQuads.count, 1)
+            XCTAssertEqual(blueQuads[0].height, 3, accuracy: 0.001)
+            // x = min(10,80) - lineWidth/2 = 8.5, width = 70 + 3 = 73
+            XCTAssertEqual(Double(blueQuads[0].x), 8.5, accuracy: 0.001)
+            XCTAssertEqual(Double(blueQuads[0].width), 73, accuracy: 0.001)
         }
     }
 
@@ -266,15 +279,15 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            // Translation degenerates fillRect into a transformed-corner path
-            // primitive (axis-aligned but emitted via the path API).
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            XCTAssertEqual(path.bounds.minX, 25)
-            XCTAssertEqual(path.bounds.minY, 15)
-            XCTAssertEqual(path.bounds.width, 40)
-            XCTAssertEqual(path.bounds.height, 20)
-            XCTAssertEqual(path.fillColor.red, 1)
+            // Translated rect-fill is axis-aligned, so PathToQuadTessellator
+            // promotes it to a GPU quad rather than a PathPrimitive.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let redQuads = scene.layers[0].quads.filter { $0.startR == 1 && $0.startG == 0 }
+            XCTAssertEqual(redQuads.count, 1)
+            XCTAssertEqual(Double(redQuads[0].x), 25, accuracy: 0.001)
+            XCTAssertEqual(Double(redQuads[0].y), 15, accuracy: 0.001)
+            XCTAssertEqual(Double(redQuads[0].width), 40, accuracy: 0.001)
+            XCTAssertEqual(Double(redQuads[0].height), 20, accuracy: 0.001)
         }
     }
 
@@ -290,14 +303,16 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            XCTAssertEqual(path.bounds.width, 40)
-            XCTAssertEqual(path.bounds.height, 20)
+            // Scaled rect-fill stays axis-aligned, promoted to a quad.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let greenQuads = scene.layers[0].quads.filter { $0.startG == 1 && $0.startR == 0 }
+            XCTAssertEqual(greenQuads.count, 1)
+            XCTAssertEqual(Double(greenQuads[0].width), 40, accuracy: 0.001)
+            XCTAssertEqual(Double(greenQuads[0].height), 20, accuracy: 0.001)
         }
     }
 
-    func testCanvasRotateProducesRotatedPathBounds() async {
+    func testCanvasRotateProducesRotatedQuadBounds() async {
         await MainActor.run {
             let view = Canvas { ctx, _ in
                 ctx.translateBy(x: 60, y: 40)
@@ -310,11 +325,14 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            // 90° rotation swaps width/height of the original 20x10 rect.
-            XCTAssertEqual(path.bounds.width, 10, accuracy: 0.001)
-            XCTAssertEqual(path.bounds.height, 20, accuracy: 0.001)
+            // 90° rotation of an axis-aligned rect is still axis-aligned,
+            // so PathToQuadTessellator promotes it to a quad. Dimensions
+            // swap: 20×10 → 10×20.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let blueQuads = scene.layers[0].quads.filter { $0.startB == 1 && $0.startR == 0 }
+            XCTAssertEqual(blueQuads.count, 1)
+            XCTAssertEqual(blueQuads[0].width, 10, accuracy: 0.001)
+            XCTAssertEqual(blueQuads[0].height, 20, accuracy: 0.001)
         }
     }
 
@@ -426,13 +444,18 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            // Sub-context fill is a translated-corner path; outer fill stays
-            // a quad because the parent's transform stayed identity.
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            XCTAssertEqual(path.bounds.minX, 50)
-            XCTAssertEqual(path.bounds.minY, 30)
-            XCTAssertEqual(path.fillColor.green, 1)
+            // Sub-context fill of an axis-aligned rect now goes through
+            // PathToQuadTessellator's GPU fast path, producing a quad
+            // instead of a CPU-rasterized PathPrimitive. The outer fill
+            // also stays a quad because the parent's transform stayed
+            // identity. Both fills now render purely on the GPU.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let greenQuads = scene.layers[0].quads.filter {
+                $0.width == 20 && $0.height == 20 && $0.startG == 1
+            }
+            XCTAssertEqual(greenQuads.count, 1)
+            XCTAssertEqual(Double(greenQuads[0].x), 50, accuracy: 0.001)
+            XCTAssertEqual(Double(greenQuads[0].y), 30, accuracy: 0.001)
 
             let outerQuads = scene.layers[0].quads.filter {
                 $0.width == 20 && $0.height == 20 && $0.startR == 1
@@ -457,13 +480,17 @@ final class WinSwiftUICanvasTests: XCTestCase {
             .frame(width: 120, height: 80)
 
             let scene = snapshot(view)
-            XCTAssertEqual(scene.layers[0].paths.count, 1)
-            let path = scene.layers[0].paths[0]
-            // Sub-context inherited parent's translation, so the path lands
-            // at (20, 10).
-            XCTAssertEqual(path.bounds.minX, 20)
-            XCTAssertEqual(path.bounds.minY, 10)
-            XCTAssertEqual(path.fillColor.blue, 1)
+            // PathToQuadTessellator promotes the rect-fill to a quad even
+            // when emitted via the path path (since the inherited translation
+            // produced an axis-aligned rect at (20, 10)). Verify the quad
+            // landed at the inherited offset.
+            XCTAssertEqual(scene.layers[0].paths.count, 0)
+            let blueQuads = scene.layers[0].quads.filter {
+                $0.width == 30 && $0.height == 30 && $0.startB == 1
+            }
+            XCTAssertEqual(blueQuads.count, 1)
+            XCTAssertEqual(Double(blueQuads[0].x), 20, accuracy: 0.001)
+            XCTAssertEqual(Double(blueQuads[0].y), 10, accuracy: 0.001)
         }
     }
 

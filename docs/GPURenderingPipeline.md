@@ -101,10 +101,20 @@ visible-clip preflight check and silently fell back to PixelText.
 - `nativeFontSize` flows from `Font.body`/`.system(size:)` into
   `PixelTextStyle` correctly across all built-in view types.
 
-## 4. Paths: cached CPU rasterization
+## 4. Paths: GPU short-circuit + cached CPU rasterization
 
-`PathPrimitive` is still CPU-rasterized into a `BitmapSurface` because
-there is not yet a GPU path tessellator. To keep per-frame cost low:
+Before any `PathPrimitive` is enqueued, `PathToQuadTessellator` checks
+whether the path can be expressed as one or more axis-aligned
+`QuadPrimitive`s. When it can — typical cases are axis-aligned rectangle
+fills (with or without intervening Canvas transforms) and horizontal /
+vertical stroked-line segments — the path is emitted as quads instead,
+bypassing CPU rasterization and the per-frame texture upload entirely.
+Anything diagonal, curved, or filled-and-stroked falls through to the
+CPU path. The tessellator's decision table is locked by
+`PathToQuadTessellatorTests`.
+
+For paths that still take the CPU route, `PathPrimitive` is rasterized
+into a `BitmapSurface` and reused across frames:
 
 1. The D3D11 backend caches the rasterized texture + SRV per *normalized*
    path (origin translated to `(0, 0)`), so simply moving the path
@@ -192,9 +202,11 @@ Beyond the per-step invariants:
 
 ## Open work
 
-- A GPU path tessellator (Loop-Blinn, stencil-and-cover, or libtess2)
-  would let `PathPrimitive` skip CPU rasterization entirely; today the
-  cache mitigates but does not eliminate the cost.
+- A full GPU path tessellator (Loop-Blinn, stencil-and-cover, or
+  libtess2) would let curved and diagonal paths also skip CPU
+  rasterization. `PathToQuadTessellator` already covers axis-aligned
+  rect fills and axis-aligned stroked lines; expanding to rotated
+  quads and triangle-fan convex polygons is the next increment.
 
 ## Two-way fallback recovery
 

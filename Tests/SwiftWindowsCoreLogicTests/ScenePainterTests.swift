@@ -1329,7 +1329,7 @@ struct ScenePainterTests {
         #expect(quad.startA == 1)
     }
 
-    @Test("Canvas fillPath emits a scene path primitive in the node's local space")
+    @Test("Canvas fillPath of an axis-aligned rect emits a GPU quad in the node's local space")
     func canvasFillPathEmitsScenePath() {
         let node = ViewNode(
             frame: Rect(x: 100, y: 50, width: 200, height: 200),
@@ -1346,26 +1346,18 @@ struct ScenePainterTests {
 
         let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
 
-        #expect(scene.layers[0].paths.count == 1)
-        let path = scene.layers[0].paths[0]
-        #expect(path.fillColor.red == 0)
-        #expect(path.fillColor.green == 1)
-        #expect(path.fillColor.blue == 0)
-        #expect(path.fillColor.alpha == 1)
-        #expect(path.strokeColor.alpha == 0)
-        // Bounds translated from canvas-local (10, 10, 50, 50) by frame origin (100, 50)
-        #expect(path.bounds.minX == 110)
-        #expect(path.bounds.minY == 60)
-        #expect(path.bounds.width == 50)
-        #expect(path.bounds.height == 50)
-
-        // First element should be a moveTo at translated coords (110, 60).
-        guard case .moveTo(let firstPoint) = path.elements.first else {
-            Issue.record("Expected first path element to be moveTo")
-            return
-        }
-        #expect(firstPoint.x == 110)
-        #expect(firstPoint.y == 60)
+        // PathToQuadTessellator routes axis-aligned rect fills to the
+        // GPU quad pipeline; no PathPrimitive is emitted.
+        #expect(scene.layers[0].paths.count == 0)
+        let greenQuads = scene.layers[0].quads.filter { $0.startG == 1 && $0.startR == 0 }
+        #expect(greenQuads.count == 1)
+        #expect(greenQuads[0].startB == 0)
+        #expect(greenQuads[0].startA == 1)
+        // Translated from canvas-local (10, 10, 50, 50) by frame origin (100, 50)
+        #expect(greenQuads[0].x == 110)
+        #expect(greenQuads[0].y == 60)
+        #expect(greenQuads[0].width == 50)
+        #expect(greenQuads[0].height == 50)
     }
 
     @Test("Canvas strokePath emits a scene path with stroke color and width")
@@ -1386,12 +1378,13 @@ struct ScenePainterTests {
 
         let scene = ScenePainter.paint(root: node, clearColor: .black, surfaceSize: surfaceSize)
 
-        #expect(scene.layers[0].paths.count == 1)
-        let path = scene.layers[0].paths[0]
-        #expect(path.strokeColor.blue == 1)
-        #expect(path.strokeColor.alpha == 1)
-        #expect(path.fillColor.alpha == 0)
-        #expect(path.lineWidth == 4)
+        // PathToQuadTessellator promotes the horizontal stroked line
+        // to a GPU quad; no CPU-rasterized PathPrimitive remains.
+        #expect(scene.layers[0].paths.count == 0)
+        let blueQuads = scene.layers[0].quads.filter { $0.startB == 1 && $0.startR == 0 }
+        #expect(blueQuads.count == 1)
+        #expect(blueQuads[0].height == 4)
+        #expect(blueQuads[0].startA == 1)
     }
 
     @Test("Canvas clip stack intersects with inherited scene clip")

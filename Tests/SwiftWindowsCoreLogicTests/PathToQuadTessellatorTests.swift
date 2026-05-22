@@ -1,0 +1,214 @@
+import SwiftWindowsCore
+import SwiftWindowsGraphics
+import XCTest
+
+@testable import SwiftWindowsUI
+
+/// Pins the contract for the GPU stroked-line / rect-fill tessellator
+/// — the first concrete step toward eliminating CPU path rasterization
+/// for axis-aligned shapes. Each test reflects a row of the decision
+/// table in PathToQuadTessellator.swift.
+final class PathToQuadTessellatorTests: XCTestCase {
+
+    private func makeStrokedPath(elements: [PathElement], lineWidth: Double, color: Color = .white)
+        -> PathPrimitive
+    {
+        PathPrimitive(
+            elements: elements,
+            bounds: Rect(x: 0, y: 0, width: 100, height: 100),
+            strokeColor: color,
+            lineWidth: lineWidth
+        )
+    }
+
+    private func makeFilledPath(elements: [PathElement], color: Color = .white) -> PathPrimitive {
+        PathPrimitive(
+            elements: elements,
+            bounds: Rect(x: 0, y: 0, width: 100, height: 100),
+            fillColor: color
+        )
+    }
+
+    // MARK: - Rect fill promotion
+
+    func testAxisAlignedRectFillTessellatesToSingleQuad() {
+        let path = makeFilledPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 20)),
+                .lineTo(Point(x: 60, y: 20)),
+                .lineTo(Point(x: 60, y: 80)),
+                .lineTo(Point(x: 10, y: 80)),
+                .close,
+            ],
+            color: Color(red: 0, green: 1, blue: 0, alpha: 1)
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 1)
+        guard let quad = quads?.first else { return XCTFail() }
+        XCTAssertEqual(quad.x, 10, accuracy: 0.001)
+        XCTAssertEqual(quad.y, 20, accuracy: 0.001)
+        XCTAssertEqual(quad.width, 50, accuracy: 0.001)
+        XCTAssertEqual(quad.height, 60, accuracy: 0.001)
+        XCTAssertEqual(quad.startG, 1)
+    }
+
+    func testFilledRectWithExplicitClosingPointStillTessellates() {
+        // Some Canvas implementations duplicate the start point as the
+        // close marker; the tessellator must accept either form.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 10, y: 20)),
+            .lineTo(Point(x: 60, y: 20)),
+            .lineTo(Point(x: 60, y: 80)),
+            .lineTo(Point(x: 10, y: 80)),
+            .lineTo(Point(x: 10, y: 20)),
+            .close,
+        ])
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 1)
+    }
+
+    func testNonAxisAlignedQuadFillFallsThrough() {
+        // A skewed quad — not an axis-aligned rect. Must fall back to
+        // CPU rasterization.
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 10, y: 20)),
+            .lineTo(Point(x: 60, y: 18)),
+            .lineTo(Point(x: 62, y: 80)),
+            .lineTo(Point(x: 8, y: 78)),
+            .close,
+        ])
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Non-axis-aligned quad must fall through to PathPrimitive")
+    }
+
+    func testTriangleFillFallsThrough() {
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 0)),
+            .lineTo(Point(x: 30, y: 0)),
+            .lineTo(Point(x: 15, y: 25)),
+            .close,
+        ])
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Triangle (3 points) must fall through")
+    }
+
+    func testCurvedPathFillFallsThrough() {
+        let path = makeFilledPath(elements: [
+            .moveTo(Point(x: 0, y: 0)),
+            .quadraticCurveTo(control: Point(x: 10, y: 10), end: Point(x: 20, y: 0)),
+            .close,
+        ])
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Quadratic curve segments must fall through")
+    }
+
+    // MARK: - Stroked-line promotion
+
+    func testHorizontalStrokeTessellatesToSingleQuad() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 50)),
+                .lineTo(Point(x: 90, y: 50)),
+            ],
+            lineWidth: 4,
+            color: Color(red: 0, green: 0, blue: 1, alpha: 1)
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 1)
+        guard let quad = quads?.first else { return XCTFail() }
+        // x = min(10,90) - lineWidth/2 = 8; width = 80 + lineWidth = 84.
+        XCTAssertEqual(quad.x, 8, accuracy: 0.001)
+        XCTAssertEqual(quad.y, 48, accuracy: 0.001)
+        XCTAssertEqual(quad.width, 84, accuracy: 0.001)
+        XCTAssertEqual(quad.height, 4, accuracy: 0.001)
+        XCTAssertEqual(quad.startB, 1)
+    }
+
+    func testVerticalStrokeTessellatesToSingleQuad() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 50, y: 10)),
+                .lineTo(Point(x: 50, y: 90)),
+            ],
+            lineWidth: 2
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 1)
+        guard let quad = quads?.first else { return XCTFail() }
+        XCTAssertEqual(quad.x, 49, accuracy: 0.001)
+        XCTAssertEqual(quad.width, 2, accuracy: 0.001)
+        XCTAssertEqual(quad.height, 82, accuracy: 0.001)
+    }
+
+    func testMultipleAxisAlignedSegmentsProduceOneQuadPerSegment() {
+        // An L-shape: horizontal then vertical.
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 80)),
+            ],
+            lineWidth: 2
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 2)
+    }
+
+    func testDiagonalStrokeFallsThrough() {
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+            ],
+            lineWidth: 3
+        )
+        XCTAssertNil(
+            PathToQuadTessellator.tessellate(path),
+            "Diagonal strokes must fall through (no rotation support yet)")
+    }
+
+    func testClosedStrokedRectTessellatesToFourQuads() {
+        // Closed stroked outline of a rect: emits one quad per side.
+        let path = makeStrokedPath(
+            elements: [
+                .moveTo(Point(x: 10, y: 10)),
+                .lineTo(Point(x: 60, y: 10)),
+                .lineTo(Point(x: 60, y: 60)),
+                .lineTo(Point(x: 10, y: 60)),
+                .close,
+            ],
+            lineWidth: 2
+        )
+        let quads = PathToQuadTessellator.tessellate(path)
+        XCTAssertEqual(quads?.count, 4, "Closed stroked rect should emit four side quads")
+    }
+
+    // MARK: - Edge cases
+
+    func testEmptyPathReturnsNil() {
+        let path = makeStrokedPath(elements: [], lineWidth: 2)
+        XCTAssertNil(PathToQuadTessellator.tessellate(path))
+    }
+
+    func testFilledAndStrokedPathFallsThroughToPathPrimitive() {
+        // A path with BOTH fill and stroke — currently must go through
+        // the CPU path so the rasterizer can layer them properly.
+        let path = PathPrimitive(
+            elements: [
+                .moveTo(Point(x: 10, y: 20)),
+                .lineTo(Point(x: 60, y: 20)),
+                .lineTo(Point(x: 60, y: 80)),
+                .lineTo(Point(x: 10, y: 80)),
+                .close,
+            ],
+            bounds: Rect(x: 0, y: 0, width: 100, height: 100),
+            fillColor: Color(red: 0, green: 1, blue: 0, alpha: 1),
+            strokeColor: Color(red: 1, green: 0, blue: 0, alpha: 1),
+            lineWidth: 2
+        )
+        XCTAssertNil(PathToQuadTessellator.tessellate(path))
+    }
+}

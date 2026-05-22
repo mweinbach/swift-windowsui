@@ -2,6 +2,35 @@ import Foundation
 
 import SwiftWindowsCore
 
+/// Builds a 1D Gaussian kernel suitable for a separable two-pass blur.
+/// Sigma is `radius / 2.0` so a `radius=6` blur visually matches what a
+/// 6-pixel box approximation roughly produced before — but with a real
+/// bell-shaped falloff instead of uniform weighting. Materials' soft
+/// backdrop now looks like macOS visual-effects blur instead of a
+/// "smeared rectangle" box approximation.
+///
+/// Public so tests can verify the kernel shape directly.
+public func gaussianBlurKernel(radius: Int) -> [Float] {
+    precondition(radius > 0)
+    let sigma = max(Float(radius) / 2.0, 0.5)
+    let twoSigmaSq = 2 * sigma * sigma
+    let size = radius * 2 + 1
+    var kernel = [Float](repeating: 0, count: size)
+    var sum: Float = 0
+    for i in 0..<size {
+        let offset = Float(i - radius)
+        let weight = exp(-(offset * offset) / twoSigmaSq)
+        kernel[i] = weight
+        sum += weight
+    }
+    // Normalise so weights sum to 1.0; the blurred result has the same
+    // overall brightness as the input.
+    if sum > 0 {
+        for i in 0..<size { kernel[i] /= sum }
+    }
+    return kernel
+}
+
 // MARK: - Path Flattening & Scanline Fill
 
 public enum GPUIRawSceneRasterizer {
@@ -333,53 +362,65 @@ private struct RasterTarget {
         let h = bounds.y1 - bounds.y0
         guard w > 0, h > 0 else { return }
 
+        let kernel = gaussianBlurKernel(radius: radius)
         var temp = [UInt8](repeating: 0, count: h * w * 4)
 
+        // Horizontal pass: each pixel becomes a weighted sum of its
+        // horizontal neighbourhood. Edge samples clamp by re-normalising
+        // the truncated kernel so the bounds don't darken the borders.
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
                 var sumB: Float = 0
                 var sumG: Float = 0
                 var sumR: Float = 0
                 var sumA: Float = 0
+                var weight: Float = 0
                 let xStart = max(x - radius, bounds.x0)
                 let xEnd = min(x + radius + 1, bounds.x1)
-                let count = xEnd - xStart
                 for k in xStart..<xEnd {
+                    let kw = kernel[k - x + radius]
                     let offset = pixelOffset(x: k, y: y)
-                    sumB += Float(pixels[offset])
-                    sumG += Float(pixels[offset + 1])
-                    sumR += Float(pixels[offset + 2])
-                    sumA += Float(pixels[offset + 3])
+                    sumB += Float(pixels[offset]) * kw
+                    sumG += Float(pixels[offset + 1]) * kw
+                    sumR += Float(pixels[offset + 2]) * kw
+                    sumA += Float(pixels[offset + 3]) * kw
+                    weight += kw
                 }
+                let inv = weight > 0 ? 1 / weight : 0
                 let tempOffset = ((y - bounds.y0) * w + (x - bounds.x0)) * 4
-                temp[tempOffset] = byte(sumB / Float(count))
-                temp[tempOffset + 1] = byte(sumG / Float(count))
-                temp[tempOffset + 2] = byte(sumR / Float(count))
-                temp[tempOffset + 3] = byte(sumA / Float(count))
+                temp[tempOffset] = byte(sumB * inv)
+                temp[tempOffset + 1] = byte(sumG * inv)
+                temp[tempOffset + 2] = byte(sumR * inv)
+                temp[tempOffset + 3] = byte(sumA * inv)
             }
         }
 
+        // Vertical pass: same Gaussian kernel sampled vertically from the
+        // horizontal pass's intermediate buffer.
         for y in bounds.y0..<bounds.y1 {
             for x in bounds.x0..<bounds.x1 {
                 var sumB: Float = 0
                 var sumG: Float = 0
                 var sumR: Float = 0
                 var sumA: Float = 0
+                var weight: Float = 0
                 let yStart = max(y - radius, bounds.y0)
                 let yEnd = min(y + radius + 1, bounds.y1)
-                let count = yEnd - yStart
                 for k in yStart..<yEnd {
+                    let kw = kernel[k - y + radius]
                     let tempOffset = ((k - bounds.y0) * w + (x - bounds.x0)) * 4
-                    sumB += Float(temp[tempOffset])
-                    sumG += Float(temp[tempOffset + 1])
-                    sumR += Float(temp[tempOffset + 2])
-                    sumA += Float(temp[tempOffset + 3])
+                    sumB += Float(temp[tempOffset]) * kw
+                    sumG += Float(temp[tempOffset + 1]) * kw
+                    sumR += Float(temp[tempOffset + 2]) * kw
+                    sumA += Float(temp[tempOffset + 3]) * kw
+                    weight += kw
                 }
+                let inv = weight > 0 ? 1 / weight : 0
                 let offset = pixelOffset(x: x, y: y)
-                pixels[offset] = byte(sumB / Float(count))
-                pixels[offset + 1] = byte(sumG / Float(count))
-                pixels[offset + 2] = byte(sumR / Float(count))
-                pixels[offset + 3] = byte(sumA / Float(count))
+                pixels[offset] = byte(sumB * inv)
+                pixels[offset + 1] = byte(sumG * inv)
+                pixels[offset + 2] = byte(sumR * inv)
+                pixels[offset + 3] = byte(sumA * inv)
             }
         }
     }

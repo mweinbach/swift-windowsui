@@ -11737,6 +11737,9 @@ public struct AccessibilityTraits: OptionSet, Sendable, Equatable, Hashable {
     public static let allowsDirectInteraction = AccessibilityTraits(rawValue: 1 << 12)
     public static let causesPageTurn = AccessibilityTraits(rawValue: 1 << 13)
     public static let isModal = AccessibilityTraits(rawValue: 1 << 14)
+    public static let isToggle = AccessibilityTraits(rawValue: 1 << 15)
+    public static let isProgressIndicator = AccessibilityTraits(rawValue: 1 << 16)
+    public static let isTextInput = AccessibilityTraits(rawValue: 1 << 17)
 
     var retainedTraits: RetainedAccessibilityTraits {
         RetainedAccessibilityTraits(rawValue: rawValue)

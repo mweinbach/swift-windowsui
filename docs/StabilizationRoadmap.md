@@ -17,8 +17,10 @@ limits in `README.md`, `docs/WinSwiftUI.md`, `docs/Testing.md`,
 - `D3D11Renderer` still executes only `fillRect` and `drawBitmap`. Scene
   coverage is richer (shadows, quads, paths, atlas-backed glyphs) but still
   incomplete relative to GPUI-style text/sprite systems.
-- Accessibility modifiers store retained metadata; **native UI Automation is
-  not implemented**.
+- Accessibility metadata is projected to native UI Automation (fragment tree,
+  properties, InvokePattern, focus/structure events via `CUIAInterop` +
+  `UIAProviderBridge`); advanced patterns (Value/Text/Selection/Toggle) and
+  live regions are **not implemented**.
 - `EnvironmentValues.colorSchemeContrast` exists; **Windows high-contrast /
   system-settings wiring is not implemented**.
 - `EnvironmentValues.supportsMultipleWindows` defaults to `false`;
@@ -261,14 +263,22 @@ with native widgets.
 
 ### Exit criteria
 
-- [ ] Narrator (or equivalent UIA client) can read labels for primary demo
+- [x] Narrator (or equivalent UIA client) can read labels for primary demo
       controls and activate default button actions
-- [ ] Focus changes update UIA focus; bounds track layout after resize
-- [ ] Hidden / `accessibilityHidden` nodes omitted or marked correctly
+      (`.NET UIAutomationClient` probe: control types/names/bounds enumerate,
+      InvokePattern activates retained buttons; `scripts/demo-uia-probe.ps1`)
+- [x] Focus changes update UIA focus; bounds track layout after resize
+      (focus-changed events via runtime hook; bounds re-projected live with
+      DPI + ClientToScreen on every query)
+- [x] Hidden / `accessibilityHidden` nodes omitted or marked correctly
 - [x] Mapping unit tests green; contracts still pass
       (`AccessibilityProjection` — derived tree, trait→control-type table,
-      action invocation; Win32 provider wiring remains)
-- [ ] Docs state remaining UIA pattern gaps
+      action invocation; `UIAProviderBridge` + `RuntimeUIAElementTreeSource`
+      headless tests through the real COM vtables)
+- [x] Docs state remaining UIA pattern gaps
+      (see `docs/CompatibilityStatus.md`: no Value/Text/Selection/Toggle
+      patterns, no live regions, coarse structure-changed events,
+      `IsOffscreen` not provided)
 
 ### Validation commands
 

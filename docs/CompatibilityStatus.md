@@ -148,7 +148,7 @@ Use these when you accept retained approximations.
 | **Gestures** | Tap, long-press (release-inside), drag mapped to pointer | Duration thresholds, full gesture composition/arbitration, simultaneous value streaming |
 | **Focus** | Focus rings, `@FocusState`, activation | Dynamic `@FocusedValue` retargeting as focus moves; environment `isFocused` live transitions |
 | **Drag and drop** | API + metadata on nodes | Full delete/reorder/drop affordances and OS drag sessions |
-| **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` (control-type mapping, named actions, focus/selection state) | Win32 UI Automation provider wiring |
+| **Accessibility** | Metadata on `ViewNode` + derived `AccessibilityElementProjection` + Win32 UI Automation provider (`WM_GETOBJECT`, fragment tree, InvokePattern, focus/structure events); default traits on Supported controls | Value/Text/Selection/Toggle patterns, live regions, fine-grained structure-changed events |
 | **Materials / blur** | Tint/blur metadata; design-parity constants | Full backdrop materials everywhere; backend blur limits |
 | **Blend / drawing groups** | Metadata; some blend modes on frame fallback | Scene-path offscreen group compositing as full SwiftUI drawing groups |
 | **3D transforms** | Z-axis rotation maps to 2D; metadata stored | Full 3D projection pipeline |
@@ -272,7 +272,7 @@ Do not expect these Apple/platform integrations on Windows retained runtime:
 | visionOS ImmersiveSpace / Volume | Shims only |
 | Full SF Symbols library + multicolor layers | Deterministic retained glyphs |
 | Asset catalogs as on Apple platforms | Path/WIC + hex color-name fallbacks |
-| UI Automation / VoiceOver parity | Metadata only today |
+| UI Automation / VoiceOver parity | Core UIA provider implemented (read/invoke/focus); advanced patterns and live regions missing |
 | Multi-window document architecture | Single live `WindowGroup` host |
 | Software keyboard / dictation | Not hosted |
 
@@ -325,7 +325,7 @@ Rules of thumb for shared sources:
 | Maps, video, web, charts, IAP UI | Not safe: placeholders only |
 | Multi-window / Settings scene / documents | Not safe as hosted products |
 | Pixel-perfect macOS SwiftUI | Not the goal; use design/animation parity docs for constants only |
-| Accessibility for AT | Metadata only; not a ship gate for UIA yet |
+| Accessibility for AT | Core UIA tree readable with invoke + focus events; advanced patterns (Value/Text/Selection) not yet |
 | Production Windows product shell | Safe within retained subset; keep host/renderer validation in the loop |
 
 ---

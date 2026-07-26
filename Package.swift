@@ -55,6 +55,15 @@ let package = Package(
             ]
         ),
         .target(
+            name: "CUIAInterop",
+            publicHeadersPath: "include",
+            linkerSettings: [
+                .linkedLibrary("uiautomationcore"),
+                .linkedLibrary("ole32"),
+                .linkedLibrary("oleaut32"),
+            ]
+        ),
+        .target(
             name: "SwiftWindowsScene",
             dependencies: ["SwiftWindowsCore", "SwiftWindowsGraphics"]
         ),
@@ -64,7 +73,7 @@ let package = Package(
         ),
         .target(
             name: "SwiftWindowsPlatform",
-            dependencies: ["SwiftWindowsCore"]
+            dependencies: ["SwiftWindowsCore", "CUIAInterop"]
         ),
         .target(
             name: "SwiftWindowsRendererD3D11",
@@ -146,6 +155,7 @@ let package = Package(
         .testTarget(
             name: "SwiftWindowsCoreLogicTests",
             dependencies: [
+                "CUIAInterop",
                 "SwiftWindowsApp",
                 "SwiftWindowsCore",
                 "SwiftWindowsDemo",

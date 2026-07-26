@@ -1628,6 +1628,12 @@ final class WinSwiftUIWindowHost: WindowDelegate {
     private let inputRateTracker = WindowInputRateTracker()
     private let undoManager = UndoManager()
 
+    // UI Automation bridge (Phase 2): exposes the retained tree to UIA via
+    // WM_GETOBJECT and raises focus/structure events. Owned for the window's
+    // lifetime; provider callbacks re-project live state on every call.
+    private var uiaBridge: UIAProviderBridge?
+    private var uiaTreeSource: RuntimeUIAElementTreeSource?
+
     private var isRendererReady = false
     private var activeBackend: PresentationBackend = .frame
     private var surfaceDescriptor: SurfaceDescriptor?
@@ -1760,6 +1766,30 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             return [self.buildRootComponent()]
         }
         window.delegate = self
+
+        // UI Automation wiring: the bridge re-projects the retained tree on
+        // every UIA query; focus events ride the runtime's focus hook.
+        let uiaTreeSource = RuntimeUIAElementTreeSource(runtime: runtime) { [weak window] bounds in
+            window?.clientRectToScreen(bounds) ?? bounds
+        }
+        let uiaBridge = UIAProviderBridge(source: uiaTreeSource)
+        window.accessibilityProvider = uiaBridge
+        self.uiaTreeSource = uiaTreeSource
+        self.uiaBridge = uiaBridge
+        runtime.onAccessibilityFocusChanged = { [weak self] node in
+            self?.accessibilityFocusDidChange(to: node)
+        }
+    }
+
+    private func accessibilityFocusDidChange(to node: ViewNode?) {
+        // Skip re-projection entirely when no assistive client is attached.
+        guard let uiaBridge, uiaBridge.isClientListening else {
+            return
+        }
+        guard let node, let elementID = uiaTreeSource?.projectedElementID(forNodeOrAncestor: node) else {
+            return
+        }
+        uiaBridge.raiseFocusChanged(elementID: elementID)
     }
 
     @discardableResult
@@ -1780,6 +1810,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             runtime.displayScale = surface.scaleFactor
             runtime.setRootSize(logicalSize(for: surface))
             componentHost.reload()
+            uiaBridge?.raiseStructureChanged()
             let didRender = renderCurrentFrame(in: window)
             completeStartupProbeIfNeeded(
                 in: window,
@@ -1800,6 +1831,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
             surfaceDescriptor?.scaleFactor = scaleFactor
             runtime.setRootSize(logicalSize(for: size, scaleFactor: scaleFactor))
             componentHost.reload()
+            uiaBridge?.raiseStructureChanged()
             try resizeActiveRenderer(to: size, in: window)
             requestFrame(in: window)
         } catch {
@@ -1921,7 +1953,9 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         }
     }
 
-    func windowWillClose(_ window: Win32Window) {}
+    func windowWillClose(_ window: Win32Window) {
+        uiaBridge?.disconnect()
+    }
 
     private var buildContext: ViewBuildContext {
         ViewBuildContext(
@@ -2003,6 +2037,7 @@ final class WinSwiftUIWindowHost: WindowDelegate {
         componentHost.observedObjects.removeAll()
         resetObservedObjects()
         componentHost.reload()
+        uiaBridge?.raiseStructureChanged()
 
         // Present any file-importer / exporter / mover dialogs whose
         // isPresented binding has been set to true.

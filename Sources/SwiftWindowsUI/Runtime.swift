@@ -520,6 +520,12 @@ public struct RetainedAccessibilityTraits: OptionSet, Sendable, Equatable {
     public static let allowsDirectInteraction = RetainedAccessibilityTraits(rawValue: 1 << 12)
     public static let causesPageTurn = RetainedAccessibilityTraits(rawValue: 1 << 13)
     public static let isModal = RetainedAccessibilityTraits(rawValue: 1 << 14)
+    // WinSwiftUI control defaults (Phase 2): toggle/checkbox, progress
+    // indicator, and text input markers so the projection can resolve the
+    // UIA checkBox, progressBar, and edit control types.
+    public static let isToggle = RetainedAccessibilityTraits(rawValue: 1 << 15)
+    public static let isProgressIndicator = RetainedAccessibilityTraits(rawValue: 1 << 16)
+    public static let isTextInput = RetainedAccessibilityTraits(rawValue: 1 << 17)
 }
 public enum RetainedAccessibilityChildBehavior: Sendable, Equatable {
     case ignore
@@ -5594,6 +5600,10 @@ public final class RetainedViewRuntime {
     /// presentation builders can capture and later restore focus; mutate
     /// only through `requestFocus` / focus traversal.
     public private(set) weak var focusedNode: ViewNode?
+    /// Accessibility integration hook (UI Automation, Phase 2): called on the
+    /// main actor after the focused node changes. Additive only — no effect
+    /// on focus behavior itself.
+    public var onAccessibilityFocusChanged: ((ViewNode?) -> Void)?
     private weak var hoveredScrollIndicatorNode: ViewNode?
     private weak var activeScrollIndicatorNode: ViewNode?
     private var colorAnimations: [ColorAnimationKey: ViewColorAnimation] = [:]
@@ -7001,6 +7011,7 @@ public final class RetainedViewRuntime {
         focusedNode?.isFocused = true
         focusedNode?.onFocusEnter?()
         invalidate()
+        onAccessibilityFocusChanged?(nextFocusedNode)
     }
 }
 struct ScrollIndicatorTrack {

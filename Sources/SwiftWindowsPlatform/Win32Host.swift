@@ -1,5 +1,4 @@
 import SwiftWindowsCore
-
 import WinSDK
 
 private func win32HighResolutionTimerCallback(_ param: UnsafeMutableRawPointer?, _: UInt8) {
@@ -87,6 +86,12 @@ public struct Win32PlatformError: Error, CustomStringConvertible, Sendable {
 @MainActor
 public final class Win32Window {
     public weak var delegate: WindowDelegate?
+
+    /// Optional accessibility (UI Automation) provider consulted on
+    /// `WM_GETOBJECT`. Nil by default; assign a provider (typically a
+    /// `UIAProviderBridge`) to expose the window's content to assistive
+    /// technology.
+    public var accessibilityProvider: (any Win32WindowAccessibilityProvider)?
 
     public let title: String
     public private(set) var clientSize: IntSize
@@ -311,6 +316,31 @@ public final class Win32Window {
         return clientSize
     }
 
+    /// Converts a rectangle from logical client coordinates (the retained
+    /// runtime's root-view space) to screen coordinates. Used by the
+    /// accessibility bridge, which must report bounds in screen space.
+    /// Returns the input unchanged when the window has no handle yet.
+    public func clientRectToScreen(_ rect: Rect) -> Rect {
+        guard let hwnd else {
+            return rect
+        }
+
+        let scale = scaleFactor
+        var topLeft = POINT(x: LONG((rect.origin.x * scale).rounded()), y: LONG((rect.origin.y * scale).rounded()))
+        var bottomRight = POINT(
+            x: LONG(((rect.origin.x + rect.size.width) * scale).rounded()),
+            y: LONG(((rect.origin.y + rect.size.height) * scale).rounded())
+        )
+        ClientToScreen(hwnd, &topLeft)
+        ClientToScreen(hwnd, &bottomRight)
+        return Rect(
+            x: Double(topLeft.x),
+            y: Double(topLeft.y),
+            width: Double(bottomRight.x - topLeft.x),
+            height: Double(bottomRight.y - topLeft.y)
+        )
+    }
+
     public func toggleFullscreen() {
         guard let hwnd else {
             return
@@ -491,6 +521,14 @@ public final class Win32Window {
         switch message {
         case UINT(WM_ERASEBKGND):
             return 1
+
+        case UINT(WM_GETOBJECT):
+            if let provider = accessibilityProvider,
+                let result = provider.handleAccessibilityGetObject(hwnd: hwnd, wParam: wParam, lParam: lParam)
+            {
+                return result
+            }
+            return DefWindowProcW(hwnd, message, wParam, lParam)
 
         case UINT(WM_SIZE):
             updateCachedClientSize()
@@ -1062,10 +1100,12 @@ public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
     }
 
     private static func sampleColorSchemePreference() -> SystemAppearanceSnapshot.ColorSchemePreference? {
-        guard let appsUseLightTheme = readCurrentUserDWORD(
-            subKey: #"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"#,
-            valueName: "AppsUseLightTheme"
-        ) else {
+        guard
+            let appsUseLightTheme = readCurrentUserDWORD(
+                subKey: #"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"#,
+                valueName: "AppsUseLightTheme"
+            )
+        else {
             return nil
         }
 
@@ -1073,10 +1113,12 @@ public struct Win32SystemAppearanceProvider: SystemAppearanceProvider {
     }
 
     private static func sampleTextScaleFactor() -> Double? {
-        guard let percent = readCurrentUserDWORD(
-            subKey: #"Software\Microsoft\Accessibility"#,
-            valueName: "TextScaleFactor"
-        ), percent > 0 else {
+        guard
+            let percent = readCurrentUserDWORD(
+                subKey: #"Software\Microsoft\Accessibility"#,
+                valueName: "TextScaleFactor"
+            ), percent > 0
+        else {
             return nil
         }
 

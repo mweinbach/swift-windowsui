@@ -22,8 +22,8 @@ import SwiftWindowsCore
 ///
 /// The case names follow UI Automation control types so the later Win32
 /// provider wave can map them mechanically. Cases with no current trait
-/// mapping (`checkBox`, `list`, `listItem`, `progressBar`, `tab`, `tabItem`,
-/// `window`) are declared for the provider wave; see the mapping table on
+/// mapping (`list`, `listItem`, `tab`, `tabItem`, `window`) are declared for
+/// the provider wave; see the mapping table on
 /// `AccessibilityProjection.resolveControlType`.
 public enum AccessibilityControlType: String, Sendable, Equatable, CaseIterable {
     case button
@@ -198,9 +198,15 @@ public enum AccessibilityProjection {
     // First match wins, in the order listed. Traits not listed here have no
     // control-type mapping and are documented below the resolver.
     //
+    //   .isToggle           → checkBox    (before isButton: toggles keep the
+    //                                      button trait from the retained
+    //                                      button builder but are checkboxes
+    //                                      to assistive technology)
     //   .isButton           → button
     //   .isLink             → hyperlink
     //   .isSearchField      → edit        (UIA has no Search control type)
+    //   .isTextInput        → edit
+    //   .isProgressIndicator → progressBar
     //   .isKeyboardKey      → button      (UIA has no KeyboardKey control type)
     //   .isHeader           → header
     //   .isImage / isAccessibilityImage → image
@@ -211,9 +217,12 @@ public enum AccessibilityProjection {
     //   otherwise           → group       (labeled content with no type signal)
     public static func resolveControlType(for node: ViewNode) -> AccessibilityControlType {
         let traits = node.accessibilityTraits
+        if traits.contains(.isToggle) { return .checkBox }
         if traits.contains(.isButton) { return .button }
         if traits.contains(.isLink) { return .hyperlink }
         if traits.contains(.isSearchField) { return .edit }
+        if traits.contains(.isTextInput) { return .edit }
+        if traits.contains(.isProgressIndicator) { return .progressBar }
         if traits.contains(.isKeyboardKey) { return .button }
         if traits.contains(.isHeader) { return .header }
         if traits.contains(.isImage) || node.isAccessibilityImage { return .image }

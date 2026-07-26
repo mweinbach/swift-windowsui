@@ -700,6 +700,12 @@ public enum Controls {
             children: children
         )
 
+        // Default accessibility metadata: every retained button is a button
+        // element whose name folds in from its content. Explicit
+        // accessibility modifiers apply after the builder and always win.
+        node.accessibilityTraits.formUnion(.isButton)
+        node.accessibilityChildBehavior = .combine
+
         guard isEnabled else {
             return node
         }
@@ -866,7 +872,7 @@ public enum Controls {
         alignment: TextHorizontalAlignment = .center,
         fontFamily: String = "Segoe Fluent Icons"
     ) -> ViewNode {
-        label(
+        let node = label(
             symbol.rawValue,
             frame: frame,
             preferredSize: preferredSize,
@@ -876,6 +882,11 @@ public enum Controls {
             fontFamily: fontFamily,
             alignment: alignment
         )
+        // Symbol glyphs are decorative: their raw unicode text is meaningless
+        // to assistive technology, so keep them out of the accessibility
+        // tree by default (and out of folded button names).
+        node.isAccessibilityHidden = true
+        return node
     }
 
     public static func image(
@@ -991,7 +1002,7 @@ public enum Controls {
 
         let action: (() -> Void)? = isEnabled ? { onToggle?(!isChecked) } : nil
 
-        return button(
+        let node = button(
             runtime: runtime,
             preferredSize: preferredSize,
             layoutPriority: layoutPriority,
@@ -1007,6 +1018,13 @@ public enum Controls {
             action: action,
             children: [box, labelNode]
         )
+        // Checkbox semantics: the isToggle trait maps to the UIA checkBox
+        // control type; the checked state projects as isSelected.
+        node.accessibilityTraits.formUnion(.isToggle)
+        if isChecked {
+            node.accessibilityTraits.formUnion(.isSelected)
+        }
+        return node
     }
 
     // MARK: - Toggle / Switch
@@ -1082,7 +1100,7 @@ public enum Controls {
 
         let action: (() -> Void)? = isEnabled ? { onToggle?(!isOn) } : nil
 
-        return button(
+        let node = button(
             runtime: runtime,
             preferredSize: preferredSize ?? Size(width: trackWidth + 8, height: trackHeight + 8),
             layoutPriority: layoutPriority,
@@ -1099,6 +1117,15 @@ public enum Controls {
             action: action,
             children: [track]
         )
+        // Toggle semantics: the isToggle trait maps to the UIA checkBox
+        // control type (a switch has no dedicated UIA type); the on state
+        // projects as isSelected. The base button trait stays so the element
+        // keeps button behavior for clients that don't pattern-match.
+        node.accessibilityTraits.formUnion(.isToggle)
+        if isOn {
+            node.accessibilityTraits.formUnion(.isSelected)
+        }
+        return node
     }
 
     // MARK: - Slider
@@ -1220,6 +1247,13 @@ public enum Controls {
             }
         }
 
+        // Default accessibility metadata: the projection maps
+        // `accessibilityPrefersSliderBehavior` to the UIA slider control
+        // type; the value mirrors the bound value. Explicit accessibility
+        // modifiers apply after the builder and always win.
+        sliderRoot.accessibilityPrefersSliderBehavior = true
+        sliderRoot.accessibilityValue = String(clampedValue)
+
         return sliderRoot
     }
 
@@ -1274,6 +1308,12 @@ public enum Controls {
                 height: resolvedBarHeight
             )
         }
+
+        // Default accessibility metadata: progress indicator trait (maps to
+        // the UIA progressBar control type) plus the determinate progress as
+        // a percentage value.
+        progressNode.accessibilityTraits.formUnion(.isProgressIndicator)
+        progressNode.accessibilityValue = "\(Int((progress * 100).rounded()))%"
 
         return progressNode
     }
@@ -1353,6 +1393,15 @@ public enum Controls {
                     height: resolvedDotSize
                 )
             }
+        }
+
+        // Default accessibility metadata: progress indicator trait (maps to
+        // the UIA progressBar control type); determinate progress also
+        // carries a percentage value, indeterminate progress carries none.
+        progressNode.accessibilityTraits.formUnion(.isProgressIndicator)
+        if let value {
+            let progress = total > 0 ? min(max(value / total, 0), 1) : 0
+            progressNode.accessibilityValue = "\(Int((progress * 100).rounded()))%"
         }
 
         return progressNode

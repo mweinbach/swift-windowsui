@@ -3864,6 +3864,9 @@ private func navigationContainerComponent(
 
     return Component { runtime in
         let titleNode = titleComponent.makeNode(runtime: runtime)
+        // The navigation title is a header by construction; the projection
+        // maps isHeader to the UIA header control type.
+        titleNode.accessibilityTraits.formUnion(.isHeader)
         let subtitleNode = subtitleComponent?.makeNode(runtime: runtime)
         let bodyNode = body.makeNode(runtime: runtime)
         var headerChildren: [ViewNode] = []
@@ -3904,6 +3907,9 @@ private func navigationContainerComponent(
                 },
                 children: [backLabel]
             )
+            // The "<" glyph is a poor accessible name; default to "Back" (an
+            // explicit accessibilityLabel still wins).
+            backButton.accessibilityLabel = "Back"
             headerChildren.append(backButton)
         }
         if let subtitleNode {
@@ -9168,6 +9174,14 @@ public struct List: View {
         )
         rowNode.nodeTag = row.nodeTag ?? "selection:\(String(describing: tag.base))"
 
+        // Selection state projects as the isSelected state. Rows otherwise
+        // stay transparent containers so interactive row content keeps its
+        // own elements; a list/listItem control-type mapping is a projection
+        // follow-up.
+        if isSelected {
+            rowNode.accessibilityTraits.formUnion(.isSelected)
+        }
+
         guard context.isEnabled else {
             return rowNode
         }
@@ -10049,7 +10063,11 @@ public struct Section: View {
                 .withTextAlignment(.leading)
 
             let headerNodes = header.map {
-                $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
+                let node = $0.makeComponent(context: headerContext).makeNode(runtime: runtime)
+                // Section headers are headers by construction; the projection
+                // maps isHeader to the UIA header control type.
+                node.accessibilityTraits.formUnion(.isHeader)
+                return node
             }
             let resolvedHeaderNodes: [ViewNode]
             if let expansionBinding, !headerNodes.isEmpty {
@@ -10062,6 +10080,9 @@ public struct Section: View {
                     lineBreakMode: .truncateTail,
                     maximumNumberOfLines: 1
                 )
+                // The chevron is chrome, not content: keep it out of the
+                // accessibility tree so folded header names stay clean.
+                chevronNode.isAccessibilityHidden = true
                 let headerContent = Controls.stackPanel(
                     layoutPriority: 1,
                     stackLayout: .horizontal(
@@ -10083,6 +10104,11 @@ public struct Section: View {
                     },
                     children: [headerContent]
                 )
+                // An expandable header is a button (the retained builder
+                // default) that is also a header; the projection's
+                // first-match table keeps the button type and the provider
+                // wave can still see the header trait.
+                headerButton.accessibilityTraits.formUnion(.isHeader)
                 resolvedHeaderNodes = [headerButton]
             } else {
                 resolvedHeaderNodes = headerNodes
@@ -10824,6 +10850,9 @@ public struct Menu: View {
                 lineBreakMode: .truncateTail,
                 maximumNumberOfLines: 1
             )
+            // The disclosure glyph is chrome, not content: keep it out of the
+            // accessibility tree so folded menu names stay clean.
+            disclosureNode.isAccessibilityHidden = true
             let headerChildren = showsMenuIndicator ? [labelNode, disclosureNode] : [labelNode]
             let headerContent = Controls.stackPanel(
                 layoutPriority: 1,
@@ -10851,6 +10880,9 @@ public struct Menu: View {
                 },
                 children: [headerContent]
             )
+            // Default accessibility name from the label content; an explicit
+            // accessibilityLabel modifier applies after this and wins.
+            menuButton.accessibilityLabel = firstRetainedText(in: labelNode)
 
             if menuState.restoreFocusOnClose, !menuState.isOpen {
                 menuState.restoreFocusOnClose = false
@@ -12597,6 +12629,18 @@ private func textInputComponent(
             children: [labelNode]
         )
         node.textInputSubmitLabel = context.submitLabel.retainedSubmitLabel
+        // Default accessibility metadata: the isTextInput trait maps to the
+        // UIA edit control type, the placeholder/title is the field's name,
+        // and the current text is its value (secure fields never expose
+        // their text). Explicit accessibility modifiers apply after this
+        // and win.
+        node.accessibilityTraits.formUnion(.isTextInput)
+        if let resolvedPlaceholder, !resolvedPlaceholder.isEmpty {
+            node.accessibilityLabel = resolvedPlaceholder
+        }
+        if !isSecure, !currentText.isEmpty {
+            node.accessibilityValue = currentText
+        }
         let selectionValue = selection?.wrappedValue
         node.textInputCaretOffset = selectionValue?.caretOffset(in: currentText) ?? currentText.count
         node.textSelectionAffinity = context.textSelectionAffinity.retainedAffinity
@@ -14473,6 +14517,11 @@ public struct Toggle: View {
         }
 
         let labelNode = labelComponent.makeNode(runtime: runtime)
+        // Default accessibility name from the label content; an explicit
+        // accessibilityLabel modifier applies after this and wins. The
+        // retained toggle builder already applied isButton (+ isSelected
+        // when on).
+        toggleNode.accessibilityLabel = firstRetainedText(in: labelNode)
         return Controls.stackPanel(
             stackLayout: .horizontal(spacing: 10, alignment: .center),
             isHitTestVisible: false,
@@ -14523,7 +14572,7 @@ public struct Toggle: View {
             height: max(context.controlSize.togglePreferredSize.height, boxSize + 16)
         )
 
-        return Controls.button(
+        let node = Controls.button(
             runtime: runtime,
             preferredSize: context.labelsHidden ? hiddenPreferredSize : nil,
             cornerRadius: 8,
@@ -14558,6 +14607,13 @@ public struct Toggle: View {
             },
             children: children
         )
+        // Checkbox-style toggles carry the isToggle trait (maps to the UIA
+        // checkBox control type) and project their on state as isSelected.
+        node.accessibilityTraits.formUnion(.isToggle)
+        if binding.wrappedValue {
+            node.accessibilityTraits.formUnion(.isSelected)
+        }
+        return node
     }
 
     private static func buttonNode(
@@ -14602,7 +14658,7 @@ public struct Toggle: View {
             height: max(context.controlSize.togglePreferredSize.height, 36)
         )
 
-        return Controls.button(
+        let node = Controls.button(
             runtime: runtime,
             preferredSize: context.labelsHidden ? hiddenPreferredSize : nil,
             cornerRadius: surfaceStyle.cornerRadius,
@@ -14625,6 +14681,13 @@ public struct Toggle: View {
             },
             children: children
         )
+        // Button-style toggles carry the isToggle trait (maps to the UIA
+        // checkBox control type) and project their on state as isSelected.
+        node.accessibilityTraits.formUnion(.isToggle)
+        if binding.wrappedValue {
+            node.accessibilityTraits.formUnion(.isSelected)
+        }
+        return node
     }
 
     private static func aggregateBinding<C>(
@@ -15682,6 +15745,7 @@ public struct Stepper: View {
             let decrementNode = Self.controlButton(
                 runtime: runtime,
                 title: "-",
+                accessibilityName: "Decrement",
                 isEnabled: context.isEnabled && canDecrement(),
                 preferredSize: context.controlSize.stepperButtonPreferredSize,
                 action: {
@@ -15692,6 +15756,7 @@ public struct Stepper: View {
             let incrementNode = Self.controlButton(
                 runtime: runtime,
                 title: "+",
+                accessibilityName: "Increment",
                 isEnabled: context.isEnabled && canIncrement(),
                 preferredSize: context.controlSize.stepperButtonPreferredSize,
                 action: {
@@ -15720,6 +15785,7 @@ public struct Stepper: View {
     private static func controlButton(
         runtime: RetainedViewRuntime,
         title: String,
+        accessibilityName: String,
         isEnabled: Bool,
         preferredSize: Size,
         action: @escaping @MainActor () -> Void
@@ -15733,7 +15799,7 @@ public struct Stepper: View {
             lineBreakMode: .truncateTail,
             maximumNumberOfLines: 1
         )
-        return Controls.button(
+        let node = Controls.button(
             runtime: runtime,
             preferredSize: preferredSize,
             cornerRadius: 12,
@@ -15746,6 +15812,10 @@ public struct Stepper: View {
             action: action,
             children: [titleNode]
         )
+        // "+"/"-" glyphs are poor accessible names; default to the action
+        // name (an explicit accessibilityLabel modifier still wins).
+        node.accessibilityLabel = accessibilityName
+        return node
     }
 
     private static func resolvedDoubleStep(_ step: Double) -> Double {
@@ -16119,6 +16189,10 @@ public struct Slider: View {
             }
 
             let labelNode = labelComponent.makeNode(runtime: runtime)
+            // Default accessibility name from the label content; an explicit
+            // accessibilityLabel modifier applies after this and wins. The
+            // retained slider builder already applied slider behavior + value.
+            sliderNode.accessibilityLabel = firstRetainedText(in: labelNode)
             // In the labeled form the track row gives up vertical space before
             // the label does: a constrained parent squeezes the track (which
             // re-resolves its geometry in onLayout) instead of shrinking the
@@ -16338,6 +16412,10 @@ public struct ProgressView: View {
 
             guard !currentValueLabel.isEmpty else {
                 let labelNode = labelComponent.makeNode(runtime: runtime)
+                // Default accessibility name from the label content; an
+                // explicit accessibilityLabel modifier wins. The retained
+                // progress builder already applied the value.
+                progressNode.accessibilityLabel = firstRetainedText(in: labelNode)
                 return Controls.stackPanel(
                     stackLayout: .vertical(spacing: 8, alignment: .stretch),
                     isHitTestVisible: false,
@@ -16347,7 +16425,9 @@ public struct ProgressView: View {
 
             var headerChildren: [ViewNode] = []
             if !label.isEmpty {
-                headerChildren.append(labelComponent.makeNode(runtime: runtime))
+                let labelNode = labelComponent.makeNode(runtime: runtime)
+                progressNode.accessibilityLabel = firstRetainedText(in: labelNode)
+                headerChildren.append(labelNode)
             }
             headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
 
@@ -16630,7 +16710,12 @@ public struct Gauge: View {
             if hasHeader {
                 var headerChildren: [ViewNode] = []
                 if !label.isEmpty {
-                    headerChildren.append(labelComponent.makeNode(runtime: runtime))
+                    let labelNode = labelComponent.makeNode(runtime: runtime)
+                    // Default accessibility name from the label content; an
+                    // explicit accessibilityLabel modifier wins. The retained
+                    // progress builder already applied the value.
+                    gaugeNode.accessibilityLabel = firstRetainedText(in: labelNode)
+                    headerChildren.append(labelNode)
                 }
                 if !currentValueLabel.isEmpty {
                     headerChildren.append(currentValueLabelComponent.makeNode(runtime: runtime))
@@ -16732,7 +16817,7 @@ public struct Link: View {
 
         return Component { runtime in
             let labelNode = labelComponent.makeNode(runtime: runtime)
-            return Controls.button(
+            let node = Controls.button(
                 runtime: runtime,
                 cornerRadius: ButtonSurfaceStyle.plain.cornerRadius,
                 palette: ButtonSurfaceStyle.plain.palette,
@@ -16747,6 +16832,14 @@ public struct Link: View {
                 },
                 children: [labelNode]
             )
+            // A link is announced as a hyperlink, not a plain button: the
+            // projection's first-match table checks isButton before isLink,
+            // so replace the retained button default. The name defaults to
+            // the label content; an explicit accessibilityLabel wins.
+            node.accessibilityTraits.subtract(.isButton)
+            node.accessibilityTraits.formUnion(.isLink)
+            node.accessibilityLabel = firstRetainedText(in: labelNode)
+            return node
         }
     }
 }
@@ -17682,6 +17775,11 @@ public struct Button: View {
                 children: [labelNode]
             )
             buttonBorderShape.applyRetainedDynamicCornerRadius(to: node)
+            // Default accessibility name from the label content; an explicit
+            // `accessibilityLabel` modifier applies after this and wins. The
+            // retained button builder already applied the isButton trait and
+            // combine behavior.
+            node.accessibilityLabel = _storedTitle ?? firstRetainedText(in: labelNode)
             return node
         }
     }

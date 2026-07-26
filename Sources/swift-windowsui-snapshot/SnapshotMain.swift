@@ -10,6 +10,7 @@ struct SwiftWindowsUISnapshotTool {
     static func main() throws {
         let options = try SnapshotOptions.parse(CommandLine.arguments.dropFirst())
         let model = DemoDashboardModel()
+        model.selectedScreen = options.screen
         let view = DemoRootView(model: model)
         let snapshot = WinSwiftUIRendererSnapshotter.snapshot(
             of: view,
@@ -53,6 +54,7 @@ struct SwiftWindowsUISnapshotTool {
         print("Snapshot=\(outputURL.path)")
         print("Backend=\(backendName)")
         print("Mode=\(options.mode.rawValue)")
+        print("Screen=\(options.screen.rawValue)")
         print("Format=\(format.rawValue)")
         print("Size=\(bitmap.width)x\(bitmap.height)")
         print("ScenePrimitives=\(snapshot.scene.primitiveCount)")
@@ -85,6 +87,7 @@ private struct SnapshotOptions {
     var backend: SnapshotBackend
     var format: SnapshotFormat
     var generateHTMLReport: Bool
+    var screen: DemoScreen
 
     static func parse<S: Sequence>(_ arguments: S) throws -> SnapshotOptions where S.Element == String {
         var output = URL(fileURLWithPath: "artifacts/demo-screenshot.bmp")
@@ -95,6 +98,7 @@ private struct SnapshotOptions {
         var backend: SnapshotBackend? = nil
         var format: SnapshotFormat? = nil
         var generateHTMLReport = false
+        var screen = DemoScreen.dashboard
 
         var normalizedArguments = Array(arguments)
         if normalizedArguments.first == "--" {
@@ -133,6 +137,12 @@ private struct SnapshotOptions {
                 format = parsed
             case "--html-report":
                 generateHTMLReport = true
+            case "--screen":
+                let value = try requireValue(after: argument, from: &iterator)
+                guard let parsed = DemoScreen(rawValue: value) else {
+                    throw SnapshotError.invalidArgument("--screen must be dashboard, settings, or data.")
+                }
+                screen = parsed
             case "--help", "-h":
                 throw SnapshotError.help
             default:
@@ -166,7 +176,8 @@ private struct SnapshotOptions {
             mode: mode,
             backend: resolvedBackend,
             format: resolvedFormat,
-            generateHTMLReport: generateHTMLReport
+            generateHTMLReport: generateHTMLReport,
+            screen: screen
         )
     }
 
@@ -240,6 +251,8 @@ private enum SnapshotError: Error, CustomStringConvertible {
                                           Rendering backend (default: raw-scene)
                   --format <bmp|png>      Output format (default: inferred from output extension, else bmp)
                   --html-report           Generate an HTML inspection report
+                  --screen <dashboard|settings|data>
+                                          Demo tab to render (default: dashboard)
                   -h, --help              Show this help message
                 """
         case .invalidArgument(let message):

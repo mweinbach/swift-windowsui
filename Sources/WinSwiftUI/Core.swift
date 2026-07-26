@@ -6305,6 +6305,10 @@ public struct EnvironmentValues: @unchecked Sendable {
     var keyboardType: UIKeyboardType
     var textInputCompletion: String?
     var textInputSuggestions: [AnyView]?
+    /// Clipboard override used by `TextField`, `SecureField`, and `TextEditor`
+    /// for Ctrl+C/X/V editing commands. When nil, text inputs fall back to
+    /// `TextInputClipboardProvider.current`.
+    public var textInputClipboard: (any TextInputClipboard)?
     public var writingToolsBehavior: WritingToolsBehavior?
     public var writingToolsAffordanceVisibility: Visibility
     var searchDictationBehavior: TextInputDictationBehavior?
@@ -6702,6 +6706,7 @@ public struct EnvironmentValues: @unchecked Sendable {
         self.keyboardType = .default
         self.textInputCompletion = nil
         self.textInputSuggestions = nil
+        self.textInputClipboard = nil
         self.writingToolsBehavior = nil
         self.writingToolsAffordanceVisibility = .automatic
         self.searchDictationBehavior = nil
@@ -8463,6 +8468,10 @@ public struct ViewBuildContext {
 
     var textInputSuggestions: [AnyView]? {
         environmentValuesProvider().textInputSuggestions
+    }
+
+    public var textInputClipboard: (any TextInputClipboard)? {
+        environmentValuesProvider().textInputClipboard
     }
 
     var searchCompletion: String? {

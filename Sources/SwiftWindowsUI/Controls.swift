@@ -1063,6 +1063,22 @@ public enum Controls {
             isHitTestVisible: false,
             children: [thumb]
         )
+        track.onLayout = { bounds in
+            let resolvedWidth = max(0, bounds.size.width)
+            let resolvedHeight = max(0, bounds.size.height)
+            let resolvedThumbSize = min(thumbSize, resolvedWidth, resolvedHeight)
+            let resolvedThumbY = max(0, (resolvedHeight - resolvedThumbSize) * 0.5)
+            let resolvedThumbX =
+                isOn
+                ? max(0, resolvedWidth - resolvedThumbSize - thumbInset)
+                : min(thumbInset, max(0, resolvedWidth - resolvedThumbSize))
+            thumb.frame = Rect(
+                x: resolvedThumbX,
+                y: resolvedThumbY,
+                width: resolvedThumbSize,
+                height: resolvedThumbSize
+            )
+        }
 
         let action: (() -> Void)? = isEnabled ? { onToggle?(!isOn) } : nil
 
@@ -1238,13 +1254,28 @@ public enum Controls {
             isHitTestVisible: false
         )
 
-        return panel(
+        let progressNode = panel(
             preferredSize: Size(width: barWidth, height: barHeight),
             layoutPriority: layoutPriority,
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: [trackNode, filledNode]
         )
+        progressNode.onLayout = { bounds in
+            let resolvedWidth = max(0, bounds.size.width)
+            let resolvedHeight = max(0, bounds.size.height)
+            let resolvedBarHeight = min(barHeight, resolvedHeight)
+            let resolvedBarY = max(0, (resolvedHeight - resolvedBarHeight) * 0.5)
+            trackNode.frame = Rect(x: 0, y: resolvedBarY, width: resolvedWidth, height: resolvedBarHeight)
+            filledNode.frame = Rect(
+                x: 0,
+                y: resolvedBarY,
+                width: resolvedWidth * progress,
+                height: resolvedBarHeight
+            )
+        }
+
+        return progressNode
     }
 
     public static func circularProgress(
@@ -1302,13 +1333,29 @@ public enum Controls {
             )
         }
 
-        return panel(
+        let progressNode = panel(
             preferredSize: Size(width: size, height: size),
             layoutPriority: layoutPriority,
             layoutMode: .absolute,
             isHitTestVisible: false,
             children: children
         )
+        progressNode.onLayout = { bounds in
+            let resolvedSize = max(0, min(bounds.size.width, bounds.size.height))
+            let resolvedDotSize = min(dotSize, resolvedSize)
+            let travel = max(0, resolvedSize - resolvedDotSize)
+            for (index, dotNode) in children.enumerated() {
+                let center = segmentCenters[index]
+                dotNode.frame = Rect(
+                    x: center.0 * travel,
+                    y: center.1 * travel,
+                    width: resolvedDotSize,
+                    height: resolvedDotSize
+                )
+            }
+        }
+
+        return progressNode
     }
 
     // MARK: - Radio Button

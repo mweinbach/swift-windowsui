@@ -48,6 +48,8 @@ Visual checks:
 
 - `scripts/demo-probe.ps1` launches the demo long enough to record presenter selection, then exits.
 - `scripts/demo-screenshot.ps1` builds the shared demo view through `WinSwiftUIRendererSnapshotter`, pulls the raw retained runtime scene, rasterizes it offscreen, and writes `artifacts/demo-screenshot.png`.
+- Add `-AllScreens` to `demo-screenshot.ps1` to capture all three demo tabs in one run: `artifacts/demo-screenshot-dashboard.png`, `artifacts/demo-screenshot-settings.png`, and `artifacts/demo-screenshot-data.png`. Default behavior (a single dashboard shot) is unchanged.
+- The underlying `swift-windowsui-snapshot` executable also accepts `--screen <dashboard|settings|data>` to render a single non-default tab directly; the default is `dashboard`.
 - Add `-FrameDebug` to either command to force the `RenderFrame` fallback path.
 - `demo-screenshot.ps1` does not depend on desktop window visibility, monitor placement, or foreground focus. It also leaves the raw BMP source next to the PNG as `*.raw.bmp` for inspection.
 

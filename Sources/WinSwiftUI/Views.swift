@@ -10567,6 +10567,10 @@ public struct Menu: View {
 
     private final class MenuState {
         var isOpen = false
+        // Set when the menu dismisses so the next rebuild can return keyboard
+        // focus to the menu's source button (approximating SwiftUI's
+        // focus restoration to the control focused before presentation).
+        var restoreFocusOnClose = false
     }
 
     private let state = MenuState()
@@ -10762,6 +10766,14 @@ public struct Menu: View {
             }
         }
 
+        let existingKeyDown = node.onKeyDown
+        node.onKeyDown = { event in
+            existingKeyDown?(event)
+            if event.key == .escape {
+                dismiss()
+            }
+        }
+
         for child in node.children {
             attachMenuDismiss(to: child, dismiss: dismiss)
         }
@@ -10840,13 +10852,26 @@ public struct Menu: View {
                 children: [headerContent]
             )
 
+            if menuState.restoreFocusOnClose, !menuState.isOpen {
+                menuState.restoreFocusOnClose = false
+                runtime.requestFocus(menuButton)
+            }
+
             let dismissMenu: @MainActor () -> Void = {
                 guard menuState.isOpen else {
                     return
                 }
 
                 menuState.isOpen = false
+                menuState.restoreFocusOnClose = true
                 context.invalidate()
+            }
+            menuButton.onKeyDown = { event in
+                guard menuState.isOpen, event.key == .escape else {
+                    return
+                }
+
+                dismissMenu()
             }
             var children: [ViewNode] = [menuButton]
             if menuState.isOpen {
@@ -10871,10 +10896,28 @@ public struct Menu: View {
                     stackLayout: .vertical(
                         spacing: 2, padding: EdgeInsets(top: 6, leading: 6, bottom: 6, trailing: 6), alignment: .stretch
                     ),
-                    isHitTestVisible: false,
+                    // Hit-test visible so clicks on the panel's padding do not
+                    // fall through to the dismissal scrim behind it.
+                    isHitTestVisible: true,
                     children: itemNodes
                 )
-                children.append(menuPanel)
+                // Full-canvas transparent scrim: sits behind the panel inside
+                // the deferred overlay and dismisses on outside pointer-down.
+                let scrimNode = Controls.panel(isHitTestVisible: true)
+                scrimNode.nodeTag = "menu-dismiss-scrim"
+                scrimNode.onPointerDown = {
+                    dismissMenu()
+                }
+                // Deferred painting keeps the open menu above all base content
+                // and gives its subtree hit-test priority over base content.
+                let overlayContainer = Controls.panel(
+                    layoutMode: .absolute,
+                    isHitTestVisible: false,
+                    children: [scrimNode, menuPanel]
+                )
+                overlayContainer.paintsInDeferredPhase = true
+                overlayContainer.nodeTag = "menu-overlay"
+                children.append(overlayContainer)
             }
 
             let root = Controls.panel(
@@ -10894,8 +10937,33 @@ public struct Menu: View {
                     return
                 }
 
-                let panel = children[1]
+                let overlayContainer = children[1]
+                let containerFrame = Rect(origin: .zero, size: bounds.size)
+                if overlayContainer.frame != containerFrame {
+                    overlayContainer.frame = containerFrame
+                }
+                guard overlayContainer.children.count > 1 else {
+                    return
+                }
+
+                let scrim = overlayContainer.children[0]
+                let panel = overlayContainer.children[1]
                 let panelSize = panel.intrinsicContentSize()
+                let canvasSize = context.canvasSize
+                let rootOrigin = retainedMenuAbsoluteOrigin(of: root)
+
+                // The scrim always covers the full canvas, no matter where the
+                // menu's source button sits in the window.
+                let scrimFrame = Rect(
+                    x: -rootOrigin.x,
+                    y: -rootOrigin.y,
+                    width: canvasSize.width,
+                    height: canvasSize.height
+                )
+                if scrim.frame != scrimFrame {
+                    scrim.frame = scrimFrame
+                }
+
                 let x: Double
                 switch context.layoutDirection {
                 case .leftToRight:
@@ -10903,12 +10971,17 @@ public struct Menu: View {
                 case .rightToLeft:
                     x = max(0, buttonSize.width - panelSize.width)
                 }
-                let panelFrame = Rect(
+                let naturalOrigin = Point(
                     x: x,
-                    y: min(bounds.size.height, buttonSize.height + 4),
-                    width: panelSize.width,
-                    height: panelSize.height
+                    y: min(bounds.size.height, buttonSize.height + 4)
                 )
+                let panelOrigin = retainedMenuClampedPanelOrigin(
+                    naturalOrigin,
+                    panelSize: panelSize,
+                    rootOrigin: rootOrigin,
+                    canvasSize: canvasSize
+                )
+                let panelFrame = Rect(origin: panelOrigin, size: panelSize)
                 if panel.frame != panelFrame {
                     panel.frame = panelFrame
                 }
@@ -10917,6 +10990,37 @@ public struct Menu: View {
             return root
         }
     }
+}
+
+/// Absolute origin of `node` within the window, approximated by walking the
+/// parent chain. Ancestor scroll offsets are not accounted for, matching the
+/// retained popover's attachment approximation.
+@MainActor
+private func retainedMenuAbsoluteOrigin(of node: ViewNode) -> Point {
+    var origin = Point.zero
+    var current: ViewNode? = node
+    while let currentNode = current {
+        origin = Point(
+            x: origin.x + currentNode.frame.origin.x,
+            y: origin.y + currentNode.frame.origin.y
+        )
+        current = currentNode.parent
+    }
+    return origin
+}
+
+/// Clamps the menu panel's local origin so the panel never paints outside the
+/// canvas, mirroring `clampedPopoverOrigin` in Core.swift.
+private func retainedMenuClampedPanelOrigin(
+    _ origin: Point,
+    panelSize: Size,
+    rootOrigin: Point,
+    canvasSize: Size
+) -> Point {
+    Point(
+        x: min(max(0, canvasSize.width - panelSize.width), max(0, rootOrigin.x + origin.x)) - rootOrigin.x,
+        y: min(max(0, canvasSize.height - panelSize.height), max(0, rootOrigin.y + origin.y)) - rootOrigin.y
+    )
 }
 @MainActor
 public struct MenuButton<Label: View>: View {
@@ -11737,7 +11841,9 @@ private final class SystemTextInputClipboard: TextInputClipboard {
     }
 }
 /// Process-wide clipboard provider for retained text inputs. Production uses
-/// the Win32 Unicode clipboard; tests swap in a fake implementation.
+/// the Win32 Unicode clipboard; tests swap in a fake implementation. An
+/// `.environment(\.textInputClipboard, ...)` override takes precedence over
+/// this provider for views beneath the modifier.
 @MainActor
 public enum TextInputClipboardProvider {
     public static var current: any TextInputClipboard = SystemTextInputClipboard()
@@ -12611,6 +12717,7 @@ private func textInputComponent(
             }
 
             if event.modifiers.contains(.control) {
+                let clipboard = context.textInputClipboard ?? TextInputClipboardProvider.current
                 switch event.keyCode {
                 case 0x41:  // Ctrl+A — select all
                     let count = binding.wrappedValue.count
@@ -12622,15 +12729,15 @@ private func textInputComponent(
                     guard !isSecure, let range = currentSelectionState().range else {
                         return
                     }
-                    TextInputClipboardProvider.current.copyString(binding.wrappedValue.textSubstring(in: range))
+                    clipboard.copyString(binding.wrappedValue.textSubstring(in: range))
                 case 0x58:  // Ctrl+X — cut (disabled for secure fields)
                     guard !isSecure, let range = currentSelectionState().range else {
                         return
                     }
-                    TextInputClipboardProvider.current.copyString(binding.wrappedValue.textSubstring(in: range))
+                    clipboard.copyString(binding.wrappedValue.textSubstring(in: range))
                     deleteSelection(range)
                 case 0x56:  // Ctrl+V — paste over the selection or at the caret
-                    guard let pasted = TextInputClipboardProvider.current.pasteString() else {
+                    guard let pasted = clipboard.pasteString() else {
                         return
                     }
                     let pastedText =

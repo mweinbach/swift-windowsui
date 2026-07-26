@@ -109,7 +109,7 @@ dashboard composition on a single custom-rendered window.
 | `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
 | `ColorPicker` | **Partial** | Swatch + palette keyboard cycle; no native color dialog |
-| `Menu` | **Partial** | Retained popup under button; not a native Win32 menu bar |
+| `Menu` | **Partial** | Retained popup: canvas-clamped placement, scrim/Escape dismissal, focus restore, deferred layering; not a native Win32 menu bar |
 | `Link` | **Implemented** | Button that invokes `openURL` (ShellExecute on Windows) |
 | `NavigationStack` / `NavigationView` / `NavigationLink` | **Partial** | Local push/pop + title chrome; not UINavigationController semantics |
 | `NavigationSplitView` | **Partial** | Horizontal columns + visibility; no adaptive breakpoint collapsing |

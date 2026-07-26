@@ -70,9 +70,14 @@ source-only API surface.
 - [x] Reviewed gallery baselines fail CI on meaningful visual regressions
       (`scripts/gallery-compare.ps1`, 25 Supported-tier baselines under
       `Tests/fixtures/gallery-baselines/`, runs in `-Full` and Windows CI)
-- [ ] Supported controls render without clipping at documented minimum widths
+- [x] Supported controls render without clipping at documented minimum widths
+      (track controls re-resolve geometry in `onLayout`: slider, progress bar,
+      circular progress, toggle thumb; pinned by `ControlGeometryTests` at
+      gallery canvas sizes)
 - [ ] Text fields support selection, clipboard, caret, and IME smoke flows
-      (selection/clipboard/caret landed; mouse-drag selection and IME remain)
+      (selection/clipboard/caret landed; clipboard injectable via
+      `\.textInputClipboard` environment; mouse-drag selection blocked on a
+      public text-measurement facade in SwiftWindowsUI; IME remains)
 - [x] Lists/forms support mouse and keyboard navigation with stable row chrome
       (arrow-key selection with focus + scroll-into-view, constant row
       metrics, hover highlight, form section clipping)

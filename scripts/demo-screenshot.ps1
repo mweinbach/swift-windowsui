@@ -7,7 +7,8 @@ param(
     [string]$Mode = "scene",
     [switch]$FrameDebug,
     [int]$WarmupMilliseconds = 0,
-    [switch]$KeepOpen
+    [switch]$KeepOpen,
+    [switch]$AllScreens
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,41 +24,72 @@ if ($FrameDebug) {
     $Mode = "frame"
 }
 
-$outputDirectory = Split-Path -Parent $OutputPath
-if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
-    New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
-}
+function Invoke-DemoScreenshot {
+    param(
+        [string]$Path,
+        [string]$Screen
+    )
 
-$rawBmpPath = $OutputPath
-if ([System.IO.Path]::GetExtension($OutputPath).ToLowerInvariant() -ne ".bmp") {
-    $rawDirectory = if ([string]::IsNullOrWhiteSpace($outputDirectory)) { (Get-Location).Path } else { $outputDirectory }
-    $rawBmpPath = Join-Path $rawDirectory ([System.IO.Path]::GetFileNameWithoutExtension($OutputPath) + ".raw.bmp")
-}
+    $outputDirectory = Split-Path -Parent $Path
+    if (-not [string]::IsNullOrWhiteSpace($outputDirectory)) {
+        New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
+    }
 
-& $withSwift swift run --package-path $repoRoot swift-windowsui-snapshot -- `
-    --output $rawBmpPath `
-    --width $Width `
-    --height $Height `
-    --scale $Scale `
-    --mode $Mode
-if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
-}
+    $rawBmpPath = $Path
+    if ([System.IO.Path]::GetExtension($Path).ToLowerInvariant() -ne ".bmp") {
+        $rawDirectory = if ([string]::IsNullOrWhiteSpace($outputDirectory)) { (Get-Location).Path } else { $outputDirectory }
+        $rawBmpPath = Join-Path $rawDirectory ([System.IO.Path]::GetFileNameWithoutExtension($Path) + ".raw.bmp")
+    }
 
-if ([System.IO.Path]::GetExtension($OutputPath).ToLowerInvariant() -eq ".bmp") {
-    Write-Output "Screenshot=$OutputPath"
+    $snapshotArgs = @(
+        "run", "--package-path", $repoRoot, "swift-windowsui-snapshot", "--",
+        "--output", $rawBmpPath,
+        "--width", $Width,
+        "--height", $Height,
+        "--scale", $Scale,
+        "--mode", $Mode
+    )
+    if (-not [string]::IsNullOrWhiteSpace($Screen)) {
+        $snapshotArgs += @("--screen", $Screen)
+    }
+
+    & $withSwift swift @snapshotArgs
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    if ([System.IO.Path]::GetExtension($Path).ToLowerInvariant() -eq ".bmp") {
+        Write-Output "Screenshot=$Path"
+        Write-Output "Source=raw-$Mode"
+        return
+    }
+
+    Add-Type -AssemblyName System.Drawing
+    $bitmap = [System.Drawing.Image]::FromFile($rawBmpPath)
+    try {
+        $bitmap.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $bitmap.Dispose()
+    }
+
+    Write-Output "Screenshot=$Path"
+    Write-Output "RawFrame=$rawBmpPath"
     Write-Output "Source=raw-$Mode"
-    exit 0
 }
 
-Add-Type -AssemblyName System.Drawing
-$bitmap = [System.Drawing.Image]::FromFile($rawBmpPath)
-try {
-    $bitmap.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
-} finally {
-    $bitmap.Dispose()
+if ($AllScreens) {
+    $outputDirectory = Split-Path -Parent $OutputPath
+    if ([string]::IsNullOrWhiteSpace($outputDirectory)) {
+        $outputDirectory = (Get-Location).Path
+    }
+    $extension = [System.IO.Path]::GetExtension($OutputPath)
+    if ([string]::IsNullOrWhiteSpace($extension)) {
+        $extension = ".png"
+    }
+    foreach ($screen in @("dashboard", "settings", "data")) {
+        $screenPath = Join-Path $outputDirectory "demo-screenshot-$screen$extension"
+        Invoke-DemoScreenshot -Path $screenPath -Screen $screen
+    }
+} else {
+    Invoke-DemoScreenshot -Path $OutputPath -Screen ""
 }
-
-Write-Output "Screenshot=$OutputPath"
-Write-Output "RawFrame=$rawBmpPath"
-Write-Output "Source=raw-$Mode"

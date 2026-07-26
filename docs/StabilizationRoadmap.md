@@ -67,11 +67,17 @@ source-only API surface.
 
 ### Exit criteria
 
-- [ ] Reviewed gallery baselines fail CI on meaningful visual regressions
+- [x] Reviewed gallery baselines fail CI on meaningful visual regressions
+      (`scripts/gallery-compare.ps1`, 25 Supported-tier baselines under
+      `Tests/fixtures/gallery-baselines/`, runs in `-Full` and Windows CI)
 - [ ] Supported controls render without clipping at documented minimum widths
 - [ ] Text fields support selection, clipboard, caret, and IME smoke flows
-- [ ] Lists/forms support mouse and keyboard navigation with stable row chrome
-- [ ] Demo includes at least three product-style screens and resize snapshots
+      (selection/clipboard/caret landed; mouse-drag selection and IME remain)
+- [x] Lists/forms support mouse and keyboard navigation with stable row chrome
+      (arrow-key selection with focus + scroll-into-view, constant row
+      metrics, hover highlight, form section clipping)
+- [x] Demo includes at least three product-style screens and resize snapshots
+      (dashboard/settings/data tabs; snapshot smoke at 1280x720 and 800x600)
 - [ ] Full validation remains green after each vertical slice
 
 ---

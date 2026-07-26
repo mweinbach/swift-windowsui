@@ -15084,9 +15084,12 @@ final class WinSwiftUITests: XCTestCase {
             XCTAssertEqual(firstText(in: node.children[1].children[2]), "HIGH")
 
             let sliderNode = node.children[1].children[1]
+            // Labeled sliders cap the track at 100pt preferred width, so the
+            // usable drag track is 100 - 18 (thumb) = 82pt; x=49 lands at
+            // 49/82 * 10 ≈ 5.98, which snaps to 6.0 with step 2.
             sliderNode.onDragStart?(Point(x: 0, y: 0))
-            sliderNode.onDragChange?(Point(x: 91, y: 0), Point(x: 91, y: 0))
-            sliderNode.onDragEnd?(Point(x: 91, y: 0), Point(x: 91, y: 0))
+            sliderNode.onDragChange?(Point(x: 49, y: 0), Point(x: 49, y: 0))
+            sliderNode.onDragEnd?(Point(x: 49, y: 0), Point(x: 49, y: 0))
 
             XCTAssertEqual(value, 6.0, accuracy: 0.001)
             XCTAssertEqual(editingChanges, [true, false])

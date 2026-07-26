@@ -73,7 +73,7 @@ dashboard composition on a single custom-rendered window.
 | `Grid`, `GridRow` | **Partial** | Stack-based; simple `gridCellColumns` growth; full column sizing / cell anchors are incomplete |
 | `Spacer`, `Divider`, `Group`, `EmptyView` | **Implemented** | |
 | `ScrollView` | **Partial** | One primary axis; `.all` resolves to vertical; indicators managed in runtime |
-| `List` | **Partial** | Vertical scroll panel, selection chrome, binding-backed rows; limited edit chrome |
+| `List` | **Partial** | Vertical scroll panel, stable row metrics, hover/selection chrome, arrow-key selection with scroll-into-view; limited edit chrome |
 | `Form`, `Section` | **Partial** | Form chrome and section headers/footers; styles map to retained spacing/shells |
 | `GroupBox`, `DisclosureGroup`, `ControlGroup` | **Partial** | Functional retained chrome; style enums are mostly visual profiles / metadata |
 | `HSplitView`, `VSplitView` | **Implemented** | Draggable retained splitters with ratio / min extents |
@@ -105,7 +105,7 @@ dashboard composition on a single custom-rendered window.
 | `Picker` | **Partial** | Segmented, menu, inline, radio, wheel-style shells; not native OS pickers |
 | `Stepper`, `Slider` | **Implemented** | Binding writes with ranges / steps |
 | `ProgressView`, `Gauge` | **Partial** | Determinate / indeterminate retained chrome |
-| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; basic keys/caret; not a full text system |
+| `TextField`, `SecureField`, `TextEditor` | **Partial** | Focusable retained input; caret, shift-selection, select-all, clipboard shortcuts (secure fields block copy/cut); no mouse-drag selection or IME |
 | `DatePicker` | **Partial** | Label/value + arrow increments; style shells; not a native calendar UI |
 | `MultiDatePicker` | **Partial** | Month grid multi-select for current month |
 | `ColorPicker` | **Partial** | Swatch + palette keyboard cycle; no native color dialog |

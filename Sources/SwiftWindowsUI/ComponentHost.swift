@@ -641,7 +641,12 @@ public final class ComponentHost {
         if target.flexItem != source.flexItem { target.flexItem = source.flexItem }
         if target.flexItemStyle != source.flexItemStyle { target.flexItemStyle = source.flexItemStyle }
         if target.scrollAxis != source.scrollAxis { target.scrollAxis = source.scrollAxis }
-        if target.scrollOffset != source.scrollOffset { target.scrollOffset = source.scrollOffset }
+        // Scroll offsets are runtime-driven (wheel/drag/keyboard); a freshly
+        // built node always starts at zero, so only adopt a source offset that
+        // was explicitly set and never let a rebuild reset a live offset.
+        if source.scrollOffset != 0, target.scrollOffset != source.scrollOffset {
+            target.scrollOffset = source.scrollOffset
+        }
         if target.scrollStep != source.scrollStep { target.scrollStep = source.scrollStep }
         if target.showsScrollIndicator != source.showsScrollIndicator {
             target.showsScrollIndicator = source.showsScrollIndicator

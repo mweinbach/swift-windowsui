@@ -8677,6 +8677,121 @@ private enum ListSelectionMode {
             return true
         }
     }
+
+    /// Moves a single selection to a neighboring tag within the ordered
+    /// selectable tags and returns the newly selected tag, or nil when the
+    /// selection did not change (boundary reached, empty list, or a
+    /// multi-selection list, where arrow-key movement would destroy the
+    /// existing selection anchor).
+    func moveSelection(within orderedTags: [AnyHashable], delta: Int) -> AnyHashable? {
+        guard case .single(let get, let set) = self, !orderedTags.isEmpty, delta != 0 else {
+            return nil
+        }
+
+        let current = get()
+        let nextIndex: Int
+        if let current, let currentIndex = orderedTags.firstIndex(of: current) {
+            nextIndex = min(max(currentIndex + delta, 0), orderedTags.count - 1)
+        } else {
+            nextIndex = delta > 0 ? 0 : orderedTags.count - 1
+        }
+
+        let next = orderedTags[nextIndex]
+        guard next != current else {
+            return nil
+        }
+
+        set(next)
+        return next
+    }
+}
+/// Per-build keyboard navigation state for a selection-bound `List`.
+///
+/// Selectable rows register themselves in build order so an arrow-key press
+/// on the focused row can resolve the neighboring selectable tag, move focus,
+/// and scroll the target row into the viewport. Layout frames are captured
+/// through `ViewNode.onLayout` because resolved layout geometry is internal
+/// to the retained runtime.
+@MainActor
+private final class ListKeyboardNavigationState {
+    @MainActor
+    private final class RowEntry {
+        let tag: AnyHashable
+        weak var node: ViewNode?
+        var contentFrame: Rect?
+
+        init(tag: AnyHashable) {
+            self.tag = tag
+        }
+    }
+
+    private var entries: [RowEntry] = []
+    private var viewportHeight: Double = 0
+
+    var orderedTags: [AnyHashable] {
+        entries.map { $0.tag }
+    }
+
+    func registerRow(tag: AnyHashable, node: ViewNode) {
+        let entry = RowEntry(tag: tag)
+        entry.node = node
+        entries.append(entry)
+
+        node.onLayout = { [weak entry] frame in
+            entry?.contentFrame = frame
+        }
+    }
+
+    func registerViewport(node: ViewNode) {
+        node.onLayout = { [weak self] frame in
+            self?.viewportHeight = frame.size.height
+        }
+    }
+
+    func rowNode(for tag: AnyHashable) -> ViewNode? {
+        entries.first(where: { $0.tag == tag })?.node
+    }
+
+    /// Adjusts the enclosing vertical scroll panel so the row for `tag` is
+    /// fully visible, when the layout metrics captured so far allow it.
+    func scrollRowIntoView(tag: AnyHashable) {
+        guard
+            let entry = entries.first(where: { $0.tag == tag }),
+            let rowNode = entry.node,
+            let rowFrame = entry.contentFrame
+        else {
+            return
+        }
+
+        var panel: ViewNode?
+        var ancestor = rowNode.parent
+        while let node = ancestor {
+            if node.scrollAxis == .vertical {
+                panel = node
+                break
+            }
+            ancestor = node.parent
+        }
+        guard let panel, viewportHeight > 0 else {
+            return
+        }
+
+        let contentBottom = entries.compactMap { $0.contentFrame?.maxY }.max() ?? rowFrame.maxY
+        let maxOffset = max(0, contentBottom - viewportHeight)
+        let currentOffset = panel.scrollOffset
+
+        var nextOffset = currentOffset
+        if rowFrame.minY < currentOffset {
+            nextOffset = rowFrame.minY
+        } else if rowFrame.maxY > currentOffset + viewportHeight {
+            nextOffset = rowFrame.maxY - viewportHeight
+        }
+
+        nextOffset = min(max(nextOffset, 0), maxOffset)
+        if nextOffset != currentOffset {
+            panel.scrollOffset = nextOffset
+        }
+    }
 }
 @MainActor
 public struct List: View {
@@ -8882,6 +8997,7 @@ public struct List: View {
             let listChrome = context.listStyle.retainedChrome
             let alignmentAnchor = context.defaultScrollAnchor(for: .alignment)
             let isEditing = context.environmentValues.editMode?.wrappedValue.isEditing == true
+            let navigationState = ListKeyboardNavigationState()
             let node = Controls.scrollPanel(
                 axis: .vertical,
                 backgroundColor: listChrome.backgroundColor,
@@ -8915,6 +9031,7 @@ public struct List: View {
                     if context.isMoveDisabled, row.moveDisabledOverride == nil {
                         row.moveDisabled = true
                     }
+                    var isSelectionBoundRow = false
                     if let selectionMode, let tag, !row.selectionDisabled {
                         row = Self.selectableRow(
                             wrapping: row,
@@ -8922,8 +9039,11 @@ public struct List: View {
                             selectionMode: selectionMode,
                             isSelected: isSelected,
                             isEditing: isEditing,
-                            context: context
+                            context: context,
+                            runtime: runtime,
+                            navigationState: navigationState
                         )
+                        isSelectionBoundRow = true
                     }
                     row = Self.alternatingRowIfNeeded(
                         row,
@@ -8931,12 +9051,24 @@ public struct List: View {
                         isSelected: isSelected,
                         listChrome: listChrome
                     )
-                    if context.defaultMinListRowHeight > 0 {
-                        row.applyDefaultMinimumHeight(context.defaultMinListRowHeight)
+                    // Rows keep a consistent minimum height so selection and
+                    // hover chrome never changes row metrics. An explicit
+                    // `defaultMinListRowHeight` environment value wins over
+                    // the built-in default for selection-bound rows.
+                    let rowMinHeight =
+                        context.defaultMinListRowHeight > 0
+                        ? context.defaultMinListRowHeight
+                        : (isSelectionBoundRow ? Self.defaultSelectionRowMinHeight : 0)
+                    if rowMinHeight > 0 {
+                        row.applyDefaultMinimumHeight(rowMinHeight)
+                    }
+                    if isSelectionBoundRow, context.isEnabled, let tag {
+                        navigationState.registerRow(tag: tag, node: row)
                     }
                     return row
                 }
             )
+            navigationState.registerViewport(node: node)
             node.horizontalScrollBounceBehavior = context.horizontalScrollBounceBehavior.description
             node.verticalScrollBounceBehavior = context.verticalScrollBounceBehavior.description
             node.scrollTargetBehavior = context.scrollTargetBehavior?.description
@@ -8987,13 +9119,20 @@ public struct List: View {
         return views
     }
 
+    /// Minimum total height applied to selection-bound rows when no explicit
+    /// `defaultMinListRowHeight` environment value is set. Keeps row metrics
+    /// stable regardless of selection, hover, or focus chrome.
+    private static var defaultSelectionRowMinHeight: Double { 28 }
+
     private static func selectableRow(
         wrapping row: ViewNode,
         tag: AnyHashable,
         selectionMode: ListSelectionMode,
         isSelected: Bool,
         isEditing: Bool,
-        context: ViewBuildContext
+        context: ViewBuildContext,
+        runtime: RetainedViewRuntime,
+        navigationState: ListKeyboardNavigationState
     ) -> ViewNode {
         let selectionTint = context.tint
         if isEditing {
@@ -9011,10 +9150,13 @@ public struct List: View {
                 ]
             )
             : row
+        // Border width and padding stay constant across selection states so
+        // toggling selection never changes the painted row extents; the
+        // unselected border is simply fully transparent.
         let rowNode = Controls.stackPanel(
             backgroundColor: isSelected ? selectionTint.opacity(0.16) : nil,
             borderColor: isSelected ? selectionTint.opacity(0.52) : .clear,
-            borderWidth: isSelected ? 1 : 0,
+            borderWidth: 1,
             cornerRadius: 10,
             stackLayout: .vertical(
                 spacing: 0,
@@ -9031,10 +9173,41 @@ public struct List: View {
         }
 
         rowNode.isFocusable = true
+        // Arrow keys move the selection instead of scrolling the enclosing
+        // panel; the runtime consults this flag before its scroll-key path.
+        rowNode.interceptsVerticalArrowKeys = true
+        // Hover chrome repaints through the retained runtime: `isHovered`
+        // invalidates paint automatically when a hover effect is installed.
+        rowNode.hoverEffect = .highlight
         rowNode.onActivate = {
             if selectionMode.activate(tag) {
                 context.invalidate()
             }
+        }
+        rowNode.onKeyDown = { [weak runtime] event in
+            guard event.modifiers.isEmpty else {
+                return
+            }
+            let delta: Int
+            switch event.key {
+            case .upArrow:
+                delta = -1
+            case .downArrow:
+                delta = 1
+            default:
+                return
+            }
+
+            guard let target = selectionMode.moveSelection(within: navigationState.orderedTags, delta: delta)
+            else {
+                return
+            }
+
+            context.invalidate()
+            if let targetNode = navigationState.rowNode(for: target) {
+                runtime?.requestFocus(targetNode)
+            }
+            navigationState.scrollRowIntoView(tag: target)
         }
         return rowNode
     }
@@ -9668,6 +9841,10 @@ public struct Form: View {
                 borderColor: chrome.borderColor,
                 borderWidth: chrome.borderWidth,
                 cornerRadius: chrome.cornerRadius,
+                // Card-style forms clip content to the rounded card so section
+                // groups read as clean, distinct surfaces.
+                clipsToBounds: chrome.cornerRadius > 0
+                    && (chrome.backgroundColor != nil || chrome.borderWidth > 0),
                 stackLayout: .vertical(spacing: chrome.spacing, padding: chrome.padding, alignment: .stretch),
                 isHitTestVisible: false,
                 children: content.map { $0.makeComponent(context: context).makeNode(runtime: runtime) }
@@ -9934,8 +10111,10 @@ public struct Section: View {
                 borderColor: style.borderColor,
                 borderWidth: 1,
                 shadowColor: style.shadowColor,
-                shadowOffset: Point(x: 0, y: 20),
-                shadowSpread: 10,
+                // Tight, low shadow so stacked sections read as grouped cards
+                // rather than floating panels.
+                shadowOffset: Point(x: 0, y: 8),
+                shadowSpread: 4,
                 cornerRadius: style.cornerRadius,
                 clipsToBounds: true,
                 stackLayout: .vertical(
@@ -11539,6 +11718,30 @@ public struct TextEditor: View {
         )
     }
 }
+/// Clipboard interface used by `TextField`, `SecureField`, and `TextEditor`
+/// for Ctrl+C/X/V editing commands. Route tests through a fake by assigning
+/// `TextInputClipboardProvider.current`.
+@MainActor
+public protocol TextInputClipboard: AnyObject {
+    func copyString(_ text: String)
+    func pasteString() -> String?
+}
+@MainActor
+private final class SystemTextInputClipboard: TextInputClipboard {
+    func copyString(_ text: String) {
+        ClipboardManager.copyString(text)
+    }
+
+    func pasteString() -> String? {
+        ClipboardManager.pasteString()
+    }
+}
+/// Process-wide clipboard provider for retained text inputs. Production uses
+/// the Win32 Unicode clipboard; tests swap in a fake implementation.
+@MainActor
+public enum TextInputClipboardProvider {
+    public static var current: any TextInputClipboard = SystemTextInputClipboard()
+}
 @MainActor
 private func formatterBackedTextBinding<Value>(
     value: Binding<Value>,
@@ -12250,25 +12453,29 @@ private func textInputComponent(
             .scaled(for: context.dynamicTypeSize)
             .scaled(by: context.textScale)
 
-        let labelNode = Controls.label(
-            isShowingPlaceholder ? (resolvedPlaceholder ?? "") : displayText,
-            color: textColor,
-            scale: resolvedFont.resolvedScale,
-            weight: resolvedFont.weight.textWeight,
-            isItalic: resolvedFont.isItalic || context.isFontItalic,
-            monospacedDigits: resolvedFont.usesMonospacedDigits || context.usesMonospacedDigits,
-            lowercaseSmallCaps: resolvedFont.usesLowercaseSmallCaps,
-            uppercaseSmallCaps: resolvedFont.usesUppercaseSmallCaps,
-            fontFamily: resolvedFont.resolvedFamily,
-            nativeFontSize: resolvedFont.resolvedNativeTextSize,
-            fontWidth: resolvedFont.width.retainedTextFontWidth,
-            alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
-            insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
-            letterSpacing: context.letterSpacing ?? 1,
-            lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
-            lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
-            maximumNumberOfLines: allowsNewlines ? nil : 1
-        )
+        @MainActor func makeTextLabel(_ content: String) -> ViewNode {
+            Controls.label(
+                content,
+                color: textColor,
+                scale: resolvedFont.resolvedScale,
+                weight: resolvedFont.weight.textWeight,
+                isItalic: resolvedFont.isItalic || context.isFontItalic,
+                monospacedDigits: resolvedFont.usesMonospacedDigits || context.usesMonospacedDigits,
+                lowercaseSmallCaps: resolvedFont.usesLowercaseSmallCaps,
+                uppercaseSmallCaps: resolvedFont.usesUppercaseSmallCaps,
+                fontFamily: resolvedFont.resolvedFamily,
+                nativeFontSize: resolvedFont.resolvedNativeTextSize,
+                fontWidth: resolvedFont.width.retainedTextFontWidth,
+                alignment: context.textAlignment.textAlignment(layoutDirection: context.layoutDirection),
+                insets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0),
+                letterSpacing: context.letterSpacing ?? 1,
+                lineSpacing: context.lineSpacing ?? resolvedFont.resolvedLineSpacing,
+                lineBreakMode: allowsNewlines ? .wrap : .truncateTail,
+                maximumNumberOfLines: allowsNewlines ? nil : 1
+            )
+        }
+        let contentText = isShowingPlaceholder ? (resolvedPlaceholder ?? "") : displayText
+        let labelNode = makeTextLabel(contentText)
         if let baselineOffset = context.baselineOffset, baselineOffset != 0 {
             labelNode.transform = labelNode.transform.concatenating(.translation(x: 0, y: -Double(baselineOffset)))
         }
@@ -12306,36 +12513,93 @@ private func textInputComponent(
             return node
         }
 
+        let caretLineHeight = resolvedFont.resolvedNativeTextSize
+        let chromeState = TextInputEditingChromeState()
+        @MainActor func refreshChrome() {
+            updateTextInputEditingChrome(
+                node: node,
+                labelNode: labelNode,
+                contentText: contentText,
+                isShowingPlaceholder: isShowingPlaceholder,
+                caretColor: textColor,
+                selectionColor: context.tint.opacity(0.35),
+                caretSize: Size(width: 1.5, height: caretLineHeight),
+                state: chromeState,
+                makeSegmentLabel: makeTextLabel
+            )
+        }
+        // Rebuild caret/selection chrome after every layout pass so it tracks
+        // focus, caret, and selection changes across runtime rebuilds.
+        node.onLayout = { _ in refreshChrome() }
+
         node.isFocusable = true
         node.onFocusEnter = { [weak node] in
             node?.borderColor = context.tint
             node?.outlineColor = context.tint.opacity(0.28)
             node?.outlineWidth = 2
             onEditingChanged?(true)
+            refreshChrome()
         }
         node.onFocusExit = { [weak node] in
             node?.borderColor = style.borderColor
             node?.outlineColor = .clear
             node?.outlineWidth = 0
             onEditingChanged?(false)
+            refreshChrome()
         }
         node.onKeyDown = { event in
-            let clampedCaret = clampedTextOffset(node.textInputCaretOffset, in: binding.wrappedValue)
-            let selectedRange = selection?.wrappedValue?.editableSelectedOffsetRange(in: binding.wrappedValue)
-            @MainActor func setCaretOffset(_ offset: Int) {
-                let clampedOffset = clampedTextOffset(offset, in: binding.wrappedValue)
-                node.textInputCaretOffset = clampedOffset
-                if let selection {
-                    let nextSelection = TextSelection.insertion(
-                        at: clampedOffset,
-                        in: binding.wrappedValue,
-                        affinity: context.textSelectionAffinity
-                    )
-                    selection.wrappedValue = nextSelection
-                    node.textInputSelection = nextSelection.retainedSelection(in: binding.wrappedValue)
-                } else {
-                    node.textInputSelection = nil
+            @MainActor func currentSelectionState() -> (caret: Int, range: Range<Int>?, anchor: Int) {
+                let text = binding.wrappedValue
+                let caret = clampedTextOffset(node.textInputCaretOffset, in: text)
+                guard let range = node.textInputSelection?.editableCharacterRange(in: text) else {
+                    return (caret, nil, caret)
                 }
+                let anchor = caret == range.lowerBound ? range.upperBound : range.lowerBound
+                return (caret, range, anchor)
+            }
+            @MainActor func applySelection(anchor: Int, extent: Int) {
+                let text = binding.wrappedValue
+                let clampedAnchor = clampedTextOffset(anchor, in: text)
+                let clampedExtent = clampedTextOffset(extent, in: text)
+                let lower = min(clampedAnchor, clampedExtent)
+                let upper = max(clampedAnchor, clampedExtent)
+                node.textInputCaretOffset = clampedExtent
+                if lower == upper {
+                    if let selection {
+                        let nextSelection = TextSelection.insertion(
+                            at: lower,
+                            in: text,
+                            affinity: context.textSelectionAffinity
+                        )
+                        selection.wrappedValue = nextSelection
+                        node.textInputSelection = nextSelection.retainedSelection(in: text)
+                    } else {
+                        node.textInputSelection = nil
+                    }
+                } else {
+                    let affinity: TextSelectionAffinity = clampedExtent >= clampedAnchor ? .downstream : .upstream
+                    node.textInputSelection = RetainedTextSelection(
+                        indices: .range(lower..<upper),
+                        affinity: affinity.retainedAffinity
+                    )
+                    if let selection {
+                        let lowerIndex = text.index(text.startIndex, offsetBy: lower)
+                        let upperIndex = text.index(text.startIndex, offsetBy: upper)
+                        selection.wrappedValue = TextSelection(
+                            indices: .selection(lowerIndex..<upperIndex),
+                            affinity: affinity
+                        )
+                    }
+                }
+                refreshChrome()
+            }
+            @MainActor func setCaretOffset(_ offset: Int) {
+                applySelection(anchor: offset, extent: offset)
+            }
+            @MainActor func deleteSelection(_ range: Range<Int>) {
+                binding.wrappedValue = binding.wrappedValue.removingText(in: range)
+                setCaretOffset(range.lowerBound)
+                context.invalidate()
             }
 
             if event.key == .enter, !allowsNewlines {
@@ -12346,14 +12610,56 @@ private func textInputComponent(
                 return
             }
 
-            if event.key == .backspace {
-                if let selectedRange {
-                    binding.wrappedValue = binding.wrappedValue.removingText(in: selectedRange)
-                    setCaretOffset(selectedRange.lowerBound)
+            if event.modifiers.contains(.control) {
+                switch event.keyCode {
+                case 0x41:  // Ctrl+A — select all
+                    let count = binding.wrappedValue.count
+                    guard count > 0 else {
+                        return
+                    }
+                    applySelection(anchor: 0, extent: count)
+                case 0x43:  // Ctrl+C — copy (disabled for secure fields)
+                    guard !isSecure, let range = currentSelectionState().range else {
+                        return
+                    }
+                    TextInputClipboardProvider.current.copyString(binding.wrappedValue.textSubstring(in: range))
+                case 0x58:  // Ctrl+X — cut (disabled for secure fields)
+                    guard !isSecure, let range = currentSelectionState().range else {
+                        return
+                    }
+                    TextInputClipboardProvider.current.copyString(binding.wrappedValue.textSubstring(in: range))
+                    deleteSelection(range)
+                case 0x56:  // Ctrl+V — paste over the selection or at the caret
+                    guard let pasted = TextInputClipboardProvider.current.pasteString() else {
+                        return
+                    }
+                    let pastedText =
+                        allowsNewlines
+                        ? pasted
+                            .replacingOccurrences(of: "\r\n", with: "\n")
+                            .replacingOccurrences(of: "\r", with: "\n")
+                        : String(pasted.prefix(while: { $0 != "\r" && $0 != "\n" }))
+                    guard !pastedText.isEmpty else {
+                        return
+                    }
+                    let state = currentSelectionState()
+                    let replacementRange = state.range ?? (state.caret..<state.caret)
+                    binding.wrappedValue = binding.wrappedValue.replacingText(in: replacementRange, with: pastedText)
+                    setCaretOffset(replacementRange.lowerBound + pastedText.count)
                     context.invalidate()
+                default:
+                    return
+                }
+                return
+            }
+
+            if event.key == .backspace {
+                if let selectedRange = currentSelectionState().range {
+                    deleteSelection(selectedRange)
                     return
                 }
 
+                let clampedCaret = currentSelectionState().caret
                 guard clampedCaret > 0 else {
                     return
                 }
@@ -12368,13 +12674,12 @@ private func textInputComponent(
             }
 
             if event.key == .deleteForward {
-                if let selectedRange {
-                    binding.wrappedValue = binding.wrappedValue.removingText(in: selectedRange)
-                    setCaretOffset(selectedRange.lowerBound)
-                    context.invalidate()
+                if let selectedRange = currentSelectionState().range {
+                    deleteSelection(selectedRange)
                     return
                 }
 
+                let clampedCaret = currentSelectionState().caret
                 guard clampedCaret < binding.wrappedValue.count else {
                     return
                 }
@@ -12389,20 +12694,46 @@ private func textInputComponent(
 
             switch event.key {
             case .leftArrow:
-                setCaretOffset(max(0, clampedCaret - 1))
-                context.invalidate()
+                let state = currentSelectionState()
+                if event.modifiers.contains(.shift) {
+                    applySelection(anchor: state.anchor, extent: state.caret - 1)
+                } else if let range = state.range {
+                    setCaretOffset(range.lowerBound)
+                    context.invalidate()
+                } else {
+                    setCaretOffset(state.caret - 1)
+                    context.invalidate()
+                }
                 return
             case .rightArrow:
-                setCaretOffset(min(binding.wrappedValue.count, clampedCaret + 1))
-                context.invalidate()
+                let state = currentSelectionState()
+                if event.modifiers.contains(.shift) {
+                    applySelection(anchor: state.anchor, extent: state.caret + 1)
+                } else if let range = state.range {
+                    setCaretOffset(range.upperBound)
+                    context.invalidate()
+                } else {
+                    setCaretOffset(state.caret + 1)
+                    context.invalidate()
+                }
                 return
             case .home:
-                setCaretOffset(0)
-                context.invalidate()
+                if event.modifiers.contains(.shift) {
+                    let state = currentSelectionState()
+                    applySelection(anchor: state.anchor, extent: 0)
+                } else {
+                    setCaretOffset(0)
+                    context.invalidate()
+                }
                 return
             case .end:
-                setCaretOffset(binding.wrappedValue.count)
-                context.invalidate()
+                if event.modifiers.contains(.shift) {
+                    let state = currentSelectionState()
+                    applySelection(anchor: state.anchor, extent: binding.wrappedValue.count)
+                } else {
+                    setCaretOffset(binding.wrappedValue.count)
+                    context.invalidate()
+                }
                 return
             case .backspace, .deleteForward:
                 return
@@ -12411,7 +12742,8 @@ private func textInputComponent(
                 break
             }
 
-            let replacementRange = selectedRange ?? (clampedCaret..<clampedCaret)
+            let state = currentSelectionState()
+            let replacementRange = state.range ?? (state.caret..<state.caret)
             guard
                 let character = textFieldInsertedCharacter(
                     for: event,
@@ -12429,6 +12761,183 @@ private func textInputComponent(
         }
 
         return node
+    }
+}
+/// Mutable bookkeeping for `updateTextInputEditingChrome` so repeated layout
+/// passes only rebuild caret/selection overlay children when the editing
+/// state actually changed (guards against layout/invalidate feedback loops).
+private final class TextInputEditingChromeState {
+    struct Signature: Equatable {
+        var isFocused: Bool
+        var caret: Int
+        var selectionLower: Int
+        var selectionUpper: Int
+        var isActive: Bool
+    }
+
+    var signature: Signature?
+}
+/// Reconciles the children of a retained text input node so the visible
+/// caret and selection highlight track the node's editing state. In the
+/// inactive state the node keeps exactly its plain label child; in the
+/// active state the label is hidden and replaced by per-line horizontal
+/// segment rows (plain label segments, a tinted highlight segment, and a
+/// 1.5pt caret) so painting flows through the regular scene/frame paths.
+@MainActor
+private func updateTextInputEditingChrome(
+    node: ViewNode,
+    labelNode: ViewNode,
+    contentText: String,
+    isShowingPlaceholder: Bool,
+    caretColor: Color,
+    selectionColor: Color,
+    caretSize: Size,
+    state: TextInputEditingChromeState,
+    makeSegmentLabel: @MainActor (String) -> ViewNode
+) {
+    let selection =
+        isShowingPlaceholder ? nil : node.textInputSelection?.editableCharacterRange(in: contentText)
+    let caret = clampedTextOffset(node.textInputCaretOffset, in: contentText)
+    let showsHighlight = selection != nil
+    let showsCaret = node.isFocused && selection == nil
+    let isActive = showsCaret || showsHighlight
+    let signature = TextInputEditingChromeState.Signature(
+        isFocused: node.isFocused,
+        caret: caret,
+        selectionLower: selection?.lowerBound ?? caret,
+        selectionUpper: selection?.upperBound ?? caret,
+        isActive: isActive
+    )
+    guard signature != state.signature else {
+        return
+    }
+    state.signature = signature
+
+    if !isActive {
+        labelNode.isHidden = false
+        guard node.children.count != 1 || node.children.first !== labelNode else {
+            return
+        }
+        node.removeAllChildren()
+        node.addChild(labelNode)
+        return
+    }
+
+    @MainActor func makeCaretNode() -> ViewNode {
+        let caretNode = ViewNode()
+        caretNode.backgroundColor = caretColor
+        caretNode.preferredSize = caretSize
+        caretNode.isHitTestVisible = false
+        return caretNode
+    }
+    // Short tinted tail visualizing a selected trailing newline.
+    @MainActor func makeHighlightTail() -> ViewNode {
+        let tail = ViewNode()
+        tail.backgroundColor = selectionColor
+        tail.preferredSize = Size(width: caretSize.width * 3, height: caretSize.height)
+        tail.isHitTestVisible = false
+        return tail
+    }
+
+    @MainActor func makeRow(line: String, lineLowerBound: Int, isCaretLine: Bool) -> ViewNode {
+        let lineUpperBound = lineLowerBound + line.count
+        var children: [ViewNode] = []
+
+        let selectionInLine: Range<Int>? = selection.flatMap { range in
+            let lower = max(range.lowerBound, lineLowerBound)
+            let upper = min(range.upperBound, lineUpperBound)
+            return lower < upper ? (lower - lineLowerBound)..<(upper - lineLowerBound) : nil
+        }
+        let selectionIncludesLineBreak =
+            selection.map { $0.lowerBound <= lineUpperBound && $0.upperBound > lineUpperBound } ?? false
+
+        if let selectionInLine {
+            let pre = line.textSubstring(in: 0..<selectionInLine.lowerBound)
+            let highlighted = line.textSubstring(in: selectionInLine)
+            let post = line.textSubstring(in: selectionInLine.upperBound..<line.count)
+            if !pre.isEmpty {
+                children.append(makeSegmentLabel(pre))
+            }
+            let highlightLabel = makeSegmentLabel(highlighted)
+            highlightLabel.backgroundColor = selectionColor
+            children.append(highlightLabel)
+            if !post.isEmpty {
+                children.append(makeSegmentLabel(post))
+            }
+        } else if isCaretLine {
+            let caretColumn = caret - lineLowerBound
+            let pre = line.textSubstring(in: 0..<caretColumn)
+            let post = line.textSubstring(in: caretColumn..<line.count)
+            if !pre.isEmpty {
+                children.append(makeSegmentLabel(pre))
+            }
+            children.append(makeCaretNode())
+            if !post.isEmpty {
+                children.append(makeSegmentLabel(post))
+            }
+        } else {
+            children.append(makeSegmentLabel(line))
+        }
+        if selectionIncludesLineBreak {
+            children.append(makeHighlightTail())
+        }
+
+        return Controls.stackPanel(
+            stackLayout: .horizontal(spacing: 0, padding: .zero, alignment: .center),
+            isHitTestVisible: false,
+            children: children
+        )
+    }
+
+    var lineRanges: [Range<Int>] = []
+    var lineStart = 0
+    var offset = 0
+    for character in contentText {
+        if character == "\n" {
+            lineRanges.append(lineStart..<offset)
+            lineStart = offset + 1
+        }
+        offset += 1
+    }
+    lineRanges.append(lineStart..<offset)
+
+    let caretLineIndex = lineRanges.lastIndex(where: { $0.lowerBound <= caret }) ?? 0
+    let rows = lineRanges.enumerated().map { index, lineRange in
+        makeRow(
+            line: contentText.textSubstring(in: lineRange),
+            lineLowerBound: lineRange.lowerBound,
+            isCaretLine: showsCaret && index == caretLineIndex
+        )
+    }
+    let contentNode: ViewNode
+    if rows.count == 1, let row = rows.first {
+        contentNode = row
+    } else {
+        contentNode = Controls.stackPanel(
+            stackLayout: .vertical(spacing: 0, padding: .zero, alignment: .leading),
+            isHitTestVisible: false,
+            children: rows
+        )
+    }
+
+    labelNode.isHidden = true
+    node.removeAllChildren()
+    node.addChild(labelNode)
+    node.addChild(contentNode)
+}
+extension RetainedTextSelection {
+    /// Non-empty character-offset range for single-range selections, clamped
+    /// to `text`. Insertion points and multi-selections return nil.
+    fileprivate func editableCharacterRange(in text: String) -> Range<Int>? {
+        guard case .range(let range) = indices else {
+            return nil
+        }
+        let lower = clampedTextOffset(range.lowerBound, in: text)
+        let upper = clampedTextOffset(range.upperBound, in: text)
+        guard lower < upper else {
+            return nil
+        }
+        return lower..<upper
     }
 }
 @MainActor
@@ -17366,6 +17875,18 @@ extension String {
     fileprivate func textPrefix(upTo offset: Int) -> String {
         let clampedOffset = clampedTextOffset(offset, in: self)
         return String(prefix(clampedOffset))
+    }
+
+    fileprivate func textSubstring(in offsets: Range<Int>) -> String {
+        let lowerBound = clampedTextOffset(offsets.lowerBound, in: self)
+        let upperBound = clampedTextOffset(offsets.upperBound, in: self)
+        guard lowerBound < upperBound else {
+            return ""
+        }
+
+        let lowerIndex = index(startIndex, offsetBy: lowerBound)
+        let upperIndex = index(startIndex, offsetBy: upperBound)
+        return String(self[lowerIndex..<upperIndex])
     }
 
     fileprivate func insertingText(_ insertedText: String, at offset: Int) -> String {

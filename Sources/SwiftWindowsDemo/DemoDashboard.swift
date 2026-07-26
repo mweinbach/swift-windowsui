@@ -15,7 +15,80 @@ public final class DemoDashboardModel: ObservableObject {
         "WINDOW TOOLKIT ACTIVE",
     ]
 
+    /// Active top-level screen shown by the demo's `TabView` shell.
+    @Published public var selectedScreen: DemoScreen = .dashboard {
+        didSet {
+            if selectedScreen != oldValue {
+                performAction("OPENED \(selectedScreen.label)")
+            }
+        }
+    }
+
+    // Settings screen state
+    @Published var displayName = "OPERATOR"
+    @Published var theme: DemoThemeOption = .system
+    @Published var itemsPerPage = 10
+    @Published var animationsEnabled = true
+    @Published var soundEffectsEnabled = false
+    @Published var shareUsageData = true
+    @Published var fontScale = 1.0
+    @Published var storageUsed = 0.62
+    @Published var syncProgress = 0.35
+
+    // Data screen state
+    @Published public var components: [DemoComponent] = DemoComponent.defaults
+    @Published public var selectedComponentID: Int? = DemoComponent.defaults.first?.id
+
     public init() {}
+
+    /// Currently selected component on the data screen, if any.
+    public var selectedComponent: DemoComponent? {
+        components.first { $0.id == selectedComponentID }
+    }
+
+    func selectScreen(_ screen: DemoScreen) {
+        selectedScreen = screen
+    }
+
+    func saveSettings() {
+        performAction("SAVED SETTINGS FOR \(displayName)")
+    }
+
+    func resetSettings() {
+        displayName = "OPERATOR"
+        theme = .system
+        itemsPerPage = 10
+        animationsEnabled = true
+        soundEffectsEnabled = false
+        shareUsageData = true
+        fontScale = 1.0
+        performAction("RESET SETTINGS TO DEFAULTS")
+    }
+
+    func runSync() {
+        syncProgress = min(1.0, syncProgress + 0.25)
+        performAction(syncProgress >= 1.0 ? "SYNC COMPLETE" : "SYNC ADVANCED")
+    }
+
+    func restartSelectedComponent() {
+        guard let component = selectedComponent else {
+            performAction("NO COMPONENT SELECTED")
+            return
+        }
+        performAction("RESTARTED \(component.name)")
+    }
+
+    func runDiagnostics() {
+        guard let component = selectedComponent else {
+            performAction("NO COMPONENT SELECTED")
+            return
+        }
+        performAction("DIAGNOSED \(component.name)")
+    }
+
+    func selectFirstComponent() {
+        selectedComponentID = components.first?.id
+    }
 
     func selectModule(_ module: DemoModule) {
         selectedModule = module
@@ -49,7 +122,36 @@ public struct DemoRootView: View {
         self.model = model
     }
 
+    /// Product-style shell: a tab bar navigates between the dashboard,
+    /// settings, and data-list screens using only same-source SwiftUI APIs.
     public var body: some View {
+        TabView(selection: $model.selectedScreen) {
+            DemoDashboardScreen(model: model)
+                .tabItem {
+                    Label(DemoScreen.dashboard.label, systemImage: DemoScreen.dashboard.systemImage)
+                }
+                .tag(DemoScreen.dashboard)
+
+            DemoSettingsScreen(model: model)
+                .tabItem {
+                    Label(DemoScreen.settings.label, systemImage: DemoScreen.settings.systemImage)
+                }
+                .tag(DemoScreen.settings)
+
+            DemoDataScreen(model: model)
+                .tabItem {
+                    Label(DemoScreen.data.label, systemImage: DemoScreen.data.systemImage)
+                }
+                .tag(DemoScreen.data)
+        }
+    }
+}
+
+/// The original control-center dashboard, hosted as the first tab of `DemoRootView`.
+struct DemoDashboardScreen: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
         GeometryReader { proxy in
             let layout = DemoLayout(size: proxy.size)
 
@@ -1220,6 +1322,266 @@ enum DemoModule: CaseIterable, Hashable {
                     title: "Input Forms", caption: "TEXT AND PICKER LAYOUT", systemImage: "textformat",
                     eventLabel: "INPUT FORM OPENED"),
             ]
+        }
+    }
+}
+
+// MARK: - Multi-screen shell
+
+/// Top-level screens of the product-style demo, navigated through `TabView`.
+public enum DemoScreen: String, CaseIterable, Hashable {
+    case dashboard
+    case settings
+    case data
+
+    var label: String {
+        switch self {
+        case .dashboard: return "DASHBOARD"
+        case .settings: return "SETTINGS"
+        case .data: return "DATA"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .dashboard: return "rectangle.3.group"
+        case .settings: return "gearshape"
+        case .data: return "doc.text"
+        }
+    }
+}
+
+/// Theme choices shown by the settings screen picker.
+public enum DemoThemeOption: String, CaseIterable, Hashable {
+    case system
+    case light
+    case dark
+}
+
+/// A runtime component row shown on the data screen.
+public struct DemoComponent: Identifiable, Hashable, Sendable {
+    public let id: Int
+    let name: String
+    let detail: String
+    let version: String
+    let systemImage: String
+    let load: Double
+
+    var isHealthy: Bool { load < 0.85 }
+    var statusLabel: String { isHealthy ? "HEALTHY" : "DEGRADED" }
+
+    static let defaults: [DemoComponent] = [
+        DemoComponent(
+            id: 1, name: "RENDER HOST", detail: "D3D11 BATCH PIPELINE", version: "V2.4.1",
+            systemImage: "bolt.fill", load: 0.34),
+        DemoComponent(
+            id: 2, name: "INPUT ROUTER", detail: "POINTER AND KEYBOARD DISPATCH", version: "V1.9.0",
+            systemImage: "keyboard", load: 0.12),
+        DemoComponent(
+            id: 3, name: "LAYOUT ENGINE", detail: "RETAINED STACK MEASUREMENT", version: "V3.1.2",
+            systemImage: "rectangle.3.group", load: 0.48),
+        DemoComponent(
+            id: 4, name: "ANIMATION TICKER", detail: "FRAME-DRIVEN STATE TRANSITIONS", version: "V1.4.0",
+            systemImage: "sparkles", load: 0.27),
+        DemoComponent(
+            id: 5, name: "CONTROL SURFACES", detail: "BUTTONS, TOGGLES, AND PICKERS", version: "V2.0.3",
+            systemImage: "switch.2", load: 0.56),
+        DemoComponent(
+            id: 6, name: "EVENT LOG", detail: "INTERACTION TELEMETRY BUFFER", version: "V0.9.8",
+            systemImage: "waveform.path.ecg", load: 0.71),
+        DemoComponent(
+            id: 7, name: "DOCUMENT STORE", detail: "SETTINGS PERSISTENCE LAYER", version: "V1.2.5",
+            systemImage: "doc.text", load: 0.18),
+        DemoComponent(
+            id: 8, name: "SYSTEM PROBE", detail: "HEALTH AND DIAGNOSTICS", version: "V0.7.2",
+            systemImage: "info.circle", load: 0.90),
+    ]
+}
+
+// MARK: - Settings screen
+
+/// Settings-style form exercising Supported-tier controls: text field,
+/// segmented picker, stepper, toggles, slider, gauge, progress, and buttons.
+struct DemoSettingsScreen: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Profile") {
+                    TextField("Display Name", text: $model.displayName)
+
+                    Picker("Theme", selection: $model.theme) {
+                        Text("SYSTEM").tag(DemoThemeOption.system)
+                        Text("LIGHT").tag(DemoThemeOption.light)
+                        Text("DARK").tag(DemoThemeOption.dark)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Stepper(
+                        "Items Per Page: \(model.itemsPerPage)",
+                        value: $model.itemsPerPage,
+                        in: 5...30,
+                        step: 5
+                    )
+                }
+
+                Section("Preferences") {
+                    Toggle("Enable Animations", isOn: $model.animationsEnabled)
+                    Toggle("Sound Effects", isOn: $model.soundEffectsEnabled)
+                    Toggle("Share Usage Data", isOn: $model.shareUsageData)
+
+                    Divider()
+
+                    Slider(value: $model.fontScale, in: 0.8...1.4) {
+                        Text("Font Scale")
+                    }
+                }
+
+                Section("Resources") {
+                    Gauge(value: model.storageUsed, in: 0...1) {
+                        Text("Storage Used")
+                    }
+
+                    ProgressView("Sync Progress", value: model.syncProgress)
+
+                    Button("Sync Now") {
+                        model.runSync()
+                    }
+                }
+
+                Section("Actions") {
+                    Button("Save Settings") {
+                        model.saveSettings()
+                    }
+
+                    Button("Reset To Defaults", role: .destructive) {
+                        model.resetSettings()
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+        }
+    }
+}
+
+// MARK: - Data screen
+
+/// Selection-bound list of runtime components with a detail panel that
+/// exercises labels, progress chrome, dividers, and action buttons.
+struct DemoDataScreen: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                let contentWidth = max(320, proxy.size.width - 32)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    List(model.components, selection: $model.selectedComponentID) { component in
+                        DemoComponentRow(component: component)
+                    }
+                    .frame(
+                        width: contentWidth,
+                        height: max(200, proxy.size.height - 224),
+                        alignment: .topLeading
+                    )
+
+                    Divider()
+                        .frame(width: contentWidth)
+
+                    DemoComponentDetail(model: model)
+                        .frame(width: contentWidth, alignment: .leading)
+                }
+                .padding(16)
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+            }
+            .navigationTitle("Components")
+        }
+    }
+}
+
+struct DemoComponentRow: View {
+    let component: DemoComponent
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Label(component.name, systemImage: component.systemImage)
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(component.version)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(DemoTheme.secondaryText)
+                    .lineLimit(1)
+
+                Text(component.statusLabel)
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundColor(
+                        component.isHealthy
+                            ? Color(red: 0.30, green: 0.62, blue: 0.44, opacity: 0.95)
+                            : Color(red: 0.85, green: 0.48, blue: 0.20, opacity: 0.95)
+                    )
+                    .lineLimit(1)
+            }
+        }
+    }
+}
+
+struct DemoComponentDetail: View {
+    @ObservedObject var model: DemoDashboardModel
+
+    var body: some View {
+        if let component = model.selectedComponent {
+            HStack(alignment: .center, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label(component.name, systemImage: component.systemImage)
+
+                    Text(component.detail)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(DemoTheme.secondaryText)
+                        .lineLimit(1)
+
+                    Text("VERSION \(component.version)  STATUS \(component.statusLabel)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(DemoTheme.tertiaryText)
+                        .lineLimit(1)
+                }
+                .layoutPriority(1)
+
+                Spacer(minLength: 8)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("CURRENT LOAD")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(DemoTheme.tertiaryText)
+                        .lineLimit(1)
+
+                    ProgressView(value: component.load)
+                }
+                .frame(width: 180, alignment: .leading)
+
+                HStack(alignment: .center, spacing: 10) {
+                    Button("Restart") {
+                        model.restartSelectedComponent()
+                    }
+
+                    Button("Diagnose") {
+                        model.runDiagnostics()
+                    }
+                }
+            }
+        } else {
+            HStack(alignment: .center, spacing: 12) {
+                Label("No Component Selected", systemImage: "info.circle")
+
+                Spacer(minLength: 8)
+
+                Button("Select First") {
+                    model.selectFirstComponent()
+                }
+            }
         }
     }
 }

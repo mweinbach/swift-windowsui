@@ -2416,6 +2416,10 @@ public final class ViewNode {
     public var onFocusEnter: (() -> Void)?
     public var onFocusExit: (() -> Void)?
     public var onKeyDown: ((KeyboardEvent) -> Void)?
+    /// When true, unmodified up/down arrow keys are delivered to this node's
+    /// `onKeyDown` before the runtime's scroll-key handling, so a focused node
+    /// (e.g. a selectable list row) can claim vertical arrows for navigation.
+    public var interceptsVerticalArrowKeys = false
     public var onKeyUp: ((KeyboardEvent) -> Void)?
     public var onActivate: (() -> Void)?
     public var onRepeatActivate: (() -> Void)?
@@ -5977,6 +5981,15 @@ public final class RetainedViewRuntime {
 
         default:
             break
+        }
+
+        if let key = event.key,
+            key == .upArrow || key == .downArrow,
+            event.modifiers.isEmpty,
+            focusedNode?.interceptsVerticalArrowKeys == true
+        {
+            focusedNode?.onKeyDown?(event)
+            return
         }
 
         if let key = event.key, handleScrollKey(key) {
